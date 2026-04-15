@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# AI/ML
+*.ckpt
+*.safetensors
+*.bin
+models/
+checkpoints/
+
+# Prototype outputs
+prototype/output/
+prototype/frames/
+*.mp4
+*.avi
+
+# Claude
+.claude/
