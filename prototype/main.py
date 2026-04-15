@@ -10,17 +10,31 @@ This script orchestrates the end-to-end animation pipeline:
 5. Animation assembly (Lottie)
 
 Target: "Standing bicep curl with dumbbell" → 4-6 frame illustrated animation
+
+Preview mode (--preview-only): Run only phases 1-2 to validate motion form before rendering.
 """
 
 import logging
 import sys
 import time
-from config import validate_config, logger, OUTPUT_DIR, ASSETS_DIR
+import argparse
+import pickle
+from pathlib import Path
+from config import (
+    validate_config,
+    logger,
+    OUTPUT_DIR,
+    ASSETS_DIR,
+    MOTION_SERVICE,
+    HY_MOTION_MODE,
+    HY_MOTION_RUNPOD_SSH,
+)
 
 # Import pipeline modules
+from hy_motion_client import HYMotionClient
 from saymotion_client import SayMotionClient
 from pose_extractor import PoseExtractor
-from controlnet_renderer import ControlNetRenderer
+from stability_renderer import StabilityRenderer
 from equipment_compositor import EquipmentCompositor
 from animation_assembler import AnimationAssembler
 
@@ -28,8 +42,24 @@ from animation_assembler import AnimationAssembler
 def main():
     """Main entry point for the prototype."""
 
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="TrainMe Animation Pipeline - Generate exercise animations from text prompts"
+    )
+    parser.add_argument(
+        "--preview-only",
+        action="store_true",
+        help="Run only phases 1-2 (motion generation + skeleton preview). Skip rendering and compositing."
+    )
+    args = parser.parse_args()
+
+    preview_mode = args.preview_only
+    motion_cache_path = OUTPUT_DIR / ".motion_cache.pkl"
+
     logger.info("=" * 80)
     logger.info("TrainMe Animation Pipeline Prototype")
+    if preview_mode:
+        logger.info("MODE: Preview Only (Motion + Skeleton Validation)")
     logger.info("=" * 80)
 
     try:
@@ -44,23 +74,60 @@ def main():
         logger.info(f"\nExercise: {exercise_prompt}")
         logger.info(f"Duration: {exercise_duration}s")
 
-        # Phase 1: Text-to-Motion (SayMotion)
+        # Phase 1: Text-to-Motion
         logger.info("\n" + "=" * 80)
-        logger.info("Phase 1: Text-to-Motion Generation (SayMotion)")
+        logger.info(f"Phase 1: Text-to-Motion Generation ({MOTION_SERVICE.upper()})")
         logger.info("=" * 80)
 
-        try:
-            client = SayMotionClient()
-            motion_data = client.generate_motion(exercise_prompt, exercise_duration)
-            if motion_data:
-                logger.info(f"✓ Motion data retrieved: {len(motion_data)} frames")
-            else:
-                logger.error("Failed to generate motion")
+        motion_data = None
+
+        if MOTION_SERVICE == "hy_motion":
+            try:
+                logger.info(f"Using HY-Motion ({HY_MOTION_MODE} mode)")
+                client = HYMotionClient(
+                    mode=HY_MOTION_MODE,
+                    runpod_ssh=HY_MOTION_RUNPOD_SSH
+                )
+                motion_data = client.generate_and_parse(
+                    exercise_prompt,
+                    exercise_duration
+                )
+                if motion_data:
+                    logger.info(f"✓ Motion data retrieved: {len(motion_data)} frames")
+                else:
+                    logger.error("Failed to generate motion")
+            except Exception as e:
+                logger.error(f"HY-Motion error: {e}")
+                logger.info("\n📖 Setup guide: See prototype/RUNPOD_SETUP.md")
                 motion_data = None
-        except Exception as e:
-            logger.error(f"SayMotion error: {e}")
-            logger.info("⏳ Note: Set SAYMOTION_CLIENT_ID and SAYMOTION_CLIENT_SECRET in .env to enable")
-            motion_data = None
+
+        elif MOTION_SERVICE == "saymotion":
+            try:
+                logger.info("Using SayMotion API")
+                client = SayMotionClient()
+                motion_data = client.generate_motion(exercise_prompt, exercise_duration)
+                if motion_data:
+                    logger.info(f"✓ Motion data retrieved: {len(motion_data)} frames")
+                else:
+                    logger.error("Failed to generate motion")
+            except Exception as e:
+                logger.error(f"SayMotion error: {e}")
+                logger.info("⏳ Note: Set SAYMOTION_CLIENT_ID and SAYMOTION_CLIENT_SECRET in .env")
+                motion_data = None
+
+        elif MOTION_SERVICE == "mock":
+            try:
+                logger.info("Using Mock motion generator (synthetic data for testing)")
+                from mock_motion_generator import MockMotionGenerator
+                generator = MockMotionGenerator()
+                motion_data = generator.generate_and_parse(exercise_prompt, exercise_duration)
+                if motion_data:
+                    logger.info(f"✓ Synthetic motion data generated: {len(motion_data)} frames")
+                else:
+                    logger.error("Failed to generate synthetic motion")
+            except Exception as e:
+                logger.error(f"Mock motion generator error: {e}")
+                motion_data = None
 
         # Phase 2: Pose Extraction & Skeleton Generation
         logger.info("\n" + "=" * 80)
@@ -83,29 +150,54 @@ def main():
         else:
             logger.info("⏳ Skipping pose extraction (no motion data)")
 
-        # Phase 3: ControlNet Rendering
+        # Cache motion data for potential future use
+        if motion_data:
+            try:
+                with open(motion_cache_path, "wb") as f:
+                    pickle.dump(motion_data, f)
+                logger.info(f"✓ Motion data cached for future rendering")
+            except Exception as e:
+                logger.warning(f"Could not cache motion data: {e}")
+
+        # Phase 3: Illustration Rendering
         logger.info("\n" + "=" * 80)
-        logger.info("Phase 3: 2D Illustration Rendering (Replicate ControlNet)")
+        if preview_mode:
+            logger.info("Preview Complete - Skeleton validation ready")
+            logger.info("=" * 80)
+            logger.info("\n✓ Preview mode skipping phases 3-5 (rendering, compositing, assembly)")
+            logger.info("\nSkeleton images saved to: output/")
+            logger.info("\nNext steps:")
+            logger.info("1. Review skeleton images to validate exercise form")
+            logger.info("2. If satisfied, run full pipeline: python main.py")
+            logger.info("3. If adjustments needed, modify prompt and retry: python main.py --preview-only")
+            return 0
+
+        logger.info("Phase 3: 2D Illustration Rendering (Stability AI ControlNet)")
         logger.info("=" * 80)
 
         rendered_frames = []
         if skeleton_images:
             try:
-                renderer = ControlNetRenderer()
+                renderer = StabilityRenderer()
+                import time as _time
                 for i, (frame_idx, skeleton_image) in enumerate(skeleton_images):
                     logger.info(f"Rendering frame {i+1}/{len(skeleton_images)}...")
                     rendered = renderer.render(skeleton_image, exercise_prompt)
                     if rendered:
+                        # Save individual rendered frame
+                        rendered.save(OUTPUT_DIR / f"rendered_{frame_idx:04d}.png")
                         rendered_frames.append(rendered)
                     else:
                         logger.warning(f"Failed to render frame {i+1}")
+                    if i < len(skeleton_images) - 1:
+                        _time.sleep(1)  # rate limit courtesy
                 logger.info(f"✓ Rendered {len(rendered_frames)} illustrated frames")
             except Exception as e:
-                logger.error(f"ControlNet rendering error: {e}")
-                logger.info("⏳ Note: Set REPLICATE_API_TOKEN in .env to enable")
+                logger.error(f"Illustration rendering error: {e}")
+                logger.info("⏳ Note: Set STABILITY_API_KEY in .env to enable")
                 rendered_frames = []
         else:
-            logger.info("⏳ Skipping ControlNet rendering (no skeleton images)")
+            logger.info("⏳ Skipping illustration rendering (no skeleton images)")
 
         # Phase 4: Equipment Compositing
         logger.info("\n" + "=" * 80)
@@ -167,9 +259,15 @@ def main():
         logger.info(f"Phase 4 (Equipment Compositing): {'✓' if rendered_frames else '✗'}")
         logger.info(f"Phase 5 (Animation Assembly): {'✓' if rendered_frames else '✗'}")
 
-        logger.info("\nTo run with actual API calls, set environment variables:")
-        logger.info("  - SAYMOTION_CLIENT_ID and SAYMOTION_CLIENT_SECRET")
-        logger.info("  - REPLICATE_API_TOKEN")
+        logger.info("\n📖 To run the full pipeline:")
+        logger.info("\n1️⃣  HY-Motion (Recommended):")
+        logger.info("   Read: prototype/RUNPOD_SETUP.md")
+        logger.info("   Set: HY_MOTION_RUNPOD_SSH in .env")
+        logger.info("\n2️⃣  SayMotion (Alternative):")
+        logger.info("   Set: SAYMOTION_CLIENT_ID, SAYMOTION_CLIENT_SECRET")
+        logger.info("   Set: MOTION_SERVICE=saymotion in .env")
+        logger.info("\n3️⃣  ControlNet Rendering (Replicate):")
+        logger.info("   Set: REPLICATE_API_TOKEN in .env")
         logger.info("\nThen run: python main.py")
 
         return 0

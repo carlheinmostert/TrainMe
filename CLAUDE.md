@@ -2,40 +2,64 @@
 
 ## What is TrainMe?
 
-A multi-tenant SaaS platform for biokineticists and fitness trainers to build AI-animated exercise programs and distribute them to clients. Two surfaces: a web configuration portal (initial focus) and cross-platform client apps (future).
+A multi-tenant SaaS platform for biokineticists and fitness trainers to build exercise programs with clean visual demonstrations and distribute them to clients. Trainers capture exercise footage on their phone; the app converts it to professional line-art demos. Two surfaces: a web configuration portal (initial focus) and cross-platform client apps (future).
 
 ## Architecture Principles
 
 - **Multi-tenant from day one** — Practice is the tenant boundary. Never build features that assume single-tenancy.
-- **Animation pipeline is the core IP** — The AI-generated exercise animation system is the key differentiator. It uses a hybrid approach: AI generates the human figure, equipment is composited programmatically from SVG assets.
+- **Exercise visualisation is the core IP** — The exercise demonstration system is the key differentiator. MVP uses on-device line drawing conversion of real exercise footage. AI-based approaches (Stability AI, Kling O1) are future premium features.
 - **No licensed animation libraries** — All visual content is self-generated to avoid lock-in and recurring costs.
+- **On-device processing preferred** — Where possible, run conversions locally (no API costs, instant results, better privacy). Cloud AI is for premium features only.
 - **Social login only** — No username/password. Clients authenticate via Google/Apple social login or magic links.
-- **Lottie as animation format** — Lightweight, scalable, works across web and mobile, supports playback control.
+- **Lottie as animation format** — For future AI-generated animations. Line drawing video output uses standard video formats (mp4/mov).
 
 ## Key Domain Model
 
 - **Practice** — top-level tenant (clinic/studio/gym). Owns its exercise catalogue as IP.
 - **Trainer** — belongs to a practice. Creates exercises via text prompts, builds training plans.
 - **Client** — one account across the platform, can belong to multiple practices. Consumes plans.
-- **Exercise** — prompt-generated 2D animated illustration with metadata (reps, duration, hashtags). Scoped to a practice's catalogue.
+- **Exercise** — visual demonstration (line drawing converted from trainer footage) with metadata (reps, duration, hashtags). Scoped to a practice's catalogue.
 - **Plan** — ordered sequence of exercise instances with overridable parameters. Assigned to one or more clients. Living document — updated frequently.
 - **Execution Instance** — recorded when a client steps through a plan. Tracks timestamps per step.
 
-## Animation Pipeline (Critical Path)
+## Exercise Visual Pipeline
 
-The pipeline: Text prompt → LLM prompt enhancement → Text-to-motion (HY-Motion 1.0 / SayMotion) → Keyframe extraction → OpenPose skeleton → ControlNet + FLUX + Style LoRA rendering → Equipment SVG compositing → Lottie animation assembly.
+**MVP — Line Drawing Conversion (decided 2026-04-16):**
+Trainer films/photographs client doing exercise → OpenCV converts to clean line drawing on-device → Professional-looking exercise demo for the training plan.
 
-Equipment is NEVER AI-generated. It's modelled as SVG vector assets anchored to skeleton joint positions. This is a deliberate design choice — AI handles bodies well but fails at equipment physics.
+- Uses pencil sketch divide + adaptive thresholding (no AI, no GPU, no API)
+- Runs on phone CPU — instant processing, zero cost per conversion
+- Privacy benefit: line drawings naturally de-identify the client (POPIA-friendly)
+- Dependencies: opencv-python-headless, numpy, Pillow
+- Converter bundled as `line-drawing-convert.skill` in project root
+- Workflow: capture in app → convert inline → trainer reviews → save to exercise catalogue
 
-See `docs/ANIMATION_PIPELINE.md` for full technical specification.
+**Future — AI Style Transfer (premium feature, parked):**
+- Stability AI Control Sketch/Structure API — single image style transfer (works, tested)
+- Kling O1 on fal.ai — video-to-video style transfer (best quality, ~$0.10-0.50/video)
+- Text-to-motion pipeline — awaiting SayMotion API credentials from DeepMotion
+- Equipment SVG compositing validated with mock data
+
+See `docs/ANIMATION_PIPELINE.md` for full technical specification of the AI pipeline.
 
 ## Current Phase
 
-**Phase 0 — Animation Pipeline Prototype** (technical risk validation)
+**Phase 0 → Phase 1 transition** — Visual pipeline validated, moving toward product.
 
-We are building a minimal prototype to validate the animation pipeline end-to-end before any product development. The prototype target: given "Standing bicep curl with dumbbell", produce a 4-6 frame 2D illustrated animation with SVG-composited equipment.
+- Line drawing conversion proven as MVP approach for exercise visualisation
+- AI pipeline validated end-to-end (mock motion + real Stability AI rendering) — parked as future premium
+- SayMotion API credentials still pending from DeepMotion (for text-to-motion track)
+- Next: build the app capture → convert → catalogue flow
 
-No product features (auth, multi-tenancy, UI) until the pipeline is proven feasible.
+## Infrastructure Rules (learned the hard way)
+
+- **On-device processing preferred** for MVP. Cloud APIs for premium features only.
+- **Hosted REST APIs only** when cloud is needed. No self-hosted GPU pods.
+- RunPod SSH from automated environments doesn't work reliably (PTY issues, disk limits, dependency hell)
+- Replicate free tier is too limited for SA-based developers (payment processing issues)
+- Luma Labs phone verification doesn't work from SA
+- fal.ai works (email-only signup) — hosts Kling O1 and other video models
+- Stability AI is the working image generation provider (v2beta endpoints only)
 
 ## Revenue Model
 
@@ -49,6 +73,7 @@ POPIA (South Africa) at minimum. Assume personal and health-adjacent data will b
 
 - `REQUIREMENTS.md` — Full requirements specification
 - `docs/ANIMATION_PIPELINE.md` — Animation engine technical decision and pipeline architecture
+- `line-drawing-convert.skill` — Bundled line drawing converter (MVP visual pipeline)
 
 ## Development Guidelines
 

@@ -1,6 +1,6 @@
-requests==2.31.0
-pillow==10.1.0
-numpy==1.24.3
-opencv-python==4.8.1.78
-python-dotenv==1.0.0
-lottie==0.1.1
+requests>=2.31.0
+pillow>=11.0.0
+numpy>=1.26.0
+opencv-python>=4.10.0
+python-dotenv>=1.0.0
+lottie>=0.1.1

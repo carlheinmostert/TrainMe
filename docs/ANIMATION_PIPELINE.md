@@ -1,8 +1,12 @@
 # Animation Pipeline — Technical Decision
 
-> **Status:** Approved
-> **Date:** 2026-04-15
-> **Priority:** Critical path — must be prototyped and validated before any other development
+> **Status:** AI pipeline parked — Line Drawing MVP chosen (2026-04-16)
+> **Date:** 2026-04-15 (original), updated 2026-04-16
+> **Priority:** Parked as future premium feature. MVP uses on-device OpenCV line drawing conversion instead.
+
+---
+
+> **⚠️ Update (2026-04-16):** After exploring multiple AI approaches (Stability AI, Kling O1 on fal.ai, text-to-motion), the team decided to ship an MVP using **OpenCV-based line drawing conversion** instead. Trainers capture exercise footage on their phone → the app converts it to clean black-and-white line art on-device (no API, no GPU, instant). This avoids all the cost, latency, and infrastructure complexity of the AI pipeline. The AI pipeline below remains a valid future upgrade path for a "premium HD illustration" feature. See `line-drawing-convert.skill` in the project root for the converter implementation.
 
 ---
 

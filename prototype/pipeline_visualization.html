@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrainMe Animation Pipeline Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: white;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+
+        .pipeline {
+            display: flex;
+            gap: 15px;
+            overflow-x: auto;
+            padding: 20px 0;
+            scroll-behavior: smooth;
+        }
+
+        .stage {
+            flex: 0 0 calc(25% - 12px);
+            min-width: 280px;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            transition: transform 0.3s, box-shadow 0.3s;
+            cursor: pointer;
+        }
+
+        .stage:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+        }
+
+        .stage-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            font-weight: bold;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stage-number {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+
+        .stage-body {
+            padding: 20px;
+        }
+
+        .section {
+            margin-bottom: 15px;
+        }
+
+        .section-title {
+            font-weight: bold;
+            color: #667eea;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .data-box {
+            background: #f5f5f5;
+            border-left: 3px solid #667eea;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-family: 'Courier New', monospace;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .description {
+            font-size: 0.85em;
+            color: #666;
+            line-height: 1.5;
+            margin-top: 10px;
+        }
+
+        .arrow {
+            flex: 0 0 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5em;
+            color: white;
+        }
+
+        .hybrid-banner {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid white;
+            border-radius: 12px;
+            padding: 30px;
+            margin: 40px 0;
+            color: white;
+            text-align: center;
+        }
+
+        .hybrid-banner h2 {
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+
+        .hybrid-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-top: 20px;
+        }
+
+        .hybrid-box {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #4ade80;
+        }
+
+        .hybrid-box h3 {
+            margin-bottom: 10px;
+        }
+
+        .hybrid-box.equipment {
+            border-left-color: #fbbf24;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+            font-size: 1em;
+        }
+
+        button:hover {
+            background: #f0f0f0;
+            transform: scale(1.05);
+        }
+
+        button.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .details {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 30px;
+            margin-top: 30px;
+            display: none;
+        }
+
+        .details.active {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .details h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .details-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        .detail-section {
+            margin-bottom: 20px;
+        }
+
+        .detail-section h4 {
+            color: #764ba2;
+            margin-bottom: 10px;
+        }
+
+        .code-block {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            overflow-x: auto;
+            color: #333;
+        }
+
+        .timeline {
+            position: relative;
+            margin-top: 40px;
+        }
+
+        .timeline-item {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            align-items: flex-start;
+        }
+
+        .timeline-marker {
+            flex: 0 0 40px;
+            width: 40px;
+            height: 40px;
+            background: #667eea;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .timeline-content {
+            flex: 1;
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 2px solid #667eea;
+        }
+
+        @media (max-width: 768px) {
+            .hybrid-content {
+                grid-template-columns: 1fr;
+            }
+
+            .details-content {
+                grid-template-columns: 1fr;
+            }
+
+            .stage {
+                flex: 0 0 90%;
+            }
+
+            h1 {
+                font-size: 1.8em;
+            }
+        }
+
+        .footer {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.8);
+            margin-top: 60px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 TrainMe Animation Pipeline</h1>
+        <p class="subtitle">From Exercise Description to Animated Training Program</p>
+
+        <div class="controls">
+            <button class="active" onclick="showStage(0)">All Stages</button>
+            <button onclick="showStage(1)">Stage 1: Motion</button>
+            <button onclick="showStage(2)">Stage 2: Pose</button>
+            <button onclick="showStage(3)">Stage 3: Render</button>
+            <button onclick="showStage(4)">Stage 4: Equipment</button>
+            <button onclick="showStage(5)">Stage 5: Animation</button>
+        </div>
+
+        <!-- Pipeline Overview -->
+        <div class="pipeline" id="pipeline">
+            <!-- Stage 1: Text-to-Motion -->
+            <div class="stage" onclick="selectStage(1)">
+                <div class="stage-header">
+                    <div class="stage-number">1</div>
+                    <div>Text-to-Motion</div>
+                </div>
+                <div class="stage-body">
+                    <div class="section">
+                        <div class="section-title">Input</div>
+                        <div class="data-box">Text Prompt<br>"Standing bicep curl with dumbbell"</div>
+                    </div>
+                    <div class="section">
+                        <div class="section-title">Process</div>
+                        <div class="description">SayMotion API generates 3D human motion sequence</div>
+                    </div>
+                    <div class="section">
+                        <div class="section-title">Output</div>
+                        <div class="data-box">BVH File<br>10+ frames of joint positions</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <!-- Stage 2: Pose Extraction -->
+            <div class="stage" onclick="selectStage(2)">
+                <div class="stage-header">
+                    <div class="stage-number">2</div>
+                    <div>Pose Extraction</div>
+                </div>
+                <div class="stage-body">
+                    <div class="section">
+                        <div class="section-title">Input</div>
+                        <div class="data-box">BVH Motion Data<br>3D Joint Positions</div>
+                    </div>
+                    <div class="section">
+                        <div class="section-title">Process</div>
+                        <div class="description">Select 4-6 keyframes, project to 2D, render as skeleton images</div>
+                    </div>
+                    <div class="section">
+                        <div class="section-title">Output</div>
+                        <div class="data-box">6x PNG Files<br>OpenPose Skeleton Format</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <!-- Stage 3: ControlNet Rendering -->
+            <div class="stage" onclick="selectStage(3)">
+                <div class="stage-header">
+                    <div class="stage-number">3</div>
+                    <div>ControlNet Render</div>
+                </div>
+                <div class="stage-body">
+                    <div class="section">
+                        <div class="section-title">Input</div>
+                        <div class="data-box">Skeleton PNGs<br>+ Text Prompt</div>
+                    </div>
+                    <div class="section">
+                        <div class="section-title">Process</div>
+                        <div class="description">Replicate API: FLUX + ControlNet generate illustrated figures</div>
+                    </div>
+                    <div class="section">
+                        <div class="section-title">Output</div>
+                        <div class="data-box">6x PNG Files<br>Illustrated Figures</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <!-- Stage 4: Equipment -->
+            <div class="stage" onclick="selectStage(4)">
+                <div class="stage-header">
+                    <div class="stage-number">4</div>
+                    <div>Equipment SVG</div>
+                </div>
+                <div class="stage-body">
+                    <div class="section">
+                        <div class="section-title">Input</div>
+                        <div class="data-box">Illustrated Figures<br>+ Skeleton Joints</div>
+                    </div>
+                    <div class="section">
+                        <div class="section-title">Process</div>
+                        <div class="description">Overlay dumbbell SVG asset based on hand joint positions</div>
+                    </div>
+                    <div class="section">
+                        <div class="section-title">Output</div>
+                        <div class="data-box">6x Composited PNGs<br>Figure + Equipment</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <!-- Stage 5: Animation -->
+            <div class="stage" onclick="selectStage(5)">
+                <div class="stage-header">
+                    <div class="stage-number">5</div>
+                    <div>Animation Assembly</div>
+                </div>
+                <div class="stage-body">
+                    <div class="section">
+                        <div class="section-title">Input</div>
+                        <div class="data-box">6x Composited Frames</div>
+                    </div>
+                    <div class="section">
+                        <div class="section-title">Process</div>
+                        <div class="description">Create Lottie, sprite sheet, HTML viewer</div>
+                    </div>
+                    <div class="section">
+                        <div class="section-title">Output</div>
+                        <div class="data-box">Lottie JSON<br>+ Playable Animation</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hybrid Architecture Explanation -->
+        <div class="hybrid-banner">
+            <h2>🔑 The Hybrid Approach</h2>
+            <p>Why we don't use pure AI for equipment:</p>
+            <div class="hybrid-content">
+                <div class="hybrid-box">
+                    <h3>✓ AI Generates Body</h3>
+                    <p>Excellent at anatomically correct human poses. ControlNet ensures pose consistency with OpenPose skeletons.</p>
+                </div>
+                <div class="hybrid-box equipment">
+                    <h3>⚙️ Deterministic Equipment</h3>
+                    <p>SVG assets anchored to skeleton joints. No hallucination, perfectly positioned dumbbells, bands, cables.</p>
+                </div>
+            </div>
+            <p style="margin-top: 20px; font-size: 0.95em;">Result: Professional, accurate exercise animations without expensive licensed libraries.</p>
+        </div>
+
+        <!-- Detailed Stage Information -->
+        <div id="stage-details" class="details">
+            <!-- Stage 1 Details -->
+            <div id="detail-1" class="stage-detail">
+                <h3>Stage 1: Text-to-Motion (SayMotion API)</h3>
+                <div class="details-content">
+                    <div>
+                        <div class="detail-section">
+                            <h4>What happens:</h4>
+                            <p>Trainer types "Standing bicep curl with dumbbell" → SayMotion generates 3D human motion → Returns BVH file with 10+ frames of joint data.</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Data format:</h4>
+                            <div class="code-block">BVH (Biovision Hierarchy)<br>- 22 joints per frame<br>- 3D positions (X, Y, Z)<br>- 10-30 frames total</div>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Timeline:</h4>
+                            <p>~2-5 minutes per exercise (depends on API load)</p>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="detail-section">
+                            <h4>API Used:</h4>
+                            <div class="code-block">POST /job/v1/process/text2motion<br>Authorization: Basic Auth<br>Response: { rid: "request_id" }</div>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Cost:</h4>
+                            <p>~1 credit per 10 seconds of animation<br>Replicate pricing: $15/mo for 50 credits</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Success criteria:</h4>
+                            <p>✓ Recognizable exercise movement<br>✓ Realistic joint angles</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stage 2 Details -->
+            <div id="detail-2" class="stage-detail">
+                <h3>Stage 2: Pose Extraction & Skeleton Generation</h3>
+                <div class="details-content">
+                    <div>
+                        <div class="detail-section">
+                            <h4>What happens:</h4>
+                            <p>Parse BVH file → Select 4-6 keyframes (start, movement phases, end) → Project 3D joints to 2D → Render as skeleton stick figures.</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Keyframe selection logic:</h4>
+                            <div class="code-block">Frame 0: Starting position<br>Frame N: First movement<br>Frame M: Peak/midpoint<br>Frame K: Ending position</div>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Output format:</h4>
+                            <p>6x PNG files (512x512)<br>OpenPose 18-joint format<br>White background, black skeleton</p>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="detail-section">
+                            <h4>Processing:</h4>
+                            <p>Local (no API calls)<br>~5 seconds total</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>OpenPose joints:</h4>
+                            <div class="code-block">0: Nose<br>1-4: Right arm<br>5-7: Left arm<br>8-10: Right leg<br>11-13: Left leg<br>14-17: Face</div>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Why OpenPose?</h4>
+                            <p>Standard format for ControlNet conditioning. Ensures pose accuracy in next stage.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stage 3 Details -->
+            <div id="detail-3" class="stage-detail">
+                <h3>Stage 3: ControlNet + FLUX Rendering</h3>
+                <div class="details-content">
+                    <div>
+                        <div class="detail-section">
+                            <h4>What happens:</h4>
+                            <p>For each skeleton PNG: Submit to Replicate API with FLUX+ControlNet → Model generates illustrated figure matching pose → Download rendered image.</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Prompt used:</h4>
+                            <div class="code-block">"A fit person doing a standing bicep curl, illustrated style, anatomically correct, professional fitness illustration"</div>
+                        </div>
+                        <div class="detail-section">
+                            <h4>ControlNet parameters:</h4>
+                            <div class="code-block">control_type: "openpose"<br>control_strength: 0.8<br>guidance_scale: 7.5<br>steps: 28</div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="detail-section">
+                            <h4>Timeline:</h4>
+                            <p>~10-30 seconds per frame<br>6 frames = 1-3 minutes total</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Cost:</h4>
+                            <p>~$0.01-0.05 per image<br>6 images = $0.06-0.30</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Output:</h4>
+                            <p>6x PNG files (512x512)<br>Illustrated human figures<br>Consistent character appearance</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Why consistent?</h4>
+                            <p>IP-Adapter anchors character ID across frames. Style LoRA maintains illustration aesthetic.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stage 4 Details -->
+            <div id="detail-4" class="stage-detail">
+                <h3>Stage 4: Equipment SVG Compositing</h3>
+                <div class="details-content">
+                    <div>
+                        <div class="detail-section">
+                            <h4>What happens:</h4>
+                            <p>AI generated the figure, but NOT the dumbbell. We overlay a dumbbell SVG asset at the hand joint positions.</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Why not AI?</h4>
+                            <p>AI struggles with equipment physics:<br>✗ Dumbbells bend<br>✗ Bands phase through skin<br>✗ Cables don't connect<br><br>Deterministic approach:<br>✓ Perfect positioning<br>✓ Realistic physics</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Equipment assets:</h4>
+                            <div class="code-block">dumbbell.svg<br>resistance_band.svg (future)<br>cable_handle.svg (future)<br>exercise_ball.svg (future)</div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="detail-section">
+                            <h4>Positioning logic:</h4>
+                            <p>Get hand joint positions from skeleton<br>Calculate center point<br>Determine rotation based on hand movement<br>Overlay dumbbell SVG<br>Composite onto figure</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Processing:</h4>
+                            <p>Local (PIL/Pillow)<br>~1 second per frame</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Output:</h4>
+                            <p>6x PNG files (512x512)<br>Figure + Equipment<br>Ready for animation</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stage 5 Details -->
+            <div id="detail-5" class="stage-detail">
+                <h3>Stage 5: Animation Assembly</h3>
+                <div class="details-content">
+                    <div>
+                        <div class="detail-section">
+                            <h4>What happens:</h4>
+                            <p>Take 6 composited frame PNGs and assemble into viewable animation formats.</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Output formats:</h4>
+                            <div class="code-block">1. Lottie JSON<br>   (web, mobile native)<br><br>2. Sprite sheet PNG<br>   (quick preview)<br><br>3. HTML viewer<br>   (step-through player)</div>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Why Lottie?</h4>
+                            <p>✓ Tiny file size (~12KB)<br>✓ Scales to any screen<br>✓ Playback control (pause, step)<br>✓ Works offline when cached<br>✓ Works in web + mobile apps</p>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="detail-section">
+                            <h4>Processing:</h4>
+                            <p>Local (python-lottie)<br>~5 seconds total</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Timeline in portal:</h4>
+                            <p>Trainer sees: "Generating bicep curl..."<br>Waits 5-8 minutes<br>Animation appears in catalogue<br>Can drag into training plans</p>
+                        </div>
+                        <div class="detail-section">
+                            <h4>Total cost per exercise:</h4>
+                            <p>Motion generation: free (with SayMotion credits)<br>Rendering: $0.06-0.30<br>Equipment: $0 (SVG)<br>Total: ~$0.10-0.35</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full Flow Timeline -->
+        <div style="margin-top: 50px;">
+            <h2 style="color: white; margin-bottom: 30px;">📍 Complete Flow: From Prompt to Animation</h2>
+            <div class="timeline">
+                <div class="timeline-item">
+                    <div class="timeline-marker">1</div>
+                    <div class="timeline-content">
+                        <strong>Trainer enters prompt</strong><br>
+                        "Standing bicep curl with dumbbell" in web portal
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-marker">2</div>
+                    <div class="timeline-content">
+                        <strong>SayMotion API</strong><br>
+                        Generates 3D motion sequence (2-5 minutes)
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-marker">3</div>
+                    <div class="timeline-content">
+                        <strong>Keyframe extraction</strong><br>
+                        Select 4-6 key poses, render as OpenPose skeletons
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-marker">4</div>
+                    <div class="timeline-content">
+                        <strong>ControlNet rendering</strong><br>
+                        Generate illustrated figures for each skeleton (1-3 minutes)
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-marker">5</div>
+                    <div class="timeline-content">
+                        <strong>Equipment compositing</strong><br>
+                        Overlay dumbbell SVG at hand positions
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-marker">6</div>
+                    <div class="timeline-content">
+                        <strong>Animation assembly</strong><br>
+                        Create Lottie JSON + sprite sheet
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-marker">✓</div>
+                    <div class="timeline-content">
+                        <strong>Result</strong><br>
+                        Professional 2D illustrated animation ready to use in training plans
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>🔧 This visualization explains the Phase 0 prototype architecture</p>
+            <p>💡 Waiting for API keys? While you wait, review this pipeline and update the Development Platform description</p>
+        </div>
+    </div>
+
+    <script>
+        function selectStage(stageNum) {
+            // Hide all details
+            document.querySelectorAll('.stage-detail').forEach(el => el.style.display = 'none');
+
+            // Show selected detail
+            if (stageNum > 0) {
+                const detail = document.getElementById(`detail-${stageNum}`);
+                if (detail) {
+                    detail.style.display = 'block';
+                    document.getElementById('stage-details').classList.add('active');
+                    document.getElementById('stage-details').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+
+            // Update button states
+            document.querySelectorAll('.controls button').forEach((btn, idx) => {
+                btn.classList.remove('active');
+                if ((idx === 0 && stageNum === 0) || (idx === stageNum)) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+
+        function showStage(stageNum) {
+            selectStage(stageNum);
+        }
+
+        // Show first stage by default
+        window.addEventListener('load', () => {
+            document.getElementById('detail-1').style.display = 'block';
+            document.getElementById('stage-details').classList.add('active');
+        });
+    </script>
+</body>
+</html>
