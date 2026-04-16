@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:opencv_dart/opencv_dart.dart' as cv;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import '../config.dart';
 import '../models/exercise_capture.dart';
 import 'local_storage_service.dart';
 
@@ -29,8 +30,7 @@ class ConversionService extends ChangeNotifier {
   /// Whether the processor loop is currently running.
   bool _processing = false;
 
-  /// Stream controller for individual conversion updates. Widgets can listen
-  /// to this for fine-grained status changes per exercise.
+  /// Stream controller for individual conversion updates.
   final _updateController = StreamController<ExerciseCapture>.broadcast();
 
   /// Fires each time an exercise's conversion status changes.
@@ -40,17 +40,12 @@ class ConversionService extends ChangeNotifier {
       : _storage = storage;
 
   /// Queue a capture for line drawing conversion.
-  ///
-  /// Call this immediately after a capture is saved to disk. The method
-  /// returns instantly — actual processing happens in the background.
   void queueConversion(ExerciseCapture exercise) {
     _queue.add(exercise);
     _processQueue();
   }
 
-  /// On app restart, reload any unfinished conversions from the database
-  /// and re-queue them. Captures that were mid-conversion are reset to
-  /// pending (the partial output is discarded).
+  /// On app restart, reload any unfinished conversions and re-queue them.
   Future<void> restoreQueue() async {
     final unconverted = await _storage.getUnconvertedExercises();
     for (final exercise in unconverted) {
@@ -61,16 +56,14 @@ class ConversionService extends ChangeNotifier {
     }
   }
 
-  /// The processing loop. Runs until the queue is drained, then stops.
-  /// Re-enters automatically when new items are queued.
+  /// The processing loop. Runs until the queue is drained.
   Future<void> _processQueue() async {
-    if (_processing) return; // Already running — new items will be picked up.
+    if (_processing) return;
     _processing = true;
 
     while (_queue.isNotEmpty) {
       final exercise = _queue.removeAt(0);
 
-      // Mark as converting
       final converting = exercise.copyWith(
         conversionStatus: ConversionStatus.converting,
       );
@@ -81,7 +74,6 @@ class ConversionService extends ChangeNotifier {
       try {
         final convertedPath = await _convert(converting);
 
-        // Mark as done
         final done = converting.copyWith(
           convertedFilePath: convertedPath,
           conversionStatus: ConversionStatus.done,
@@ -90,7 +82,6 @@ class ConversionService extends ChangeNotifier {
         _updateController.add(done);
         notifyListeners();
       } catch (e) {
-        // Mark as failed — the bio can retry or re-capture
         final failed = converting.copyWith(
           conversionStatus: ConversionStatus.failed,
         );
@@ -114,7 +105,6 @@ class ConversionService extends ChangeNotifier {
       '${exercise.id}_line$ext',
     );
 
-    // Ensure output directory exists
     await Directory(p.dirname(convertedPath)).create(recursive: true);
 
     if (exercise.mediaType == MediaType.photo) {
@@ -126,68 +116,174 @@ class ConversionService extends ChangeNotifier {
     return convertedPath;
   }
 
-  /// Convert a single photo to a line drawing.
+  /// Convert a single photo to a line drawing using OpenCV.
   Future<void> _convertPhoto(String inputPath, String outputPath) async {
-    final inputFile = File(inputPath);
-    final bytes = await inputFile.readAsBytes();
+    final img = cv.imread(inputPath, flags: cv.IMREAD_COLOR);
+    if (img.isEmpty) {
+      throw Exception('Could not read image: $inputPath');
+    }
 
-    final converted = _convertFrame(bytes);
+    try {
+      final result = _frameToLineDrawing(img);
 
-    final outputFile = File(outputPath);
-    await outputFile.writeAsBytes(converted);
+      final ext = p.extension(outputPath).toLowerCase();
+      if (ext == '.jpg' || ext == '.jpeg') {
+        cv.imwrite(outputPath, result,
+            params: cv.VecI32.fromList([cv.IMWRITE_JPEG_QUALITY, 95]));
+      } else if (ext == '.png') {
+        cv.imwrite(outputPath, result,
+            params: cv.VecI32.fromList([cv.IMWRITE_PNG_COMPRESSION, 3]));
+      } else {
+        cv.imwrite(outputPath, result);
+      }
+
+      result.dispose();
+    } finally {
+      img.dispose();
+    }
   }
 
   /// Convert a video frame-by-frame to line drawings.
-  ///
-  /// TODO: Implement real frame extraction via ffmpeg_kit_flutter.
-  /// For now, this copies the raw video as a stub so the rest of the
-  /// flow works end-to-end.
   Future<void> _convertVideo(String inputPath, String outputPath) async {
-    // TODO_OPENCV: Real implementation would:
-    // 1. Extract frames using ffmpeg_kit_flutter
-    // 2. Convert each frame via _convertFrame()
-    // 3. Re-encode frames into a video
-    //
-    // Stub: copy raw video as "converted" version
-    final inputFile = File(inputPath);
-    await inputFile.copy(outputPath);
+    final cap = cv.VideoCapture.fromFile(inputPath);
+    if (!cap.isOpened) {
+      throw Exception('Could not open video: $inputPath');
+    }
+
+    try {
+      final fps = cap.get(cv.CAP_PROP_FPS);
+      final width = cap.get(cv.CAP_PROP_FRAME_WIDTH).toInt();
+      final height = cap.get(cv.CAP_PROP_FRAME_HEIGHT).toInt();
+      final totalFrames = cap.get(cv.CAP_PROP_FRAME_COUNT).toInt();
+
+      // Choose codec string based on output extension
+      final ext = p.extension(outputPath).toLowerCase();
+      String codec;
+      if (ext == '.mov') {
+        codec = 'avc1';
+      } else if (ext == '.avi') {
+        codec = 'XVID';
+      } else {
+        codec = 'mp4v';
+      }
+
+      final writer = cv.VideoWriter.fromFile(
+        outputPath,
+        codec,
+        fps,
+        (width, height),
+      );
+
+      if (!writer.isOpened) {
+        // Fallback to mp4v
+        writer.open(outputPath, 'mp4v', fps, (width, height));
+      }
+
+      try {
+        var frameCount = 0;
+        while (true) {
+          final (success, frame) = cap.read();
+          if (!success || frame.isEmpty) {
+            frame.dispose();
+            break;
+          }
+
+          final lineFrame = _frameToLineDrawing(frame);
+          writer.write(lineFrame);
+
+          lineFrame.dispose();
+          frame.dispose();
+          frameCount++;
+
+          if (frameCount % 100 == 0) {
+            debugPrint('  Video conversion: frame $frameCount/$totalFrames');
+          }
+        }
+
+        debugPrint('  Video conversion complete: $frameCount frames');
+      } finally {
+        writer.release();
+      }
+    } finally {
+      cap.release();
+    }
   }
 
-  /// Convert a single image frame to a line drawing.
+  /// Convert a single BGR frame to a line drawing.
   ///
-  /// TODO_OPENCV: Replace this stub with real opencv_dart integration.
-  /// The algorithm (from the validated Python prototype):
-  ///   1. Convert to grayscale
-  ///   2. Invert the grayscale image
-  ///   3. Apply Gaussian blur (kernel_size=31)
-  ///   4. Divide grayscale by inverted-blurred (pencil sketch divide)
-  ///   5. Apply adaptive threshold (block_size=9)
-  ///   6. Adjust contrast (clip below 80 to white)
+  /// Algorithm (ported from line-drawing-convert.skill):
   ///
-  /// For now, returns the input bytes unchanged so the capture-to-display
-  /// flow works end-to-end without opencv_dart being wired up.
-  Uint8List _convertFrame(Uint8List inputBytes) {
-    // TODO_OPENCV: Port line drawing algorithm from line-drawing-convert.skill
-    //
-    // import 'package:opencv_dart/opencv_dart.dart' as cv;
-    //
-    // final mat = cv.imdecode(inputBytes, cv.IMREAD_GRAYSCALE);
-    // final inverted = cv.bitwise_not(mat);
-    // final blurred = cv.gaussianBlur(inverted, (31, 31), 0);
-    // final sketch = cv.divide(mat, cv.bitwise_not(blurred), scale: 256.0);
-    // final thresh = cv.adaptiveThreshold(
-    //   sketch, 255,
-    //   cv.ADAPTIVE_THRESH_GAUSSIAN_C,
-    //   cv.THRESH_BINARY,
-    //   9, 2,
-    // );
-    // return cv.imencode('.jpg', thresh);
-    //
-    // For now, pass through unchanged:
-    return inputBytes;
+  /// 1. Convert to grayscale
+  /// 2. Pencil sketch via divide: invert -> blur -> divide original by inverse
+  /// 3. Adaptive thresholding for crisp structural lines
+  /// 4. Combine: take darkest (most line-like) of both results
+  /// 5. Contrast boost: push light grays to white, keep dark lines
+  /// 6. Convert back to BGR for output
+  cv.Mat _frameToLineDrawing(cv.Mat frame) {
+    final blurKernel = AppConfig.blurKernel;
+    final thresholdBlock = AppConfig.thresholdBlock;
+    final contrastLow = AppConfig.contrastLow;
+
+    // Step 1: Convert to grayscale
+    final gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY);
+
+    // Step 2: Pencil sketch via divide
+    // Create a white mat (255) for inversion: inv = 255 - gray
+    final white = cv.Mat.ones(gray.rows, gray.cols, cv.MatType.CV_8UC1)
+        .multiplyU8(255);
+    final inv = cv.subtract(white, gray);
+
+    // Blur the inverted image
+    final blur = cv.gaussianBlur(inv, (blurKernel, blurKernel), 0);
+
+    // Divisor: 255 - blur
+    final invBlur = cv.subtract(white, blur);
+
+    // Divide: sketch = gray / (255 - blur) * 256
+    final sketch = cv.divide(gray, invBlur, scale: 256.0);
+
+    // Step 3: Adaptive threshold for crisp structural lines
+    final blurredGray = cv.gaussianBlur(gray, (5, 5), 0);
+    final adaptive = cv.adaptiveThreshold(
+      blurredGray,
+      255,
+      cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+      cv.THRESH_BINARY,
+      thresholdBlock,
+      2,
+    );
+
+    // Step 4: Combine — take the darkest pixel of both
+    final combined = cv.min(sketch, adaptive);
+
+    // Step 5: Contrast boost using convertTo(alpha, beta)
+    // Formula: output = clip(input * alpha + beta, 0, 255)
+    // We want: output = clip((input - contrastLow) * scale, 0, 255)
+    // Which is: alpha = scale, beta = -contrastLow * scale
+    final scale = 255.0 / (255 - contrastLow).clamp(1, 255);
+    final beta = -contrastLow.toDouble() * scale;
+    final boosted = combined.convertTo(cv.MatType.CV_8UC1,
+        alpha: scale, beta: beta);
+
+    // Step 6: Convert to BGR for output
+    final result = cv.cvtColor(boosted, cv.COLOR_GRAY2BGR);
+
+    // Dispose all intermediate matrices
+    gray.dispose();
+    white.dispose();
+    inv.dispose();
+    blur.dispose();
+    invBlur.dispose();
+    sketch.dispose();
+    blurredGray.dispose();
+    adaptive.dispose();
+    combined.dispose();
+    boosted.dispose();
+
+    return result;
   }
 
-  /// Number of items currently waiting in the queue (including any in-progress).
+  /// Number of items currently waiting in the queue.
   int get queueLength => _queue.length + (_processing ? 1 : 0);
 
   /// Whether the service is currently processing conversions.

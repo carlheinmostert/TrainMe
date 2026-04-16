@@ -47,6 +47,12 @@
 			</array>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Raidme needs camera access to capture exercise photos and videos for your training plans.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Raidme needs microphone access to record audio with exercise videos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Raidme needs photo library access to save exercise captures.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
