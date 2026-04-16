@@ -33,6 +33,7 @@ dependencies:
   supabase_flutter: ^2.9.0
 
   # UI
+  google_fonts: ^6.1.0
   share_plus: ^10.1.4
   reorderable_grid: ^1.0.13
   uuid: ^4.5.1

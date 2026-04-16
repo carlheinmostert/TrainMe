@@ -10,35 +10,76 @@
 }
 
 :root {
+  /* ── HomeFit Studio Brand Palette ─────────────────────────────── */
+
+  /* Primary — Coral Orange */
+  --color-primary: #FF6B35;
+  --color-primary-dark: #E85A24;
+  --color-primary-light: #FF8F5E;
+  --color-primary-surface: #FFF3ED;
+
+  /* Neutrals */
   --white: #ffffff;
-  --off-white: #fafafa;
-  --gray-50: #f7f7f7;
-  --gray-100: #f0f0f0;
-  --gray-200: #e4e4e4;
-  --gray-300: #d1d1d1;
-  --gray-400: #a3a3a3;
-  --gray-500: #737373;
-  --gray-600: #525252;
-  --gray-700: #404040;
-  --gray-800: #262626;
-  --gray-900: #171717;
+  --off-white: #fafafb;
+  --gray-50: #f3f4f6;
+  --gray-100: #e5e7eb;
+  --gray-200: #d1d5db;
+  --gray-300: #9ca3af;
+  --gray-400: #6b7280;
+  --gray-500: #4b5563;
+  --gray-600: #374151;
+  --gray-700: #1f2937;
+  --gray-800: #111827;
+  --gray-900: #1a1a2e;
   --black: #0a0a0a;
 
+  /* Text */
+  --color-text-primary: #1a1a2e;
+  --color-text-secondary: #6b7280;
+
+  /* Semantic */
+  --color-success: #22c55e;
+  --color-success-light: #dcfce7;
+  --color-warning: #f59e0b;
+  --color-warning-light: #fef3c7;
+  --color-error: #ef4444;
+  --color-error-light: #fee2e2;
+
+  /* Feature accents */
+  --color-circuit: #14b8a6;
+  --color-circuit-light: #ccfbf1;
+  --color-circuit-dark: #0d9488;
+  --color-rest: #64748b;
+  --color-rest-light: #f1f5f9;
+  --color-rest-surface: #e2e8f0;
+
+  /* Dark mode surfaces */
+  --color-dark-bg: #0f1117;
+  --color-dark-surface: #1a1d27;
+  --color-dark-surface-variant: #242733;
+  --color-dark-border: #2e3140;
+
+  /* Radii */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 20px;
 
+  /* Shadows */
   --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
   --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
 
+  /* Transitions */
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
   --transition-slow: 400ms cubic-bezier(0.16, 1, 0.3, 1);
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Typography */
+  --font-heading: 'Montserrat', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace;
 
+  /* Safe areas */
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-top: env(safe-area-inset-top, 0px);
 }
@@ -89,12 +130,13 @@ body {
   width: 48px;
   height: 48px;
   margin: 0 auto 16px;
-  background: var(--gray-900);
+  background: var(--color-primary);
   color: var(--white);
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
+  font-family: var(--font-heading);
   font-weight: 700;
   font-size: 24px;
   letter-spacing: -0.02em;
@@ -180,10 +222,11 @@ body {
 }
 
 .header-brand {
+  font-family: var(--font-heading);
   font-weight: 700;
   font-size: 16px;
   letter-spacing: -0.02em;
-  color: var(--gray-900);
+  color: var(--color-text-primary);
 }
 
 .header-client {
@@ -203,10 +246,11 @@ body {
 }
 
 .plan-title {
+  font-family: var(--font-heading);
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.025em;
-  color: var(--gray-900);
+  color: var(--color-text-primary);
   line-height: 1.2;
 }
 
@@ -230,7 +274,7 @@ body {
 
 .progress-fill {
   height: 100%;
-  background: var(--gray-900);
+  background: var(--color-primary);
   border-radius: 1px;
   transition: width var(--transition-slow);
   width: 0%;
@@ -390,10 +434,11 @@ body {
 }
 
 .card-exercise-name {
+  font-family: var(--font-heading);
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: var(--gray-900);
+  color: var(--color-text-primary);
   line-height: 1.25;
   margin-bottom: 12px;
 }
@@ -503,7 +548,7 @@ body {
 }
 
 .nav-dot.is-active {
-  background: var(--gray-900);
+  background: var(--color-primary);
   width: 18px;
   border-radius: 3px;
 }
@@ -592,7 +637,7 @@ body {
 
 /* === Rest Card === */
 .rest-card {
-  background: linear-gradient(160deg, #e8eef1 0%, #d4dfe6 40%, #c5d3dc 100%);
+  background: linear-gradient(160deg, var(--color-rest-light) 0%, var(--color-rest-surface) 40%, #c5d3dc 100%);
   border-color: #bcc9d1;
 }
 
@@ -644,7 +689,7 @@ body {
 /* === Circuit Bar === */
 .circuit-bar {
   flex-shrink: 0;
-  background: #0d9488;
+  background: var(--color-circuit-dark);
   color: var(--white);
   font-size: 12px;
   font-weight: 600;
@@ -665,7 +710,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 12px 24px;
-  background: var(--gray-900);
+  background: var(--color-primary);
   color: var(--white);
   border: none;
   border-radius: 100px;
@@ -674,7 +719,7 @@ body {
   font-family: inherit;
   cursor: pointer;
   z-index: 20;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  box-shadow: 0 4px 16px rgba(255,107,53,0.3);
   transition: all var(--transition-fast);
   -webkit-tap-highlight-color: transparent;
 }
@@ -878,7 +923,7 @@ body {
 .workout-complete-icon {
   width: 64px;
   height: 64px;
-  color: #22c55e;
+  color: var(--color-success);
 }
 
 .workout-complete-icon svg {
@@ -903,7 +948,7 @@ body {
 .workout-close-btn {
   margin-top: 8px;
   padding: 12px 32px;
-  background: var(--gray-900);
+  background: var(--color-primary);
   color: var(--white);
   border: none;
   border-radius: var(--radius-md);

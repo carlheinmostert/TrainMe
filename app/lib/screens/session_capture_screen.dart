@@ -1,13 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' show min;
-import 'dart:ui' show lerpDouble;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 import 'package:uuid/uuid.dart';
 import '../config.dart';
@@ -16,7 +14,7 @@ import '../models/session.dart';
 import '../services/local_storage_service.dart';
 import '../services/conversion_service.dart';
 import '../services/path_resolver.dart';
-import '../services/upload_service.dart';
+import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
 import 'plan_preview_screen.dart';
 
@@ -54,14 +52,11 @@ class SessionCaptureScreen extends StatefulWidget {
 class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   late Session _session;
   late ConversionService _conversionService;
-  late UploadService _uploadService;
   StreamSubscription<ExerciseCapture>? _conversionSub;
   Timer? _refreshTimer;
   final ImagePicker _picker = ImagePicker();
 
   int? _expandedIndex;
-  bool _isPublishing = false;
-  bool _isDirty = false;
   bool _isEditingName = false;
   late TextEditingController _nameController;
   final FocusNode _nameFocusNode = FocusNode();
@@ -73,7 +68,6 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     _nameController = TextEditingController(text: _session.clientName);
     _nameFocusNode.addListener(_onNameFocusChange);
     _conversionService = ConversionService.instance;
-    _uploadService = UploadService(storage: widget.storage);
     _listenToConversions();
     _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       final hasPending = _session.exercises.any((e) =>
@@ -189,6 +183,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   void _showImportOptions() {
     showModalBottomSheet(
       context: context,
+      backgroundColor: AppColors.darkSurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -205,22 +200,23 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
+                    color: AppColors.textOnDark,
                   ),
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.photo_outlined),
-                title: const Text('Photo'),
-                subtitle: const Text('Import a still image'),
+                leading: const Icon(Icons.photo_outlined, color: AppColors.textSecondaryOnDark),
+                title: const Text('Photo', style: TextStyle(color: AppColors.textOnDark)),
+                subtitle: const Text('Import a still image', style: TextStyle(color: AppColors.textSecondaryOnDark)),
                 onTap: () {
                   Navigator.pop(context);
                   _importPhoto();
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.videocam_outlined),
-                title: const Text('Video'),
-                subtitle: const Text('Import a video clip'),
+                leading: const Icon(Icons.videocam_outlined, color: AppColors.textSecondaryOnDark),
+                title: const Text('Video', style: TextStyle(color: AppColors.textOnDark)),
+                subtitle: const Text('Import a video clip', style: TextStyle(color: AppColors.textSecondaryOnDark)),
                 onTap: () {
                   Navigator.pop(context);
                   _importVideo();
@@ -254,7 +250,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
           exercises: [..._session.exercises, result],
         );
       });
-      _markDirty();
+  
       _conversionService.queueConversion(result);
       _autoInsertRestPeriods();
     }
@@ -294,7 +290,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       );
     });
 
-    _markDirty();
+
     _conversionService.queueConversion(exercise);
     _autoInsertRestPeriods();
   }
@@ -439,7 +435,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   // ---------------------------------------------------------------------------
 
   Future<void> _saveExerciseOrder() async {
-    _markDirty();
+
     for (final ex in _session.exercises) {
       await widget.storage.saveExercise(ex);
     }
@@ -452,7 +448,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       exercises[index] = updated;
       _session = _session.copyWith(exercises: exercises);
     });
-    _markDirty();
+
     widget.storage.saveExercise(updated);
   }
 
@@ -476,7 +472,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       }
     });
 
-    _markDirty();
+
 
     // Persist deletion
     widget.storage.deleteExercise(removed.id);
@@ -680,151 +676,13 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Publish + Share flow
-  // ---------------------------------------------------------------------------
-
-  /// Mark the session as having unpublished changes.
-  void _markDirty() {
-    if (_session.isPublished && !_isDirty) {
-      setState(() => _isDirty = true);
-    }
-  }
-
-  /// Publish the plan to Supabase. Shows a conversion-check dialog if needed,
-  /// then kicks off the upload in the background. The rest of the UI stays
-  /// interactive — only the publish button shows a spinner.
-  Future<void> _publish() async {
-    // Check conversions — this dialog is synchronous / user-facing
-    if (!_session.allConversionsComplete) {
-      final pending = _session.pendingConversions;
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Still converting'),
-          content: Text(
-            '$pending exercise(s) are still being converted to line drawings. '
-            'Wait for them to finish?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Wait & Publish'),
-            ),
-          ],
-        ),
-      );
-      if (proceed != true) return;
-    }
-
-    if (!mounted) return;
-
-    // Show spinner on the publish button only — UI stays interactive
-    setState(() => _isPublishing = true);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Publishing...'),
-        duration: Duration(seconds: 1),
-      ),
-    );
-
-    // Fire and forget — the Future updates state when done
-    _doPublishInBackground();
-  }
-
-  /// Runs the actual upload without blocking navigation or editing.
-  Future<void> _doPublishInBackground() async {
-    try {
-      final result = await _uploadService.uploadPlan(_session);
-
-      if (!mounted) return;
-
-      setState(() {
-        _session = _session.copyWith(
-          sentAt: DateTime.now(),
-          planUrl: result.url,
-          version: result.version,
-          lastPublishedAt: DateTime.now(),
-        );
-        _isPublishing = false;
-        _isDirty = false;
-      });
-
-      widget.storage.saveSession(_session);
-
-      // Re-read from storage to ensure consistency
-      final refreshed = await widget.storage.getSession(_session.id);
-      if (refreshed != null && mounted) {
-        setState(() => _session = refreshed);
-      }
-      debugPrint('Published: url=${_session.planUrl}, version=${_session.version}, isPublished=${_session.isPublished}');
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Published v${result.version} \u2713'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    } catch (e, stack) {
-      debugPrint('PUBLISH ERROR: $e');
-      debugPrint('$stack');
-      if (!mounted) return;
-
-      setState(() => _isPublishing = false);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Publish failed: $e'),
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(label: 'Retry', onPressed: _publish),
-        ),
-      );
-    }
-  }
-
-  /// Open the iOS share sheet with the plan URL.
-  Future<void> _share() async {
-    final url = _session.planUrl;
-    if (url == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No plan URL — publish first')),
-        );
-      }
-      return;
-    }
-    final text = '${_session.displayTitle}\n\n'
-        '${_session.exercises.where((e) => !e.isRest).length} exercises ready for you:\n'
-        '$url';
-    try {
-      final box = context.findRenderObject() as RenderBox?;
-      await Share.share(
-        text,
-        sharePositionOrigin: box != null
-            ? box.localToGlobal(Offset.zero) & box.size
-            : const Rect.fromLTWH(0, 0, 100, 100),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Share failed: $e')),
-        );
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // Build
   // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.darkBg,
       appBar: AppBar(
         title: _isEditingName
             ? TextField(
@@ -834,7 +692,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
                   fontWeight: FontWeight.w700,
                   letterSpacing: -0.5,
                   fontSize: 20,
-                  color: Colors.black87,
+                  color: AppColors.textOnDark,
                 ),
                 textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(
@@ -848,19 +706,20 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
                 onTap: _startEditingName,
                 child: CustomPaint(
                   painter: _DashedUnderlinePainter(
-                      color: Colors.grey.shade400),
+                      color: AppColors.grey500),
                   child: Text(
                     _session.clientName,
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       letterSpacing: -0.5,
+                      color: AppColors.textOnDark,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
+        backgroundColor: AppColors.darkSurface,
+        foregroundColor: AppColors.textOnDark,
         elevation: 0,
         actions: [
           if (_session.exercises.isNotEmpty)
@@ -877,32 +736,100 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
             ),
         ],
       ),
-      body: _session.exercises.isEmpty
-          ? _buildEmptyState()
-          : _buildExerciseList(),
-      bottomNavigationBar: _buildActionButtons(),
+      body: _buildBody(),
     );
   }
 
-  /// Empty state — shown when session has no exercises yet.
-  Widget _buildEmptyState() {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.fitness_center_outlined, size: 64, color: Colors.black26),
-          SizedBox(height: 16),
-          Text(
-            'No exercises yet',
-            style: TextStyle(fontSize: 18, color: Colors.black38),
+  /// Main body — shows exercise list with a wireframe add card at the end,
+  /// or just the add card when the list is empty.
+  Widget _buildBody() {
+    if (_session.exercises.isEmpty) {
+      // Empty state: centered wireframe card
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _buildAddExerciseCard(),
+        ),
+      );
+    }
+    // Non-empty: exercise list is built separately with the card appended
+    return _buildExerciseList();
+  }
+
+  /// Wireframe "Add Exercise" card — dashed-look placeholder card with
+  /// Import and Capture buttons.
+  Widget _buildAddExerciseCard() {
+    final totalDuration = _session.estimatedTotalDurationSeconds;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_session.exercises.isNotEmpty && totalDuration > 0)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'Estimated: ${formatDuration(totalDuration)}',
+              style: const TextStyle(fontSize: 12, color: AppColors.grey500),
+            ),
           ),
-          SizedBox(height: 4),
-          Text(
-            'Capture or import your first exercise',
-            style: TextStyle(fontSize: 14, color: Colors.black26),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+          decoration: BoxDecoration(
+            color: AppColors.darkSurfaceVariant,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.darkBorder, width: 1.5),
           ),
-        ],
-      ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _showImportOptions,
+                      icon: const Icon(Icons.photo_library_outlined, size: 20),
+                      label: const Text('Import'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textSecondaryOnDark,
+                        side: const BorderSide(color: AppColors.darkBorder),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _openCameraCapture,
+                      icon: const Icon(Icons.videocam_outlined, size: 20),
+                      label: const Text('Capture'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textSecondaryOnDark,
+                        side: const BorderSide(color: AppColors.darkBorder),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Add an exercise',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.grey500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -917,37 +844,52 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   Widget _buildExerciseList() {
     final exercises = _session.exercises;
 
-    return ReorderableListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      itemCount: exercises.length,
-      buildDefaultDragHandles: false,
-      proxyDecorator: (child, index, animation) {
-        return AnimatedBuilder(
-          animation: animation,
-          builder: (context, child) {
-            final elevation = lerpDouble(0, 8, animation.value) ?? 0;
-            return Material(
-              elevation: elevation,
-              color: Colors.transparent,
-              shadowColor: Colors.black54,
-              borderRadius: BorderRadius.circular(12),
-              child: child,
-            );
-          },
-          child: child,
-        );
-      },
-      onReorder: _onReorder,
-      itemBuilder: (context, index) {
-        final exercise = exercises[index];
+    return CustomScrollView(
+      slivers: [
+        SliverReorderableList(
+          itemCount: exercises.length,
+          onReorder: _onReorder,
+          itemBuilder: _buildExerciseItem,
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          sliver: SliverToBoxAdapter(
+            child: _buildAddExerciseCard(),
+          ),
+        ),
+      ],
+    );
+  }
 
-        // --- Rest period: compact inline bar ---
-        if (exercise.isRest) {
-          return KeyedSubtree(
-            key: ValueKey(exercise.id),
-            child: Column(
-              children: [
-                _RestBar(
+  /// Builds a single exercise item for the reorderable list.
+  Widget _buildExerciseItem(BuildContext context, int index) {
+    final exercises = _session.exercises;
+    final exercise = exercises[index];
+
+    // --- Rest period: compact inline bar ---
+    if (exercise.isRest) {
+      final isInCircuit = exercise.circuitId != null;
+      final restDecoration = isInCircuit
+          ? const BoxDecoration(
+              border: Border(
+                left: BorderSide(
+                  color: AppColors.circuit,
+                  width: 3,
+                ),
+              ),
+            )
+          : null;
+
+      return KeyedSubtree(
+        key: ValueKey(exercise.id),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            children: [
+              Container(
+                decoration: restDecoration,
+                padding: isInCircuit ? const EdgeInsets.only(left: 8) : null,
+                child: _RestBar(
                   key: ValueKey('rest_${exercise.id}'),
                   exercise: exercise,
                   index: index,
@@ -955,84 +897,79 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
                   onDelete: () => _deleteExercise(index),
                   dragHandle: ReorderableDragStartListener(
                     index: index,
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.drag_handle,
-                        color: Colors.blueGrey.shade300,
-                        size: 18,
+                    child: const SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Center(
+                        child: Icon(
+                          Icons.drag_handle,
+                          color: AppColors.grey500,
+                          size: 24,
+                        ),
                       ),
                     ),
                   ),
                 ),
-                // Between-card buttons after rest bar (if not last item)
-                if (index < exercises.length - 1)
-                  _buildBetweenCardButtons(
-                    upperIndex: index,
-                    lowerIndex: index + 1,
-                    isLinked: exercise.circuitId != null &&
-                        exercises[index + 1].circuitId == exercise.circuitId,
-                  ),
-              ],
-            ),
-          );
-        }
-
-        // --- Regular exercise: full card ---
-        final isInCircuit = exercise.circuitId != null;
-
-        // Determine circuit position for visual styling
-        final isFirstInCircuit = isInCircuit &&
-            (index == 0 ||
-                exercises[index - 1].circuitId != exercise.circuitId);
-        final isLastInCircuit = isInCircuit &&
-            (index == exercises.length - 1 ||
-                exercises[index + 1].circuitId != exercise.circuitId);
-
-        // Check if this exercise shares a circuit with its neighbour below
-        final hasNextInSameCircuit = isInCircuit &&
-            index < exercises.length - 1 &&
-            exercises[index + 1].circuitId == exercise.circuitId;
-
-        // Determine between-card button state for the gap below this card.
-        // Show between-card buttons between every pair of items.
-        final bool showBetweenButtons = index < exercises.length - 1;
-        final bool isLinkedBelow = showBetweenButtons &&
-            exercise.circuitId != null &&
-            exercises[index + 1].circuitId == exercise.circuitId;
-
-        return KeyedSubtree(
-          key: ValueKey(exercise.id),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Circuit header — above the first card in a circuit group
-              if (isFirstInCircuit)
-                _buildCircuitHeader(exercise.circuitId!),
-
-              // The exercise card with optional circuit border
-              _buildReorderableCard(
-                exercise: exercise,
-                index: index,
-                isInCircuit: isInCircuit,
-                isFirstInCircuit: isFirstInCircuit,
-                isLastInCircuit: isLastInCircuit,
-                hasNextInSameCircuit: hasNextInSameCircuit,
               ),
-
-              // Between-card buttons (link + rest insert)
-              if (showBetweenButtons)
+              // Between-card buttons after rest bar (if not last item)
+              if (index < exercises.length - 1)
                 _buildBetweenCardButtons(
                   upperIndex: index,
                   lowerIndex: index + 1,
-                  isLinked: isLinkedBelow,
+                  isLinked: exercise.circuitId != null &&
+                      exercises[index + 1].circuitId == exercise.circuitId,
                 ),
             ],
           ),
-        );
-      },
+        ),
+      );
+    }
+
+    // --- Regular exercise: full card ---
+    final isInCircuit = exercise.circuitId != null;
+    final isFirstInCircuit = isInCircuit &&
+        (index == 0 ||
+            exercises[index - 1].circuitId != exercise.circuitId);
+    final isLastInCircuit = isInCircuit &&
+        (index == exercises.length - 1 ||
+            exercises[index + 1].circuitId != exercise.circuitId);
+    final hasNextInSameCircuit = isInCircuit &&
+        index < exercises.length - 1 &&
+        exercises[index + 1].circuitId == exercise.circuitId;
+    final bool showBetweenButtons = index < exercises.length - 1;
+    final bool isLinkedBelow = showBetweenButtons &&
+        exercise.circuitId != null &&
+        exercises[index + 1].circuitId == exercise.circuitId;
+
+    return KeyedSubtree(
+      key: ValueKey(exercise.id),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (isFirstInCircuit)
+              _buildCircuitHeader(exercise.circuitId!),
+            _buildReorderableCard(
+              exercise: exercise,
+              index: index,
+              isInCircuit: isInCircuit,
+              isFirstInCircuit: isFirstInCircuit,
+              isLastInCircuit: isLastInCircuit,
+              hasNextInSameCircuit: hasNextInSameCircuit,
+            ),
+            if (showBetweenButtons)
+              _buildBetweenCardButtons(
+                upperIndex: index,
+                lowerIndex: index + 1,
+                isLinked: isLinkedBelow,
+              ),
+          ],
+        ),
+      ),
     );
   }
+
 
   /// Handle reorder: update positions, collapse expanded cards, save.
   void _onReorder(int oldIndex, int newIndex) {
@@ -1118,10 +1055,10 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   }) {
     // Circuit border decoration
     final decoration = isInCircuit
-        ? BoxDecoration(
+        ? const BoxDecoration(
             border: Border(
               left: BorderSide(
-                color: Colors.teal.shade400,
+                color: AppColors.circuit,
                 width: 3,
               ),
             ),
@@ -1138,7 +1075,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
         background: Container(
           margin: const EdgeInsets.only(bottom: 8),
           decoration: BoxDecoration(
-            color: Colors.red,
+            color: AppColors.error,
             borderRadius: BorderRadius.circular(12),
           ),
           alignment: Alignment.centerRight,
@@ -1161,13 +1098,13 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
           onPreview: () => _previewCapture(exercise),
           dragHandle: ReorderableDragStartListener(
             index: index,
-            child: SizedBox(
+            child: const SizedBox(
               width: 44,
               height: 44,
               child: Center(
                 child: Icon(
                   Icons.drag_handle,
-                  color: Colors.grey.shade400,
+                  color: AppColors.grey500,
                   size: 24,
                 ),
               ),
@@ -1184,10 +1121,10 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
 
     // Add teal left border to match the cards below
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         border: Border(
           left: BorderSide(
-            color: Colors.teal.shade400,
+            color: AppColors.circuit,
             width: 3,
           ),
         ),
@@ -1196,45 +1133,45 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
         padding: const EdgeInsets.only(left: 12, top: 4, bottom: 4),
         child: Row(
           children: [
-            Icon(Icons.repeat, size: 16, color: Colors.teal.shade400),
+            const Icon(Icons.repeat, size: 16, color: AppColors.circuit),
             const SizedBox(width: 6),
-            Text(
+            const Text(
               'Circuit',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: Colors.teal.shade600,
+                color: AppColors.circuit,
                 letterSpacing: -0.3,
               ),
             ),
             const SizedBox(width: 8),
             Text(
               '$cycles',
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: Colors.teal.shade700,
+                color: AppColors.circuit,
               ),
             ),
             Text(
               cycles == 1 ? ' cycle' : ' cycles',
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.teal.shade400,
+                color: AppColors.circuit.withValues(alpha: 0.7),
               ),
             ),
             Expanded(
               child: SliderTheme(
                 data: SliderThemeData(
                   trackHeight: 3,
-                  activeTrackColor: Colors.teal.shade400,
-                  inactiveTrackColor: Colors.teal.shade100,
-                  thumbColor: Colors.teal.shade400,
+                  activeTrackColor: AppColors.circuit,
+                  inactiveTrackColor: AppColors.circuit.withValues(alpha: 0.2),
+                  thumbColor: AppColors.circuit,
                   thumbShape:
                       const _RectangularSliderThumbShape(width: 6, height: 18, radius: 3),
                   overlayShape:
                       const RoundSliderOverlayShape(overlayRadius: 14),
-                  overlayColor: Colors.teal.withValues(alpha: 0.12),
+                  overlayColor: AppColors.circuit.withValues(alpha: 0.12),
                 ),
                 child: Slider(
                   value: cycles.clamp(1, 5).toDouble(),
@@ -1288,19 +1225,19 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: isLinked
-                    ? Colors.teal.shade400
-                    : Colors.grey.shade200,
+                    ? AppColors.circuit
+                    : AppColors.darkSurfaceVariant,
                 border: Border.all(
                   color: isLinked
-                      ? Colors.teal.shade400
-                      : Colors.grey.shade400,
+                      ? AppColors.circuit
+                      : AppColors.grey500,
                   width: 1.5,
                 ),
               ),
               child: Icon(
                 isLinked ? Icons.link : Icons.link_off,
                 size: 14,
-                color: isLinked ? Colors.white : Colors.grey.shade500,
+                color: isLinked ? Colors.white : AppColors.grey500,
               ),
             ),
           ),
@@ -1313,16 +1250,16 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
               height: 28,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.blueGrey.shade50,
+                color: AppColors.darkSurfaceVariant,
                 border: Border.all(
-                  color: Colors.blueGrey.shade300,
+                  color: AppColors.rest,
                   width: 1.5,
                 ),
               ),
-              child: Icon(
+              child: const Icon(
                 Icons.self_improvement,
                 size: 14,
-                color: Colors.blueGrey.shade400,
+                color: AppColors.rest,
               ),
             ),
           ),
@@ -1332,10 +1269,10 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
 
     if (sameContinuousCircuit) {
       return Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           border: Border(
             left: BorderSide(
-              color: Colors.teal.shade400,
+              color: AppColors.circuit,
               width: 3,
             ),
           ),
@@ -1349,145 +1286,6 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   }
 
   /// Bottom action bar — icon buttons with labels, like a tab bar.
-  Widget _buildActionButtons() {
-    return SafeArea(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border(top: BorderSide(color: Colors.grey.shade200)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_session.exercises.isNotEmpty)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 4, left: 16),
-                  child: Text(
-                    'Estimated: ${formatDuration(_session.estimatedTotalDurationSeconds)}',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                    textAlign: TextAlign.left,
-                  ),
-                ),
-              ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildBarIcon(
-                  icon: Icons.photo_library_outlined,
-                  label: 'Import',
-                  onTap: _showImportOptions,
-                ),
-                _buildBarIcon(
-                  icon: Icons.videocam_outlined,
-                  label: 'Capture',
-                  onTap: _openCameraCapture,
-                ),
-                _buildPublishIcon(),
-                _buildBarIcon(
-                  icon: Icons.ios_share,
-                  label: 'Share',
-                  onTap: _session.isPublished ? _share : null,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBarIcon({
-    required IconData icon,
-    required String label,
-    required VoidCallback? onTap,
-    Color? color,
-  }) {
-    final isEnabled = onTap != null;
-    final iconColor = color ?? (isEnabled ? Colors.black87 : Colors.grey.shade400);
-    final labelColor = isEnabled ? Colors.black54 : Colors.grey.shade400;
-
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 72,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 26, color: iconColor),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(fontSize: 11, color: labelColor, fontWeight: FontWeight.w500),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Publish icon with state-dependent appearance.
-  Widget _buildPublishIcon() {
-    if (_isPublishing) {
-      return SizedBox(
-        width: 72,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 26,
-              height: 26,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Publishing',
-              style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_session.isPublished && !_isDirty) {
-      // Published, clean — show green check
-      return _buildBarIcon(
-        icon: Icons.check_circle,
-        label: 'Published',
-        color: Colors.teal,
-        onTap: null,
-      );
-    }
-
-    if (_session.isPublished && _isDirty) {
-      // Has unpublished changes
-      final hasConversionsRunning = _session.exercises.any((e) =>
-          !e.isRest &&
-          (e.conversionStatus == ConversionStatus.pending ||
-           e.conversionStatus == ConversionStatus.converting));
-      return _buildBarIcon(
-        icon: Icons.cloud_upload_outlined,
-        label: hasConversionsRunning ? 'Converting...' : 'Update',
-        onTap: hasConversionsRunning ? null : _publish,
-      );
-    }
-
-    // Never published
-    final hasExercises = _session.exercises.where((e) => !e.isRest).isNotEmpty;
-    final hasConversionsRunning = _session.exercises.any((e) =>
-        !e.isRest &&
-        (e.conversionStatus == ConversionStatus.pending ||
-         e.conversionStatus == ConversionStatus.converting));
-    return _buildBarIcon(
-      icon: Icons.cloud_upload_outlined,
-      label: hasConversionsRunning ? 'Converting...' : 'Publish',
-      onTap: (hasExercises && !hasConversionsRunning) ? _publish : null,
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1629,16 +1427,16 @@ class _ExerciseCardState extends State<_ExerciseCard> {
     ));
   }
 
-  /// Shared slider theme — thick track, rectangular thumb, black fill.
-  static final _sliderTheme = SliderThemeData(
+  /// Shared slider theme — thick track, rectangular thumb, primary fill.
+  static const _sliderTheme = SliderThemeData(
     trackHeight: 8,
-    activeTrackColor: Colors.black87,
-    inactiveTrackColor: Colors.grey.shade300,
-    thumbColor: Colors.black87,
-    thumbShape: const _RectangularSliderThumbShape(width: 8, height: 24, radius: 4),
-    overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
-    overlayColor: Colors.black12,
-    trackShape: const RoundedRectSliderTrackShape(),
+    activeTrackColor: AppColors.primary,
+    inactiveTrackColor: AppColors.darkBorder,
+    thumbColor: AppColors.primary,
+    thumbShape: _RectangularSliderThumbShape(width: 8, height: 24, radius: 4),
+    overlayShape: RoundSliderOverlayShape(overlayRadius: 20),
+    overlayColor: Color(0x1FFF6B35), // primary with 0.12 alpha
+    trackShape: RoundedRectSliderTrackShape(),
   );
 
   /// Build a conversion status icon for the collapsed header row.
@@ -1646,18 +1444,18 @@ class _ExerciseCardState extends State<_ExerciseCard> {
     switch (widget.exercise.conversionStatus) {
       case ConversionStatus.pending:
       case ConversionStatus.converting:
-        return SizedBox(
+        return const SizedBox(
           width: 16,
           height: 16,
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            color: Colors.grey.shade400,
+            color: AppColors.grey500,
           ),
         );
       case ConversionStatus.done:
-        return const Icon(Icons.check_circle, size: 18, color: Colors.green);
+        return const Icon(Icons.check_circle, size: 18, color: AppColors.success);
       case ConversionStatus.failed:
-        return const Icon(Icons.error_outline, size: 18, color: Colors.red);
+        return const Icon(Icons.error_outline, size: 18, color: AppColors.error);
     }
   }
 
@@ -1676,7 +1474,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
         child: Icon(
           isOn ? Icons.mic : Icons.mic_off,
           size: 18,
-          color: isOn ? Colors.teal : Colors.grey.shade400,
+          color: isOn ? AppColors.circuit : AppColors.grey500,
         ),
       ),
     );
@@ -1706,7 +1504,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
     widget.onUpdate(widget.exercise.copyWith(clearCustomDuration: true));
   }
 
-  /// Reusable collapsible sub-section with grey header background.
+  /// Reusable collapsible sub-section with dark header background.
   Widget _buildSubSection({
     required String title,
     String? subtitle,
@@ -1723,7 +1521,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.grey.shade100,
+              color: AppColors.darkSurfaceVariant,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
@@ -1731,15 +1529,15 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                 Icon(
                   isOpen ? Icons.expand_more : Icons.chevron_right,
                   size: 20,
-                  color: Colors.grey.shade600,
+                  color: AppColors.textSecondaryOnDark,
                 ),
                 const SizedBox(width: 4),
                 Text(
                   title,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade700,
+                    color: AppColors.textSecondaryOnDark,
                   ),
                 ),
                 if (subtitle != null) ...[
@@ -1747,9 +1545,9 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                   Expanded(
                     child: Text(
                       subtitle,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 13,
-                        color: Colors.grey.shade500,
+                        color: AppColors.grey500,
                       ),
                       overflow: TextOverflow.ellipsis,
                       maxLines: 1,
@@ -1774,11 +1572,11 @@ class _ExerciseCardState extends State<_ExerciseCard> {
   Widget build(BuildContext context) {
     return Card(
       elevation: 0,
-      color: Colors.grey.shade50,
+      color: AppColors.darkSurface,
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200, width: 1),
+        side: const BorderSide(color: AppColors.darkBorder, width: 1),
       ),
       child: InkWell(
         onTap: widget.onTap,
@@ -1810,7 +1608,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w600,
                                     fontSize: 15,
-                                    color: Colors.black87,
+                                    color: AppColors.textOnDark,
                                   ),
                                   textCapitalization:
                                       TextCapitalization.words,
@@ -1826,12 +1624,13 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                   onTap: _startEditingName,
                                   child: CustomPaint(
                                     painter: _DashedUnderlinePainter(
-                                        color: Colors.grey.shade400),
+                                        color: AppColors.grey500),
                                     child: Text(
                                       _displayName,
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w600,
                                         fontSize: 15,
+                                        color: AppColors.textOnDark,
                                       ),
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -1857,7 +1656,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                         widget.isExpanded
                             ? Icons.expand_less
                             : Icons.expand_more,
-                        color: Colors.grey.shade400,
+                        color: AppColors.grey500,
                         size: 24,
                       ),
                     ),
@@ -1881,20 +1680,20 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                     padding: const EdgeInsets.all(12),
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
-                      color: Colors.red.shade50,
+                      color: const Color(0xFF3B1111),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red.shade200),
+                      border: Border.all(color: AppColors.error.withValues(alpha: 0.4)),
                     ),
-                    child: Row(
+                    child: const Row(
                       children: [
                         Icon(Icons.error_outline,
-                            color: Colors.red.shade700, size: 20),
-                        const SizedBox(width: 8),
+                            color: Color(0xFFFCA5A5), size: 20),
+                        SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Line drawing conversion failed. The original is preserved.',
                             style: TextStyle(
-                                color: Colors.red.shade700, fontSize: 13),
+                                color: Color(0xFFFCA5A5), fontSize: 13),
                           ),
                         ),
                       ],
@@ -1986,7 +1785,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                       height: 180,
                       width: double.infinity,
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
+                        color: AppColors.darkSurfaceVariant,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: ClipRRect(
@@ -2006,12 +1805,12 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                       width: double.infinity,
                                       errorBuilder:
                                           (_, __, ___) => Container(
-                                        color: Colors.grey.shade200,
+                                        color: AppColors.darkSurfaceVariant,
                                       ),
                                     )
                                   else
                                     Container(
-                                        color: Colors.grey.shade200),
+                                        color: AppColors.darkSurfaceVariant),
                                   Center(
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
@@ -2024,8 +1823,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                                         .absoluteThumbnailPath !=
                                                     null
                                                 ? Colors.white70
-                                                : Colors
-                                                    .grey.shade600),
+                                                : AppColors.grey500),
                                         const SizedBox(height: 8),
                                         Text(
                                           'Tap to play',
@@ -2035,8 +1833,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                                         .absoluteThumbnailPath !=
                                                     null
                                                 ? Colors.white70
-                                                : Colors
-                                                    .grey.shade600,
+                                                : AppColors.grey500,
                                           ),
                                         ),
                                       ],
@@ -2049,11 +1846,11 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                     .exercise.displayFilePath),
                                 fit: BoxFit.contain,
                                 width: double.infinity,
-                                errorBuilder: (_, __, ___) => Center(
+                                errorBuilder: (_, __, ___) => const Center(
                                   child: Icon(
                                       Icons.broken_image_outlined,
                                       size: 48,
-                                      color: Colors.grey.shade400),
+                                      color: AppColors.grey500),
                                 ),
                               ),
                       ),
@@ -2131,10 +1928,10 @@ class _SliderRow extends StatelessWidget {
           width: 40,
           child: Text(
             label,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: Colors.grey.shade700,
+              color: AppColors.textSecondaryOnDark,
             ),
           ),
         ),
@@ -2158,7 +1955,7 @@ class _SliderRow extends StatelessWidget {
             style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w700,
-              color: Colors.black87,
+              color: AppColors.textOnDark,
             ),
           ),
         ),
@@ -2226,14 +2023,14 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
       children: [
         Row(
           children: [
-            SizedBox(
+            const SizedBox(
               width: 40,
               child: Text(
                 'Time',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade700,
+                  color: AppColors.textSecondaryOnDark,
                 ),
               ),
             ),
@@ -2241,14 +2038,14 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
               child: SliderTheme(
                 data: SliderThemeData(
                   trackHeight: 8,
-                  activeTrackColor: Colors.teal.shade400,
-                  inactiveTrackColor: Colors.grey.shade300,
-                  thumbColor: Colors.teal.shade400,
+                  activeTrackColor: AppColors.circuit,
+                  inactiveTrackColor: AppColors.darkBorder,
+                  thumbColor: AppColors.circuit,
                   thumbShape:
                       const _RectangularSliderThumbShape(width: 8, height: 24, radius: 4),
                   overlayShape:
                       const RoundSliderOverlayShape(overlayRadius: 20),
-                  overlayColor: Colors.teal.withValues(alpha: 0.12),
+                  overlayColor: AppColors.circuit.withValues(alpha: 0.12),
                   trackShape: const RoundedRectSliderTrackShape(),
                 ),
                 child: Slider(
@@ -2272,7 +2069,7 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
-                  color: widget.isCustom ? Colors.teal.shade600 : Colors.black87,
+                  color: widget.isCustom ? AppColors.circuit : AppColors.textOnDark,
                 ),
               ),
             ),
@@ -2282,15 +2079,15 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
         if (widget.isCustom)
           GestureDetector(
             onTap: widget.onReset,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 40, top: 0),
+            child: const Padding(
+              padding: EdgeInsets.only(left: 40, top: 0),
               child: Text(
                 'Reset to auto',
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.teal.shade500,
+                  color: AppColors.circuit,
                   decoration: TextDecoration.underline,
-                  decorationColor: Colors.teal.shade400,
+                  decorationColor: AppColors.circuit,
                 ),
               ),
             ),
@@ -2360,30 +2157,31 @@ class _RestBarState extends State<_RestBar> {
     return Container(
       height: 48,
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.blueGrey.shade50,
-        borderRadius: BorderRadius.circular(8),
+        color: AppColors.darkSurfaceVariant,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.darkBorder, width: 1),
       ),
       child: Row(
         children: [
           // Rest icon
-          Padding(
-            padding: const EdgeInsets.only(left: 8, right: 6),
+          const Padding(
+            padding: EdgeInsets.only(left: 8, right: 6),
             child: Icon(
               Icons.self_improvement,
               size: 18,
-              color: Colors.blueGrey.shade400,
+              color: AppColors.rest,
             ),
           ),
 
           // "Rest" label
-          Text(
+          const Text(
             'Rest',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: Colors.blueGrey.shade600,
+              color: AppColors.rest,
             ),
           ),
 
@@ -2394,14 +2192,14 @@ class _RestBarState extends State<_RestBar> {
             child: SliderTheme(
               data: SliderThemeData(
                 trackHeight: 4,
-                activeTrackColor: Colors.blueGrey.shade400,
-                inactiveTrackColor: Colors.blueGrey.shade200,
-                thumbColor: Colors.blueGrey.shade400,
+                activeTrackColor: AppColors.rest,
+                inactiveTrackColor: AppColors.rest.withValues(alpha: 0.2),
+                thumbColor: AppColors.rest,
                 thumbShape:
                     const _RectangularSliderThumbShape(width: 6, height: 18, radius: 3),
                 overlayShape:
                     const RoundSliderOverlayShape(overlayRadius: 14),
-                overlayColor: Colors.blueGrey.withValues(alpha: 0.12),
+                overlayColor: AppColors.rest.withValues(alpha: 0.12),
                 trackShape: const RoundedRectSliderTrackShape(),
               ),
               child: Slider(
@@ -2425,10 +2223,10 @@ class _RestBarState extends State<_RestBar> {
             child: Text(
               _formatDuration(seconds),
               textAlign: TextAlign.right,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Colors.blueGrey.shade600,
+                color: AppColors.rest,
               ),
             ),
           ),
@@ -2441,7 +2239,7 @@ class _RestBarState extends State<_RestBar> {
               child: Icon(
                 Icons.close,
                 size: 16,
-                color: Colors.blueGrey.shade300,
+                color: AppColors.rest.withValues(alpha: 0.5),
               ),
             ),
           ),

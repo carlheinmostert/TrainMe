@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/exercise_capture.dart';
+import '../theme.dart';
 
 /// Reusable thumbnail widget for a captured exercise.
 ///
@@ -41,15 +42,15 @@ class CaptureThumbnail extends StatelessWidget {
     final path = exercise.displayFilePath;
     final file = File(path);
 
-    // Rest periods: show a calming icon in a blue-grey circle.
+    // Rest periods: show a calming icon in a dark surface.
     if (exercise.isRest) {
       return Container(
-        color: const Color(0xFFE3EAF0),
+        color: AppColors.darkSurfaceVariant,
         child: Center(
           child: Icon(
             Icons.self_improvement,
             size: size * 0.5,
-            color: const Color(0xFF607D8B),
+            color: AppColors.rest,
           ),
         ),
       );
@@ -67,7 +68,7 @@ class CaptureThumbnail extends StatelessWidget {
               thumbFile,
               fit: BoxFit.cover,
               errorBuilder: (_, __, ___) => Container(
-                color: Colors.grey.shade800,
+                color: AppColors.darkSurfaceVariant,
                 child: const Center(
                   child: Icon(Icons.play_circle_outline,
                       color: Colors.white54, size: 28),
@@ -82,7 +83,7 @@ class CaptureThumbnail extends StatelessWidget {
         );
       }
       return Container(
-        color: Colors.grey.shade800,
+        color: AppColors.darkSurfaceVariant,
         child: const Center(
           child: Icon(Icons.play_circle_outline, color: Colors.white54, size: 28),
         ),
@@ -93,9 +94,9 @@ class CaptureThumbnail extends StatelessWidget {
       file,
       fit: BoxFit.cover,
       errorBuilder: (_, __, ___) => Container(
-        color: Colors.grey.shade300,
+        color: AppColors.darkSurfaceVariant,
         child: const Center(
-          child: Icon(Icons.broken_image_outlined, color: Colors.grey, size: 24),
+          child: Icon(Icons.broken_image_outlined, color: AppColors.grey500, size: 24),
         ),
       ),
     );
