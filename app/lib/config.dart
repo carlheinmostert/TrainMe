@@ -9,7 +9,7 @@ class AppConfig {
 
   /// Base URL for shared plan links (web player)
   /// TODO: Update when domain is registered
-  static const String webPlayerBaseUrl = 'https://raidme.vercel.app';
+  static const String webPlayerBaseUrl = 'https://session.homefit.studio';
 
   /// Video recording constraints
   static const int maxVideoSeconds = 30;

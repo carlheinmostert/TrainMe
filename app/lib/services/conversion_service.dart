@@ -9,6 +9,7 @@ import 'package:video_thumbnail/video_thumbnail.dart' as vt;
 import '../config.dart';
 import '../models/exercise_capture.dart';
 import 'local_storage_service.dart';
+import 'path_resolver.dart';
 
 /// Background line drawing conversion service.
 ///
@@ -137,7 +138,7 @@ class ConversionService extends ChangeNotifier {
             : converting;
 
         var done = base.copyWith(
-          convertedFilePath: convertedPath,
+          convertedFilePath: PathResolver.toRelative(convertedPath),
           conversionStatus: ConversionStatus.done,
         );
 
@@ -149,11 +150,11 @@ class ConversionService extends ChangeNotifier {
             final thumbPath =
                 p.join(dir.path, 'thumbnails', '${exercise.id}_thumb.jpg');
             await _thumbChannel.invokeMethod<String>('extractFrame', {
-              'inputPath': convertedPath,
+              'inputPath': PathResolver.resolve(done.convertedFilePath!),
               'outputPath': thumbPath,
               'timeMs': 0,
             });
-            done = done.copyWith(thumbnailPath: thumbPath);
+            done = done.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
           } catch (e) {
             debugPrint('Post-conversion thumbnail update failed: $e');
             // Non-fatal — keep the raw thumbnail
@@ -216,9 +217,9 @@ class ConversionService extends ChangeNotifier {
       // Extract a thumbnail immediately so the UI has something to show.
       try {
         final thumbPath = await _extractVideoThumbnail(
-            exercise.rawFilePath, exercise.id, dir.path);
+            exercise.absoluteRawFilePath, exercise.id, dir.path);
         if (thumbPath != null) {
-          final withThumb = exercise.copyWith(thumbnailPath: thumbPath);
+          final withThumb = exercise.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
           await _storage.saveExercise(withThumb);
           if (!_updateController.isClosed) {
             _updateController.add(withThumb);
@@ -237,7 +238,7 @@ class ConversionService extends ChangeNotifier {
       // that single frame to a line drawing still image.
       final videoOutputPath = p.join(convertedDir, '${exercise.id}_line$ext');
       try {
-        await _convertVideo(exercise.rawFilePath, videoOutputPath);
+        await _convertVideo(exercise.absoluteRawFilePath, videoOutputPath);
         return videoOutputPath;
       } catch (e, stack) {
         debugPrint(
@@ -257,12 +258,12 @@ class ConversionService extends ChangeNotifier {
       final stillOutputPath =
           p.join(convertedDir, '${exercise.id}_line.jpg');
       await _convertVideoViaFrameExtraction(
-          exercise.rawFilePath, stillOutputPath);
+          exercise.absoluteRawFilePath, stillOutputPath);
       return stillOutputPath;
     } else {
       final convertedPath =
           p.join(convertedDir, '${exercise.id}_line$ext');
-      await _convertPhoto(exercise.rawFilePath, convertedPath);
+      await _convertPhoto(exercise.absoluteRawFilePath, convertedPath);
       return convertedPath;
     }
   }

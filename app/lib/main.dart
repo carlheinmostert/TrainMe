@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'config.dart';
 import 'services/local_storage_service.dart';
 import 'services/conversion_service.dart';
+import 'services/path_resolver.dart';
 import 'screens/home_screen.dart';
 
 /// TrainMe — Exercise plan capture and sharing for biokineticists.
@@ -11,11 +14,20 @@ import 'screens/home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize path resolver before anything that touches file paths
+  await PathResolver.initialize();
+
   // Lock to portrait — exercise demos are filmed vertically
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+
+  // Initialize Supabase for cloud storage and plan sharing
+  await Supabase.initialize(
+    url: AppConfig.supabaseUrl,
+    anonKey: AppConfig.supabaseAnonKey,
+  );
 
   try {
     // Initialize local storage (SQLite)

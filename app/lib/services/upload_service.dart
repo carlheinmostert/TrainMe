@@ -1,19 +1,24 @@
-import 'package:uuid/uuid.dart';
+import 'dart:convert';
+import 'dart:io';
+import 'package:path/path.dart' as p;
+import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
+import '../config.dart';
 import '../models/session.dart';
+import '../models/exercise_capture.dart';
 import 'local_storage_service.dart';
 
-/// Handles uploading a completed plan to the cloud and generating a
+/// Handles uploading a completed plan to Supabase and generating a
 /// shareable link.
 ///
 /// Architecture: Layer 3 of the three decoupled async layers.
 /// Nothing touches the network until the bio taps Send. Only converted
 /// (line drawing) files are uploaded — raw footage stays on device.
-///
-/// STUB: This is a Phase 3 integration point. The current implementation
-/// fakes the upload and returns a placeholder URL so the Send flow can
-/// be developed end-to-end.
 class UploadService {
   final LocalStorageService _storage;
+  final _supabase = Supabase.instance.client;
+
+  /// Storage bucket name for exercise media assets.
+  static const _bucket = 'media';
 
   UploadService({required LocalStorageService storage}) : _storage = storage;
 
@@ -24,57 +29,82 @@ class UploadService {
   /// [ConversionStatus.done]. The caller should check
   /// [Session.allConversionsComplete] before calling this.
   ///
-  /// Returns the shareable plan URL (e.g. https://raidme.app/p/{uuid}).
+  /// Returns the shareable plan URL (e.g. https://session.homefit.studio/p/{uuid}).
   Future<String> uploadPlan(Session session) async {
-    // TODO_SUPABASE: Initialize Supabase client
-    // final supabase = Supabase.instance.client;
+    final mediaUrls = <String, String>{}; // exerciseId -> media URL
+    final thumbUrls = <String, String?>{}; // exerciseId -> thumbnail URL
 
-    // TODO_SUPABASE: Upload each converted file to Supabase Storage
-    // final assetUrls = <String, String>{};
-    // for (final exercise in session.exercises) {
-    //   if (exercise.convertedFilePath == null) continue;
-    //   final file = File(exercise.convertedFilePath!);
-    //   final storagePath = 'plans/${session.id}/${exercise.id}${p.extension(exercise.convertedFilePath!)}';
-    //   await supabase.storage
-    //       .from('exercise-assets')
-    //       .upload(storagePath, file);
-    //   assetUrls[exercise.id] = supabase.storage
-    //       .from('exercise-assets')
-    //       .getPublicUrl(storagePath);
-    // }
+    // Step 1: Upload media files for each exercise
+    for (final exercise in session.exercises) {
+      if (exercise.isRest) continue; // Rest periods have no media
 
-    // TODO_SUPABASE: Create plan record in Supabase Postgres
-    // await supabase.from('plans').insert({
-    //   'id': session.id,
-    //   'client_name': session.clientName,
-    //   'title': session.displayTitle,
-    //   'created_at': session.createdAt.toIso8601String(),
-    //   'exercises': session.exercises.map((e) => {
-    //     'id': e.id,
-    //     'position': e.position,
-    //     'media_type': e.mediaType.name,
-    //     'asset_url': assetUrls[e.id],
-    //     'reps': e.reps,
-    //     'sets': e.sets,
-    //     'hold_seconds': e.holdSeconds,
-    //     'notes': e.notes,
-    //   }).toList(),
-    // });
+      // Upload converted file (or raw if conversion not done)
+      final filePath = exercise.convertedFilePath ?? exercise.rawFilePath;
+      final file = File(filePath);
+      if (await file.exists()) {
+        final ext = p.extension(filePath);
+        final storagePath = '${session.id}/${exercise.id}$ext';
+        await _supabase.storage
+            .from(_bucket)
+            .upload(storagePath, file, fileOptions: const FileOptions(upsert: true));
+        final url = _supabase.storage.from(_bucket).getPublicUrl(storagePath);
+        mediaUrls[exercise.id] = url;
+      }
 
-    // TODO_SUPABASE: Generate the real shareable URL
-    // final planUrl = 'https://raidme.app/p/${session.id}';
+      // Upload thumbnail if exists
+      final thumbPath = exercise.thumbnailPath;
+      if (thumbPath != null) {
+        final thumbFile = File(thumbPath);
+        if (await thumbFile.exists()) {
+          final thumbStoragePath = '${session.id}/${exercise.id}_thumb.jpg';
+          await _supabase.storage
+              .from(_bucket)
+              .upload(thumbStoragePath, thumbFile, fileOptions: const FileOptions(upsert: true));
+          final thumbUrl = _supabase.storage.from(_bucket).getPublicUrl(thumbStoragePath);
+          thumbUrls[exercise.id] = thumbUrl;
+        }
+      }
+    }
 
-    // TODO: At send time, for exercises with includeAudio == false, strip
-    // the audio track from the converted video before uploading. This avoids
-    // sending ambient gym noise to clients when the trainer hasn't opted in.
-    // Use FFmpeg or a native platform channel to remux without audio.
+    // Step 2: Upsert plan record (upsert handles re-sends gracefully)
+    await _supabase.from('plans').upsert({
+      'id': session.id,
+      'client_name': session.clientName,
+      'title': session.displayTitle,
+      'circuit_cycles': json.encode(session.circuitCycles),
+      'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
+      'exercise_count': session.exercises.where((e) => !e.isRest).length,
+      'created_at': session.createdAt.toIso8601String(),
+      'sent_at': DateTime.now().toIso8601String(),
+    });
 
-    // STUB: Simulate a short upload delay and return a fake URL.
-    await Future.delayed(const Duration(seconds: 1));
-    final fakePlanId = const Uuid().v4().substring(0, 8);
-    final planUrl = 'https://raidme.app/p/$fakePlanId';
+    // Step 3: Delete existing exercises for this plan (clean slate for re-sends),
+    // then insert fresh exercise records.
+    await _supabase.from('exercises').delete().eq('plan_id', session.id);
 
-    // Persist the sent state
+    final exerciseRows = session.exercises.map((e) => {
+      'id': e.id,
+      'plan_id': session.id,
+      'position': e.position,
+      'name': e.name,
+      'media_url': mediaUrls[e.id],
+      'thumbnail_url': thumbUrls[e.id],
+      'media_type': e.mediaType.name, // 'photo', 'video', or 'rest'
+      'reps': e.reps,
+      'sets': e.sets,
+      'hold_seconds': e.holdSeconds,
+      'notes': e.notes,
+      'circuit_id': e.circuitId,
+      'include_audio': e.includeAudio,
+      'custom_duration_seconds': e.customDurationSeconds,
+    }).toList();
+
+    await _supabase.from('exercises').insert(exerciseRows);
+
+    // Step 4: Build shareable URL
+    final planUrl = '${AppConfig.webPlayerBaseUrl}/p/${session.id}';
+
+    // Persist the sent state locally
     final updated = session.copyWith(
       sentAt: DateTime.now(),
       planUrl: planUrl,

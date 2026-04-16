@@ -15,6 +15,7 @@ import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/local_storage_service.dart';
 import '../services/conversion_service.dart';
+import '../services/path_resolver.dart';
 import '../services/upload_service.dart';
 import '../widgets/capture_thumbnail.dart';
 import 'plan_preview_screen.dart';
@@ -276,7 +277,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     final position = _session.exercises.length;
     final exercise = ExerciseCapture.create(
       position: position,
-      rawFilePath: destPath,
+      rawFilePath: PathResolver.toRelative(destPath),
       mediaType: type,
       sessionId: _session.id,
     );
@@ -1942,11 +1943,11 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                             ? Stack(
                                 fit: StackFit.expand,
                                 children: [
-                                  if (widget.exercise.thumbnailPath !=
+                                  if (widget.exercise.absoluteThumbnailPath !=
                                       null)
                                     Image.file(
                                       File(widget
-                                          .exercise.thumbnailPath!),
+                                          .exercise.absoluteThumbnailPath!),
                                       fit: BoxFit.contain,
                                       width: double.infinity,
                                       errorBuilder:
@@ -1966,7 +1967,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                                 .play_circle_outline,
                                             size: 48,
                                             color: widget.exercise
-                                                        .thumbnailPath !=
+                                                        .absoluteThumbnailPath !=
                                                     null
                                                 ? Colors.white70
                                                 : Colors
@@ -1977,7 +1978,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                           style: TextStyle(
                                             fontSize: 13,
                                             color: widget.exercise
-                                                        .thumbnailPath !=
+                                                        .absoluteThumbnailPath !=
                                                     null
                                                 ? Colors.white70
                                                 : Colors
@@ -2628,9 +2629,17 @@ class _CameraCaptureScreenState extends State<_CameraCaptureScreen>
     try {
       final xFile = await _cameraController!.takePicture();
 
+      // Copy camera file to app storage (camera temp files may be cleaned)
+      final dir = await getApplicationDocumentsDirectory();
+      final rawDir = Directory(p.join(dir.path, 'raw'));
+      await rawDir.create(recursive: true);
+      final ext = p.extension(xFile.path);
+      final destPath = p.join(rawDir.path, '${DateTime.now().millisecondsSinceEpoch}$ext');
+      await File(xFile.path).copy(destPath);
+
       final exercise = ExerciseCapture.create(
         position: widget.session.exercises.length,
-        rawFilePath: xFile.path,
+        rawFilePath: PathResolver.toRelative(destPath),
         mediaType: MediaType.photo,
         sessionId: widget.session.id,
       );
@@ -2681,9 +2690,17 @@ class _CameraCaptureScreenState extends State<_CameraCaptureScreen>
         _recordingSeconds = 0;
       });
 
+      // Copy camera file to app storage (camera temp files may be cleaned)
+      final dir = await getApplicationDocumentsDirectory();
+      final rawDir = Directory(p.join(dir.path, 'raw'));
+      await rawDir.create(recursive: true);
+      final ext = p.extension(xFile.path);
+      final destPath = p.join(rawDir.path, '${DateTime.now().millisecondsSinceEpoch}$ext');
+      await File(xFile.path).copy(destPath);
+
       final exercise = ExerciseCapture.create(
         position: widget.session.exercises.length,
-        rawFilePath: xFile.path,
+        rawFilePath: PathResolver.toRelative(destPath),
         mediaType: MediaType.video,
         sessionId: widget.session.id,
       );

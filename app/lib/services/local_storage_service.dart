@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import '../config.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import 'path_resolver.dart';
 
 /// SQLite-backed local persistence for sessions and exercises.
 ///
@@ -13,7 +14,7 @@ import '../models/session.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 8;
+  static const _dbVersion = 9;
 
   Database? _db;
 
@@ -115,6 +116,32 @@ class LocalStorageService {
         'ALTER TABLE exercises ADD COLUMN custom_duration INTEGER',
       );
     }
+    if (oldVersion < 9) {
+      // Convert absolute file paths to relative (relative to Documents dir).
+      // This makes the database survive app reinstalls where the container
+      // ID changes on iOS.
+      final docsDir = PathResolver.docsDir;
+      final prefix = '$docsDir/';
+
+      // Update raw_file_path
+      await db.rawUpdate(
+        "UPDATE exercises SET raw_file_path = REPLACE(raw_file_path, ?, '') "
+        "WHERE raw_file_path LIKE ?",
+        [prefix, '$prefix%'],
+      );
+      // Update converted_file_path
+      await db.rawUpdate(
+        "UPDATE exercises SET converted_file_path = REPLACE(converted_file_path, ?, '') "
+        "WHERE converted_file_path LIKE ?",
+        [prefix, '$prefix%'],
+      );
+      // Update thumbnail_path
+      await db.rawUpdate(
+        "UPDATE exercises SET thumbnail_path = REPLACE(thumbnail_path, ?, '') "
+        "WHERE thumbnail_path LIKE ?",
+        [prefix, '$prefix%'],
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -161,15 +188,15 @@ class LocalStorageService {
   /// Delete a session and all its exercises. Also removes associated media
   /// files from disk.
   Future<void> deleteSession(String id) async {
-    // Gather file paths before deleting rows
+    // Gather file paths before deleting rows — resolve to absolute for disk I/O
     final exercises = await _getExercisesForSession(id);
     for (final ex in exercises) {
-      _deleteFileIfExists(ex.rawFilePath);
+      _deleteFileIfExists(PathResolver.resolve(ex.rawFilePath));
       if (ex.convertedFilePath != null) {
-        _deleteFileIfExists(ex.convertedFilePath!);
+        _deleteFileIfExists(PathResolver.resolve(ex.convertedFilePath!));
       }
       if (ex.thumbnailPath != null) {
-        _deleteFileIfExists(ex.thumbnailPath!);
+        _deleteFileIfExists(PathResolver.resolve(ex.thumbnailPath!));
       }
     }
 
@@ -259,12 +286,12 @@ class LocalStorageService {
     );
     if (rows.isNotEmpty) {
       final ex = ExerciseCapture.fromMap(rows.first);
-      _deleteFileIfExists(ex.rawFilePath);
+      _deleteFileIfExists(PathResolver.resolve(ex.rawFilePath));
       if (ex.convertedFilePath != null) {
-        _deleteFileIfExists(ex.convertedFilePath!);
+        _deleteFileIfExists(PathResolver.resolve(ex.convertedFilePath!));
       }
       if (ex.thumbnailPath != null) {
-        _deleteFileIfExists(ex.thumbnailPath!);
+        _deleteFileIfExists(PathResolver.resolve(ex.thumbnailPath!));
       }
     }
     await db.delete('exercises', where: 'id = ?', whereArgs: [exerciseId]);

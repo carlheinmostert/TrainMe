@@ -58,8 +58,8 @@ class CaptureThumbnail extends StatelessWidget {
     // For videos, show the extracted thumbnail if available,
     // otherwise fall back to a dark placeholder with a play icon.
     if (exercise.mediaType == MediaType.video) {
-      if (exercise.thumbnailPath != null) {
-        final thumbFile = File(exercise.thumbnailPath!);
+      if (exercise.absoluteThumbnailPath != null) {
+        final thumbFile = File(exercise.absoluteThumbnailPath!);
         return Stack(
           fit: StackFit.expand,
           children: [

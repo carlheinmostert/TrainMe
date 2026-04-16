@@ -12,83 +12,11 @@ const SUPABASE_URL = 'https://yrwcofhovrcydootivjx.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_cwhfavfji552BN8X0uPIpA_pwWQ-gw3';
 
 // ============================================================
-// Mock Data — Remove when Supabase is connected
-// ============================================================
-
-const MOCK_PLAN = {
-  id: 'test-plan-123',
-  client_name: 'Karen',
-  title: 'Shoulder Rehab Programme',
-  created_at: '2026-04-16',
-  exercises: [
-    {
-      position: 1,
-      name: 'Scapular retraction with band',
-      media_url: null,
-      media_type: 'photo',
-      reps: 12,
-      sets: 3,
-      hold_seconds: null,
-      notes: 'Keep elbows close to body. Squeeze shoulder blades together at the end of each rep. Slow, controlled movement throughout.'
-    },
-    {
-      position: 2,
-      name: 'Prone Y-raise',
-      media_url: null,
-      media_type: 'video',
-      reps: 10,
-      sets: 3,
-      hold_seconds: 2,
-      notes: 'Lie face-down on the bench. Raise arms into a Y-shape with thumbs pointing up. Hold the top position for 2 seconds before lowering.'
-    },
-    {
-      position: 3,
-      name: 'Wall angel stretch',
-      media_url: null,
-      media_type: 'photo',
-      reps: 8,
-      sets: 2,
-      hold_seconds: null,
-      notes: 'Stand with back flat against the wall. Slide arms up and down keeping contact with the wall. If lower back arches, step feet further from the wall.'
-    },
-    {
-      position: 4,
-      name: 'Side-lying external rotation',
-      media_url: null,
-      media_type: 'photo',
-      reps: 15,
-      sets: 3,
-      hold_seconds: null,
-      notes: 'Place a rolled towel between your elbow and your side. Rotate forearm upward keeping the elbow pinned. Use a light weight (1-2 kg) or no weight initially.'
-    },
-    {
-      position: 5,
-      name: 'Thoracic spine foam roll',
-      media_url: null,
-      media_type: 'video',
-      reps: null,
-      sets: null,
-      hold_seconds: 60,
-      notes: 'Place foam roller across the upper back. Cross arms over chest. Slowly roll from mid-back to upper back. Breathe normally and pause on tender spots.'
-    },
-    {
-      position: 6,
-      name: 'Isometric shoulder flexion at wall',
-      media_url: null,
-      media_type: 'photo',
-      reps: 5,
-      sets: 3,
-      hold_seconds: 10,
-      notes: 'Stand facing the wall with fist at shoulder height. Push gently into the wall and hold. This should be pain-free \u2014 reduce pressure if any discomfort.'
-    }
-  ]
-};
-
-// ============================================================
 // State
 // ============================================================
 
 let plan = null;
+let slides = [];
 let currentIndex = 0;
 let swipeState = { active: false, startX: 0, currentX: 0, startTime: 0 };
 
@@ -120,27 +48,60 @@ function getPlanIdFromURL() {
 }
 
 async function fetchPlan(planId) {
-  // TODO_SUPABASE: Replace mock data fetch with real Supabase call
-  // Example implementation:
-  //
-  // const response = await fetch(
-  //   `${SUPABASE_URL}/rest/v1/plans?id=eq.${planId}&select=*,exercises(*)`,
-  //   {
-  //     headers: {
-  //       'apikey': SUPABASE_ANON_KEY,
-  //       'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-  //     }
-  //   }
-  // );
-  //
-  // if (!response.ok) throw new Error('Plan not found');
-  // const data = await response.json();
-  // if (!data.length) throw new Error('Plan not found');
-  // return data[0];
+  const response = await fetch(
+    `${SUPABASE_URL}/rest/v1/plans?id=eq.${planId}&select=*,exercises(*)`,
+    {
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      }
+    }
+  );
+  if (!response.ok) throw new Error('Plan not found');
+  const data = await response.json();
+  if (!data.length) throw new Error('Plan not found');
+  const plan = data[0];
+  // Sort exercises by position
+  plan.exercises.sort((a, b) => a.position - b.position);
+  return plan;
+}
 
-  // Mock: simulate network delay then return mock data
-  await new Promise(resolve => setTimeout(resolve, 600));
-  return MOCK_PLAN;
+// ============================================================
+// Circuit Unrolling
+// ============================================================
+
+function unrollExercises(plan) {
+  const exercises = plan.exercises;
+  const cycles = plan.circuit_cycles || {};
+  const result = [];
+  let i = 0;
+  while (i < exercises.length) {
+    const ex = exercises[i];
+    if (!ex.circuit_id) {
+      result.push({ ...ex, circuitRound: null, circuitTotalRounds: null, positionInCircuit: null, circuitSize: null });
+      i++;
+    } else {
+      const circuitId = ex.circuit_id;
+      const group = [];
+      while (i < exercises.length && exercises[i].circuit_id === circuitId) {
+        group.push(exercises[i]);
+        i++;
+      }
+      const totalRounds = cycles[circuitId] || 3;
+      for (let round = 1; round <= totalRounds; round++) {
+        group.forEach((gex, idx) => {
+          result.push({
+            ...gex,
+            circuitRound: round,
+            circuitTotalRounds: totalRounds,
+            positionInCircuit: idx + 1,
+            circuitSize: group.length,
+          });
+        });
+      }
+    }
+  }
+  return result;
 }
 
 // ============================================================
@@ -152,15 +113,15 @@ function renderPlan() {
   $planTitle.textContent = plan.title;
 
   // Build navigation dots
-  $navDots.innerHTML = plan.exercises
+  $navDots.innerHTML = slides
     .map((_, i) => `<div class="nav-dot${i === 0 ? ' is-active' : ''}" data-index="${i}"></div>`)
     .join('');
 
   // Build exercise cards
-  $cardTrack.innerHTML = plan.exercises.map((ex, i) => buildCard(ex, i)).join('');
+  $cardTrack.innerHTML = slides.map((slide, i) => buildCard(slide, i)).join('');
 
   // Add swipe hint on first card
-  if (plan.exercises.length > 1) {
+  if (slides.length > 1) {
     const hint = document.createElement('div');
     hint.className = 'swipe-hint';
     hint.innerHTML = `
@@ -175,25 +136,67 @@ function renderPlan() {
   updateUI();
 }
 
-function buildCard(exercise, index) {
-  const prescriptionPills = buildPrescription(exercise);
-  const mediaHTML = buildMedia(exercise, index);
+function buildCard(slide, index) {
+  // Rest card
+  if (slide.media_type === 'rest') {
+    return buildRestCard(slide, index);
+  }
+
+  const prescriptionPills = buildPrescription(slide);
+  const mediaHTML = buildMedia(slide, index);
+  const circuitBar = buildCircuitBar(slide);
+
+  const displayName = slide.name || ('Exercise ' + (index + 1));
 
   return `
     <div class="exercise-card" data-index="${index}">
       <div class="card-inner">
+        ${circuitBar}
         <div class="card-media">
           ${mediaHTML}
         </div>
         <div class="card-body">
-          <div class="card-position">Exercise ${exercise.position}</div>
-          <div class="card-exercise-name">${escapeHTML(exercise.name)}</div>
+          <div class="card-position">Exercise ${slide.position}</div>
+          <div class="card-exercise-name">${escapeHTML(displayName)}</div>
           ${prescriptionPills ? `<div class="card-prescription">${prescriptionPills}</div>` : ''}
-          ${exercise.notes ? `<div class="card-notes">${escapeHTML(exercise.notes)}</div>` : ''}
+          ${slide.notes ? `<div class="card-notes">${escapeHTML(slide.notes)}</div>` : ''}
         </div>
       </div>
     </div>
   `;
+}
+
+function buildRestCard(slide, index) {
+  const duration = slide.hold_seconds || slide.custom_duration_seconds || 30;
+  const nextSlide = index < slides.length - 1 ? slides[index + 1] : null;
+  const nextUpName = nextSlide ? (nextSlide.name || 'Next exercise') : null;
+  const circuitBar = buildCircuitBar(slide);
+
+  return `
+    <div class="exercise-card" data-index="${index}">
+      <div class="card-inner rest-card">
+        ${circuitBar}
+        <div class="rest-display">
+          <div class="rest-icon">
+            <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="2" opacity="0.3"/>
+              <circle cx="32" cy="32" r="20" stroke="currentColor" stroke-width="2" opacity="0.2"/>
+              <circle cx="32" cy="32" r="12" stroke="currentColor" stroke-width="2" opacity="0.15"/>
+              <path d="M32 20v12l8 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="rest-title">Rest</div>
+          <div class="rest-duration">${duration}s</div>
+          ${nextUpName ? `<div class="rest-next-up">Next up: ${escapeHTML(nextUpName)}</div>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildCircuitBar(slide) {
+  if (!slide.circuitRound) return '';
+  return `<div class="circuit-bar">Circuit &middot; Round ${slide.circuitRound} of ${slide.circuitTotalRounds} &middot; Exercise ${slide.positionInCircuit} of ${slide.circuitSize}</div>`;
 }
 
 function buildMedia(exercise, index) {
@@ -215,15 +218,17 @@ function buildMedia(exercise, index) {
   }
 
   if (exercise.media_type === 'video') {
+    const mutedAttr = exercise.include_audio ? '' : 'muted';
+    const posterAttr = exercise.thumbnail_url ? `poster="${escapeHTML(exercise.thumbnail_url)}"` : '';
     return `
       <video
         id="video-${index}"
         src="${escapeHTML(exercise.media_url)}"
         playsinline
         loop
-        muted
+        ${mutedAttr}
         preload="auto"
-        poster=""
+        ${posterAttr}
       ></video>
       <div class="video-play-overlay" data-video-index="${index}">
         <div class="play-button">
@@ -233,7 +238,9 @@ function buildMedia(exercise, index) {
     `;
   }
 
-  return `<img src="${escapeHTML(exercise.media_url)}" alt="${escapeHTML(exercise.name)}" loading="lazy">`;
+  // Photo / image
+  const posterAttr = exercise.thumbnail_url ? exercise.thumbnail_url : exercise.media_url;
+  return `<img src="${escapeHTML(posterAttr)}" alt="${escapeHTML(exercise.name || 'Exercise')}" loading="lazy">`;
 }
 
 function buildPrescription(exercise) {
@@ -256,6 +263,7 @@ function buildPrescription(exercise) {
 }
 
 function escapeHTML(str) {
+  if (!str) return '';
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
@@ -266,7 +274,7 @@ function escapeHTML(str) {
 // ============================================================
 
 function goTo(index) {
-  if (index < 0 || index >= plan.exercises.length) return;
+  if (index < 0 || index >= slides.length) return;
 
   // Pause any playing videos on current card
   pauseAllVideos();
@@ -284,7 +292,7 @@ function goPrev() {
 }
 
 function updateUI() {
-  const total = plan.exercises.length;
+  const total = slides.length;
 
   // Slide the track
   $cardTrack.style.transform = `translateX(-${currentIndex * 100}%)`;
@@ -360,7 +368,7 @@ function onTouchMove(e) {
 
   // Add resistance at edges
   let effectiveDx = dx;
-  if ((currentIndex === 0 && dx > 0) || (currentIndex === plan.exercises.length - 1 && dx < 0)) {
+  if ((currentIndex === 0 && dx > 0) || (currentIndex === slides.length - 1 && dx < 0)) {
     effectiveDx = dx * 0.25;
   }
 
@@ -438,6 +446,9 @@ async function init() {
 
     // Sort exercises by position
     plan.exercises.sort((a, b) => a.position - b.position);
+
+    // Unroll circuits into flat slides array
+    slides = unrollExercises(plan);
 
     // Render
     renderPlan();

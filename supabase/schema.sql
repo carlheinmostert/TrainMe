@@ -1,52 +1,57 @@
--- Raidme POV — Database Schema
--- Run this in the Supabase SQL Editor (Dashboard → SQL Editor → New query)
+-- TrainMe / HomeFit — Supabase Schema
+-- Run in Supabase SQL Editor to set up the database.
+-- WARNING: This drops existing tables. Only run on fresh/POV databases.
 
--- Plans table
-create table plans (
-  id uuid primary key default gen_random_uuid(),
-  client_name text not null,
+DROP TABLE IF EXISTS exercises CASCADE;
+DROP TABLE IF EXISTS plans CASCADE;
+
+-- Plans table — one record per sent exercise plan
+CREATE TABLE plans (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_name text NOT NULL,
   title text,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
+  circuit_cycles jsonb DEFAULT '{}',
+  preferred_rest_interval_seconds integer,
+  exercise_count integer,
+  created_at timestamptz DEFAULT now(),
+  sent_at timestamptz DEFAULT now()
 );
 
--- Exercises within a plan
-create table exercises (
-  id uuid primary key default gen_random_uuid(),
-  plan_id uuid not null references plans(id) on delete cascade,
-  position integer not null,
+-- Exercises table — ordered exercises within a plan
+CREATE TABLE exercises (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  plan_id uuid NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+  position integer NOT NULL,
+  name text,
   media_url text,
-  media_type text not null check (media_type in ('photo', 'video')),
+  thumbnail_url text,
+  media_type text NOT NULL CHECK (media_type IN ('photo', 'video', 'rest')),
   reps integer,
   sets integer,
   hold_seconds integer,
   notes text,
-  created_at timestamptz default now()
+  circuit_id text,
+  include_audio boolean DEFAULT false,
+  custom_duration_seconds integer,
+  created_at timestamptz DEFAULT now()
 );
 
--- Index for fast plan lookups
-create index idx_exercises_plan_id on exercises(plan_id);
-create index idx_exercises_position on exercises(plan_id, position);
+-- Indexes
+CREATE INDEX idx_exercises_plan ON exercises(plan_id, position);
 
--- Enable Row Level Security (required for publishable key access)
-alter table plans enable row level security;
-alter table exercises enable row level security;
+-- Row Level Security — public read + insert (POV: security by unguessable UUID)
+ALTER TABLE plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE exercises ENABLE ROW LEVEL SECURITY;
 
--- POV policies: allow public read (anyone with the link can view)
--- and public insert (the app can create plans without auth)
-create policy "Anyone can view plans" on plans
-  for select using (true);
+CREATE POLICY "Public read plans" ON plans FOR SELECT USING (true);
+CREATE POLICY "Public insert plans" ON plans FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public read exercises" ON exercises FOR SELECT USING (true);
+CREATE POLICY "Public insert exercises" ON exercises FOR INSERT WITH CHECK (true);
 
-create policy "Anyone can create plans" on plans
-  for insert with check (true);
-
-create policy "Anyone can view exercises" on exercises
-  for select using (true);
-
-create policy "Anyone can create exercises" on exercises
-  for insert with check (true);
-
--- Storage bucket for media files
--- NOTE: Create the bucket manually in Dashboard → Storage → New bucket:
---   Name: media
---   Public: ON (so web player can load images/videos directly)
+-- Storage bucket (run separately in Supabase dashboard or via SQL)
+-- INSERT INTO storage.buckets (id, name, public) VALUES ('media', 'media', true)
+-- ON CONFLICT (id) DO NOTHING;
+--
+-- Storage RLS policies:
+-- CREATE POLICY "Public read media" ON storage.objects FOR SELECT USING (bucket_id = 'media');
+-- CREATE POLICY "Public upload media" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'media');
