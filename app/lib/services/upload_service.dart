@@ -64,6 +64,11 @@ class UploadService {
     // TODO_SUPABASE: Generate the real shareable URL
     // final planUrl = 'https://raidme.app/p/${session.id}';
 
+    // TODO: At send time, for exercises with includeAudio == false, strip
+    // the audio track from the converted video before uploading. This avoids
+    // sending ambient gym noise to clients when the trainer hasn't opted in.
+    // Use FFmpeg or a native platform channel to remux without audio.
+
     // STUB: Simulate a short upload delay and return a fake URL.
     await Future.delayed(const Duration(seconds: 1));
     final fakePlanId = const Uuid().v4().substring(0, 8);

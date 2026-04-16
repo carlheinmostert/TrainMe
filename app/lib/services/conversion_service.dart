@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:opencv_dart/opencv_dart.dart' as cv;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:video_thumbnail/video_thumbnail.dart' as vt;
 import '../config.dart';
 import '../models/exercise_capture.dart';
 import 'local_storage_service.dart';
@@ -24,6 +26,33 @@ import 'local_storage_service.dart';
 class ConversionService extends ChangeNotifier {
   final LocalStorageService _storage;
 
+  // ---------------------------------------------------------------------------
+  // Singleton — lives for the entire app lifetime. Never disposed.
+  // ---------------------------------------------------------------------------
+
+  static ConversionService? _instance;
+
+  /// Access the singleton instance. Must call [initialize] first.
+  static ConversionService get instance {
+    assert(_instance != null,
+        'ConversionService.initialize() must be called before accessing instance');
+    return _instance!;
+  }
+
+  /// Create and store the singleton. Call once from main().
+  static ConversionService initialize(LocalStorageService storage) {
+    _instance = ConversionService._(storage: storage);
+    return _instance!;
+  }
+
+  /// Native iOS platform channel for video conversion.
+  /// Uses AVAssetReader/Writer for H.264/265 I/O and Accelerate for
+  /// pixel processing -- bypasses OpenCV's codec limitations on iOS.
+  static const _videoChannel = MethodChannel('com.raidme.video_converter');
+
+  /// Simple native frame extraction channel (AVAssetImageGenerator).
+  static const _thumbChannel = MethodChannel('com.raidme.native_thumb');
+
   /// The processing queue. Items are processed FIFO.
   final List<ExerciseCapture> _queue = [];
 
@@ -36,8 +65,23 @@ class ConversionService extends ChangeNotifier {
   /// Fires each time an exercise's conversion status changes.
   Stream<ExerciseCapture> get onConversionUpdate => _updateController.stream;
 
-  ConversionService({required LocalStorageService storage})
-      : _storage = storage;
+  ConversionService._({required LocalStorageService storage})
+      : _storage = storage {
+    // Listen for progress updates from the native video converter.
+    _videoChannel.setMethodCallHandler(_handleNativeCallback);
+  }
+
+  /// Handle callbacks from the native platform channel (e.g. progress).
+  Future<dynamic> _handleNativeCallback(MethodCall call) async {
+    if (call.method == 'onProgress') {
+      final args = call.arguments as Map?;
+      if (args != null) {
+        debugPrint(
+            'Native video conversion progress: '
+            '${args["framesProcessed"]}/${args["totalFrames"]} frames');
+      }
+    }
+  }
 
   /// Queue a capture for line drawing conversion.
   void queueConversion(ExerciseCapture exercise) {
@@ -68,25 +112,87 @@ class ConversionService extends ChangeNotifier {
         conversionStatus: ConversionStatus.converting,
       );
       await _storage.saveExercise(converting);
-      _updateController.add(converting);
+      if (!_updateController.isClosed) {
+        _updateController.add(converting);
+      }
       notifyListeners();
 
       try {
         final convertedPath = await _convert(converting);
 
-        final done = converting.copyWith(
+        // Re-read from the database to pick up intermediate updates
+        // (e.g. thumbnailPath set during video thumbnail extraction inside
+        // _convert). Without this, the copyWith below would use
+        // `converting` which still has thumbnailPath: null, overwriting
+        // the thumbnail that was saved to the DB mid-conversion.
+        final freshRows = await _storage.db.query(
+          'exercises',
+          where: 'id = ?',
+          whereArgs: [exercise.id],
+        );
+        final base = freshRows.isNotEmpty
+            ? ExerciseCapture.fromMap(freshRows.first)
+            : converting;
+
+        var done = base.copyWith(
           convertedFilePath: convertedPath,
           conversionStatus: ConversionStatus.done,
         );
+
+        // Replace the raw-video thumbnail with a frame from the CONVERTED
+        // line-drawing video so the UI shows the line-art style everywhere.
+        if (exercise.mediaType == MediaType.video) {
+          try {
+            final dir = await getApplicationDocumentsDirectory();
+            final thumbPath =
+                p.join(dir.path, 'thumbnails', '${exercise.id}_thumb.jpg');
+            await _thumbChannel.invokeMethod<String>('extractFrame', {
+              'inputPath': convertedPath,
+              'outputPath': thumbPath,
+              'timeMs': 0,
+            });
+            done = done.copyWith(thumbnailPath: thumbPath);
+          } catch (e) {
+            debugPrint('Post-conversion thumbnail update failed: $e');
+            // Non-fatal — keep the raw thumbnail
+          }
+        }
+
         await _storage.saveExercise(done);
-        _updateController.add(done);
+        if (!_updateController.isClosed) {
+          _updateController.add(done);
+        }
         notifyListeners();
-      } catch (e) {
-        final failed = converting.copyWith(
+      } catch (e, stack) {
+        // Write error to a log file for debugging (readable from simulator filesystem)
+        try {
+          final logDir = await getApplicationDocumentsDirectory();
+          final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+          await logFile.writeAsString(
+            '${DateTime.now()}\nExercise: ${exercise.id}\n'
+            'Raw file: ${exercise.rawFilePath}\n'
+            'Error: $e\n\nStack:\n$stack\n\n',
+            mode: FileMode.append,
+          );
+        } catch (_) {}
+
+        // Re-read from the database to preserve thumbnailPath.
+        final freshRows = await _storage.db.query(
+          'exercises',
+          where: 'id = ?',
+          whereArgs: [exercise.id],
+        );
+        final base = freshRows.isNotEmpty
+            ? ExerciseCapture.fromMap(freshRows.first)
+            : converting;
+
+        final failed = base.copyWith(
           conversionStatus: ConversionStatus.failed,
         );
         await _storage.saveExercise(failed);
-        _updateController.add(failed);
+        if (!_updateController.isClosed) {
+          _updateController.add(failed);
+        }
         notifyListeners();
         debugPrint('Conversion failed for ${exercise.id}: $e');
       }
@@ -96,24 +202,171 @@ class ConversionService extends ChangeNotifier {
   }
 
   /// Convert a single capture. Dispatches to photo or video handler.
+  /// For videos, also extracts a thumbnail from the first frame before
+  /// starting the full conversion.
   Future<String> _convert(ExerciseCapture exercise) async {
     final dir = await getApplicationDocumentsDirectory();
     final ext = p.extension(exercise.rawFilePath);
-    final convertedPath = p.join(
-      dir.path,
-      'converted',
-      '${exercise.id}_line$ext',
-    );
+    final convertedDir = p.join(dir.path, 'converted');
+    await Directory(convertedDir).create(recursive: true);
 
-    await Directory(p.dirname(convertedPath)).create(recursive: true);
+    if (exercise.mediaType == MediaType.video) {
+      // Extract a thumbnail immediately so the UI has something to show.
+      try {
+        final thumbPath = await _extractVideoThumbnail(
+            exercise.rawFilePath, exercise.id, dir.path);
+        if (thumbPath != null) {
+          final withThumb = exercise.copyWith(thumbnailPath: thumbPath);
+          await _storage.saveExercise(withThumb);
+          if (!_updateController.isClosed) {
+            _updateController.add(withThumb);
+          }
+          notifyListeners();
+        }
+      } catch (e) {
+        debugPrint('Thumbnail extraction failed for ${exercise.id}: $e');
+        // Non-fatal — the UI will fall back to the placeholder.
+      }
 
-    if (exercise.mediaType == MediaType.photo) {
-      await _convertPhoto(exercise.rawFilePath, convertedPath);
+      // Try full frame-by-frame video conversion via OpenCV first.
+      // On iOS, OpenCV's VideoCapture often can't decode H.264/H.265
+      // because the codec backend wasn't compiled in. In that case, fall
+      // back to extracting a key frame via video_thumbnail and converting
+      // that single frame to a line drawing still image.
+      final videoOutputPath = p.join(convertedDir, '${exercise.id}_line$ext');
+      try {
+        await _convertVideo(exercise.rawFilePath, videoOutputPath);
+        return videoOutputPath;
+      } catch (e, stack) {
+        debugPrint(
+            'Full video conversion failed for ${exercise.id}: $e — '
+            'falling back to key-frame extraction');
+        try {
+          final logDir = await getApplicationDocumentsDirectory();
+          final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+          await logFile.writeAsString(
+            '${DateTime.now()} [_convertVideo failed]\n$e\n$stack\n\n',
+            mode: FileMode.append,
+          );
+        } catch (_) {}
+      }
+
+      // Fallback: extract a key frame and convert to a still line drawing.
+      final stillOutputPath =
+          p.join(convertedDir, '${exercise.id}_line.jpg');
+      await _convertVideoViaFrameExtraction(
+          exercise.rawFilePath, stillOutputPath);
+      return stillOutputPath;
     } else {
-      await _convertVideo(exercise.rawFilePath, convertedPath);
+      final convertedPath =
+          p.join(convertedDir, '${exercise.id}_line$ext');
+      await _convertPhoto(exercise.rawFilePath, convertedPath);
+      return convertedPath;
+    }
+  }
+
+  /// Extract a video frame and save it as a JPEG thumbnail.
+  /// Returns the thumbnail path, or null if extraction fails.
+  ///
+  /// Tries three approaches in order:
+  /// 1. Native iOS platform channel (AVAssetImageGenerator)
+  /// 2. OpenCV VideoCapture (works on Android, may fail on iOS)
+  /// 3. video_thumbnail package (cross-platform fallback)
+  Future<String?> _extractVideoThumbnail(
+      String videoPath, String exerciseId, String baseDir) async {
+    final thumbDir = Directory(p.join(baseDir, 'thumbnails'));
+    await thumbDir.create(recursive: true);
+    final thumbPath = p.join(thumbDir.path, '${exerciseId}_thumb.jpg');
+
+    // Attempt 0: Simple native frame extraction (most reliable on iOS).
+    try {
+      final result = await _thumbChannel.invokeMethod<String>(
+        'extractFrame',
+        {
+          'inputPath': videoPath,
+          'outputPath': thumbPath,
+          'timeMs': 0,
+        },
+      );
+      if (result != null && await File(thumbPath).exists()) {
+        debugPrint('Native thumb channel succeeded: $thumbPath');
+        return thumbPath;
+      }
+    } catch (e) {
+      debugPrint('Native thumb channel failed: $e');
+      try {
+        final logDir = await getApplicationDocumentsDirectory();
+        final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+        await logFile.writeAsString(
+          '${DateTime.now()} [native_thumb extractFrame]\n$e\n\n',
+          mode: FileMode.append,
+        );
+      } catch (_) {}
     }
 
-    return convertedPath;
+    // Attempt 1: Full native video converter channel.
+    try {
+      final result = await _videoChannel.invokeMethod<Map>(
+        'extractThumbnail',
+        {
+          'inputPath': videoPath,
+          'outputPath': thumbPath,
+          'timeMs': 0,
+        },
+      );
+      if (result != null && result['success'] == true) {
+        debugPrint('Native thumbnail extraction succeeded');
+        return thumbPath;
+      }
+    } on PlatformException catch (e) {
+      debugPrint('Native thumbnail extraction failed: ${e.message}');
+    } on MissingPluginException {
+      debugPrint('Video converter channel not registered');
+    }
+
+    // Attempt 2: OpenCV VideoCapture (works on Android, may fail on iOS).
+    try {
+      final cap = cv.VideoCapture.fromFile(videoPath);
+      if (cap.isOpened) {
+        try {
+          final (success, frame) = cap.read();
+          if (success && !frame.isEmpty) {
+            cv.imwrite(thumbPath, frame,
+                params: cv.VecI32.fromList([cv.IMWRITE_JPEG_QUALITY, 85]));
+            frame.dispose();
+            return thumbPath;
+          }
+          frame.dispose();
+        } finally {
+          cap.release();
+        }
+      } else {
+        cap.release();
+      }
+    } catch (e) {
+      debugPrint('OpenCV VideoCapture unavailable: $e');
+    }
+
+    // Attempt 3: video_thumbnail package (uses AVAssetImageGenerator on iOS).
+    debugPrint('OpenCV VideoCapture failed for thumbnail -- '
+        'falling back to video_thumbnail package');
+    for (final videoUri in [videoPath, 'file://$videoPath']) {
+      try {
+        final Uint8List? bytes = await vt.VideoThumbnail.thumbnailData(
+          video: videoUri,
+          imageFormat: vt.ImageFormat.JPEG,
+          maxWidth: 512,
+          quality: 85,
+        );
+        if (bytes != null && bytes.isNotEmpty) {
+          await File(thumbPath).writeAsBytes(bytes);
+          return thumbPath;
+        }
+      } catch (e) {
+        debugPrint('video_thumbnail thumbnail failed with "$videoUri": $e');
+      }
+    }
+    return null;
   }
 
   /// Convert a single photo to a line drawing using OpenCV.
@@ -143,10 +396,55 @@ class ConversionService extends ChangeNotifier {
     }
   }
 
-  /// Convert a video frame-by-frame to line drawings.
+  /// Convert a video to a line drawing.
+  ///
+  /// Tries the native iOS platform channel first (AVAssetReader/Writer +
+  /// Accelerate). This handles H.264/265 codecs that OpenCV can't decode on
+  /// iOS. If the native channel is unavailable (e.g. on Android) or fails,
+  /// falls back to OpenCV's VideoCapture/VideoWriter.
   Future<void> _convertVideo(String inputPath, String outputPath) async {
+    // --- Attempt 1: Native iOS platform channel ---
+    try {
+      final result = await _videoChannel.invokeMethod<Map>(
+        'convertVideo',
+        {
+          'inputPath': inputPath,
+          'outputPath': outputPath,
+          'blurKernel': AppConfig.blurKernel,
+          'thresholdBlock': AppConfig.thresholdBlock,
+          'contrastLow': AppConfig.contrastLow,
+        },
+      );
+      if (result != null && result['success'] == true) {
+        debugPrint(
+            'Native video conversion complete: '
+            '${result["framesProcessed"]} frames -> $outputPath');
+        return;
+      }
+    } on PlatformException catch (e) {
+      debugPrint(
+          'Native video conversion failed: ${e.code} - ${e.message} -- '
+          'falling back to OpenCV VideoCapture');
+    } on MissingPluginException {
+      debugPrint(
+          'Native video channel not available (not iOS?) -- '
+          'falling back to OpenCV VideoCapture');
+    }
+
+    // --- Attempt 2: OpenCV VideoCapture/VideoWriter ---
+    await _convertVideoViaOpenCV(inputPath, outputPath);
+  }
+
+  /// Convert a video frame-by-frame using OpenCV's VideoCapture/VideoWriter.
+  ///
+  /// Works on platforms where OpenCV has codec support (typically Android).
+  /// On iOS, H.264/265 decoding usually fails because the codec backend
+  /// wasn't compiled in -- use the native platform channel instead.
+  Future<void> _convertVideoViaOpenCV(
+      String inputPath, String outputPath) async {
     final cap = cv.VideoCapture.fromFile(inputPath);
     if (!cap.isOpened) {
+      debugPrint('VideoCapture failed to open file: $inputPath');
       throw Exception('Could not open video: $inputPath');
     }
 
@@ -206,6 +504,107 @@ class ConversionService extends ChangeNotifier {
       }
     } finally {
       cap.release();
+    }
+  }
+
+  /// Fallback video conversion: extract a key frame from the middle of the
+  /// video using the video_thumbnail package (which uses platform-native APIs
+  /// like AVAssetImageGenerator on iOS), then convert that single frame to a
+  /// line drawing still image.
+  ///
+  /// This produces a .jpg output instead of a video. The bio gets a clean
+  /// line drawing representation of the exercise. Full video-to-video
+  /// conversion can be added later when the codec issue is resolved.
+  Future<void> _convertVideoViaFrameExtraction(
+      String inputPath, String outputPath) async {
+    // Extract a frame from roughly the middle of the video.
+    // video_thumbnail's timeMs defaults to 0 (first frame); we request the
+    // midpoint for a more representative pose.
+    //
+    // Note: we don't have the duration without a video player, but
+    // video_thumbnail with a non-zero timeMs will clamp to the video's
+    // actual length, so requesting a large value just gives us the last
+    // frame. We'll try 5 seconds in (a reasonable midpoint for exercises
+    // capped at 30 seconds).
+    final int targetTimeMs = (AppConfig.maxVideoSeconds * 1000) ~/ 2;
+
+    // Try native channel first (most reliable on iOS).
+    final tempDir = await getTemporaryDirectory();
+    final tempFramePath = p.join(tempDir.path, 'frame_extract_temp.jpg');
+
+    try {
+      final result = await _thumbChannel.invokeMethod<String>(
+        'extractFrame',
+        {
+          'inputPath': inputPath,
+          'outputPath': tempFramePath,
+          'timeMs': targetTimeMs,
+        },
+      );
+      if (result != null && await File(tempFramePath).exists()) {
+        // Native extraction succeeded — process with OpenCV below.
+      } else {
+        throw Exception('Native frame extraction returned null');
+      }
+    } catch (nativeErr) {
+      debugPrint('Native frame extraction failed: $nativeErr');
+      try {
+        final logDir = await getApplicationDocumentsDirectory();
+        final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+        await logFile.writeAsString(
+          '${DateTime.now()} [native_thumb frame extract]\n$nativeErr\n\n',
+          mode: FileMode.append,
+        );
+      } catch (_) {}
+
+      // Fallback to video_thumbnail package.
+      Uint8List? bytes;
+      for (final videoUri in [inputPath, 'file://$inputPath']) {
+        try {
+          bytes = await vt.VideoThumbnail.thumbnailData(
+            video: videoUri,
+            imageFormat: vt.ImageFormat.JPEG,
+            maxWidth: 1920,
+            quality: 95,
+            timeMs: targetTimeMs,
+          );
+          if (bytes != null && bytes.isNotEmpty) break;
+        } catch (e) {
+          debugPrint('video_thumbnail failed with uri "$videoUri": $e');
+        }
+      }
+
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception(
+            'All frame extraction methods failed for: $inputPath');
+      }
+
+      await File(tempFramePath).writeAsBytes(bytes);
+    }
+
+    try {
+      // Load and convert via the standard line drawing pipeline.
+      final img = cv.imread(tempFramePath, flags: cv.IMREAD_COLOR);
+      if (img.isEmpty) {
+        throw Exception(
+            'OpenCV could not read extracted frame: $tempFramePath');
+      }
+
+      try {
+        final result = _frameToLineDrawing(img);
+        cv.imwrite(outputPath, result,
+            params: cv.VecI32.fromList([cv.IMWRITE_JPEG_QUALITY, 95]));
+        result.dispose();
+      } finally {
+        img.dispose();
+      }
+
+      debugPrint('Video frame extraction fallback complete: $outputPath');
+    } finally {
+      // Clean up temp file.
+      try {
+        await File(tempFramePath).delete();
+      } catch (_) {}
     }
   }
 
@@ -289,9 +688,8 @@ class ConversionService extends ChangeNotifier {
   /// Whether the service is currently processing conversions.
   bool get isProcessing => _processing;
 
-  @override
-  void dispose() {
-    _updateController.close();
-    super.dispose();
-  }
+  // Note: dispose() intentionally not overridden. This service is a singleton
+  // that lives for the entire app lifetime. Closing the StreamController would
+  // cause "Bad state: Cannot add new events after calling close" if a screen
+  // that holds a reference triggers disposal.
 }

@@ -41,9 +41,32 @@ class CaptureThumbnail extends StatelessWidget {
     final path = exercise.displayFilePath;
     final file = File(path);
 
-    // For videos, we show a dark placeholder with a play icon.
-    // Image.file won't work for video files.
+    // For videos, show the extracted thumbnail if available,
+    // otherwise fall back to a dark placeholder with a play icon.
     if (exercise.mediaType == MediaType.video) {
+      if (exercise.thumbnailPath != null) {
+        final thumbFile = File(exercise.thumbnailPath!);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.file(
+              thumbFile,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                color: Colors.grey.shade800,
+                child: const Center(
+                  child: Icon(Icons.play_circle_outline,
+                      color: Colors.white54, size: 28),
+                ),
+              ),
+            ),
+            Center(
+              child: Icon(Icons.play_circle_outline,
+                  color: Colors.white70, size: size * 0.4),
+            ),
+          ],
+        );
+      }
       return Container(
         color: Colors.grey.shade800,
         child: const Center(

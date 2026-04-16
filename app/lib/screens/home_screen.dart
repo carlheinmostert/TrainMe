@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../models/session.dart';
 import '../services/local_storage_service.dart';
 import 'session_capture_screen.dart';
-import 'plan_editor_screen.dart';
 
 /// Landing screen — the first thing the bio sees.
 ///
@@ -36,17 +35,12 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  /// Show a dialog to get the client name, then navigate to capture.
+  /// Create a session immediately with a default date-time name and navigate.
   Future<void> _startNewSession() async {
-    final clientName = await showDialog<String>(
-      context: context,
-      builder: (context) => _ClientNameDialog(),
-    );
+    final now = DateTime.now();
+    final defaultName = _formatSessionName(now);
 
-    if (clientName == null || clientName.trim().isEmpty) return;
-    if (!mounted) return;
-
-    final session = Session.create(clientName: clientName.trim());
+    final session = Session.create(clientName: defaultName);
     await widget.storage.saveSession(session);
 
     if (!mounted) return;
@@ -63,11 +57,25 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadSessions();
   }
 
-  /// Navigate to the plan editor for an existing session.
+  /// Format a DateTime as "16 Apr 2026 18:30".
+  static String _formatSessionName(DateTime dt) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final day = dt.day;
+    final month = months[dt.month - 1];
+    final year = dt.year;
+    final hour = dt.hour.toString().padLeft(2, '0');
+    final minute = dt.minute.toString().padLeft(2, '0');
+    return '$day $month $year $hour:$minute';
+  }
+
+  /// Navigate to the session screen for an existing session.
   Future<void> _openSession(Session session) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => PlanEditorScreen(
+        builder: (_) => SessionCaptureScreen(
           session: session,
           storage: widget.storage,
         ),
@@ -78,33 +86,25 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadSessions();
   }
 
+  /// Soft-delete a session and show an undo SnackBar.
   Future<void> _deleteSession(Session session) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete session?'),
-        content: Text(
-          'This will permanently delete the session for '
-          '${session.clientName} and all its captures.',
+    await widget.storage.softDeleteSession(session.id);
+    _loadSessions();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${session.clientName} deleted'),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () async {
+            await widget.storage.restoreSession(session.id);
+            _loadSessions();
+          },
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Delete'),
-          ),
-        ],
       ),
     );
-
-    if (confirmed == true) {
-      await widget.storage.deleteSession(session.id);
-      _loadSessions();
-    }
   }
 
   @override
@@ -217,78 +217,43 @@ class _HomeScreenState extends State<HomeScreen> {
     final exerciseCount = session.exercises.length;
     final pending = session.pendingConversions;
 
-    return Card(
-      elevation: 0,
-      color: Colors.grey.shade50,
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        title: Text(
-          session.clientName,
-          style: const TextStyle(fontWeight: FontWeight.w600),
+    return Dismissible(
+      key: ValueKey(session.id),
+      direction: DismissDirection.endToStart,
+      confirmDismiss: (_) async => true,
+      onDismissed: (_) => _deleteSession(session),
+      background: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(12),
         ),
-        subtitle: Text(
-          '$exerciseCount exercise${exerciseCount == 1 ? '' : 's'}'
-          '${pending > 0 ? ' ($pending converting...)' : ''}',
-          style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+      ),
+      child: Card(
+        elevation: 0,
+        color: Colors.grey.shade50,
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          title: Text(
+            session.clientName,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          subtitle: Text(
+            '$exerciseCount exercise${exerciseCount == 1 ? '' : 's'}'
+            '${pending > 0 ? ' ($pending converting...)' : ''}',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
+          trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
+          onTap: () => _openSession(session),
         ),
-        trailing: IconButton(
-          icon: Icon(Icons.delete_outline, color: Colors.grey.shade400),
-          onPressed: () => _deleteSession(session),
-        ),
-        onTap: () => _openSession(session),
       ),
     );
   }
+
 }
 
-// ---------------------------------------------------------------------------
-// Client name dialog — shown when starting a new session
-// ---------------------------------------------------------------------------
-
-class _ClientNameDialog extends StatefulWidget {
-  @override
-  State<_ClientNameDialog> createState() => _ClientNameDialogState();
-}
-
-class _ClientNameDialogState extends State<_ClientNameDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Client name'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        textCapitalization: TextCapitalization.words,
-        decoration: const InputDecoration(
-          hintText: 'e.g. Sarah Johnson',
-          border: OutlineInputBorder(),
-        ),
-        onSubmitted: (_) => _submit(),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Start'),
-        ),
-      ],
-    );
-  }
-
-  void _submit() {
-    Navigator.pop(context, _controller.text);
-  }
-}

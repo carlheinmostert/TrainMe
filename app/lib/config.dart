@@ -15,6 +15,9 @@ class AppConfig {
   static const int maxVideoSeconds = 30;
   static const int videoWarningSeconds = 15;
 
+  /// Recycle bin: days before soft-deleted sessions are permanently purged
+  static const int recycleBinRetentionDays = 7;
+
   /// Line drawing conversion defaults
   static const int blurKernel = 31;
   static const int thresholdBlock = 9;

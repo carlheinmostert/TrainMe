@@ -479,7 +479,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Exercise ${widget.index + 1}',
+                          widget.exercise.name ?? 'Exercise ${widget.index + 1}',
                           style: const TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 15,
