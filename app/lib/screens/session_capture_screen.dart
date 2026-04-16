@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 import 'package:uuid/uuid.dart';
+import '../config.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/local_storage_service.dart';
@@ -249,6 +250,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
         );
       });
       _conversionService.queueConversion(result);
+      _autoInsertRestPeriods();
     }
 
     // Refresh session from storage in case multiple captures were added
@@ -287,6 +289,116 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     });
 
     _conversionService.queueConversion(exercise);
+    _autoInsertRestPeriods();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rest periods
+  // ---------------------------------------------------------------------------
+
+  /// Insert a rest period between two exercises at [insertIndex].
+  ///
+  /// The rest is placed at [insertIndex], pushing later exercises down.
+  /// If a rest already exists at that position, this is a no-op.
+  Future<void> _insertRestBetween(int insertIndex) async {
+    final exercises = List<ExerciseCapture>.from(_session.exercises);
+
+    // Don't insert if there's already a rest at this position
+    if (insertIndex < exercises.length && exercises[insertIndex].isRest) return;
+
+    final rest = ExerciseCapture.createRest(
+      position: insertIndex,
+      sessionId: _session.id,
+    );
+
+    exercises.insert(insertIndex, rest);
+
+    // Re-index positions
+    for (var i = 0; i < exercises.length; i++) {
+      exercises[i] = exercises[i].copyWith(position: i);
+    }
+
+    setState(() {
+      _session = _session.copyWith(exercises: exercises);
+      // Adjust expanded index if it shifted
+      if (_expandedIndex != null && _expandedIndex! >= insertIndex) {
+        _expandedIndex = _expandedIndex! + 1;
+      }
+    });
+
+    await widget.storage.saveExercise(rest);
+    _saveExerciseOrder();
+  }
+
+  /// Auto-insert rest periods when cumulative exercise time exceeds the
+  /// session's rest interval threshold.
+  ///
+  /// Walks exercises in position order, summing estimated durations for
+  /// non-rest exercises. When the accumulator exceeds the threshold, a rest
+  /// period is inserted at that position and the accumulator resets.
+  ///
+  /// Does not insert at the very beginning or end. Existing rest periods
+  /// are skipped in the accumulation.
+  void _autoInsertRestPeriods() {
+    final exercises = List<ExerciseCapture>.from(_session.exercises);
+    final threshold = _session.effectiveRestIntervalSeconds;
+
+    // Don't auto-insert if threshold is unreasonably small.
+    if (threshold < 60) return;
+
+    int cumulativeSeconds = 0;
+    final insertPositions = <int>[];
+
+    for (var i = 0; i < exercises.length; i++) {
+      final ex = exercises[i];
+      if (ex.isRest) continue; // Skip existing rests in accumulation
+
+      cumulativeSeconds += ex.effectiveDurationSeconds;
+
+      if (cumulativeSeconds >= threshold) {
+        // Only insert if we're not at the very end
+        if (i < exercises.length - 1) {
+          // Check that a rest doesn't already exist right after this exercise
+          final nextIdx = i + 1;
+          if (nextIdx < exercises.length && !exercises[nextIdx].isRest) {
+            insertPositions.add(nextIdx);
+          }
+        }
+        cumulativeSeconds = 0;
+      }
+    }
+
+    // Insert rests at computed positions (reverse to keep indices stable)
+    if (insertPositions.isEmpty) return;
+
+    var offset = 0;
+    for (final pos in insertPositions) {
+      final adjustedPos = pos + offset;
+      final rest = ExerciseCapture.createRest(
+        position: adjustedPos,
+        sessionId: _session.id,
+      );
+      exercises.insert(adjustedPos, rest);
+      offset++;
+    }
+
+    // Re-index positions
+    for (var i = 0; i < exercises.length; i++) {
+      exercises[i] = exercises[i].copyWith(position: i);
+    }
+
+    setState(() {
+      _session = _session.copyWith(exercises: exercises);
+    });
+
+    // Persist new rest exercises
+    for (final pos in insertPositions) {
+      final adjustedPos = pos + (insertPositions.indexOf(pos));
+      if (adjustedPos < exercises.length) {
+        widget.storage.saveExercise(exercises[adjustedPos]);
+      }
+    }
+    _saveExerciseOrder();
   }
 
   /// Reload session from storage to pick up any changes.
@@ -494,6 +606,9 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   /// If a video was converted to a still line drawing image (fallback when
   /// OpenCV can't decode H.264/H.265 on iOS), show it as an image instead.
   void _previewCapture(ExerciseCapture exercise) {
+    // Rest periods have no media to preview.
+    if (exercise.isRest) return;
+
     final path = exercise.displayFilePath;
 
     if (exercise.mediaType == MediaType.video &&
@@ -753,8 +868,10 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   ///
   /// Each exercise is a single item in a ReorderableListView. Circuit visual
   /// grouping is achieved via per-card teal left border decoration. Circuit
-  /// headers render above the first card in a circuit group. Link buttons
-  /// render below each card (between it and the next).
+  /// headers render above the first card in a circuit group. Between-card
+  /// buttons (link + rest insert) render below each card.
+  ///
+  /// Rest periods render as compact [_RestBar] widgets instead of full cards.
   Widget _buildExerciseList() {
     final exercises = _session.exercises;
 
@@ -781,6 +898,46 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       onReorder: _onReorder,
       itemBuilder: (context, index) {
         final exercise = exercises[index];
+
+        // --- Rest period: compact inline bar ---
+        if (exercise.isRest) {
+          return KeyedSubtree(
+            key: ValueKey(exercise.id),
+            child: Column(
+              children: [
+                _RestBar(
+                  key: ValueKey('rest_${exercise.id}'),
+                  exercise: exercise,
+                  index: index,
+                  onUpdate: (updated) => _updateExercise(index, updated),
+                  onDelete: () => _deleteExercise(index),
+                  dragHandle: ReorderableDragStartListener(
+                    index: index,
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.drag_handle,
+                        color: Colors.blueGrey.shade300,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ),
+                // Between-card buttons after rest bar (if not last item
+                // and the next item is not also a rest)
+                if (index < exercises.length - 1 && !exercises[index + 1].isRest)
+                  _buildBetweenCardButtons(
+                    upperIndex: index,
+                    lowerIndex: index + 1,
+                    isLinked: exercise.circuitId != null &&
+                        exercises[index + 1].circuitId == exercise.circuitId,
+                  ),
+              ],
+            ),
+          );
+        }
+
+        // --- Regular exercise: full card ---
         final isInCircuit = exercise.circuitId != null;
 
         // Determine circuit position for visual styling
@@ -796,9 +953,12 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
             index < exercises.length - 1 &&
             exercises[index + 1].circuitId == exercise.circuitId;
 
-        // Determine link button state for the gap below this card
-        final bool showLinkButton = index < exercises.length - 1;
-        final bool isLinkedBelow = showLinkButton &&
+        // Determine between-card button state for the gap below this card.
+        // Only show between-card buttons if the next item is not a rest
+        // (rest bars handle their own spacing).
+        final bool showBetweenButtons = index < exercises.length - 1 &&
+            !exercises[index + 1].isRest;
+        final bool isLinkedBelow = showBetweenButtons &&
             exercise.circuitId != null &&
             exercises[index + 1].circuitId == exercise.circuitId;
 
@@ -821,9 +981,9 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
                 hasNextInSameCircuit: hasNextInSameCircuit,
               ),
 
-              // Link button between this card and the next
-              if (showLinkButton)
-                _buildLinkButton(
+              // Between-card buttons (link + rest insert)
+              if (showBetweenButtons)
+                _buildBetweenCardButtons(
                   upperIndex: index,
                   lowerIndex: index + 1,
                   isLinked: isLinkedBelow,
@@ -885,6 +1045,27 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       _session = _session.copyWith(exercises: exercises);
     });
     _saveExerciseOrder();
+
+    // Learn preferred rest interval: if a rest was moved, compute cumulative
+    // exercise time before it and store as the session's preferred interval.
+    final movedExercise = _session.exercises[newIndex];
+    if (movedExercise.isRest) {
+      int cumulativeSeconds = 0;
+      for (var i = 0; i < newIndex; i++) {
+        final ex = _session.exercises[i];
+        if (!ex.isRest) {
+          cumulativeSeconds += ex.effectiveDurationSeconds;
+        }
+      }
+      if (cumulativeSeconds > 30) {
+        setState(() {
+          _session = _session.copyWith(
+            preferredRestIntervalSeconds: cumulativeSeconds,
+          );
+        });
+        widget.storage.saveSession(_session);
+      }
+    }
   }
 
   /// Build a single exercise card with drag handle and optional circuit border.
@@ -1030,11 +1211,12 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     );
   }
 
-  /// Build a small link/unlink button between two exercise items.
+  /// Build the link/unlink button and rest insert button between two exercise
+  /// items.
   ///
-  /// When the exercises above and below are in the same circuit, the link
-  /// button also gets the teal left border to maintain visual continuity.
-  Widget _buildLinkButton({
+  /// When the exercises above and below are in the same circuit, the row
+  /// also gets the teal left border to maintain visual continuity.
+  Widget _buildBetweenCardButtons({
     required int upperIndex,
     required int lowerIndex,
     required bool isLinked,
@@ -1044,39 +1226,65 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     final lowerInCircuit = exercises[lowerIndex].circuitId != null;
     final sameContinuousCircuit = isLinked && upperInCircuit && lowerInCircuit;
 
-    final button = Center(
-      child: GestureDetector(
-        onTap: () {
-          if (isLinked) {
-            _unlinkExercises(upperIndex, lowerIndex);
-          } else {
-            _linkExercises(upperIndex, lowerIndex);
-          }
-        },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isLinked
-                  ? Colors.teal.shade400
-                  : Colors.grey.shade200,
-              border: Border.all(
+    final buttons = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Link / unlink button
+          GestureDetector(
+            onTap: () {
+              if (isLinked) {
+                _unlinkExercises(upperIndex, lowerIndex);
+              } else {
+                _linkExercises(upperIndex, lowerIndex);
+              }
+            },
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
                 color: isLinked
                     ? Colors.teal.shade400
-                    : Colors.grey.shade400,
-                width: 1.5,
+                    : Colors.grey.shade200,
+                border: Border.all(
+                  color: isLinked
+                      ? Colors.teal.shade400
+                      : Colors.grey.shade400,
+                  width: 1.5,
+                ),
+              ),
+              child: Icon(
+                isLinked ? Icons.link : Icons.link_off,
+                size: 14,
+                color: isLinked ? Colors.white : Colors.grey.shade500,
               ),
             ),
-            child: Icon(
-              isLinked ? Icons.link : Icons.link_off,
-              size: 14,
-              color: isLinked ? Colors.white : Colors.grey.shade500,
+          ),
+          const SizedBox(width: 12),
+          // Rest insert button
+          GestureDetector(
+            onTap: () => _insertRestBetween(lowerIndex),
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.blueGrey.shade50,
+                border: Border.all(
+                  color: Colors.blueGrey.shade300,
+                  width: 1.5,
+                ),
+              ),
+              child: Icon(
+                Icons.self_improvement,
+                size: 14,
+                color: Colors.blueGrey.shade400,
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
 
@@ -1091,97 +1299,122 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
           ),
         ),
         padding: const EdgeInsets.only(left: 8),
-        child: button,
+        child: buttons,
       );
     }
 
-    return button;
+    return buttons;
   }
 
   /// Bottom action buttons: Import, Capture, and Send.
+  /// Includes a total session duration estimate above the buttons.
   Widget _buildActionButtons() {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Import button (outlined)
-            Expanded(
-              child: SizedBox(
-                height: 56,
-                child: OutlinedButton.icon(
-                  onPressed: _showImportOptions,
-                  icon: const Icon(Icons.photo_library_outlined, size: 22),
-                  label: const Text(
-                    'Import',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.black87,
-                    side: const BorderSide(color: Colors.black26),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+            if (_session.exercises.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.schedule, size: 14, color: Colors.grey.shade500),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Estimated: ${formatDuration(_session.estimatedTotalDurationSeconds)}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Row(
+              children: [
+                // Import button (outlined)
+                Expanded(
+                  child: SizedBox(
+                    height: 56,
+                    child: OutlinedButton.icon(
+                      onPressed: _showImportOptions,
+                      icon: const Icon(Icons.photo_library_outlined, size: 22),
+                      label: const Text(
+                        'Import',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.black87,
+                        side: const BorderSide(color: Colors.black26),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            // Capture button (filled black)
-            Expanded(
-              child: SizedBox(
-                height: 56,
-                child: FilledButton.icon(
-                  onPressed: _openCameraCapture,
-                  icon: const Icon(Icons.videocam_outlined, size: 22),
-                  label: const Text(
-                    'Capture',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.black87,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                const SizedBox(width: 8),
+                // Capture button (filled black)
+                Expanded(
+                  child: SizedBox(
+                    height: 56,
+                    child: FilledButton.icon(
+                      onPressed: _openCameraCapture,
+                      icon: const Icon(Icons.videocam_outlined, size: 22),
+                      label: const Text(
+                        'Capture',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.black87,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            // Send button (filled black)
-            Expanded(
-              child: SizedBox(
-                height: 56,
-                child: FilledButton.icon(
-                  onPressed: _isSending || _session.exercises.isEmpty
-                      ? null
-                      : _send,
-                  icon: _isSending
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.send, size: 20),
-                  label: Text(
-                    _isSending ? 'Sending' : 'Send',
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.black87,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: Colors.grey.shade300,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                const SizedBox(width: 8),
+                // Send button (filled black)
+                Expanded(
+                  child: SizedBox(
+                    height: 56,
+                    child: FilledButton.icon(
+                      onPressed: _isSending || _session.exercises.isEmpty
+                          ? null
+                          : _send,
+                      icon: _isSending
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.send, size: 20),
+                      label: Text(
+                        _isSending ? 'Sending' : 'Send',
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.black87,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: Colors.grey.shade300,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ),
           ],
         ),
@@ -1230,6 +1463,9 @@ class _ExerciseCardState extends State<_ExerciseCard> {
   bool _isEditingName = false;
   late TextEditingController _nameController;
   final FocusNode _nameFocusNode = FocusNode();
+
+  // Inline duration override slider
+  bool _isDurationSliderOpen = false;
 
   @override
   void initState() {
@@ -1389,6 +1625,105 @@ class _ExerciseCardState extends State<_ExerciseCard> {
     return parts.join(' / ');
   }
 
+  /// Auto-calculated duration in seconds for display purposes.
+  int get _calculatedDurationSeconds {
+    if (widget.isInCircuit) {
+      final repsTime = (_repsValue.round()) * AppConfig.secondsPerRep;
+      final holdTime = _holdValue.round();
+      return repsTime + holdTime;
+    } else {
+      final repsTime = (_repsValue.round()) * AppConfig.secondsPerRep;
+      final holdTime = _holdValue.round();
+      final perSetTime = repsTime + holdTime;
+      final totalSets = _setsValue.round();
+      final restTime = (totalSets > 1) ? (totalSets - 1) * AppConfig.restBetweenSets : 0;
+      return (perSetTime * totalSets) + restTime;
+    }
+  }
+
+  /// Whether a custom duration override is active.
+  bool get _hasCustomDuration => widget.exercise.customDurationSeconds != null;
+
+  /// The effective duration seconds — custom if set, else calculated.
+  int get _effectiveDurationSeconds =>
+      widget.exercise.customDurationSeconds ?? _calculatedDurationSeconds;
+
+  /// Format a duration in seconds to a compact label.
+  String _formatCompactDuration(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final minutes = (seconds / 60).round();
+    return '$minutes min';
+  }
+
+  /// Format estimated duration for a single exercise.
+  /// Shows "~" prefix for auto-calculated, no prefix for custom override.
+  String _buildDurationLabel() {
+    if (_hasCustomDuration) {
+      return _formatCompactDuration(widget.exercise.customDurationSeconds!);
+    }
+    return '~${_formatCompactDuration(_calculatedDurationSeconds)}';
+  }
+
+  /// Toggle the inline duration slider open/closed.
+  void _toggleDurationSlider() {
+    setState(() => _isDurationSliderOpen = !_isDurationSliderOpen);
+  }
+
+  /// Set a custom duration override and auto-save.
+  void _setCustomDuration(int seconds) {
+    widget.onUpdate(widget.exercise.copyWith(customDurationSeconds: seconds));
+  }
+
+  /// Reset to auto-calculated duration.
+  void _clearCustomDuration() {
+    widget.onUpdate(widget.exercise.copyWith(clearCustomDuration: true));
+    setState(() => _isDurationSliderOpen = false);
+  }
+
+  /// Build the tappable duration label with optional inline slider below.
+  Widget _buildDurationWidget() {
+    final isCustom = _hasCustomDuration;
+    final label = _buildDurationLabel();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Tappable duration label with dashed underline
+        GestureDetector(
+          onTap: _toggleDurationSlider,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: isCustom ? Colors.teal.shade400 : Colors.grey.shade400,
+                  width: 1,
+                  style: BorderStyle.solid,
+                ),
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: isCustom ? Colors.teal.shade600 : Colors.grey.shade400,
+                fontWeight: isCustom ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ),
+        ),
+        // Inline slider — appears below the label when open
+        if (_isDurationSliderOpen)
+          _DurationSliderInline(
+            currentSeconds: _effectiveDurationSeconds,
+            isCustom: isCustom,
+            onChanged: _setCustomDuration,
+            onReset: _clearCustomDuration,
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -1404,9 +1739,10 @@ class _ExerciseCardState extends State<_ExerciseCard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header row: thumbnail + title/summary + status + chevron
+              // Header row
               Row(
                 children: [
+                  // Thumbnail
                   CaptureThumbnail(
                     exercise: widget.exercise,
                     size: 56,
@@ -1459,14 +1795,22 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                 ),
                               ),
                         const SizedBox(height: 2),
-                        Text(
-                          _buildSummary(),
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade600,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                _buildSummary(),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            _buildDurationWidget(),
+                          ],
                         ),
                       ],
                     ),
@@ -1498,7 +1842,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                 ],
               ),
 
-              // Expanded view: preview + annotation fields
+              // Expanded view — full preview + annotation fields
               if (widget.isExpanded) ...[
                 const SizedBox(height: 12),
                 const Divider(height: 1),
@@ -1538,7 +1882,9 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                     children: [
                                       Icon(Icons.play_circle_outline,
                                           size: 48,
-                                          color: widget.exercise.thumbnailPath != null
+                                          color: widget.exercise
+                                                      .thumbnailPath !=
+                                                  null
                                               ? Colors.white70
                                               : Colors.grey.shade600),
                                       const SizedBox(height: 8),
@@ -1546,7 +1892,9 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                         'Tap to play',
                                         style: TextStyle(
                                           fontSize: 13,
-                                          color: widget.exercise.thumbnailPath != null
+                                          color: widget.exercise
+                                                      .thumbnailPath !=
+                                                  null
                                               ? Colors.white70
                                               : Colors.grey.shade600,
                                         ),
@@ -1572,7 +1920,8 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                 const SizedBox(height: 16),
 
                 // Conversion error banner
-                if (widget.exercise.conversionStatus == ConversionStatus.failed)
+                if (widget.exercise.conversionStatus ==
+                    ConversionStatus.failed)
                   Container(
                     padding: const EdgeInsets.all(12),
                     margin: const EdgeInsets.only(bottom: 12),
@@ -1583,19 +1932,21 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+                        Icon(Icons.error_outline,
+                            color: Colors.red.shade700, size: 20),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Line drawing conversion failed. The original is preserved.',
-                            style: TextStyle(color: Colors.red.shade700, fontSize: 13),
+                            style: TextStyle(
+                                color: Colors.red.shade700, fontSize: 13),
                           ),
                         ),
                       ],
                     ),
                   ),
 
-                // Reps slider — always shown (even in circuits)
+                // Reps slider
                 _SliderRow(
                   label: 'Reps',
                   value: _repsValue,
@@ -1610,7 +1961,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                   },
                 ),
 
-                // Sets slider — hidden when in a circuit (replaced by circuit Cycles)
+                // Sets slider — hidden when in a circuit
                 if (!widget.isInCircuit)
                   _SliderRow(
                     label: 'Sets',
@@ -1650,7 +2001,8 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                   controller: _notesController,
                   decoration: const InputDecoration(
                     labelText: 'Notes',
-                    hintText: 'e.g. Keep back straight, slow on the way down',
+                    hintText:
+                        'e.g. Keep back straight, slow on the way down',
                     border: OutlineInputBorder(),
                     isDense: true,
                   ),
@@ -1732,6 +2084,284 @@ class _SliderRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Compact inline duration slider — appears below the tappable duration label
+// ---------------------------------------------------------------------------
+
+class _DurationSliderInline extends StatefulWidget {
+  final int currentSeconds;
+  final bool isCustom;
+  final ValueChanged<int> onChanged;
+  final VoidCallback onReset;
+
+  const _DurationSliderInline({
+    required this.currentSeconds,
+    required this.isCustom,
+    required this.onChanged,
+    required this.onReset,
+  });
+
+  @override
+  State<_DurationSliderInline> createState() => _DurationSliderInlineState();
+}
+
+class _DurationSliderInlineState extends State<_DurationSliderInline> {
+  late double _value;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = _snapToStep(widget.currentSeconds.toDouble());
+  }
+
+  @override
+  void didUpdateWidget(covariant _DurationSliderInline oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentSeconds != widget.currentSeconds) {
+      _value = _snapToStep(widget.currentSeconds.toDouble());
+    }
+  }
+
+  /// Snap to nearest 5-second step within [10, 600].
+  double _snapToStep(double v) {
+    return (v / 5).round().clamp(2, 120) * 5.0;
+  }
+
+  String _formatDuration(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final min = seconds ~/ 60;
+    final sec = seconds % 60;
+    if (sec == 0) return '${min}m';
+    return '${min}m ${sec}s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 120,
+                child: SliderTheme(
+                  data: SliderThemeData(
+                    trackHeight: 4,
+                    activeTrackColor: Colors.teal.shade400,
+                    inactiveTrackColor: Colors.grey.shade200,
+                    thumbColor: Colors.teal.shade400,
+                    thumbShape:
+                        const RoundSliderThumbShape(enabledThumbRadius: 7),
+                    overlayShape:
+                        const RoundSliderOverlayShape(overlayRadius: 14),
+                    overlayColor: Colors.teal.withValues(alpha: 0.12),
+                    trackShape: const RoundedRectSliderTrackShape(),
+                  ),
+                  child: Slider(
+                    value: _value,
+                    min: 10,
+                    max: 600,
+                    divisions: 118, // (600 - 10) / 5
+                    onChanged: (v) {
+                      final snapped = _snapToStep(v);
+                      setState(() => _value = snapped);
+                      widget.onChanged(snapped.round());
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _formatDuration(_value.round()),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.teal.shade600,
+                ),
+              ),
+            ],
+          ),
+          // "Reset to auto" link
+          if (widget.isCustom)
+            GestureDetector(
+              onTap: widget.onReset,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  'reset to auto',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey.shade500,
+                    decoration: TextDecoration.underline,
+                    decorationColor: Colors.grey.shade400,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Compact rest bar — thin inline bar replacing full _ExerciseCard for rests
+// ---------------------------------------------------------------------------
+
+class _RestBar extends StatefulWidget {
+  final ExerciseCapture exercise;
+  final int index;
+  final ValueChanged<ExerciseCapture> onUpdate;
+  final VoidCallback onDelete;
+  final Widget dragHandle;
+
+  const _RestBar({
+    super.key,
+    required this.exercise,
+    required this.index,
+    required this.onUpdate,
+    required this.onDelete,
+    required this.dragHandle,
+  });
+
+  @override
+  State<_RestBar> createState() => _RestBarState();
+}
+
+class _RestBarState extends State<_RestBar> {
+  late double _durationValue;
+
+  @override
+  void initState() {
+    super.initState();
+    _durationValue =
+        (widget.exercise.holdSeconds ?? AppConfig.defaultRestDuration)
+            .toDouble();
+  }
+
+  @override
+  void didUpdateWidget(covariant _RestBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.exercise.id != widget.exercise.id) {
+      _durationValue =
+          (widget.exercise.holdSeconds ?? AppConfig.defaultRestDuration)
+              .toDouble();
+    }
+  }
+
+  String _formatDuration(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final min = seconds ~/ 60;
+    final sec = seconds % 60;
+    if (sec == 0) return '${min} min';
+    return '${min}m ${sec}s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final seconds = _durationValue.round();
+
+    return Container(
+      height: 48,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey.shade50,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          // Drag handle
+          widget.dragHandle,
+
+          // Rest icon
+          Padding(
+            padding: const EdgeInsets.only(left: 2, right: 6),
+            child: Icon(
+              Icons.self_improvement,
+              size: 18,
+              color: Colors.blueGrey.shade400,
+            ),
+          ),
+
+          // "Rest" label
+          Text(
+            'Rest',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.blueGrey.shade600,
+            ),
+          ),
+
+          const SizedBox(width: 4),
+
+          // Compact slider
+          Expanded(
+            child: SliderTheme(
+              data: SliderThemeData(
+                trackHeight: 4,
+                activeTrackColor: Colors.blueGrey.shade400,
+                inactiveTrackColor: Colors.blueGrey.shade200,
+                thumbColor: Colors.blueGrey.shade400,
+                thumbShape:
+                    const RoundSliderThumbShape(enabledThumbRadius: 7),
+                overlayShape:
+                    const RoundSliderOverlayShape(overlayRadius: 14),
+                overlayColor: Colors.blueGrey.withValues(alpha: 0.12),
+                trackShape: const RoundedRectSliderTrackShape(),
+              ),
+              child: Slider(
+                value: _durationValue,
+                min: 5,
+                max: 300,
+                divisions: 59,
+                onChanged: (v) {
+                  setState(() => _durationValue = v);
+                  widget.onUpdate(
+                    widget.exercise.copyWith(holdSeconds: v.round()),
+                  );
+                },
+              ),
+            ),
+          ),
+
+          // Duration label
+          SizedBox(
+            width: 42,
+            child: Text(
+              _formatDuration(seconds),
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.blueGrey.shade600,
+              ),
+            ),
+          ),
+
+          // Delete button
+          GestureDetector(
+            onTap: widget.onDelete,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Icon(
+                Icons.close,
+                size: 16,
+                color: Colors.blueGrey.shade300,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

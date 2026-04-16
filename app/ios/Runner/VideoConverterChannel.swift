@@ -198,27 +198,41 @@ class VideoConverterChannel {
         // Copy the audio track as-is (no re-encoding) so the converted video
         // retains the original audio. If the source has no audio track, we
         // simply skip this — the output will be video-only.
-        let audioTrack = asset.tracks(withMediaType: .audio).first
         var audioReaderOutput: AVAssetReaderTrackOutput?
         var audioWriterInput: AVAssetWriterInput?
 
-        if let srcAudioTrack = audioTrack {
-            let audioOutput = AVAssetReaderTrackOutput(
-                track: srcAudioTrack,
-                outputSettings: nil  // nil = passthrough (no decoding)
-            )
-            audioOutput.alwaysCopiesSampleData = false
-            reader.add(audioOutput)
-            audioReaderOutput = audioOutput
+        // Audio track — optional, skip gracefully if incompatible
+        if let audioTrack = asset.tracks(withMediaType: .audio).first {
+            do {
+                let audioOutput = AVAssetReaderTrackOutput(
+                    track: audioTrack,
+                    outputSettings: nil
+                )
+                audioOutput.alwaysCopiesSampleData = false
 
-            // nil outputSettings = passthrough (copies compressed samples as-is)
-            let audioInput = AVAssetWriterInput(
-                mediaType: .audio,
-                outputSettings: nil
-            )
-            audioInput.expectsMediaDataInRealTime = false
-            writer.add(audioInput)
-            audioWriterInput = audioInput
+                if reader.canAdd(audioOutput) {
+                    reader.add(audioOutput)
+                    audioReaderOutput = audioOutput
+
+                    let audioInput = AVAssetWriterInput(
+                        mediaType: .audio,
+                        outputSettings: nil
+                    )
+                    audioInput.expectsMediaDataInRealTime = false
+
+                    if writer.canAdd(audioInput) {
+                        writer.add(audioInput)
+                        audioWriterInput = audioInput
+                    } else {
+                        // Audio format incompatible with output — skip audio
+                        audioReaderOutput = nil
+                    }
+                }
+            } catch {
+                // Audio setup failed — continue without audio
+                audioReaderOutput = nil
+                audioWriterInput = nil
+            }
         }
 
         // --- Start reading and writing ---

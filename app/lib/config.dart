@@ -18,6 +18,13 @@ class AppConfig {
   /// Recycle bin: days before soft-deleted sessions are permanently purged
   static const int recycleBinRetentionDays = 7;
 
+  /// Duration estimation defaults
+  static const int secondsPerRep = 3;
+  static const int restBetweenSets = 30; // seconds
+  static const int restBetweenCircuitRounds = 60; // seconds
+  static const int defaultRestDuration = 30; // seconds for auto-inserted rest periods
+  static const int restInsertIntervalMinutes = 10; // auto-insert rest every N minutes
+
   /// Line drawing conversion defaults
   static const int blurKernel = 31;
   static const int thresholdBlock = 9;

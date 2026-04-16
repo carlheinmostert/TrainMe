@@ -84,7 +84,9 @@ class ConversionService extends ChangeNotifier {
   }
 
   /// Queue a capture for line drawing conversion.
+  /// Rest periods are skipped — they have no media to convert.
   void queueConversion(ExerciseCapture exercise) {
+    if (exercise.isRest) return;
     _queue.add(exercise);
     _processQueue();
   }

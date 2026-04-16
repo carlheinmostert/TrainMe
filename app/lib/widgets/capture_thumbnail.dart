@@ -41,6 +41,20 @@ class CaptureThumbnail extends StatelessWidget {
     final path = exercise.displayFilePath;
     final file = File(path);
 
+    // Rest periods: show a calming icon in a blue-grey circle.
+    if (exercise.isRest) {
+      return Container(
+        color: const Color(0xFFE3EAF0),
+        child: Center(
+          child: Icon(
+            Icons.self_improvement,
+            size: size * 0.5,
+            color: const Color(0xFF607D8B),
+          ),
+        ),
+      );
+    }
+
     // For videos, show the extracted thumbnail if available,
     // otherwise fall back to a dark placeholder with a play icon.
     if (exercise.mediaType == MediaType.video) {
@@ -140,8 +154,11 @@ class CaptureThumbnail extends StatelessWidget {
   }
 
   /// Small media type badge in the bottom-left corner.
-  /// Camera icon for photo, video icon for video.
+  /// Camera icon for photo, video icon for video, pause for rest.
   Widget _buildMediaTypeBadge() {
+    // Rest periods don't need a media type badge.
+    if (exercise.isRest) return const SizedBox.shrink();
+
     return Positioned(
       bottom: 2,
       left: 2,

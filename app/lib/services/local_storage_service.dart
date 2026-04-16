@@ -13,7 +13,7 @@ import '../models/session.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 6;
+  static const _dbVersion = 8;
 
   Database? _db;
 
@@ -50,7 +50,8 @@ class LocalStorageService {
         sent_at INTEGER,
         plan_url TEXT,
         deleted_at INTEGER,
-        circuit_cycles TEXT
+        circuit_cycles TEXT,
+        preferred_rest_interval INTEGER
       )
     ''');
 
@@ -72,6 +73,7 @@ class LocalStorageService {
         created_at INTEGER NOT NULL,
         circuit_id TEXT,
         include_audio INTEGER NOT NULL DEFAULT 0,
+        custom_duration INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -101,6 +103,16 @@ class LocalStorageService {
     if (oldVersion < 6) {
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN include_audio INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (oldVersion < 7) {
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN preferred_rest_interval INTEGER',
+      );
+    }
+    if (oldVersion < 8) {
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN custom_duration INTEGER',
       );
     }
   }

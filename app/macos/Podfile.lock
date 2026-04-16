@@ -1,0 +1,100 @@
+PODS:
+  - app_links (6.4.1):
+    - FlutterMacOS
+  - DartCvMacOS (4.12.0.2):
+    - DartCvMacOS/calib3d (= 4.12.0.2)
+    - DartCvMacOS/contrib (= 4.12.0.2)
+    - DartCvMacOS/core (= 4.12.0.2)
+    - DartCvMacOS/features2d (= 4.12.0.2)
+    - DartCvMacOS/imgproc (= 4.12.0.2)
+    - DartCvMacOS/objdetect (= 4.12.0.2)
+    - DartCvMacOS/photo (= 4.12.0.2)
+    - DartCvMacOS/stitching (= 4.12.0.2)
+    - DartCvMacOS/video (= 4.12.0.2)
+  - DartCvMacOS/calib3d (4.12.0.2):
+    - DartCvMacOS/core
+  - DartCvMacOS/contrib (4.12.0.2):
+    - DartCvMacOS/core
+  - DartCvMacOS/core (4.12.0.2)
+  - DartCvMacOS/dnn (4.12.0.2):
+    - DartCvMacOS/core
+  - DartCvMacOS/features2d (4.12.0.2):
+    - DartCvMacOS/core
+  - DartCvMacOS/imgproc (4.12.0.2):
+    - DartCvMacOS/core
+  - DartCvMacOS/objdetect (4.12.0.2):
+    - DartCvMacOS/core
+  - DartCvMacOS/photo (4.12.0.2):
+    - DartCvMacOS/core
+  - DartCvMacOS/stitching (4.12.0.2):
+    - DartCvMacOS/core
+  - DartCvMacOS/video (4.12.0.2):
+    - DartCvMacOS/core
+  - DartCvMacOS/videoio (4.12.0.2):
+    - DartCvMacOS/core
+  - FlutterMacOS (1.0.0)
+  - opencv_dart (0.0.1):
+    - DartCvMacOS (= 4.12.0.2)
+    - DartCvMacOS/dnn (= 4.12.0.2)
+    - DartCvMacOS/videoio (= 4.12.0.2)
+    - FlutterMacOS
+  - share_plus (0.0.1):
+    - FlutterMacOS
+  - shared_preferences_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - sqflite_darwin (0.0.4):
+    - Flutter
+    - FlutterMacOS
+  - url_launcher_macos (0.0.1):
+    - FlutterMacOS
+  - video_player_avfoundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+
+DEPENDENCIES:
+  - app_links (from `Flutter/ephemeral/.symlinks/plugins/app_links/macos`)
+  - FlutterMacOS (from `Flutter/ephemeral`)
+  - opencv_dart (from `Flutter/ephemeral/.symlinks/plugins/opencv_dart/macos`)
+  - share_plus (from `Flutter/ephemeral/.symlinks/plugins/share_plus/macos`)
+  - shared_preferences_foundation (from `Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin`)
+  - sqflite_darwin (from `Flutter/ephemeral/.symlinks/plugins/sqflite_darwin/darwin`)
+  - url_launcher_macos (from `Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos`)
+  - video_player_avfoundation (from `Flutter/ephemeral/.symlinks/plugins/video_player_avfoundation/darwin`)
+
+SPEC REPOS:
+  trunk:
+    - DartCvMacOS
+
+EXTERNAL SOURCES:
+  app_links:
+    :path: Flutter/ephemeral/.symlinks/plugins/app_links/macos
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+  opencv_dart:
+    :path: Flutter/ephemeral/.symlinks/plugins/opencv_dart/macos
+  share_plus:
+    :path: Flutter/ephemeral/.symlinks/plugins/share_plus/macos
+  shared_preferences_foundation:
+    :path: Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin
+  sqflite_darwin:
+    :path: Flutter/ephemeral/.symlinks/plugins/sqflite_darwin/darwin
+  url_launcher_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos
+  video_player_avfoundation:
+    :path: Flutter/ephemeral/.symlinks/plugins/video_player_avfoundation/darwin
+
+SPEC CHECKSUMS:
+  app_links: 05a6ec2341985eb05e9f97dc63f5837c39895c3f
+  DartCvMacOS: 10e8f6cd2d6e968a967cec0b5d67682a00f28c9e
+  FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
+  opencv_dart: 8a5da02f57a563fc9d3cc2513a1cf02325ce18f7
+  share_plus: 510bf0af1a42cd602274b4629920c9649c52f4cc
+  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+  sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
+  url_launcher_macos: f87a979182d112f911de6820aefddaf56ee9fbfd
+  video_player_avfoundation: dd410b52df6d2466a42d28550e33e4146928280a
+
+PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
+
+COCOAPODS: 1.16.2
