@@ -162,6 +162,7 @@ body {
   height: 100%;
   padding-top: var(--safe-top);
   padding-bottom: var(--safe-bottom);
+  position: relative;
 }
 
 /* === Header === */
@@ -652,6 +653,272 @@ body {
   letter-spacing: 0.02em;
 }
 
+/* === Workout Timer Mode === */
+
+/* Start Workout floating button */
+.start-workout-btn {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  background: var(--gray-900);
+  color: var(--white);
+  border: none;
+  border-radius: 100px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  z-index: 20;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  transition: all var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.start-workout-btn:active {
+  transform: translateX(-50%) scale(0.95);
+}
+
+.start-workout-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Timer overlay — centered over card viewport */
+.timer-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  height: 140px;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.timer-overlay-bg {
+  position: absolute;
+  inset: -10px;
+  background: rgba(0,0,0,0.35);
+  border-radius: 50%;
+  filter: blur(16px);
+}
+
+.timer-ring {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+}
+
+.timer-ring-progress {
+  transition: stroke 0.3s ease, stroke-dashoffset 0.3s linear;
+}
+
+.timer-text {
+  position: relative;
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--white);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  z-index: 1;
+}
+
+/* Play gate — full viewport overlay between exercises */
+.play-gate {
+  position: absolute;
+  inset: 0;
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.25);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.play-gate-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.play-gate-btn {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: none;
+  background: var(--white);
+  color: var(--gray-900);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  transition: transform var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.play-gate-btn:active {
+  transform: scale(0.92);
+}
+
+.play-gate-btn svg {
+  width: 36px;
+  height: 36px;
+  margin-left: 4px;
+}
+
+.play-gate-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--white);
+  text-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
+/* Rest countdown overlay (over the card viewport in workout mode) */
+.rest-countdown {
+  position: absolute;
+  inset: 0;
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.4);
+}
+
+.rest-countdown-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.rest-countdown-time {
+  font-size: 72px;
+  font-weight: 800;
+  color: var(--white);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  line-height: 1;
+}
+
+.rest-countdown-next {
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.85);
+  text-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+
+/* Pause / Resume button */
+.pause-btn {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,0.5);
+  color: var(--white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 26;
+  -webkit-tap-highlight-color: transparent;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all var(--transition-fast);
+}
+
+.pause-btn:active {
+  transform: translateX(-50%) scale(0.92);
+}
+
+.pause-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Workout complete overlay */
+.workout-complete {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.workout-complete-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 40px;
+  background: var(--white);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  text-align: center;
+  max-width: 300px;
+}
+
+.workout-complete-icon {
+  width: 64px;
+  height: 64px;
+  color: #22c55e;
+}
+
+.workout-complete-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.workout-complete-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--gray-900);
+  letter-spacing: -0.02em;
+}
+
+.workout-complete-time {
+  font-size: 16px;
+  color: var(--gray-500);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.workout-close-btn {
+  margin-top: 8px;
+  padding: 12px 32px;
+  background: var(--gray-900);
+  color: var(--white);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.workout-close-btn:active {
+  transform: scale(0.97);
+}
+
 /* Desktop: constrain to phone-like width */
 @media (min-width: 640px) {
   body {
@@ -670,10 +937,16 @@ body {
     border-radius: var(--radius-xl);
     box-shadow: 0 4px 24px rgba(0,0,0,0.08);
     overflow: hidden;
+    position: relative;
   }
 
   .loading-screen,
   .error-screen {
     border-radius: var(--radius-xl);
+  }
+
+  /* Keep workout overlays inside the app container on desktop */
+  .workout-complete {
+    position: absolute;
   }
 }

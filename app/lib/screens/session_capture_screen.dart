@@ -754,8 +754,14 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
         _isDirty = false;
       });
 
-      debugPrint('Published: url=${_session.planUrl}, version=${_session.version}, isPublished=${_session.isPublished}');
       widget.storage.saveSession(_session);
+
+      // Re-read from storage to ensure consistency
+      final refreshed = await widget.storage.getSession(_session.id);
+      if (refreshed != null && mounted) {
+        setState(() => _session = refreshed);
+      }
+      debugPrint('Published: url=${_session.planUrl}, version=${_session.version}, isPublished=${_session.isPublished}');
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -763,7 +769,9 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
           duration: const Duration(seconds: 2),
         ),
       );
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('PUBLISH ERROR: $e');
+      debugPrint('$stack');
       if (!mounted) return;
 
       setState(() => _isPublishing = false);
@@ -771,6 +779,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Publish failed: $e'),
+          duration: const Duration(seconds: 5),
           action: SnackBarAction(label: 'Retry', onPressed: _publish),
         ),
       );
@@ -1352,12 +1361,15 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (_session.exercises.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  'Estimated: ${formatDuration(_session.estimatedTotalDurationSeconds)}',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                  textAlign: TextAlign.center,
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 4, left: 16),
+                  child: Text(
+                    'Estimated: ${formatDuration(_session.estimatedTotalDurationSeconds)}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                    textAlign: TextAlign.left,
+                  ),
                 ),
               ),
             Row(
@@ -2355,12 +2367,9 @@ class _RestBarState extends State<_RestBar> {
       ),
       child: Row(
         children: [
-          // Drag handle
-          widget.dragHandle,
-
           // Rest icon
           Padding(
-            padding: const EdgeInsets.only(left: 2, right: 6),
+            padding: const EdgeInsets.only(left: 8, right: 6),
             child: Icon(
               Icons.self_improvement,
               size: 18,
@@ -2436,6 +2445,11 @@ class _RestBarState extends State<_RestBar> {
               ),
             ),
           ),
+
+          const SizedBox(width: 4),
+
+          // Drag handle — far right, matching _ExerciseCard position
+          widget.dragHandle,
         ],
       ),
     );

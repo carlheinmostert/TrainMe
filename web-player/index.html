@@ -67,6 +67,72 @@
       </div>
     </main>
 
+    <!-- Timer overlay (workout mode) -->
+    <div id="timer-overlay" class="timer-overlay" hidden>
+      <div class="timer-overlay-bg"></div>
+      <svg class="timer-ring" viewBox="0 0 120 120">
+        <circle cx="60" cy="60" r="54" stroke-width="6" fill="none" stroke="rgba(255,255,255,0.2)"/>
+        <circle id="timer-ring-progress" class="timer-ring-progress" cx="60" cy="60" r="54"
+                stroke-width="6" fill="none" stroke="#22c55e"
+                stroke-dasharray="339.29" stroke-dashoffset="0"
+                transform="rotate(-90 60 60)" stroke-linecap="round"/>
+      </svg>
+      <div id="timer-text" class="timer-text">0:00</div>
+    </div>
+
+    <!-- Play gate overlay (workout mode — between exercises) -->
+    <div id="play-gate" class="play-gate" hidden>
+      <div class="play-gate-inner">
+        <button class="play-gate-btn" id="play-gate-btn" aria-label="Start exercise">
+          <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
+        </button>
+        <div class="play-gate-label">Tap to start</div>
+      </div>
+    </div>
+
+    <!-- Rest countdown overlay (workout mode) -->
+    <div id="rest-countdown" class="rest-countdown" hidden>
+      <div class="rest-countdown-inner">
+        <div id="rest-countdown-time" class="rest-countdown-time">30</div>
+        <div id="rest-countdown-next" class="rest-countdown-next">Next up: Exercise</div>
+      </div>
+    </div>
+
+    <!-- Workout complete overlay -->
+    <div id="workout-complete" class="workout-complete" hidden>
+      <div class="workout-complete-inner">
+        <div class="workout-complete-icon">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="24" cy="24" r="20"/>
+            <polyline points="16 24 22 30 32 18"/>
+          </svg>
+        </div>
+        <div class="workout-complete-title">Workout Complete!</div>
+        <div id="workout-total-time" class="workout-complete-time">Total time: 0:00</div>
+        <button id="workout-close-btn" class="workout-close-btn">Close</button>
+      </div>
+    </div>
+
+    <!-- Start Workout button (floating) -->
+    <button id="start-workout-btn" class="start-workout-btn" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <polyline points="12 6 12 12 16 14"/>
+      </svg>
+      Start Workout
+    </button>
+
+    <!-- Pause / Resume button (workout mode) -->
+    <button id="pause-btn" class="pause-btn" hidden>
+      <svg id="pause-icon" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="6" y="4" width="4" height="16" rx="1"/>
+        <rect x="14" y="4" width="4" height="16" rx="1"/>
+      </svg>
+      <svg id="resume-icon" viewBox="0 0 24 24" fill="currentColor" hidden>
+        <polygon points="6 3 20 12 6 21 6 3"/>
+      </svg>
+    </button>
+
     <!-- Navigation -->
     <nav class="nav-bar">
       <button id="btn-prev" class="nav-btn nav-btn--prev" aria-label="Previous exercise" disabled>

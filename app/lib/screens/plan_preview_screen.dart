@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
@@ -132,6 +134,34 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   /// appears in multiple slides — this avoids lifecycle conflicts.
   final Map<int, VideoPlayerController> _videoControllers = {};
 
+  // ---------------------------------------------------------------------------
+  // Workout timer state
+  // ---------------------------------------------------------------------------
+
+  /// Whether the user has entered workout mode (timer-driven progression).
+  bool _isWorkoutMode = false;
+
+  /// Whether the countdown timer is actively ticking.
+  bool _isTimerRunning = false;
+
+  /// Whether to show the "Tap to start" play gate overlay.
+  bool _showPlayGate = false;
+
+  /// Seconds remaining on the current slide's countdown.
+  int _remainingSeconds = 0;
+
+  /// Total seconds for the current slide (used for progress ring calculation).
+  int _totalSeconds = 0;
+
+  /// Whether the workout has been completed (all slides finished).
+  bool _workoutComplete = false;
+
+  /// Wall-clock time when workout mode was entered.
+  DateTime? _workoutStartTime;
+
+  /// The periodic timer that drives the per-second countdown.
+  Timer? _workoutTimer;
+
   @override
   void initState() {
     super.initState();
@@ -144,6 +174,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
 
   @override
   void dispose() {
+    _workoutTimer?.cancel();
     _pageController.removeListener(_onPageScroll);
     _pageController.dispose();
     for (final controller in _videoControllers.values) {
@@ -225,6 +256,151 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
     for (final k in toDispose) {
       _disposeVideo(k);
     }
+
+    // When in workout mode and the user manually swipes (skip), reset the
+    // timer for the new slide. The _advanceToNext path handles this via a
+    // post-frame callback, but manual swipes come through here.
+    if (_isWorkoutMode && !_workoutComplete) {
+      _setupSlideTimer(index);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Workout timer
+  // ---------------------------------------------------------------------------
+
+  /// Enter workout mode: record the start time and set up the first slide.
+  void _startWorkout() {
+    setState(() {
+      _isWorkoutMode = true;
+      _workoutComplete = false;
+      _workoutStartTime = DateTime.now();
+    });
+    _setupSlideTimer(_currentPage);
+  }
+
+  /// Configure the timer for the given slide index.
+  ///
+  /// Rest slides auto-start immediately. Exercise slides show the play gate
+  /// so the client can get ready before the countdown begins.
+  void _setupSlideTimer(int index) {
+    _workoutTimer?.cancel();
+    if (index < 0 || index >= _slides.length) return;
+
+    final exercise = _slides[index].exercise;
+    final duration = exercise.effectiveDurationSeconds;
+
+    setState(() {
+      _totalSeconds = duration;
+      _remainingSeconds = duration;
+      _isTimerRunning = false;
+      _showPlayGate = false;
+    });
+
+    if (exercise.isRest) {
+      // Rest periods start counting down immediately — no play gate.
+      _startTimer();
+    } else {
+      // Exercises show the play gate; client taps when ready.
+      setState(() => _showPlayGate = true);
+    }
+  }
+
+  /// Begin (or resume) the countdown for the current slide.
+  void _startTimer() {
+    setState(() {
+      _showPlayGate = false;
+      _isTimerRunning = true;
+    });
+    _workoutTimer?.cancel();
+    _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _onTimerTick();
+    });
+  }
+
+  /// Pause the running countdown.
+  void _pauseTimer() {
+    _workoutTimer?.cancel();
+    setState(() => _isTimerRunning = false);
+  }
+
+  /// Resume a previously paused countdown.
+  void _resumeTimer() {
+    if (_remainingSeconds <= 0) return;
+    setState(() => _isTimerRunning = true);
+    _workoutTimer?.cancel();
+    _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _onTimerTick();
+    });
+  }
+
+  /// Called every second while the timer is running.
+  void _onTimerTick() {
+    if (_remainingSeconds <= 1) {
+      // Timer has finished — advance or complete.
+      _workoutTimer?.cancel();
+      setState(() {
+        _remainingSeconds = 0;
+        _isTimerRunning = false;
+      });
+
+      if (_currentPage < _slides.length - 1) {
+        _advanceToNext();
+      } else {
+        _finishWorkout();
+      }
+    } else {
+      setState(() => _remainingSeconds--);
+    }
+  }
+
+  /// Auto-advance to the next slide after the current timer expires.
+  void _advanceToNext() {
+    final nextPage = _currentPage + 1;
+    if (nextPage >= _slides.length) {
+      _finishWorkout();
+      return;
+    }
+    _navigateToPage(nextPage);
+    // _onPageChanged will fire via PageView, but we also need to set up the
+    // timer for the new slide. Use a post-frame callback so the page has
+    // settled.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _isWorkoutMode && !_workoutComplete) {
+        _setupSlideTimer(nextPage);
+      }
+    });
+  }
+
+  /// Mark the workout as complete and record total elapsed time.
+  void _finishWorkout() {
+    _workoutTimer?.cancel();
+    setState(() {
+      _isTimerRunning = false;
+      _showPlayGate = false;
+      _workoutComplete = true;
+    });
+  }
+
+  /// Exit workout mode entirely and return to browse mode.
+  void _exitWorkoutMode() {
+    _workoutTimer?.cancel();
+    setState(() {
+      _isWorkoutMode = false;
+      _isTimerRunning = false;
+      _showPlayGate = false;
+      _remainingSeconds = 0;
+      _totalSeconds = 0;
+      _workoutComplete = false;
+      _workoutStartTime = null;
+    });
+  }
+
+  /// Format seconds as "M:SS".
+  String _formatTimer(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
   }
 
   // ---------------------------------------------------------------------------
@@ -333,9 +509,42 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                         ),
                       ),
                     ),
+
+                  // --- Workout mode overlays ---
+
+                  // Start Workout button — shown on first slide before
+                  // workout mode is active.
+                  if (!_isWorkoutMode && !_workoutComplete)
+                    _buildStartWorkoutOverlay(),
+
+                  // Timer ring — visible while workout mode is active and
+                  // the timer is running (not during play gate).
+                  if (_isWorkoutMode &&
+                      !_workoutComplete &&
+                      _isTimerRunning &&
+                      !_showPlayGate)
+                    _buildTimerOverlay(),
+
+                  // Rest countdown overlay — larger display for rest slides
+                  if (_isWorkoutMode &&
+                      !_workoutComplete &&
+                      _isTimerRunning &&
+                      _slides[_currentPage].exercise.isRest)
+                    _buildRestCountdownOverlay(),
+
+                  // Play gate — "Tap to start" before each exercise.
+                  if (_isWorkoutMode && !_workoutComplete && _showPlayGate)
+                    _buildPlayGateOverlay(),
+
+                  // Workout complete overlay
+                  if (_workoutComplete) _buildWorkoutCompleteOverlay(),
                 ],
               ),
             ),
+
+            // Workout controls bar (pause/resume) — below the page view
+            if (_isWorkoutMode && !_workoutComplete && !_showPlayGate)
+              _buildWorkoutControls(),
 
             // Dot indicator — only when slide count is manageable (<=10).
             // With many slides the progress bar above is sufficient.
@@ -344,6 +553,340 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
 
             const SizedBox(height: 16),
           ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Workout overlay widgets
+  // ---------------------------------------------------------------------------
+
+  /// "Start Workout" button — bottom-center overlay before workout mode begins.
+  Widget _buildStartWorkoutOverlay() {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 32,
+      child: Center(
+        child: GestureDetector(
+          onTap: _startWorkout,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF4DB6AC), Color(0xFF00897B)],
+              ),
+              borderRadius: BorderRadius.circular(32),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF4DB6AC).withValues(alpha: 0.4),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28),
+                SizedBox(width: 8),
+                Text(
+                  'Start Workout',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Circular countdown timer with a progress ring.
+  ///
+  /// The ring fills from 0 to 1 as time elapses. Colour shifts from green
+  /// through amber to red based on remaining time thresholds.
+  Widget _buildTimerRing() {
+    final progress = _totalSeconds > 0
+        ? (_totalSeconds - _remainingSeconds) / _totalSeconds
+        : 0.0;
+    final Color color;
+    if (_remainingSeconds > _totalSeconds * 0.25) {
+      color = Colors.green;
+    } else if (_remainingSeconds > _totalSeconds * 0.10) {
+      color = Colors.amber;
+    } else {
+      color = Colors.red;
+    }
+
+    return SizedBox(
+      width: 120,
+      height: 120,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Custom painted ring for a thicker, rounder arc.
+          CustomPaint(
+            size: const Size(120, 120),
+            painter: _TimerRingPainter(
+              progress: progress,
+              color: color,
+              trackColor: Colors.white.withValues(alpha: 0.15),
+              strokeWidth: 6,
+            ),
+          ),
+          Text(
+            _formatTimer(_remainingSeconds),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Timer overlay — centered on the slide with a semi-transparent scrim.
+  Widget _buildTimerOverlay() {
+    // Don't double-up on rest slides; the rest countdown overlay handles those.
+    if (_slides[_currentPage].exercise.isRest) return const SizedBox.shrink();
+
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.35),
+              shape: BoxShape.circle,
+            ),
+            child: _buildTimerRing(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Rest countdown — large centred number with "Next up" label.
+  Widget _buildRestCountdownOverlay() {
+    // Find the name of the next non-rest exercise for the "Next up" label.
+    String? nextExerciseName;
+    for (var i = _currentPage + 1; i < _slides.length; i++) {
+      if (!_slides[i].exercise.isRest) {
+        final ex = _slides[i].exercise;
+        nextExerciseName = ex.name ?? 'Exercise ${_slides[i].originalIndex + 1}';
+        break;
+      }
+    }
+
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildTimerRing(),
+              if (nextExerciseName != null) ...[
+                const SizedBox(height: 20),
+                Text(
+                  'Next up: $nextExerciseName',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Play gate — large play button with "Tap to start" text.
+  Widget _buildPlayGateOverlay() {
+    return Positioned.fill(
+      child: GestureDetector(
+        onTap: _startTimer,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.5),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 96,
+                  height: 96,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4DB6AC).withValues(alpha: 0.9),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF4DB6AC).withValues(alpha: 0.4),
+                        blurRadius: 24,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    size: 56,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Tap to start',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _formatTimer(_totalSeconds),
+                  style: const TextStyle(
+                    color: Colors.white38,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Pause / resume controls below the page view.
+  Widget _buildWorkoutControls() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: GestureDetector(
+          onTap: _isTimerRunning ? _pauseTimer : _resumeTimer,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _isTimerRunning
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _isTimerRunning ? 'Pause' : 'Resume',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Workout complete screen — total time and close button.
+  Widget _buildWorkoutCompleteOverlay() {
+    final elapsed = _workoutStartTime != null
+        ? DateTime.now().difference(_workoutStartTime!).inSeconds
+        : 0;
+    final totalFormatted = formatDuration(elapsed);
+
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withValues(alpha: 0.85),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.check_circle_outline_rounded,
+                size: 80,
+                color: Color(0xFF4DB6AC),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Workout Complete!',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Total time: $totalFormatted',
+                style: const TextStyle(
+                  color: Colors.white60,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              const SizedBox(height: 40),
+              GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF4DB6AC), Color(0xFF00897B)],
+                    ),
+                    borderRadius: BorderRadius.circular(28),
+                  ),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              GestureDetector(
+                onTap: _exitWorkoutMode,
+                child: const Text(
+                  'Back to browse',
+                  style: TextStyle(
+                    color: Colors.white38,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    decoration: TextDecoration.underline,
+                    decorationColor: Colors.white38,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -869,5 +1412,58 @@ class _ExercisePageState extends State<_ExercisePage> {
         ),
       ),
     );
+  }
+}
+
+// =============================================================================
+// Timer ring painter — draws an arc that fills as time elapses
+// =============================================================================
+
+class _TimerRingPainter extends CustomPainter {
+  final double progress; // 0.0 .. 1.0
+  final Color color;
+  final Color trackColor;
+  final double strokeWidth;
+
+  const _TimerRingPainter({
+    required this.progress,
+    required this.color,
+    required this.trackColor,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (math.min(size.width, size.height) - strokeWidth) / 2;
+
+    // Track (full circle, dim)
+    final trackPaint = Paint()
+      ..color = trackColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+    canvas.drawCircle(center, radius, trackPaint);
+
+    // Progress arc — starts at top (−pi/2), sweeps clockwise.
+    if (progress > 0) {
+      final arcPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round;
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        -math.pi / 2,
+        2 * math.pi * progress,
+        false,
+        arcPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TimerRingPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.color != color;
   }
 }

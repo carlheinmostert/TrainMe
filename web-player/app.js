@@ -20,6 +20,19 @@ let slides = [];
 let currentIndex = 0;
 let swipeState = { active: false, startX: 0, currentX: 0, startTime: 0 };
 
+// Workout timer state
+let isWorkoutMode = false;
+let isTimerRunning = false;
+let showPlayGate = false;
+let remainingSeconds = 0;
+let totalSeconds = 0;
+let workoutTimer = null;
+let workoutStartTime = null;
+
+// Timing constants (from config.dart)
+const SECONDS_PER_REP = 3;
+const REST_BETWEEN_SETS = 30;
+
 // ============================================================
 // DOM references
 // ============================================================
@@ -36,6 +49,23 @@ const $cardTrack = document.getElementById('card-track');
 const $navDots = document.getElementById('nav-dots');
 const $btnPrev = document.getElementById('btn-prev');
 const $btnNext = document.getElementById('btn-next');
+
+// Workout timer DOM refs
+const $timerOverlay = document.getElementById('timer-overlay');
+const $timerRingProgress = document.getElementById('timer-ring-progress');
+const $timerText = document.getElementById('timer-text');
+const $playGate = document.getElementById('play-gate');
+const $playGateBtn = document.getElementById('play-gate-btn');
+const $restCountdown = document.getElementById('rest-countdown');
+const $restCountdownTime = document.getElementById('rest-countdown-time');
+const $restCountdownNext = document.getElementById('rest-countdown-next');
+const $workoutComplete = document.getElementById('workout-complete');
+const $workoutTotalTime = document.getElementById('workout-total-time');
+const $workoutCloseBtn = document.getElementById('workout-close-btn');
+const $startWorkoutBtn = document.getElementById('start-workout-btn');
+const $pauseBtn = document.getElementById('pause-btn');
+const $pauseIcon = document.getElementById('pause-icon');
+const $resumeIcon = document.getElementById('resume-icon');
 
 // ============================================================
 // Data fetching
@@ -281,13 +311,43 @@ function goTo(index) {
 
   currentIndex = index;
   updateUI();
+
+  // If in workout mode and navigating manually (via skip buttons),
+  // reset timer state for the new slide
+  if (isWorkoutMode && !isTimerRunning && !showPlayGate) {
+    // User skipped — show play gate for the new slide
+    showPlayGateForCurrent();
+  }
 }
 
 function goNext() {
+  if (isWorkoutMode) {
+    // Stop current timer when skipping
+    if (workoutTimer) {
+      clearInterval(workoutTimer);
+      workoutTimer = null;
+    }
+    isTimerRunning = false;
+    hideTimerDisplay();
+    hidePlayGate();
+    hideRestCountdown();
+    showPlayGate = false;
+  }
   goTo(currentIndex + 1);
 }
 
 function goPrev() {
+  if (isWorkoutMode) {
+    if (workoutTimer) {
+      clearInterval(workoutTimer);
+      workoutTimer = null;
+    }
+    isTimerRunning = false;
+    hideTimerDisplay();
+    hidePlayGate();
+    hideRestCountdown();
+    showPlayGate = false;
+  }
   goTo(currentIndex - 1);
 }
 
@@ -411,7 +471,318 @@ function onKeyDown(e) {
   } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
     e.preventDefault();
     goPrev();
+  } else if (e.key === ' ' && isWorkoutMode) {
+    e.preventDefault();
+    if (showPlayGate) {
+      // Spacebar starts the exercise from play gate
+      hidePlayGate();
+      startTimer();
+    } else if (isTimerRunning || remainingSeconds > 0) {
+      togglePause();
+    }
   }
+}
+
+// ============================================================
+// Workout Timer
+// ============================================================
+
+const TIMER_CIRCUMFERENCE = 2 * Math.PI * 54; // ~339.29
+
+/**
+ * Calculate the duration in seconds for an exercise slide.
+ * Uses custom_duration_seconds if set, otherwise computes from reps/sets/hold.
+ */
+function calculateDuration(slide) {
+  if (slide.custom_duration_seconds) {
+    return slide.custom_duration_seconds;
+  }
+
+  if (slide.media_type === 'rest') {
+    return slide.hold_seconds || slide.custom_duration_seconds || 30;
+  }
+
+  const reps = slide.reps || 10;
+  const sets = slide.sets || 3;
+  const holdPerSet = slide.hold_seconds || 0;
+  const perSet = (reps * SECONDS_PER_REP) + holdPerSet;
+  const restTotal = (sets - 1) * REST_BETWEEN_SETS;
+  return (perSet * sets) + restTotal;
+}
+
+/**
+ * Format seconds as m:ss
+ */
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Enter workout mode
+ */
+function startWorkout() {
+  isWorkoutMode = true;
+  workoutStartTime = Date.now();
+
+  // Hide the start button
+  $startWorkoutBtn.hidden = true;
+
+  // Go to the first slide
+  goTo(0);
+
+  // Show play gate on first exercise (or auto-start if rest)
+  showPlayGateForCurrent();
+}
+
+/**
+ * Show the play gate overlay, or auto-start for rest slides
+ */
+function showPlayGateForCurrent() {
+  if (!isWorkoutMode) return;
+
+  const slide = slides[currentIndex];
+  if (!slide) {
+    finishWorkout();
+    return;
+  }
+
+  // Calculate duration for this slide
+  totalSeconds = calculateDuration(slide);
+  remainingSeconds = totalSeconds;
+
+  if (slide.media_type === 'rest') {
+    // Rest periods auto-start -- show rest countdown overlay
+    hidePlayGate();
+    showRestCountdown();
+    startTimer();
+  } else {
+    // Exercise slides show play gate
+    hideRestCountdown();
+    hideTimerDisplay();
+    showPlayGateOverlay();
+  }
+}
+
+function showPlayGateOverlay() {
+  showPlayGate = true;
+  $playGate.hidden = false;
+  $pauseBtn.hidden = true;
+}
+
+function hidePlayGate() {
+  showPlayGate = false;
+  $playGate.hidden = true;
+}
+
+function showRestCountdown() {
+  const nextSlide = currentIndex < slides.length - 1 ? slides[currentIndex + 1] : null;
+  const nextName = nextSlide ? (nextSlide.name || 'Next exercise') : '';
+
+  $restCountdownTime.textContent = remainingSeconds;
+  $restCountdownNext.textContent = nextName ? `Next up: ${nextName}` : '';
+  $restCountdown.hidden = false;
+
+  // Also show pause button during rest
+  $pauseBtn.hidden = false;
+  updatePauseButton();
+}
+
+function hideRestCountdown() {
+  $restCountdown.hidden = true;
+}
+
+/**
+ * Start the countdown timer for the current slide
+ */
+function startTimer() {
+  if (workoutTimer) clearInterval(workoutTimer);
+
+  isTimerRunning = true;
+  updateTimerDisplay();
+  showTimerDisplay();
+  $pauseBtn.hidden = false;
+  updatePauseButton();
+
+  workoutTimer = setInterval(onTimerTick, 1000);
+}
+
+function showTimerDisplay() {
+  const slide = slides[currentIndex];
+  // Only show the SVG ring timer for non-rest slides
+  if (slide && slide.media_type !== 'rest') {
+    $timerOverlay.hidden = false;
+  }
+}
+
+function hideTimerDisplay() {
+  $timerOverlay.hidden = true;
+}
+
+/**
+ * Called every second while timer is running
+ */
+function onTimerTick() {
+  if (!isTimerRunning) return;
+
+  remainingSeconds--;
+
+  if (remainingSeconds <= 0) {
+    remainingSeconds = 0;
+    updateTimerDisplay();
+    clearInterval(workoutTimer);
+    workoutTimer = null;
+    isTimerRunning = false;
+
+    // Auto-advance
+    onTimerComplete();
+    return;
+  }
+
+  updateTimerDisplay();
+}
+
+/**
+ * Update the visual timer display (ring + text)
+ */
+function updateTimerDisplay() {
+  const slide = slides[currentIndex];
+
+  if (slide && slide.media_type === 'rest') {
+    // Update rest countdown number
+    $restCountdownTime.textContent = remainingSeconds;
+    return;
+  }
+
+  // Update text
+  $timerText.textContent = formatTime(remainingSeconds);
+
+  // Update SVG ring progress
+  const progress = totalSeconds > 0 ? (1 - (remainingSeconds / totalSeconds)) : 0;
+  const offset = TIMER_CIRCUMFERENCE * (1 - progress);
+  $timerRingProgress.setAttribute('stroke-dashoffset', offset.toString());
+
+  // Update color based on remaining percentage
+  const pct = totalSeconds > 0 ? (remainingSeconds / totalSeconds) : 1;
+  let color;
+  if (pct <= 0.10) {
+    color = '#ef4444'; // red
+  } else if (pct <= 0.25) {
+    color = '#f59e0b'; // amber
+  } else {
+    color = '#22c55e'; // green
+  }
+  $timerRingProgress.setAttribute('stroke', color);
+}
+
+/**
+ * Timer hit zero -- advance to next slide
+ */
+function onTimerComplete() {
+  hideTimerDisplay();
+  hideRestCountdown();
+  $pauseBtn.hidden = true;
+
+  // Move to next slide
+  const nextIndex = currentIndex + 1;
+  if (nextIndex >= slides.length) {
+    finishWorkout();
+    return;
+  }
+
+  goTo(nextIndex);
+
+  // Show play gate for the new slide (or auto-start rest)
+  showPlayGateForCurrent();
+}
+
+/**
+ * Pause the running timer
+ */
+function pauseTimer() {
+  if (!isTimerRunning) return;
+  isTimerRunning = false;
+  if (workoutTimer) {
+    clearInterval(workoutTimer);
+    workoutTimer = null;
+  }
+  updatePauseButton();
+}
+
+/**
+ * Resume a paused timer
+ */
+function resumeTimer() {
+  if (isTimerRunning) return;
+  isTimerRunning = true;
+  workoutTimer = setInterval(onTimerTick, 1000);
+  updatePauseButton();
+}
+
+/**
+ * Toggle pause/resume
+ */
+function togglePause() {
+  if (isTimerRunning) {
+    pauseTimer();
+  } else {
+    resumeTimer();
+  }
+}
+
+function updatePauseButton() {
+  $pauseIcon.hidden = !isTimerRunning;
+  $resumeIcon.hidden = isTimerRunning;
+}
+
+/**
+ * Show workout complete screen
+ */
+function finishWorkout() {
+  // Stop any running timer
+  if (workoutTimer) {
+    clearInterval(workoutTimer);
+    workoutTimer = null;
+  }
+  isTimerRunning = false;
+
+  hideTimerDisplay();
+  hidePlayGate();
+  hideRestCountdown();
+  $pauseBtn.hidden = true;
+
+  // Calculate total workout time
+  const elapsedMs = Date.now() - workoutStartTime;
+  const elapsedSeconds = Math.round(elapsedMs / 1000);
+  $workoutTotalTime.textContent = `Total time: ${formatTime(elapsedSeconds)}`;
+
+  $workoutComplete.hidden = false;
+}
+
+/**
+ * Close workout mode and return to browse
+ */
+function exitWorkout() {
+  isWorkoutMode = false;
+  isTimerRunning = false;
+  showPlayGate = false;
+
+  if (workoutTimer) {
+    clearInterval(workoutTimer);
+    workoutTimer = null;
+  }
+
+  workoutStartTime = null;
+
+  $workoutComplete.hidden = true;
+  hideTimerDisplay();
+  hidePlayGate();
+  hideRestCountdown();
+  $pauseBtn.hidden = true;
+
+  // Show the start workout button again
+  $startWorkoutBtn.hidden = false;
 }
 
 // ============================================================
@@ -472,8 +843,34 @@ async function init() {
     // Dot navigation
     $navDots.addEventListener('click', (e) => {
       const dot = e.target.closest('.nav-dot');
-      if (dot) goTo(parseInt(dot.dataset.index, 10));
+      if (dot) {
+        if (isWorkoutMode) {
+          // Reset timer when jumping via dots
+          if (workoutTimer) {
+            clearInterval(workoutTimer);
+            workoutTimer = null;
+          }
+          isTimerRunning = false;
+          hideTimerDisplay();
+          hidePlayGate();
+          hideRestCountdown();
+          showPlayGate = false;
+        }
+        goTo(parseInt(dot.dataset.index, 10));
+      }
     });
+
+    // Workout timer events
+    $startWorkoutBtn.addEventListener('click', startWorkout);
+    $playGateBtn.addEventListener('click', () => {
+      hidePlayGate();
+      startTimer();
+    });
+    $pauseBtn.addEventListener('click', togglePause);
+    $workoutCloseBtn.addEventListener('click', exitWorkout);
+
+    // Show the Start Workout button
+    $startWorkoutBtn.hidden = false;
 
   } catch (err) {
     console.error('Failed to load plan:', err);
