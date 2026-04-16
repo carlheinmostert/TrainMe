@@ -14,7 +14,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 9;
+  static const _dbVersion = 10;
 
   Database? _db;
 
@@ -52,7 +52,9 @@ class LocalStorageService {
         plan_url TEXT,
         deleted_at INTEGER,
         circuit_cycles TEXT,
-        preferred_rest_interval INTEGER
+        preferred_rest_interval INTEGER,
+        version INTEGER NOT NULL DEFAULT 0,
+        last_published_at INTEGER
       )
     ''');
 
@@ -142,6 +144,14 @@ class LocalStorageService {
         [prefix, '$prefix%'],
       );
     }
+    if (oldVersion < 10) {
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN version INTEGER NOT NULL DEFAULT 0',
+      );
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN last_published_at INTEGER',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -168,12 +178,13 @@ class LocalStorageService {
     return Session.fromMap(rows.first, exercises: exercises);
   }
 
-  /// All sessions that haven't been sent yet and are not soft-deleted,
-  /// newest first. These are the bio's "in-progress" sessions.
+  /// All sessions that are not soft-deleted, newest first.
+  /// Published sessions remain active so the trainer can update and
+  /// re-publish them.
   Future<List<Session>> getActiveSessions() async {
     final rows = await db.query(
       'sessions',
-      where: 'sent_at IS NULL AND deleted_at IS NULL',
+      where: 'deleted_at IS NULL',
       orderBy: 'created_at DESC',
     );
 

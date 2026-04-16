@@ -13,9 +13,13 @@ CREATE TABLE plans (
   circuit_cycles jsonb DEFAULT '{}',
   preferred_rest_interval_seconds integer,
   exercise_count integer,
+  version integer NOT NULL DEFAULT 1,
   created_at timestamptz DEFAULT now(),
   sent_at timestamptz DEFAULT now()
 );
+
+-- To add the version column to an existing database, run:
+-- ALTER TABLE plans ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;
 
 -- Exercises table — ordered exercises within a plan
 CREATE TABLE exercises (
@@ -45,8 +49,10 @@ ALTER TABLE exercises ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Public read plans" ON plans FOR SELECT USING (true);
 CREATE POLICY "Public insert plans" ON plans FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public update plans" ON plans FOR UPDATE USING (true);
 CREATE POLICY "Public read exercises" ON exercises FOR SELECT USING (true);
 CREATE POLICY "Public insert exercises" ON exercises FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public delete exercises" ON exercises FOR DELETE USING (true);
 
 -- Storage bucket (run separately in Supabase dashboard or via SQL)
 -- INSERT INTO storage.buckets (id, name, public) VALUES ('media', 'media', true)

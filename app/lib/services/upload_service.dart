@@ -22,15 +22,15 @@ class UploadService {
 
   UploadService({required LocalStorageService storage}) : _storage = storage;
 
-  /// Upload all converted assets for a session, create the plan record
-  /// in the backend, and return a shareable URL.
+  /// Upload all converted assets for a session, create/update the plan
+  /// record in the backend, and return the result.
   ///
   /// Precondition: all exercises in the session should have
   /// [ConversionStatus.done]. The caller should check
   /// [Session.allConversionsComplete] before calling this.
   ///
-  /// Returns the shareable plan URL (e.g. https://session.homefit.studio/p/{uuid}).
-  Future<String> uploadPlan(Session session) async {
+  /// Returns an [UploadResult] with the shareable URL and the new version.
+  Future<UploadResult> uploadPlan(Session session) async {
     final mediaUrls = <String, String>{}; // exerciseId -> media URL
     final thumbUrls = <String, String?>{}; // exerciseId -> thumbnail URL
 
@@ -39,7 +39,8 @@ class UploadService {
       if (exercise.isRest) continue; // Rest periods have no media
 
       // Upload converted file (or raw if conversion not done)
-      final filePath = exercise.convertedFilePath ?? exercise.rawFilePath;
+      // Resolve relative paths to absolute for file I/O
+      final filePath = exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath;
       final file = File(filePath);
       if (await file.exists()) {
         final ext = p.extension(filePath);
@@ -52,7 +53,7 @@ class UploadService {
       }
 
       // Upload thumbnail if exists
-      final thumbPath = exercise.thumbnailPath;
+      final thumbPath = exercise.absoluteThumbnailPath;
       if (thumbPath != null) {
         final thumbFile = File(thumbPath);
         if (await thumbFile.exists()) {
@@ -66,7 +67,8 @@ class UploadService {
       }
     }
 
-    // Step 2: Upsert plan record (upsert handles re-sends gracefully)
+    // Step 2: Upsert plan record. Increment version on each publish.
+    final newVersion = session.version + 1;
     await _supabase.from('plans').upsert({
       'id': session.id,
       'client_name': session.clientName,
@@ -74,6 +76,7 @@ class UploadService {
       'circuit_cycles': json.encode(session.circuitCycles),
       'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
       'exercise_count': session.exercises.where((e) => !e.isRest).length,
+      'version': newVersion,
       'created_at': session.createdAt.toIso8601String(),
       'sent_at': DateTime.now().toIso8601String(),
     });
@@ -101,16 +104,27 @@ class UploadService {
 
     await _supabase.from('exercises').insert(exerciseRows);
 
-    // Step 4: Build shareable URL
+    // Step 4: Build shareable URL (stable across versions)
     final planUrl = '${AppConfig.webPlayerBaseUrl}/p/${session.id}';
 
-    // Persist the sent state locally
+    // Persist the published state locally
+    final now = DateTime.now();
     final updated = session.copyWith(
-      sentAt: DateTime.now(),
+      sentAt: now,
       planUrl: planUrl,
+      version: newVersion,
+      lastPublishedAt: now,
     );
     await _storage.saveSession(updated);
 
-    return planUrl;
+    return UploadResult(url: planUrl, version: newVersion);
   }
+}
+
+/// Result of a successful plan upload/publish.
+class UploadResult {
+  final String url;
+  final int version;
+
+  const UploadResult({required this.url, required this.version});
 }

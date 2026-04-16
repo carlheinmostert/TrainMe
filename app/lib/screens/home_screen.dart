@@ -213,6 +213,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Short publish-status label for the session card.
+  static String _publishLabel(Session session) {
+    if (session.version == 0) return 'Draft';
+    final v = 'Published v${session.version}';
+    final dt = session.lastPublishedAt;
+    if (dt == null) return v;
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final date = '${dt.day} ${months[dt.month - 1]}';
+    return '$v · $date';
+  }
+
   Widget _buildSessionCard(Session session) {
     final exerciseCount = session.exercises.length;
     final pending = session.pendingConversions;
@@ -243,9 +257,23 @@ class _HomeScreenState extends State<HomeScreen> {
             session.clientName,
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
-          subtitle: Text(
-            '$exerciseCount exercise${exerciseCount == 1 ? '' : 's'}'
-            '${pending > 0 ? ' ($pending converting...)' : ''}',
+          subtitle: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '$exerciseCount exercise${exerciseCount == 1 ? '' : 's'}'
+                      '${pending > 0 ? ' ($pending converting...)' : ''}',
+                ),
+                TextSpan(
+                  text: ' · ${_publishLabel(session)}',
+                  style: TextStyle(
+                    color: session.version > 0
+                        ? const Color(0xFF009688)
+                        : Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ),
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
           trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),

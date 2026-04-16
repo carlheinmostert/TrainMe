@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/local_storage_service.dart';
@@ -102,14 +101,13 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Send flow
+  // Publish flow
   // ---------------------------------------------------------------------------
 
-  /// The Send flow:
+  /// The Publish flow:
   /// 1. Check all conversions are done (or wait for them)
   /// 2. Upload to Supabase
-  /// 3. Generate shareable link
-  /// 4. Open share sheet
+  /// 3. Show snackbar with version
   Future<void> _send() async {
     // Check conversions
     if (!_session.allConversionsComplete) {
@@ -129,78 +127,37 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Wait & Send'),
+              child: const Text('Wait & Publish'),
             ),
           ],
         ),
       );
       if (proceed != true) return;
-
-      // TODO: Actually wait for conversions to complete before proceeding.
-      // For now, send anyway with whatever is ready.
     }
 
     setState(() => _isSending = true);
 
     try {
-      final url = await _uploadService.uploadPlan(_session);
+      final result = await _uploadService.uploadPlan(_session);
 
       setState(() {
         _session = _session.copyWith(
           sentAt: DateTime.now(),
-          planUrl: url,
+          planUrl: result.url,
+          version: result.version,
+          lastPublishedAt: DateTime.now(),
         );
         _isSending = false;
       });
 
       if (!mounted) return;
 
-      // Show success and offer share sheet
-      final shouldShare = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text('Plan sent!'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Your plan is ready to share.'),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: SelectableText(
-                  url,
-                  style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Done'),
-            ),
-            FilledButton.icon(
-              onPressed: () => Navigator.pop(context, true),
-              icon: const Icon(Icons.share),
-              label: const Text('Share via WhatsApp'),
-            ),
-          ],
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Published v${result.version}'),
+          duration: const Duration(seconds: 2),
         ),
       );
-
-      if (shouldShare == true && mounted) {
-        await Share.share(
-          '${_session.displayTitle}\n\n'
-          '${_session.exercises.length} exercises ready for you:\n'
-          '$url',
-        );
-      }
 
       // Return to home
       if (mounted) {
@@ -211,7 +168,7 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Send failed: $e'),
+            content: Text('Publish failed: $e'),
             action: SnackBarAction(label: 'Retry', onPressed: _send),
           ),
         );

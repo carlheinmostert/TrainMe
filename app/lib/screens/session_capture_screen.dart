@@ -30,10 +30,12 @@ bool _isStillImageConversion(ExerciseCapture exercise) {
   return ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png');
 }
 
-/// Unified session workspace — capture, annotate, and send in one screen.
+/// Unified session workspace — capture, annotate, and publish in one screen.
 ///
 /// Shows all captured exercises as expandable cards with inline editing.
-/// Three action buttons at the bottom: Import, Capture, and Send.
+/// Three action buttons at the bottom: Import, Capture, and Publish.
+/// After publishing, the Publish button becomes "Published" with a share
+/// icon. Editing exercises marks the session as dirty, showing "Update".
 /// The client name is editable via the AppBar title.
 class SessionCaptureScreen extends StatefulWidget {
   final Session session;
@@ -58,7 +60,8 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   final ImagePicker _picker = ImagePicker();
 
   int? _expandedIndex;
-  bool _isSending = false;
+  bool _isPublishing = false;
+  bool _isDirty = false;
   bool _isEditingName = false;
   late TextEditingController _nameController;
   final FocusNode _nameFocusNode = FocusNode();
@@ -251,6 +254,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
           exercises: [..._session.exercises, result],
         );
       });
+      _markDirty();
       _conversionService.queueConversion(result);
       _autoInsertRestPeriods();
     }
@@ -290,6 +294,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       );
     });
 
+    _markDirty();
     _conversionService.queueConversion(exercise);
     _autoInsertRestPeriods();
   }
@@ -434,6 +439,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   // ---------------------------------------------------------------------------
 
   Future<void> _saveExerciseOrder() async {
+    _markDirty();
     for (final ex in _session.exercises) {
       await widget.storage.saveExercise(ex);
     }
@@ -446,6 +452,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       exercises[index] = updated;
       _session = _session.copyWith(exercises: exercises);
     });
+    _markDirty();
     widget.storage.saveExercise(updated);
   }
 
@@ -468,6 +475,8 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
         _expandedIndex = _expandedIndex! - 1;
       }
     });
+
+    _markDirty();
 
     // Persist deletion
     widget.storage.deleteExercise(removed.id);
@@ -671,16 +680,21 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Send flow
+  // Publish + Share flow
   // ---------------------------------------------------------------------------
 
-  /// The Send flow:
-  /// 1. Check all conversions are done (or wait for them)
-  /// 2. Upload to Supabase
-  /// 3. Generate shareable link
-  /// 4. Open share sheet
-  Future<void> _send() async {
-    // Check conversions
+  /// Mark the session as having unpublished changes.
+  void _markDirty() {
+    if (_session.isPublished && !_isDirty) {
+      setState(() => _isDirty = true);
+    }
+  }
+
+  /// Publish the plan to Supabase. Shows a conversion-check dialog if needed,
+  /// then kicks off the upload in the background. The rest of the UI stays
+  /// interactive — only the publish button shows a spinner.
+  Future<void> _publish() async {
+    // Check conversions — this dialog is synchronous / user-facing
     if (!_session.allConversionsComplete) {
       final pending = _session.pendingConversions;
       final proceed = await showDialog<bool>(
@@ -698,91 +712,97 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Wait & Send'),
+              child: const Text('Wait & Publish'),
             ),
           ],
         ),
       );
       if (proceed != true) return;
-
-      // TODO: Actually wait for conversions to complete before proceeding.
-      // For now, send anyway with whatever is ready.
     }
 
-    setState(() => _isSending = true);
+    if (!mounted) return;
 
+    // Show spinner on the publish button only — UI stays interactive
+    setState(() => _isPublishing = true);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Publishing...'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+
+    // Fire and forget — the Future updates state when done
+    _doPublishInBackground();
+  }
+
+  /// Runs the actual upload without blocking navigation or editing.
+  Future<void> _doPublishInBackground() async {
     try {
-      final url = await _uploadService.uploadPlan(_session);
+      final result = await _uploadService.uploadPlan(_session);
+
+      if (!mounted) return;
 
       setState(() {
         _session = _session.copyWith(
           sentAt: DateTime.now(),
-          planUrl: url,
+          planUrl: result.url,
+          version: result.version,
+          lastPublishedAt: DateTime.now(),
         );
-        _isSending = false;
+        _isPublishing = false;
+        _isDirty = false;
       });
 
-      if (!mounted) return;
+      debugPrint('Published: url=${_session.planUrl}, version=${_session.version}, isPublished=${_session.isPublished}');
+      widget.storage.saveSession(_session);
 
-      // Show success and offer share sheet
-      final shouldShare = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text('Plan sent!'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Your plan is ready to share.'),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: SelectableText(
-                  url,
-                  style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Done'),
-            ),
-            FilledButton.icon(
-              onPressed: () => Navigator.pop(context, true),
-              icon: const Icon(Icons.share),
-              label: const Text('Share via WhatsApp'),
-            ),
-          ],
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Published v${result.version} \u2713'),
+          duration: const Duration(seconds: 2),
         ),
       );
-
-      if (shouldShare == true && mounted) {
-        await Share.share(
-          '${_session.displayTitle}\n\n'
-          '${_session.exercises.length} exercises ready for you:\n'
-          '$url',
-        );
-      }
-
-      // Return to home
-      if (mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-      }
     } catch (e) {
-      setState(() => _isSending = false);
+      if (!mounted) return;
+
+      setState(() => _isPublishing = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Publish failed: $e'),
+          action: SnackBarAction(label: 'Retry', onPressed: _publish),
+        ),
+      );
+    }
+  }
+
+  /// Open the iOS share sheet with the plan URL.
+  Future<void> _share() async {
+    final url = _session.planUrl;
+    if (url == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Send failed: $e'),
-            action: SnackBarAction(label: 'Retry', onPressed: _send),
-          ),
+          const SnackBar(content: Text('No plan URL — publish first')),
+        );
+      }
+      return;
+    }
+    final text = '${_session.displayTitle}\n\n'
+        '${_session.exercises.where((e) => !e.isRest).length} exercises ready for you:\n'
+        '$url';
+    try {
+      final box = context.findRenderObject() as RenderBox?;
+      await Share.share(
+        text,
+        sharePositionOrigin: box != null
+            ? box.localToGlobal(Offset.zero) & box.size
+            : const Rect.fromLTWH(0, 0, 100, 100),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Share failed: $e')),
         );
       }
     }
@@ -1319,119 +1339,141 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     return buttons;
   }
 
-  /// Bottom action buttons: Import, Capture, and Send.
-  /// Includes a total session duration estimate above the buttons.
+  /// Bottom action bar — icon buttons with labels, like a tab bar.
   Widget _buildActionButtons() {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(top: BorderSide(color: Colors.grey.shade200)),
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (_session.exercises.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.schedule, size: 14, color: Colors.grey.shade500),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Estimated: ${formatDuration(_session.estimatedTotalDurationSeconds)}',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  'Estimated: ${formatDuration(_session.estimatedTotalDurationSeconds)}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  textAlign: TextAlign.center,
                 ),
               ),
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                // Import button (outlined)
-                Expanded(
-                  child: SizedBox(
-                    height: 56,
-                    child: OutlinedButton.icon(
-                      onPressed: _showImportOptions,
-                      icon: const Icon(Icons.photo_library_outlined, size: 22),
-                      label: const Text(
-                        'Import',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.black87,
-                        side: const BorderSide(color: Colors.black26),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                    ),
-                  ),
+                _buildBarIcon(
+                  icon: Icons.photo_library_outlined,
+                  label: 'Import',
+                  onTap: _showImportOptions,
                 ),
-                const SizedBox(width: 8),
-                // Capture button (filled black)
-                Expanded(
-                  child: SizedBox(
-                    height: 56,
-                    child: FilledButton.icon(
-                      onPressed: _openCameraCapture,
-                      icon: const Icon(Icons.videocam_outlined, size: 22),
-                      label: const Text(
-                        'Capture',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.black87,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                    ),
-                  ),
+                _buildBarIcon(
+                  icon: Icons.videocam_outlined,
+                  label: 'Capture',
+                  onTap: _openCameraCapture,
                 ),
-                const SizedBox(width: 8),
-                // Send button (filled black)
-                Expanded(
-                  child: SizedBox(
-                    height: 56,
-                    child: FilledButton.icon(
-                      onPressed: _isSending || _session.exercises.isEmpty
-                          ? null
-                          : _send,
-                      icon: _isSending
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.send, size: 20),
-                      label: Text(
-                        _isSending ? 'Sending' : 'Send',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.black87,
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor: Colors.grey.shade300,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                    ),
-                  ),
+                _buildPublishIcon(),
+                _buildBarIcon(
+                  icon: Icons.ios_share,
+                  label: 'Share',
+                  onTap: _session.isPublished ? _share : null,
                 ),
               ],
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBarIcon({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+    Color? color,
+  }) {
+    final isEnabled = onTap != null;
+    final iconColor = color ?? (isEnabled ? Colors.black87 : Colors.grey.shade400);
+    final labelColor = isEnabled ? Colors.black54 : Colors.grey.shade400;
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 72,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 26, color: iconColor),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(fontSize: 11, color: labelColor, fontWeight: FontWeight.w500),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Publish icon with state-dependent appearance.
+  Widget _buildPublishIcon() {
+    if (_isPublishing) {
+      return SizedBox(
+        width: 72,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 26,
+              height: 26,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Publishing',
+              style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_session.isPublished && !_isDirty) {
+      // Published, clean — show green check
+      return _buildBarIcon(
+        icon: Icons.check_circle,
+        label: 'Published',
+        color: Colors.teal,
+        onTap: null,
+      );
+    }
+
+    if (_session.isPublished && _isDirty) {
+      // Has unpublished changes
+      final hasConversionsRunning = _session.exercises.any((e) =>
+          !e.isRest &&
+          (e.conversionStatus == ConversionStatus.pending ||
+           e.conversionStatus == ConversionStatus.converting));
+      return _buildBarIcon(
+        icon: Icons.cloud_upload_outlined,
+        label: hasConversionsRunning ? 'Converting...' : 'Update',
+        onTap: hasConversionsRunning ? null : _publish,
+      );
+    }
+
+    // Never published
+    final hasExercises = _session.exercises.where((e) => !e.isRest).isNotEmpty;
+    final hasConversionsRunning = _session.exercises.any((e) =>
+        !e.isRest &&
+        (e.conversionStatus == ConversionStatus.pending ||
+         e.conversionStatus == ConversionStatus.converting));
+    return _buildBarIcon(
+      icon: Icons.cloud_upload_outlined,
+      label: hasConversionsRunning ? 'Converting...' : 'Publish',
+      onTap: (hasExercises && !hasConversionsRunning) ? _publish : null,
     );
   }
 }

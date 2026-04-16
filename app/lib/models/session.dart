@@ -6,8 +6,9 @@ import 'exercise_capture.dart';
 /// A capture session — one bio + one client sitting.
 ///
 /// Contains an ordered list of exercise captures. The session is "active"
-/// (unsent) until the bio taps Send, at which point [sentAt] and [planUrl]
-/// are populated.
+/// until explicitly archived. Publishing sets [planUrl] and increments
+/// [version]. The session stays editable after publishing — the trainer can
+/// update exercises and re-publish.
 class Session {
   final String id;
   final String clientName;
@@ -16,6 +17,14 @@ class Session {
   final DateTime createdAt;
   final DateTime? sentAt;
   final String? planUrl;
+
+  /// Plan version. 0 = never published. First publish sets it to 1, each
+  /// subsequent publish increments it.
+  final int version;
+
+  /// Timestamp of the most recent publish. Used together with exercise
+  /// modification times to detect unpublished changes.
+  final DateTime? lastPublishedAt;
 
   /// Maps circuitId to number of cycles for that circuit. Persisted as JSON.
   final Map<String, int> circuitCycles;
@@ -34,6 +43,8 @@ class Session {
     required this.createdAt,
     this.sentAt,
     this.planUrl,
+    this.version = 0,
+    this.lastPublishedAt,
     this.circuitCycles = const {},
     this.preferredRestIntervalSeconds,
   });
@@ -73,6 +84,10 @@ class Session {
           ? DateTime.fromMillisecondsSinceEpoch(map['sent_at'] as int)
           : null,
       planUrl: map['plan_url'] as String?,
+      version: (map['version'] as int?) ?? 0,
+      lastPublishedAt: map['last_published_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['last_published_at'] as int)
+          : null,
       circuitCycles: cycles,
       preferredRestIntervalSeconds: map['preferred_rest_interval'] as int?,
     );
@@ -88,6 +103,8 @@ class Session {
       'created_at': createdAt.millisecondsSinceEpoch,
       'sent_at': sentAt?.millisecondsSinceEpoch,
       'plan_url': planUrl,
+      'version': version,
+      'last_published_at': lastPublishedAt?.millisecondsSinceEpoch,
       'circuit_cycles': circuitCycles.isEmpty
           ? null
           : json.encode(circuitCycles),
@@ -102,6 +119,8 @@ class Session {
     List<ExerciseCapture>? exercises,
     DateTime? sentAt,
     String? planUrl,
+    int? version,
+    DateTime? lastPublishedAt,
     Map<String, int>? circuitCycles,
     int? preferredRestIntervalSeconds,
     bool clearPreferredRestInterval = false,
@@ -114,6 +133,8 @@ class Session {
       createdAt: createdAt,
       sentAt: sentAt ?? this.sentAt,
       planUrl: planUrl ?? this.planUrl,
+      version: version ?? this.version,
+      lastPublishedAt: lastPublishedAt ?? this.lastPublishedAt,
       circuitCycles: circuitCycles ?? this.circuitCycles,
       preferredRestIntervalSeconds: clearPreferredRestInterval
           ? null
@@ -139,6 +160,9 @@ class Session {
 
   /// Whether this session has been sent to the client.
   bool get isSent => sentAt != null;
+
+  /// Whether this plan has been published at least once.
+  bool get isPublished => version > 0 && planUrl != null;
 
   /// Whether all captures in this session have finished converting.
   bool get allConversionsComplete =>

@@ -10,6 +10,8 @@ A multi-tenant SaaS platform for biokineticists and fitness trainers to build ex
 - **Exercise visualisation is the core IP** — The exercise demonstration system is the key differentiator. MVP uses on-device line drawing conversion of real exercise footage. AI-based approaches (Stability AI, Kling O1) are future premium features.
 - **No licensed animation libraries** — All visual content is self-generated to avoid lock-in and recurring costs.
 - **On-device processing preferred** — Where possible, run conversions locally (no API costs, instant results, better privacy). Cloud AI is for premium features only.
+- **Offline-first architecture** — The entire capture → convert → edit → preview flow is 100% offline. Only Publish touches the network. Never break this. Future: add a publish queue that batches uploads when connectivity is available.
+- **Non-blocking publish** — Publishing runs in the background. The bio never waits for uploads. This is a core UX principle — protect it in all future updates.
 - **Social login only** — No username/password. Clients authenticate via Google/Apple social login or magic links.
 - **Lottie as animation format** — For future AI-generated animations. Line drawing video output uses standard video formats (mp4/mov).
 
