@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' show min;
 import 'dart:ui' show lerpDouble;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -303,8 +304,23 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   Future<void> _insertRestBetween(int insertIndex) async {
     final exercises = List<ExerciseCapture>.from(_session.exercises);
 
-    // Don't insert if there's already a rest at this position
-    if (insertIndex < exercises.length && exercises[insertIndex].isRest) return;
+    // Don't insert if there's already a rest adjacent (above or below)
+    final hasRestBelow =
+        insertIndex < exercises.length && exercises[insertIndex].isRest;
+    final hasRestAbove =
+        insertIndex > 0 && exercises[insertIndex - 1].isRest;
+    if (hasRestBelow || hasRestAbove) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Rest period already adjacent'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
 
     final rest = ExerciseCapture.createRest(
       position: insertIndex,
@@ -358,9 +374,12 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       if (cumulativeSeconds >= threshold) {
         // Only insert if we're not at the very end
         if (i < exercises.length - 1) {
-          // Check that a rest doesn't already exist right after this exercise
+          // Check that a rest doesn't already exist adjacent (above or below)
           final nextIdx = i + 1;
-          if (nextIdx < exercises.length && !exercises[nextIdx].isRest) {
+          final hasRestBelow =
+              nextIdx < exercises.length && exercises[nextIdx].isRest;
+          final hasRestAbove = i >= 0 && exercises[i].isRest;
+          if (!hasRestBelow && !hasRestAbove) {
             insertPositions.add(nextIdx);
           }
         }
@@ -797,16 +816,9 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
               )
             : GestureDetector(
                 onTap: _startEditingName,
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(
-                        color: Colors.grey.shade400,
-                        width: 1,
-                        style: BorderStyle.solid,
-                      ),
-                    ),
-                  ),
+                child: CustomPaint(
+                  painter: _DashedUnderlinePainter(
+                      color: Colors.grey.shade400),
                   child: Text(
                     _session.clientName,
                     style: const TextStyle(
@@ -923,9 +935,8 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
                     ),
                   ),
                 ),
-                // Between-card buttons after rest bar (if not last item
-                // and the next item is not also a rest)
-                if (index < exercises.length - 1 && !exercises[index + 1].isRest)
+                // Between-card buttons after rest bar (if not last item)
+                if (index < exercises.length - 1)
                   _buildBetweenCardButtons(
                     upperIndex: index,
                     lowerIndex: index + 1,
@@ -954,10 +965,8 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
             exercises[index + 1].circuitId == exercise.circuitId;
 
         // Determine between-card button state for the gap below this card.
-        // Only show between-card buttons if the next item is not a rest
-        // (rest bars handle their own spacing).
-        final bool showBetweenButtons = index < exercises.length - 1 &&
-            !exercises[index + 1].isRest;
+        // Show between-card buttons between every pair of items.
+        final bool showBetweenButtons = index < exercises.length - 1;
         final bool isLinkedBelow = showBetweenButtons &&
             exercise.circuitId != null &&
             exercises[index + 1].circuitId == exercise.circuitId;
@@ -1122,12 +1131,15 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
           onPreview: () => _previewCapture(exercise),
           dragHandle: ReorderableDragStartListener(
             index: index,
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: Icon(
-                Icons.drag_handle,
-                color: Colors.grey.shade400,
-                size: 22,
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Center(
+                child: Icon(
+                  Icons.drag_handle,
+                  color: Colors.grey.shade400,
+                  size: 24,
+                ),
               ),
             ),
           ),
@@ -1189,16 +1201,16 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
                   inactiveTrackColor: Colors.teal.shade100,
                   thumbColor: Colors.teal.shade400,
                   thumbShape:
-                      const RoundSliderThumbShape(enabledThumbRadius: 7),
+                      const _RectangularSliderThumbShape(width: 6, height: 18, radius: 3),
                   overlayShape:
                       const RoundSliderOverlayShape(overlayRadius: 14),
                   overlayColor: Colors.teal.withValues(alpha: 0.12),
                 ),
                 child: Slider(
-                  value: cycles.toDouble(),
+                  value: cycles.clamp(1, 5).toDouble(),
                   min: 1,
-                  max: 10,
-                  divisions: 9,
+                  max: 5,
+                  divisions: 4,
                   onChanged: (v) {
                     _setCircuitCycles(circuitId, v.round());
                   },
@@ -1464,8 +1476,10 @@ class _ExerciseCardState extends State<_ExerciseCard> {
   late TextEditingController _nameController;
   final FocusNode _nameFocusNode = FocusNode();
 
-  // Inline duration override slider
-  bool _isDurationSliderOpen = false;
+  // Independent collapsible sub-sections
+  bool _isSettingsOpen = false;
+  bool _isPreviewOpen = false;
+  bool _isNotesOpen = false;
 
   @override
   void initState() {
@@ -1492,6 +1506,15 @@ class _ExerciseCardState extends State<_ExerciseCard> {
       _nameController.text =
           widget.exercise.name ?? 'Exercise ${widget.index + 1}';
       _isEditingName = false;
+      _isSettingsOpen = false;
+      _isPreviewOpen = false;
+      _isNotesOpen = false;
+    }
+    // Auto-close all sub-sections when card collapses
+    if (oldWidget.isExpanded && !widget.isExpanded) {
+      _isSettingsOpen = false;
+      _isPreviewOpen = false;
+      _isNotesOpen = false;
     }
   }
 
@@ -1551,14 +1574,14 @@ class _ExerciseCardState extends State<_ExerciseCard> {
     ));
   }
 
-  /// Shared slider theme — thick track, large thumb, black fill.
+  /// Shared slider theme — thick track, rectangular thumb, black fill.
   static final _sliderTheme = SliderThemeData(
     trackHeight: 8,
     activeTrackColor: Colors.black87,
     inactiveTrackColor: Colors.grey.shade300,
     thumbColor: Colors.black87,
-    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 16),
-    overlayShape: const RoundSliderOverlayShape(overlayRadius: 24),
+    thumbShape: const _RectangularSliderThumbShape(width: 8, height: 24, radius: 4),
+    overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
     overlayColor: Colors.black12,
     trackShape: const RoundedRectSliderTrackShape(),
   );
@@ -1604,69 +1627,18 @@ class _ExerciseCardState extends State<_ExerciseCard> {
     );
   }
 
-  /// Build a one-line summary of the exercise metadata.
-  String _buildSummary() {
+  /// Build a compact one-line summary of settings for the summary bar.
+  String _buildSettingsSummary() {
     final parts = <String>[];
-    if (widget.exercise.reps != null) {
-      parts.add('${widget.exercise.reps} reps');
-    }
-    if (!widget.isInCircuit && widget.exercise.sets != null) {
-      parts.add('${widget.exercise.sets} sets');
-    }
-    if (widget.exercise.holdSeconds != null && widget.exercise.holdSeconds! > 0) {
-      parts.add('${widget.exercise.holdSeconds}s hold');
-    }
-    if (widget.exercise.notes != null && widget.exercise.notes!.isNotEmpty) {
-      parts.add(widget.exercise.notes!);
-    }
-    if (parts.isEmpty) {
-      return widget.isInCircuit ? '10 reps' : '10 reps / 3 sets';
-    }
-    return parts.join(' / ');
-  }
-
-  /// Auto-calculated duration in seconds for display purposes.
-  int get _calculatedDurationSeconds {
-    if (widget.isInCircuit) {
-      final repsTime = (_repsValue.round()) * AppConfig.secondsPerRep;
-      final holdTime = _holdValue.round();
-      return repsTime + holdTime;
-    } else {
-      final repsTime = (_repsValue.round()) * AppConfig.secondsPerRep;
-      final holdTime = _holdValue.round();
-      final perSetTime = repsTime + holdTime;
-      final totalSets = _setsValue.round();
-      final restTime = (totalSets > 1) ? (totalSets - 1) * AppConfig.restBetweenSets : 0;
-      return (perSetTime * totalSets) + restTime;
-    }
-  }
-
-  /// Whether a custom duration override is active.
-  bool get _hasCustomDuration => widget.exercise.customDurationSeconds != null;
-
-  /// The effective duration seconds — custom if set, else calculated.
-  int get _effectiveDurationSeconds =>
-      widget.exercise.customDurationSeconds ?? _calculatedDurationSeconds;
-
-  /// Format a duration in seconds to a compact label.
-  String _formatCompactDuration(int seconds) {
-    if (seconds < 60) return '${seconds}s';
-    final minutes = (seconds / 60).round();
-    return '$minutes min';
-  }
-
-  /// Format estimated duration for a single exercise.
-  /// Shows "~" prefix for auto-calculated, no prefix for custom override.
-  String _buildDurationLabel() {
-    if (_hasCustomDuration) {
-      return _formatCompactDuration(widget.exercise.customDurationSeconds!);
-    }
-    return '~${_formatCompactDuration(_calculatedDurationSeconds)}';
-  }
-
-  /// Toggle the inline duration slider open/closed.
-  void _toggleDurationSlider() {
-    setState(() => _isDurationSliderOpen = !_isDurationSliderOpen);
+    parts.add('${_repsValue.round()} reps');
+    if (!widget.isInCircuit) parts.add('${_setsValue.round()} sets');
+    if (_holdValue.round() > 0) parts.add('${_holdValue.round()}s hold');
+    final duration = widget.exercise.effectiveDurationSeconds;
+    final isCustom = widget.exercise.customDurationSeconds != null;
+    parts.add(isCustom
+        ? formatDuration(duration)
+        : '~${formatDuration(duration)}');
+    return parts.join(' \u00b7 ');
   }
 
   /// Set a custom duration override and auto-save.
@@ -1677,48 +1649,67 @@ class _ExerciseCardState extends State<_ExerciseCard> {
   /// Reset to auto-calculated duration.
   void _clearCustomDuration() {
     widget.onUpdate(widget.exercise.copyWith(clearCustomDuration: true));
-    setState(() => _isDurationSliderOpen = false);
   }
 
-  /// Build the tappable duration label with optional inline slider below.
-  Widget _buildDurationWidget() {
-    final isCustom = _hasCustomDuration;
-    final label = _buildDurationLabel();
-
+  /// Reusable collapsible sub-section with grey header background.
+  Widget _buildSubSection({
+    required String title,
+    String? subtitle,
+    required bool isOpen,
+    required VoidCallback onToggle,
+    required Widget child,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Tappable duration label with dashed underline
         GestureDetector(
-          onTap: _toggleDurationSlider,
+          onTap: onToggle,
           child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: isCustom ? Colors.teal.shade400 : Colors.grey.shade400,
-                  width: 1,
-                  style: BorderStyle.solid,
-                ),
-              ),
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: isCustom ? Colors.teal.shade600 : Colors.grey.shade400,
-                fontWeight: isCustom ? FontWeight.w600 : FontWeight.normal,
-              ),
+            child: Row(
+              children: [
+                Icon(
+                  isOpen ? Icons.expand_more : Icons.chevron_right,
+                  size: 20,
+                  color: Colors.grey.shade600,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                ] else
+                  const Spacer(),
+              ],
             ),
           ),
         ),
-        // Inline slider — appears below the label when open
-        if (_isDurationSliderOpen)
-          _DurationSliderInline(
-            currentSeconds: _effectiveDurationSeconds,
-            isCustom: isCustom,
-            onChanged: _setCustomDuration,
-            onReset: _clearCustomDuration,
+        if (isOpen)
+          Padding(
+            padding: const EdgeInsets.only(top: 8, left: 4, right: 4),
+            child: child,
           ),
       ],
     );
@@ -1730,7 +1721,10 @@ class _ExerciseCardState extends State<_ExerciseCard> {
       elevation: 0,
       color: Colors.grey.shade50,
       margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.shade200, width: 1),
+      ),
       child: InkWell(
         onTap: widget.onTap,
         borderRadius: BorderRadius.circular(12),
@@ -1739,7 +1733,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header row
+              // ── Level 1: Collapsed header row ──
               Row(
                 children: [
                   // Thumbnail
@@ -1749,177 +1743,83 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                   ),
                   const SizedBox(width: 12),
 
-                  // Title and summary
+                  // Name + status (left-aligned, takes available space)
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        _isEditingName
-                            ? TextField(
-                                controller: _nameController,
-                                focusNode: _nameFocusNode,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                  color: Colors.black87,
-                                ),
-                                textCapitalization:
-                                    TextCapitalization.words,
-                                decoration: const InputDecoration(
-                                  border: InputBorder.none,
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.zero,
-                                ),
-                                onSubmitted: (_) =>
-                                    _saveExerciseName(),
-                              )
-                            : GestureDetector(
-                                onTap: _startEditingName,
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    border: Border(
-                                      bottom: BorderSide(
-                                        color: Colors.grey.shade400,
-                                        width: 1,
-                                        style: BorderStyle.solid,
+                        Flexible(
+                          child: _isEditingName
+                              ? TextField(
+                                  controller: _nameController,
+                                  focusNode: _nameFocusNode,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                    color: Colors.black87,
+                                  ),
+                                  textCapitalization:
+                                      TextCapitalization.words,
+                                  decoration: const InputDecoration(
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
+                                  onSubmitted: (_) =>
+                                      _saveExerciseName(),
+                                )
+                              : GestureDetector(
+                                  onTap: _startEditingName,
+                                  child: CustomPaint(
+                                    painter: _DashedUnderlinePainter(
+                                        color: Colors.grey.shade400),
+                                    child: Text(
+                                      _displayName,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 15,
                                       ),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    _displayName,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 15,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
                                 ),
-                              ),
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                _buildSummary(),
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade600,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            _buildDurationWidget(),
-                          ],
                         ),
+                        const SizedBox(width: 6),
+                        _buildStatusIcon(),
+                        if (widget.exercise.mediaType == MediaType.video) ...[
+                          const SizedBox(width: 4),
+                          _buildAudioToggle(),
+                        ],
                       ],
                     ),
                   ),
 
-                  // Conversion status icon
-                  _buildStatusIcon(),
-
-                  // Audio toggle — video exercises only
-                  if (widget.exercise.mediaType == MediaType.video) ...[
-                    const SizedBox(width: 4),
-                    _buildAudioToggle(),
-                  ],
-                  const SizedBox(width: 4),
-
-                  // Expand/collapse chevron
-                  Icon(
-                    widget.isExpanded
-                        ? Icons.expand_less
-                        : Icons.expand_more,
-                    color: Colors.grey.shade400,
+                  // Right-aligned: chevron + drag handle with 44px tap targets
+                  SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Center(
+                      child: Icon(
+                        widget.isExpanded
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                        color: Colors.grey.shade400,
+                        size: 24,
+                      ),
+                    ),
                   ),
-
-                  // Drag handle (far right)
-                  if (widget.dragHandle != null) ...[
-                    const SizedBox(width: 2),
+                  const SizedBox(width: 4),
+                  if (widget.dragHandle != null)
                     widget.dragHandle!,
-                  ],
                 ],
               ),
 
-              // Expanded view — full preview + annotation fields
+              // ── Expanded view: three independent collapsible sub-sections ──
               if (widget.isExpanded) ...[
                 const SizedBox(height: 12),
                 const Divider(height: 1),
                 const SizedBox(height: 12),
 
-                // Tappable preview area
-                GestureDetector(
-                  onTap: widget.onPreview,
-                  child: Container(
-                    height: 180,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: widget.exercise.mediaType == MediaType.video &&
-                              !_isStillImageConversion(widget.exercise)
-                          ? Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                if (widget.exercise.thumbnailPath != null)
-                                  Image.file(
-                                    File(widget.exercise.thumbnailPath!),
-                                    fit: BoxFit.contain,
-                                    width: double.infinity,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      color: Colors.grey.shade200,
-                                    ),
-                                  )
-                                else
-                                  Container(color: Colors.grey.shade200),
-                                Center(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.play_circle_outline,
-                                          size: 48,
-                                          color: widget.exercise
-                                                      .thumbnailPath !=
-                                                  null
-                                              ? Colors.white70
-                                              : Colors.grey.shade600),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Tap to play',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: widget.exercise
-                                                      .thumbnailPath !=
-                                                  null
-                                              ? Colors.white70
-                                              : Colors.grey.shade600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Image.file(
-                              File(widget.exercise.displayFilePath),
-                              fit: BoxFit.contain,
-                              width: double.infinity,
-                              errorBuilder: (_, __, ___) => Center(
-                                child: Icon(Icons.broken_image_outlined,
-                                    size: 48, color: Colors.grey.shade400),
-                              ),
-                            ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Conversion error banner
+                // Conversion error banner (always visible when relevant)
                 if (widget.exercise.conversionStatus ==
                     ConversionStatus.failed)
                   Container(
@@ -1946,69 +1846,193 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                     ),
                   ),
 
-                // Reps slider
-                _SliderRow(
-                  label: 'Reps',
-                  value: _repsValue,
-                  min: 1,
-                  max: 30,
-                  divisions: 29,
-                  displayValue: _repsValue.round().toString(),
-                  theme: _sliderTheme,
-                  onChanged: (v) {
-                    setState(() => _repsValue = v);
-                    _save();
-                  },
-                ),
+                // ── Settings sub-section ──
+                _buildSubSection(
+                  title: _buildSettingsSummary(),
+                  isOpen: _isSettingsOpen,
+                  onToggle: () =>
+                      setState(() => _isSettingsOpen = !_isSettingsOpen),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Reps slider
+                      _SliderRow(
+                        label: 'Reps',
+                        value: _repsValue,
+                        min: 1,
+                        max: 30,
+                        divisions: 29,
+                        displayValue: _repsValue.round().toString(),
+                        theme: _sliderTheme,
+                        onChanged: (v) {
+                          setState(() => _repsValue = v);
+                          _save();
+                        },
+                      ),
 
-                // Sets slider — hidden when in a circuit
-                if (!widget.isInCircuit)
-                  _SliderRow(
-                    label: 'Sets',
-                    value: _setsValue,
-                    min: 1,
-                    max: 10,
-                    divisions: 9,
-                    displayValue: _setsValue.round().toString(),
-                    theme: _sliderTheme,
-                    onChanged: (v) {
-                      setState(() => _setsValue = v);
-                      _save();
-                    },
+                      // Sets slider — hidden when in a circuit
+                      if (!widget.isInCircuit)
+                        _SliderRow(
+                          label: 'Sets',
+                          value: _setsValue,
+                          min: 1,
+                          max: 10,
+                          divisions: 9,
+                          displayValue: _setsValue.round().toString(),
+                          theme: _sliderTheme,
+                          onChanged: (v) {
+                            setState(() => _setsValue = v);
+                            _save();
+                          },
+                        ),
+
+                      // Hold slider
+                      _SliderRow(
+                        label: 'Hold',
+                        value: _holdValue,
+                        min: 0,
+                        max: 120,
+                        divisions: 24,
+                        displayValue: _holdValue.round() == 0
+                            ? 'Off'
+                            : '${_holdValue.round()}s',
+                        theme: _sliderTheme,
+                        onChanged: (v) {
+                          setState(() => _holdValue = v);
+                          _save();
+                        },
+                      ),
+
+                      // Duration override
+                      const SizedBox(height: 4),
+                      _DurationSliderInline(
+                        currentSeconds:
+                            widget.exercise.effectiveDurationSeconds,
+                        isCustom:
+                            widget.exercise.customDurationSeconds != null,
+                        onChanged: _setCustomDuration,
+                        onReset: _clearCustomDuration,
+                      ),
+                    ],
                   ),
-
-                // Hold slider
-                _SliderRow(
-                  label: 'Hold',
-                  value: _holdValue,
-                  min: 0,
-                  max: 120,
-                  divisions: 24,
-                  displayValue: _holdValue.round() == 0
-                      ? 'Off'
-                      : '${_holdValue.round()}s',
-                  theme: _sliderTheme,
-                  onChanged: (v) {
-                    setState(() => _holdValue = v);
-                    _save();
-                  },
                 ),
+                const SizedBox(height: 4),
 
-                const SizedBox(height: 12),
-
-                // Notes
-                TextField(
-                  controller: _notesController,
-                  decoration: const InputDecoration(
-                    labelText: 'Notes',
-                    hintText:
-                        'e.g. Keep back straight, slow on the way down',
-                    border: OutlineInputBorder(),
-                    isDense: true,
+                // ── Preview sub-section ──
+                _buildSubSection(
+                  title: 'Preview',
+                  isOpen: _isPreviewOpen,
+                  onToggle: () =>
+                      setState(() => _isPreviewOpen = !_isPreviewOpen),
+                  child: GestureDetector(
+                    onTap: widget.onPreview,
+                    child: Container(
+                      height: 180,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: widget.exercise.mediaType ==
+                                    MediaType.video &&
+                                !_isStillImageConversion(widget.exercise)
+                            ? Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  if (widget.exercise.thumbnailPath !=
+                                      null)
+                                    Image.file(
+                                      File(widget
+                                          .exercise.thumbnailPath!),
+                                      fit: BoxFit.contain,
+                                      width: double.infinity,
+                                      errorBuilder:
+                                          (_, __, ___) => Container(
+                                        color: Colors.grey.shade200,
+                                      ),
+                                    )
+                                  else
+                                    Container(
+                                        color: Colors.grey.shade200),
+                                  Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                            Icons
+                                                .play_circle_outline,
+                                            size: 48,
+                                            color: widget.exercise
+                                                        .thumbnailPath !=
+                                                    null
+                                                ? Colors.white70
+                                                : Colors
+                                                    .grey.shade600),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Tap to play',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: widget.exercise
+                                                        .thumbnailPath !=
+                                                    null
+                                                ? Colors.white70
+                                                : Colors
+                                                    .grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Image.file(
+                                File(widget
+                                    .exercise.displayFilePath),
+                                fit: BoxFit.contain,
+                                width: double.infinity,
+                                errorBuilder: (_, __, ___) => Center(
+                                  child: Icon(
+                                      Icons.broken_image_outlined,
+                                      size: 48,
+                                      color: Colors.grey.shade400),
+                                ),
+                              ),
+                      ),
+                    ),
                   ),
-                  maxLines: 2,
-                  textCapitalization: TextCapitalization.sentences,
-                  onChanged: (_) => _save(),
+                ),
+                const SizedBox(height: 4),
+
+                // ── Notes sub-section ──
+                _buildSubSection(
+                  title: 'Notes',
+                  subtitle: widget.exercise.notes?.isNotEmpty == true
+                      ? widget.exercise.notes!
+                          .substring(
+                              0,
+                              min(30,
+                                  widget.exercise.notes!.length))
+                      : 'Add notes...',
+                  isOpen: _isNotesOpen,
+                  onToggle: () =>
+                      setState(() => _isNotesOpen = !_isNotesOpen),
+                  child: TextField(
+                    controller: _notesController,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes',
+                      hintText:
+                          'e.g. Keep back straight, slow on the way down',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    maxLines: 2,
+                    textCapitalization: TextCapitalization.sentences,
+                    onChanged: (_) => _save(),
+                  ),
                 ),
               ],
             ],
@@ -2141,73 +2165,82 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 120,
-                child: SliderTheme(
-                  data: SliderThemeData(
-                    trackHeight: 4,
-                    activeTrackColor: Colors.teal.shade400,
-                    inactiveTrackColor: Colors.grey.shade200,
-                    thumbColor: Colors.teal.shade400,
-                    thumbShape:
-                        const RoundSliderThumbShape(enabledThumbRadius: 7),
-                    overlayShape:
-                        const RoundSliderOverlayShape(overlayRadius: 14),
-                    overlayColor: Colors.teal.withValues(alpha: 0.12),
-                    trackShape: const RoundedRectSliderTrackShape(),
-                  ),
-                  child: Slider(
-                    value: _value,
-                    min: 10,
-                    max: 600,
-                    divisions: 118, // (600 - 10) / 5
-                    onChanged: (v) {
-                      final snapped = _snapToStep(v);
-                      setState(() => _value = snapped);
-                      widget.onChanged(snapped.round());
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                _formatDuration(_value.round()),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            SizedBox(
+              width: 40,
+              child: Text(
+                'Time',
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Colors.teal.shade600,
-                ),
-              ),
-            ],
-          ),
-          // "Reset to auto" link
-          if (widget.isCustom)
-            GestureDetector(
-              onTap: widget.onReset,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  'reset to auto',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.grey.shade500,
-                    decoration: TextDecoration.underline,
-                    decorationColor: Colors.grey.shade400,
-                  ),
+                  color: Colors.grey.shade700,
                 ),
               ),
             ),
-        ],
-      ),
+            Expanded(
+              child: SliderTheme(
+                data: SliderThemeData(
+                  trackHeight: 8,
+                  activeTrackColor: Colors.teal.shade400,
+                  inactiveTrackColor: Colors.grey.shade300,
+                  thumbColor: Colors.teal.shade400,
+                  thumbShape:
+                      const _RectangularSliderThumbShape(width: 8, height: 24, radius: 4),
+                  overlayShape:
+                      const RoundSliderOverlayShape(overlayRadius: 20),
+                  overlayColor: Colors.teal.withValues(alpha: 0.12),
+                  trackShape: const RoundedRectSliderTrackShape(),
+                ),
+                child: Slider(
+                  value: _value,
+                  min: 10,
+                  max: 600,
+                  divisions: 118, // (600 - 10) / 5
+                  onChanged: (v) {
+                    final snapped = _snapToStep(v);
+                    setState(() => _value = snapped);
+                    widget.onChanged(snapped.round());
+                  },
+                ),
+              ),
+            ),
+            SizedBox(
+              width: 48,
+              child: Text(
+                _formatDuration(_value.round()),
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: widget.isCustom ? Colors.teal.shade600 : Colors.black87,
+                ),
+              ),
+            ),
+          ],
+        ),
+        // "Reset to auto" link
+        if (widget.isCustom)
+          GestureDetector(
+            onTap: widget.onReset,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 40, top: 0),
+              child: Text(
+                'Reset to auto',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.teal.shade500,
+                  decoration: TextDecoration.underline,
+                  decorationColor: Colors.teal.shade400,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -2313,7 +2346,7 @@ class _RestBarState extends State<_RestBar> {
                 inactiveTrackColor: Colors.blueGrey.shade200,
                 thumbColor: Colors.blueGrey.shade400,
                 thumbShape:
-                    const RoundSliderThumbShape(enabledThumbRadius: 7),
+                    const _RectangularSliderThumbShape(width: 6, height: 18, radius: 3),
                 overlayShape:
                     const RoundSliderOverlayShape(overlayRadius: 14),
                 overlayColor: Colors.blueGrey.withValues(alpha: 0.12),
@@ -2364,6 +2397,39 @@ class _RestBarState extends State<_RestBar> {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Dashed underline painter — used for tappable editable names
+// ---------------------------------------------------------------------------
+
+class _DashedUnderlinePainter extends CustomPainter {
+  final Color color;
+  _DashedUnderlinePainter({this.color = Colors.grey});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+
+    double startX = 0;
+    const dashWidth = 4.0;
+    const dashGap = 3.0;
+
+    while (startX < size.width) {
+      canvas.drawLine(
+        Offset(startX, size.height),
+        Offset(startX + dashWidth, size.height),
+        paint,
+      );
+      startX += dashWidth + dashGap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // =============================================================================
@@ -2777,5 +2843,51 @@ class _CameraCaptureScreenState extends State<_CameraCaptureScreen>
         ],
       ),
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rectangular / pill-shaped slider thumb — replaces round thumbs everywhere
+// ---------------------------------------------------------------------------
+
+class _RectangularSliderThumbShape extends SliderComponentShape {
+  final double width;
+  final double height;
+  final double radius;
+
+  const _RectangularSliderThumbShape({
+    this.width = 8,
+    this.height = 24,
+    this.radius = 4,
+  });
+
+  @override
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) => Size(width, height);
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required Animation<double> activationAnimation,
+    required Animation<double> enableAnimation,
+    required bool isDiscrete,
+    required TextPainter labelPainter,
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required TextDirection textDirection,
+    required double value,
+    required double textScaleFactor,
+    required Size sizeWithOverflow,
+  }) {
+    final canvas = context.canvas;
+    final paint = Paint()
+      ..color = sliderTheme.thumbColor ?? Colors.black87
+      ..style = PaintingStyle.fill;
+
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: center, width: width, height: height),
+      Radius.circular(radius),
+    );
+    canvas.drawRRect(rect, paint);
   }
 }
