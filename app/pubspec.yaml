@@ -1,0 +1,45 @@
+name: raidme
+description: "Exercise plan capture and sharing for biokineticists"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # Camera
+  camera: ^0.11.1
+
+  # Image/video processing
+  opencv_dart: ^1.4.0
+  image: ^4.5.3
+
+  # Video
+  video_player: ^2.9.6
+  ffmpeg_kit_flutter: ^6.0.3
+
+  # Local storage
+  sqflite: ^2.4.2
+  path_provider: ^2.1.5
+  path: ^1.9.1
+
+  # Supabase (for Send flow — Phase 3)
+  supabase_flutter: ^2.9.0
+
+  # UI
+  share_plus: ^10.1.4
+  reorderable_grid: ^1.0.13
+  uuid: ^4.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

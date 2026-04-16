@@ -38,5 +38,16 @@ prototype/frames/
 *.mp4
 *.avi
 
+# Flutter
+app/.dart_tool/
+app/.packages
+app/build/
+app/pubspec.lock
+app/ios/Pods/
+app/ios/.symlinks/
+app/android/.gradle/
+app/android/local.properties
+*.iml
+
 # Claude
 .claude/

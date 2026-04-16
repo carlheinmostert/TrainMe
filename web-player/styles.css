@@ -1,0 +1,616 @@
+/* === Reset & Base === */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+:root {
+  --white: #ffffff;
+  --off-white: #fafafa;
+  --gray-50: #f7f7f7;
+  --gray-100: #f0f0f0;
+  --gray-200: #e4e4e4;
+  --gray-300: #d1d1d1;
+  --gray-400: #a3a3a3;
+  --gray-500: #737373;
+  --gray-600: #525252;
+  --gray-700: #404040;
+  --gray-800: #262626;
+  --gray-900: #171717;
+  --black: #0a0a0a;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+  --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
+
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 400ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace;
+
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+}
+
+html {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--gray-900);
+  background: var(--white);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  overflow: hidden;
+  height: 100%;
+}
+
+body {
+  height: 100%;
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+  touch-action: pan-y;
+}
+
+/* === Loading Screen === */
+.loading-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--white);
+  z-index: 100;
+  transition: opacity var(--transition-normal);
+}
+
+.loading-screen.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading-content {
+  text-align: center;
+}
+
+.loading-mark {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  background: var(--gray-900);
+  color: var(--white);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  animation: pulse 1.5s ease infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.loading-text {
+  color: var(--gray-500);
+  font-size: 14px;
+}
+
+/* === Error Screen === */
+.error-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--white);
+  z-index: 90;
+  padding: 32px;
+}
+
+.error-content {
+  text-align: center;
+  max-width: 300px;
+}
+
+.error-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  border: 2px solid var(--gray-300);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 20px;
+  color: var(--gray-400);
+}
+
+.error-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--gray-800);
+}
+
+.error-text {
+  font-size: 14px;
+  color: var(--gray-500);
+  line-height: 1.6;
+}
+
+/* === App Layout === */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+
+/* === Header === */
+.header {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--gray-100);
+  background: var(--white);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+}
+
+.header-brand {
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  color: var(--gray-900);
+}
+
+.header-client {
+  font-size: 13px;
+  color: var(--gray-500);
+  font-weight: 500;
+}
+
+/* === Plan Bar === */
+.plan-bar {
+  flex-shrink: 0;
+  padding: 16px 20px 12px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.plan-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--gray-900);
+  line-height: 1.2;
+}
+
+.progress-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-400);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* === Progress Track === */
+.progress-track {
+  flex-shrink: 0;
+  height: 2px;
+  background: var(--gray-100);
+  margin: 0 20px 4px;
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--gray-900);
+  border-radius: 1px;
+  transition: width var(--transition-slow);
+  width: 0%;
+}
+
+/* === Card Viewport === */
+.card-viewport {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  padding: 12px 0;
+  touch-action: pan-y;
+}
+
+.card-track {
+  display: flex;
+  height: 100%;
+  transition: transform var(--transition-slow);
+  will-change: transform;
+}
+
+.card-track.is-swiping {
+  transition: none;
+}
+
+/* === Exercise Card === */
+.exercise-card {
+  flex: 0 0 100%;
+  width: 100%;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.card-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--transition-normal);
+}
+
+/* === Media Area === */
+.card-media {
+  flex: 1;
+  min-height: 0;
+  background: var(--gray-50);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.card-media img,
+.card-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* Placeholder when no media */
+.media-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  color: var(--gray-400);
+}
+
+.media-placeholder-icon {
+  width: 64px;
+  height: 64px;
+  border: 2px dashed var(--gray-300);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.media-placeholder-icon svg {
+  width: 28px;
+  height: 28px;
+  stroke: var(--gray-300);
+}
+
+.media-placeholder-text {
+  font-size: 13px;
+  color: var(--gray-400);
+}
+
+/* Video play overlay */
+.video-play-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.03);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.video-play-overlay:active {
+  background: rgba(0,0,0,0.08);
+}
+
+.play-button {
+  width: 56px;
+  height: 56px;
+  background: var(--white);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+  transition: transform var(--transition-fast);
+}
+
+.video-play-overlay:active .play-button {
+  transform: scale(0.92);
+}
+
+.play-button svg {
+  width: 22px;
+  height: 22px;
+  margin-left: 3px;
+  fill: var(--gray-800);
+}
+
+.video-play-overlay.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* === Card Body === */
+.card-body {
+  flex-shrink: 0;
+  padding: 20px;
+}
+
+.card-position {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--gray-400);
+  margin-bottom: 4px;
+}
+
+.card-exercise-name {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--gray-900);
+  line-height: 1.25;
+  margin-bottom: 12px;
+}
+
+/* Prescription pills */
+.card-prescription {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.rx-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: 100px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-700);
+}
+
+.rx-pill-label {
+  font-weight: 400;
+  color: var(--gray-500);
+}
+
+/* Notes */
+.card-notes {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--gray-600);
+  padding: 12px 14px;
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--gray-200);
+}
+
+/* === Navigation === */
+.nav-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px 16px;
+  gap: 16px;
+}
+
+.nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  background: var(--white);
+  color: var(--gray-800);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.nav-btn:active:not(:disabled) {
+  background: var(--gray-50);
+  transform: scale(0.97);
+}
+
+.nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.nav-btn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.nav-btn-label {
+  font-size: 14px;
+}
+
+/* Dots */
+.nav-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  overflow: hidden;
+}
+
+.nav-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gray-200);
+  transition: all var(--transition-normal);
+  flex-shrink: 0;
+}
+
+.nav-dot.is-active {
+  background: var(--gray-900);
+  width: 18px;
+  border-radius: 3px;
+}
+
+/* === Footer === */
+.footer {
+  flex-shrink: 0;
+  text-align: center;
+  padding: 0 20px 12px;
+}
+
+.footer-text {
+  font-size: 12px;
+  color: var(--gray-400);
+}
+
+/* === Swipe Hint === */
+@keyframes swipe-hint {
+  0% { transform: translateX(0); opacity: 1; }
+  30% { transform: translateX(-20px); opacity: 1; }
+  60% { transform: translateX(0); opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.swipe-hint {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--gray-800);
+  color: var(--white);
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 500;
+  pointer-events: none;
+  animation: swipe-hint 2.5s ease forwards;
+  animation-delay: 1s;
+  opacity: 0;
+  z-index: 10;
+}
+
+@keyframes swipe-hint-appear {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.swipe-hint {
+  animation: swipe-hint-appear 0.3s ease 1s forwards, swipe-hint 2.5s ease 1.5s forwards;
+}
+
+.swipe-hint svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* === Responsive adjustments === */
+@media (min-width: 480px) {
+  .exercise-card {
+    padding: 0 32px;
+  }
+
+  .plan-bar {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+
+  .progress-track {
+    margin-left: 32px;
+    margin-right: 32px;
+  }
+
+  .header-inner {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+
+  .nav-bar {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+}
+
+/* Desktop: constrain to phone-like width */
+@media (min-width: 640px) {
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--gray-100);
+  }
+
+  #app {
+    max-width: 430px;
+    width: 100%;
+    height: 100%;
+    max-height: 932px;
+    background: var(--white);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    overflow: hidden;
+  }
+
+  .loading-screen,
+  .error-screen {
+    border-radius: var(--radius-xl);
+  }
+}
