@@ -13,6 +13,7 @@ import '../services/local_storage_service.dart';
 import '../services/path_resolver.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
+import '../widgets/shell_pull_tab.dart';
 
 /// In-session camera mode.
 ///
@@ -101,7 +102,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   bool _stopInFlight = false;
 
   bool _wasRecordingOnBackground = false;
-  Timer? _recordingTimer;
+  Timer? _recordingTickTimer;
   int _recordingSeconds = 0;
 
   // --- Peek box state ---
@@ -147,7 +148,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _recordingTimer?.cancel();
+    _recordingTickTimer?.cancel();
+    _recordingTickTimer = null;
     _cameraController?.dispose();
     _flyController.dispose();
     super.dispose();
@@ -160,8 +162,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
-      _recordingTimer?.cancel();
-      _recordingTimer = null;
+      _recordingTickTimer?.cancel();
+      _recordingTickTimer = null;
       if (_isRecording) {
         _wasRecordingOnBackground = true;
       }
@@ -434,21 +436,28 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       });
 
       // If the user already released during the async start, honour
-      // that release now.
+      // that release now. The tick timer has NOT been started yet, so
+      // there's nothing to cancel before the stop haptic fires.
       if (_pendingStopAfterStart) {
         _pendingStopAfterStart = false;
         await _stopVideoRecording();
         return;
       }
 
-      _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      // Per-second haptic tick. Fires IMMEDIATELY once we've confirmed
+      // (a) the controller started recording, (b) `_isRecording = true`,
+      // and (c) the release didn't already land during the async start.
+      // `lightImpact` is used over `selectionClick` — selection-click is
+      // too subtle to feel reliably while the bio is focused on framing
+      // the shot; light impact is perceptible but not intrusive.
+      _recordingTickTimer =
+          Timer.periodic(const Duration(seconds: 1), (timer) {
         if (!mounted) {
           timer.cancel();
           return;
         }
         setState(() => _recordingSeconds++);
-        // Per-second subtle tick while recording.
-        HapticFeedback.selectionClick();
+        HapticFeedback.lightImpact();
         if (_recordingSeconds >= AppConfig.maxVideoSeconds) {
           _stopVideoRecording(autoStopped: true);
         }
@@ -491,7 +500,10 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       return;
     }
 
-    _recordingTimer?.cancel();
+    // Cancel the tick timer BEFORE any further haptics so the
+    // per-second tick can't overlap with the forthcoming stop haptic.
+    _recordingTickTimer?.cancel();
+    _recordingTickTimer = null;
 
     try {
       final xFile = await controller.stopVideoRecording();
@@ -643,12 +655,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
             child: Center(child: _buildPeekBox()),
           ),
 
-          // Left-edge pull-tab back to Studio
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            child: Center(child: _buildPullTab()),
+          // Left-edge pull-tab back to Studio — shared chunky pill.
+          Positioned.fill(
+            child: ShellPullTab(
+              side: ShellPullTabSide.left,
+              onActivate: widget.onExitToStudio,
+            ),
           ),
 
           // Shutter + lens-switch row — bottom centre. The lens row sits
@@ -916,44 +928,6 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
                 ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-
-  /// Subtle left-edge pull-tab that hints Studio is one swipe right.
-  ///
-  /// Sits just above the peek box at mid-screen, far enough below to
-  /// not overlap. Tappable for discoverability.
-  Widget _buildPullTab() {
-    return IgnorePointer(
-      // Only the visual pill is shown here; GestureDetector on the
-      // actual pill handles the tap. Keep the parent non-intercepting
-      // so camera preview taps pass through outside the pill.
-      ignoring: false,
-      child: Align(
-        alignment: const Alignment(-1.0, -0.55),
-        child: GestureDetector(
-          onTap: widget.onExitToStudio,
-          behavior: HitTestBehavior.opaque,
-          child: Container(
-            width: 6,
-            height: 64,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.65),
-              borderRadius: const BorderRadius.only(
-                topRight: Radius.circular(6),
-                bottomRight: Radius.circular(6),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 4,
-                  offset: const Offset(1, 0),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );
