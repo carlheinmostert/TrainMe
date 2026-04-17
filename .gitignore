@@ -29,8 +29,10 @@ build/
 *.ckpt
 *.safetensors
 *.bin
-models/
+/models/
+/prototype/models/
 checkpoints/
+!app/lib/models/
 
 # Prototype outputs
 prototype/output/
