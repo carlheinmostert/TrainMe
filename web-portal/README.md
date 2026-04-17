@@ -37,7 +37,11 @@ See `.env.example`. Highlights:
 
 - `NEXT_PUBLIC_SUPABASE_URL` — Supabase project URL. Safe to expose.
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Publishable anon key. Safe to expose.
-- `PAYFAST_*` — Empty until Milestone D4 lands the real checkout flow.
+- `SUPABASE_SERVICE_ROLE_KEY` — Server-only. Used by `/credits/purchase` to insert `pending_payments` intents. **Never** expose this to the browser.
+- `APP_URL` — Public origin (e.g. `https://manage.homefit.studio`). Used to build PayFast `return_url` / `cancel_url`. Defaults to `http://localhost:3000`.
+- `PAYFAST_MERCHANT_ID`, `PAYFAST_MERCHANT_KEY` — From the PayFast dashboard. `.env.example` ships the public sandbox credentials.
+- `PAYFAST_PASSPHRASE` — Optional. Must match whatever you've set on your PayFast merchant profile. Leave empty for sandbox unless you explicitly set one.
+- `PAYFAST_SANDBOX` — `true` routes checkout + ITN validation to `sandbox.payfast.co.za`. Flip to `false` for production.
 
 **Never** put the Supabase service role key in a `NEXT_PUBLIC_*` variable. Server-only secrets should live in plain `VAR_NAME` entries.
 
@@ -67,15 +71,49 @@ Then add `manage.homefit.studio` as a custom domain in Vercel. Cert issues autom
 - **Credit balance:** `rpc('practice_credit_balance', { p_practice_id })`.
 - **RLS:** The portal only ever queries its own practices' data via the logged-in user's JWT. Milestone C's per-practice policies on `practice_members`, `plans`, `plan_issuances`, and `credit_ledger` all allow these queries naturally.
 
-## Milestone D4 TODO (PayFast)
+## Milestone D4 — PayFast (shipped)
 
-The "Buy credits" surface is scaffolded but the checkout is stubbed.
+Credit purchases are wired end-to-end through PayFast (sandbox by default).
 
-- [ ] Replace `src/app/credits/purchase/route.ts` with real PayFast signed-request generation.
-- [ ] Create a `bundles` Supabase table + policy; read prices from there instead of the hardcoded `BUNDLES` array in `src/app/credits/page.tsx`.
-- [ ] Implement the PayFast ITN webhook (separate route, `/payfast/itn`) that credits the `credit_ledger` on verified notification — never trust the browser redirect.
-- [ ] Add `/credits/success` and `/credits/cancel` landing pages.
-- [ ] Remove the yellow "Milestone D4 TODO" banner on `/credits`.
+**Flow**
+
+1. Buyer clicks **Buy _Bundle_** on `/credits`. The portal `POST`s to `/credits/purchase` with `{bundleKey, practiceId}`.
+2. `/credits/purchase` (server-only) verifies membership, writes a `pending_payments` intent row with a fresh `m_payment_id`, computes the PayFast signature, and returns a signed checkout URL.
+3. Browser redirects to PayFast. The buyer pays with their sandbox test card.
+4. PayFast sends an **ITN** (Instant Transaction Notification) to the Supabase edge function `payfast-webhook`. The function performs four-step verification:
+   - recompute MD5 signature on the received fields (in order) + passphrase,
+   - check source IP against PayFast's published CIDR blocks,
+   - echo the body back to PayFast's `/eng/query/validate` endpoint and expect `VALID`,
+   - cross-check `amount_gross` against `pending_payments.amount_zar`.
+5. On success it inserts a `credit_ledger` row (`type = 'purchase'`, `delta = +credits`) and marks the intent `complete`. The dashboard's credit balance RPC picks up the change on next refresh.
+6. PayFast redirects the buyer to `/credits/return`. Credits may not be visible instantly — the ITN is eventually-consistent but usually arrives within a couple of seconds.
+
+**Sandbox test card**
+
+- Card number: `4000 0000 0000 0002`
+- Expiry: any future month/year
+- CVV: any 3 digits
+
+Full walkthrough:
+
+```bash
+cd web-portal
+cp .env.example .env.local   # defaults are sandbox-safe
+npm install
+npm run dev                  # http://localhost:3000
+# sign in with Google → Create practice → /credits → Buy Starter
+# use the sandbox card above → PayFast bounces back to /credits/return
+# watch pending_payments + credit_ledger in the Supabase dashboard
+```
+
+**Production notes**
+
+- Set `APP_URL` to your deployed origin (`https://manage.homefit.studio`) before switching `PAYFAST_SANDBOX=false`. PayFast rejects checkout requests whose `return_url` / `cancel_url` domain doesn't match the merchant's configured return-URL pattern.
+- The ITN webhook deploys as a Supabase edge function (`supabase/functions/payfast-webhook`). Deploy with `supabase functions deploy payfast-webhook`. Set `PAYFAST_SANDBOX`, `PAYFAST_PASSPHRASE`, and the standard Supabase env vars as function secrets.
+- The edge function whitelists PayFast's published IP blocks by default. Set `PAYFAST_SKIP_IP_CHECK=true` only for ngrok-style local testing, never in prod.
+
+## Still outstanding
+
 - [ ] Wire the "Invite member" form on `/members` to a real endpoint + Supabase magic-link invite.
 
 ## Related surfaces
