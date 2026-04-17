@@ -4,9 +4,10 @@
 
 **homefit.studio** (internally codenamed TrainMe/Raidme) is a multi-tenant SaaS platform for biokineticists, physiotherapists, and fitness trainers to capture exercises during a client session, convert them into clean line-drawing demonstrations on-device, assemble a plan, and share it with the client via a WhatsApp-friendly link.
 
-**Two surfaces:**
-1. **Flutter mobile app** — the trainer's tool (dark mode, coral orange accent)
-2. **Web player** at `session.homefit.studio/p/{planId}` — what the client sees
+**Three surfaces:**
+1. **Flutter mobile app** — the trainer's tool (dark mode, coral orange accent). Capture + Studio modes in a single session shell.
+2. **Web player** at `session.homefit.studio/p/{planId}` — what the client sees. Anonymous, read-only.
+3. **Web portal** at `manage.homefit.studio` (DNS + deploy pending) — where practice owners buy credits, view the audit log, and invite practitioners. Next.js 15 App Router, authenticated via Supabase.
 
 ## Brand
 
@@ -36,12 +37,17 @@
 - **Mobile app:** Flutter 3.41.6 (Dart 3.11.4)
 - **Native video pipeline:** iOS Swift + AVFoundation (AVAssetReader/Writer + vImage/Accelerate) via platform channel. Handles H.264/HEVC directly. Native code at `app/ios/Runner/VideoConverterChannel.swift`.
 - **OpenCV binding:** `opencv_dart` v2.x (builds from source via hooks — not the old prebuilt pod that broke)
-- **Local storage:** SQLite via `sqflite`. Schema version 10. All paths stored relative via `PathResolver`.
+- **Local storage:** SQLite via `sqflite`. Schema version 13. All paths stored relative via `PathResolver`.
 - **Conversion service:** Singleton pattern, survives screen navigation. FIFO queue processes captures sequentially.
-- **Backend:** Supabase (yrwcofhovrcydootivjx.supabase.co)
-  - Tables: `plans`, `exercises` with full data model (circuits, rest periods, audio, custom durations, versions, thumbnails)
-  - Storage bucket: `media` (public)
-  - RLS: public read + insert + update + delete (security by unguessable UUID for POV)
+- **Raw-video archive pipeline:** After conversion, the raw capture is AVAssetExportSession-compressed to 720p H.264 and archived locally at `{Documents}/archive/{exerciseId}.mp4`. 90-day retention. Cloud upload to a private bucket is deferred until the auth story is fully in place (backlog item).
+- **Backend:** Supabase (yrwcofhovrcydootivjx.supabase.co). **CLI is linked** — Claude sessions can run migrations directly via `supabase db query --linked ...` instead of asking Carl to paste SQL in the dashboard.
+  - **Tenancy:** `practices` + `practice_members` (role=owner|practitioner) form the tenancy boundary. A trainer can belong to multiple practices; first-ever sign-in claims the Carl-sentinel practice. Fresh sign-ins auto-create a personal practice.
+  - **Plan data:** `plans`, `exercises` with full data model (circuits, rest periods, audio, custom durations, versions, thumbnails). `plans.practice_id` + `plans.first_opened_at`.
+  - **Billing:** `credit_ledger` (append-only, consumption/purchase/refund/adjustment) + `plan_issuances` (append-only audit of every publish) + `pending_payments` (PayFast intent). Credit cost: `ceil(non_rest_count / 8)` clamped to `[1, 3]`.
+  - **Atomic credit consumption:** `consume_credit(p_practice_id, p_plan_id, p_credits)` SECURITY DEFINER fn with FOR UPDATE locking. Called from publish flow. Accompanying `practice_credit_balance`, `practice_has_credits`.
+  - **Anonymous plan read:** `get_plan_full(plan_id)` SECURITY DEFINER RPC. Web player calls this; no direct SELECT on plans/exercises for anon.
+  - **RLS:** scoped-by-practice via the helper fns `user_practice_ids()` and `user_is_practice_owner(pid)`. Avoids the self-referential recursion trap that direct subqueries on `practice_members` would cause. The helper fns are SECURITY DEFINER and bypass RLS.
+  - **Storage bucket:** `media` (public read for sharing plan URLs; INSERT/UPDATE/DELETE scoped by path-prefix→plan→practice membership).
 - **Web player:** Static HTML/CSS/JS on Vercel, auto-deploys from GitHub (`web-player/` directory)
 - **Domain:** Hostinger DNS, CNAME `session` → `cname.vercel-dns.com` (updated to `00596c638d4cefd8.vercel-dns-017.com.` per Vercel's new IP range)
 - **OG meta tags:** Vercel Edge Middleware (`web-player/middleware.js`) serves bot-friendly HTML for WhatsApp link previews
@@ -49,63 +55,76 @@
 
 ## Key Domain Model
 
-- **Practice** — top-level tenant (not yet implemented, single-tenant for POV)
-- **Trainer** — builds plans (no auth yet, single-user POV)
-- **Client** — receives plans via URL (no auth, URL is unguessable UUID)
+- **Practice** — top-level tenant. Created automatically on first Google sign-in (either claims the Carl-sentinel or spins up a fresh personal practice). A trainer can belong to multiple practices; the publish-screen picker is where they choose which one pays.
+- **Practice member** — trainer-in-practice with a role (`owner` or `practitioner`). Owner can invite other trainers and buy credits. Practitioners consume credits to publish.
+- **Trainer** — an authenticated user (Supabase `auth.users` row, Google-backed). Creates and edits sessions.
+- **Client** — receives plans via URL (no auth; URL is an unguessable UUID; data fetched via the `get_plan_full` RPC).
 - **Session** — a workout plan
-  - `id`, `clientName`, `title`, `circuitCycles` (JSON map), `preferredRestIntervalSeconds`, `version`, `planUrl`, `lastPublishedAt`, `sentAt`, `deletedAt`
+  - `id`, `clientName`, `title`, `circuitCycles` (JSON map), `preferredRestIntervalSeconds`, `version`, `planUrl`, `lastPublishedAt`, `sentAt`, `deletedAt`, `practiceId`, `firstOpenedAt`, `lastPublishError`, `publishAttemptCount`
 - **ExerciseCapture** — one item in a session
-  - `id`, `position`, `name`, `mediaType` (photo/video/rest), `rawFilePath`, `convertedFilePath`, `thumbnailPath`
+  - `id`, `position`, `name`, `mediaType` (photo/video/rest), `rawFilePath`, `convertedFilePath`, `thumbnailPath`, `videoDurationMs`, `archiveFilePath`, `archivedAt`
   - `reps`, `sets`, `holdSeconds`, `notes`, `customDurationSeconds`
   - `circuitId`, `includeAudio`, `conversionStatus`
 - **Circuits** — group of consecutive exercises with shared `circuitId`. `circuitCycles` on session = how many times the group repeats.
 - **Rest periods** — `mediaType: rest`. Compact inline bars between exercise cards. Auto-inserted every N minutes (N learned from user's drag behaviour, default 10).
-- **Plan versions** — increments on each Publish. URL stays the same; client always sees latest.
+- **Plan versions** — increments on each Publish. URL stays the same; client always sees latest via the `get_plan_full` RPC.
+- **Credit** — unit of publishing capacity. One plan = 1 credit (1-8 exercises), 2 credits (9-15), 3 credits (16+). Purchased in bundles via PayFast on the web portal. Consumed atomically on publish.
 
-## Feature State (MVP complete)
+## Feature State
 
 ### Trainer App
-- One-tap new session (default name: current date/time)
-- Import from photo library (photo or video)
-- Live camera capture (photo = tap, video = long press)
-- Native iOS video-to-video line drawing conversion with audio passthrough
-- Photo line drawing via OpenCV
-- Expandable exercise cards with three independent sub-sections (Settings / Preview / Notes)
-- Thick pill-shaped sliders for reps/sets/hold, custom duration override
-- Circuit grouping via link buttons, drag-to-detach
-- Rest periods as compact inline bars with learned auto-insert interval
-- Inline-editable exercise names and session names (dashed underline)
-- Drag handles for reordering
-- Swipe-to-delete sessions with undo snackbar
-- Soft-delete recycle bin, 7-day retention
-- Estimated duration per exercise and per session
-- Slideshow preview with progress bar, nav buttons, workout timer mode (play gates, rest auto-start, pause/resume)
-- Publish + Copy Link + Share buttons on home screen session cards
-- Background publishing — bio keeps working while upload runs
-- Audio toggle per video exercise (default muted, explicit opt-in)
+- **Session shell** — horizontal PageView with Studio (edit) and Camera (capture) modes. New Session → Camera first. Existing session → Studio. Swipe between modes via edge pull-tabs (coral pills with edit/camera icons).
+- **Camera mode** — full-screen shutter, short-press = photo, long-press = video. Per-second haptic ticks + pulsing red dot during recording. 30s auto-stop with double-tap haptic. Pinch-to-zoom + 0.5x/1x/2x/3x lens pills. Peek box at left edge shows last thumbnail + count. No retake — errors fix in Studio.
+- **Studio mode** — bottom-anchored list (newest at the bottom for one-handed reach). Expandable exercise cards with vertical-layout sliders (label above, slider full-width below). Thumbnail tap opens a full-screen media viewer. Top-bar import icon supports multi-select photos/videos. Circuits via link button; drag-to-detach. Rest periods as inline bars.
+- **Native conversion pipeline** — iOS AVAssetReader/Writer + vImage/Accelerate. H.264/HEVC input. Two-zone rendering: body crisp via MediaPipe/Vision person segmentation, equipment dimmed to ~35% for context.
+- **Raw archive pipeline** — 720p H.264 compression of the raw capture saved to `{Documents}/archive/` (90-day retention). Cloud upload waits for auth-scoped storage.
+- **Video-length-as-one-rep** — when a video exercise has a captured `videoDurationMs`, estimated duration uses that per-rep instead of the hardcoded 3s default.
+- **Workout preview** — swipeable card deck with 15s prep countdown before every exercise, timer chip in bottom-right with three-mode tap behaviour (skip prep / pause / resume). Rest pages mirror the same chip. Swipe/arrow skips cancel the current timer cleanly.
+- **Share** — URL-only iOS share sheet so WhatsApp/Messages unfurl a clean link preview.
+- **Auth** — AuthGate wraps the app. No guest mode. Sign In screen with Google (live) and Apple (coming soon). First sign-in auto-claims the Carl-sentinel practice; subsequent sign-ins create a fresh personal practice.
+- **Publish** — pre-flight file check → plan upsert → `consume_credit` RPC → media upload → exercises upsert → orphan cleanup → plan_issuances audit. Compensating refund ledger row on any post-consume failure.
 
-### Client Web Player
-- Dark theme matching app
-- Swipeable card deck
-- Progress bar + nav chevrons + dot indicators (dots hide past 10 slides)
-- Circuit unrolling (each round shown as separate slide)
-- Circuit indicator bar: "Circuit · Round 2 of 3 · Exercise 1 of 3"
-- Rest period cards with calming countdown
-- Video playback with conditional audio based on `include_audio`
-- Workout timer mode with play gates, auto-advance, rest auto-start
-- "Start Workout" button, pause/resume
-- WhatsApp OG preview via Edge Middleware
-- Service worker for offline use
+### Client Web Player (session.homefit.studio)
+- Anonymous read via `get_plan_full` RPC. Never queries the plans/exercises tables directly.
+- Dark theme matching app.
+- Swipeable card deck with progress bar + nav chevrons + dot indicators (dots hide past 10 slides).
+- Circuit unrolling (each round shown as separate slide). Indicator bar: "Circuit · Round 2 of 3 · Exercise 1 of 3".
+- Videos auto-play muted + looped on any active slide. Per-video play overlay only surfaces when the user explicitly pauses.
+- Rest slides consolidated: rest card body + the same bottom-right timer chip. No more duplicate centred overlay.
+- 15-second prep countdown always (even for the first exercise after Start Workout).
+- Timer chip is the sole pause/play control — three modes: prep / running / paused. Tap to skip prep or toggle pause.
+- Swipe / nav-chevron skips any slide including rest. Cancels current timer cleanly.
+- WhatsApp OG preview via Vercel Edge Middleware.
+- Service worker caches app shell + video media (with content-type validation). Cache name bumped on major changes.
+- CSP + HSTS + Permissions-Policy headers.
+
+### Web Portal (manage.homefit.studio — scaffolded, not deployed)
+- Next.js 15 App Router, @supabase/ssr cookie-based auth, Tailwind with brand tokens.
+- Pages: Sign-In gate → Dashboard (practice switcher + credit balance) → Credits (bundle list + PayFast checkout) → Audit (plan_issuances table) → Members (owner-only invite UI).
+- PayFast sandbox integration live; production merchant account pending.
+- Never receives service role key — all writes via Supabase Edge Functions (`payfast-webhook`).
 
 ## Current Phase
 
-**POV deployed end-to-end, ready for first bio tester.**
+**Multi-tenant foundation is live.** Auth + RLS + credit deduction + audit all working end-to-end. First publish as a properly authenticated user happened 2026-04-17.
 
-Next logical steps:
-- Deploy to Carl's iPhone for real-world capture testing
-- First trusted-bio trial
-- Iterate on bio feedback
-- Move from POV to MVP (add auth, multi-tenancy, billing)
+**Milestones complete:**
+- **A** — Schema (practices, practice_members, credit_ledger, plan_issuances, plan.practice_id, plan.first_opened_at).
+- **B** — Google Sign-In + AuthGate + sentinel-claim. Apple button scaffolded, pending Apple Developer enrolment approval.
+- **C** — RLS lockdown scoped by practice membership. SECURITY DEFINER helpers `user_practice_ids()` / `user_is_practice_owner(pid)` avoid self-recursion.
+- **D1** — Credit deduction at publish via `consume_credit` RPC. Refund ledger rows on failure.
+- **D3** — Web portal scaffolded (not deployed; DNS pending).
+- **D4** — PayFast sandbox integration (in flight as of end of 2026-04-17).
+
+**Milestones remaining:**
+- **D2** — Publish-screen practice picker UI (Flutter).
+- **D4 production** — Swap PayFast sandbox for real merchant credentials when Carl signs up.
+- **E** — First-run onboarding polish for the second bio.
+
+**Blocked on Carl:**
+- PayFast production merchant account (D4 prod).
+- DNS for `manage.homefit.studio` (web portal deploy).
+- Apple Developer Program approval (~24-48h, enrolled 2026-04-17).
 
 ## Infrastructure Rules (learned the hard way)
 
@@ -140,7 +159,13 @@ Pitch guidance: lead with adherence improvement and correct execution, not clini
 
 ## Revenue Model
 
-Pay-per-plan-issuance. Billing unit is a plan issued to a client. Plan versions increment on each publish but minor updates don't re-bill (model decision to make post-MVP). Billing itself is post-MVP.
+**Prepaid credits.** The billing unit is the plan URL — one credit consumed per unique plan, scaled by exercise count (1-8 = 1 credit, 9-15 = 2, 16+ = 3). Practice managers buy credit bundles on the web portal via PayFast. Any practitioner in a practice can consume credits to publish.
+
+**Version-bump policy (decided, not yet enforced):** the first publish of a plan URL consumes a credit. Non-structural edits (reps, sets, hold, notes, filter params) are free forever. Structural edits (add/delete/reorder) are free for the first 24h after publish OR until the client first opens the link, whichever comes first. Past that window, structural changes require a new credit. Enforcement lives in the Flutter Studio UI (disabled add/reorder affordances post-lock).
+
+**JIT (just-in-time client-pay) mode was considered and rejected** — adherence-damaging, undermines the platform's core value prop.
+
+**Credit bundle prices (provisional):** 10/R250, 50/R1125, 200/R4000. Revisit once there's real usage data.
 
 ## Compliance
 
@@ -152,10 +177,21 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 - `docs/POV_BRIEF.md` — Proof-of-value brief with vision and build plan
 - `docs/MARKET_RESEARCH.md` — Competitive landscape + business case validation
 - `docs/ANIMATION_PIPELINE.md` — AI pipeline (parked) technical spec
-- `supabase/schema.sql` — Database schema
+- `docs/BACKLOG.md` — Deferred work with rationale
+- `docs/PENDING_DEVICE_TESTS.md` — Things landed on main that haven't been verified on Carl's iPhone yet
+- `supabase/schema.sql` — Canonical fresh-install schema (reference)
+- `supabase/schema_milestone_a.sql` — Practices, credits, audit schema
+- `supabase/schema_milestone_c.sql` — RLS lockdown + consume_credit
+- `supabase/schema_milestone_c_recursion_fix.sql` — SECURITY DEFINER helpers that fixed the policy recursion
+- `supabase/schema_milestone_d4.sql` — PayFast pending_payments table
 - `app/lib/theme.dart` — Brand theme tokens
 - `app/lib/widgets/powered_by_footer.dart` — Shared Pulse Mark footer
 - `app/ios/Runner/VideoConverterChannel.swift` — Native video pipeline
+- `app/lib/screens/session_shell_screen.dart` — Capture/Studio mode shell
+- `app/lib/services/upload_service.dart` — Publish flow with credit consumption
+- `app/lib/services/auth_service.dart` — Sign-in + sentinel-claim logic
+- `web-portal/` — Next.js practice-manager + credits portal
+- `tools/filter-workbench/` — Python Streamlit tool for filter parameter tuning (blocked on cloud raw archive for real tuning)
 
 ## Development Guidelines
 
@@ -167,7 +203,9 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 - Launch with: `xcrun simctl launch <device-id> com.raidme.raidme`
 - Web player auto-deploys via Vercel on `git push`
 - Bump `sw.js` CACHE_NAME when making major web player changes
-- Supabase schema changes: update `supabase/schema.sql`, user runs SQL manually in Supabase SQL Editor
+- Supabase schema changes: with the CLI linked, use `supabase db query --linked --file supabase/<file>.sql` to apply directly. Still keep a human-readable `.sql` file in `supabase/` for audit trail. Carl reviews the SQL file before apply.
+- Supabase Edge Functions: `supabase functions deploy <name>` for the PayFast webhook and friends.
+- Web portal deploys via Vercel on push (similar to web-player). DNS CNAME `manage.homefit.studio` → Vercel target (pending).
 - Always consider offline-first — the bio must be able to work without signal
 
 ## Simulator Testing Notes

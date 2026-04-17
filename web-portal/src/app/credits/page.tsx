@@ -2,22 +2,8 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { BrandHeader } from '@/components/BrandHeader';
-
-// Hardcoded bundles for the POV. Will move to a DB table once PayFast is
-// wired up in Milestone D4 (so we can version prices without a redeploy).
-const BUNDLES = [
-  { key: 'starter', name: 'Starter', credits: 10, priceZar: 250 },
-  { key: 'practice', name: 'Practice', credits: 50, priceZar: 1125 },
-  { key: 'clinic', name: 'Clinic', credits: 200, priceZar: 4000 },
-] as const;
-
-function zar(amount: number) {
-  return new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: 'ZAR',
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
+import { BUNDLES, zar } from '@/lib/bundles';
+import { BuyBundleButton } from '@/components/BuyBundleButton';
 
 type SearchParams = { practice?: string };
 
@@ -51,17 +37,8 @@ export default async function CreditsPage({
         <h1 className="font-heading text-3xl font-bold">Buy credits</h1>
         <p className="mt-2 text-sm text-ink-muted">
           One credit is charged each time you publish a plan to a client.
+          Payments are processed securely by PayFast (ZAR).
         </p>
-
-        {/* Milestone D4 banner — remove once PayFast is wired up. */}
-        <div
-          role="status"
-          className="mt-6 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm text-warn"
-        >
-          <strong className="font-semibold">Milestone D4 TODO:</strong>{' '}
-          PayFast checkout wiring is pending. &ldquo;Buy&rdquo; buttons
-          currently hit a stub route that returns a placeholder URL.
-        </div>
 
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {BUNDLES.map((b) => {
@@ -82,20 +59,11 @@ export default async function CreditsPage({
                   {zar(perCredit)} per credit
                 </p>
 
-                <form
-                  action="/credits/purchase"
-                  method="post"
-                  className="mt-6"
-                >
-                  <input type="hidden" name="bundle" value={b.key} />
-                  <input type="hidden" name="practice" value={practiceId} />
-                  <button
-                    type="submit"
-                    className="w-full rounded-md bg-brand px-4 py-2.5 text-sm font-semibold text-surface-bg transition hover:bg-brand-light focus-visible:outline-brand"
-                  >
-                    Buy {b.name}
-                  </button>
-                </form>
+                <BuyBundleButton
+                  bundleKey={b.key}
+                  bundleName={b.name}
+                  practiceId={practiceId}
+                />
               </article>
             );
           })}
