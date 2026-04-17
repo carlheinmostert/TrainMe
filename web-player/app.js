@@ -663,15 +663,14 @@ function updateTimerDisplay() {
   const offset = TIMER_CIRCUMFERENCE * (1 - progress);
   $timerRingProgress.setAttribute('stroke-dashoffset', offset.toString());
 
-  // Update color based on remaining percentage
+  // Update color based on remaining percentage — stay on-brand (coral orange),
+  // only shift to red in the final seconds for urgency.
   const pct = totalSeconds > 0 ? (remainingSeconds / totalSeconds) : 1;
   let color;
   if (pct <= 0.10) {
-    color = '#ef4444'; // red
-  } else if (pct <= 0.25) {
-    color = '#f59e0b'; // amber
+    color = '#EF4444'; // red — final urgency
   } else {
-    color = '#22c55e'; // green
+    color = '#FF6B35'; // coral orange (brand primary)
   }
   $timerRingProgress.setAttribute('stroke', color);
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
@@ -166,6 +167,20 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadSessions();
       }
     }
+  }
+
+  /// Copy the plan URL to the clipboard and show a confirmation snackbar.
+  Future<void> _copyLink(Session session) async {
+    final url = session.planUrl;
+    if (url == null) return;
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Link copied'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   /// Open the share sheet with the session's plan URL.
@@ -432,6 +447,28 @@ class _HomeScreenState extends State<HomeScreen> {
                           tooltip: isPublishedClean ? 'Published' : 'Publish',
                         ),
                       ),
+
+                    // Copy link button
+                    SizedBox(
+                      width: 34,
+                      height: 34,
+                      child: IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        iconSize: 20,
+                        onPressed: session.isPublished
+                            ? () => _copyLink(session)
+                            : null,
+                        icon: Icon(
+                          Icons.link,
+                          color: session.isPublished
+                              ? AppColors.textOnDark
+                              : AppColors.grey600,
+                          size: 20,
+                        ),
+                        tooltip: 'Copy link',
+                      ),
+                    ),
 
                     // Share button
                     SizedBox(
