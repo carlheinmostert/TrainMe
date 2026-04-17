@@ -46,6 +46,19 @@ class Session {
   /// that rest becomes the new preferred interval.
   final int? preferredRestIntervalSeconds;
 
+  /// Practice tenant that owns this plan. Added in Milestone A (multi-tenant
+  /// billing foundation). Not persisted locally yet — the trainer app uses
+  /// [AppConfig.sentinelPracticeId] when publishing. Exposed here so
+  /// round-trips through Supabase preserve the value.
+  final String? practiceId;
+
+  /// Timestamp of the first time the client web player fetched this plan (set
+  /// by the `get_plan_full` RPC atomically on first read). Used by the future
+  /// publish-lock rule: once a client has opened the plan, add/reorder/swap
+  /// is locked; delete stays free. Milestone A records the column; the lock
+  /// UI lands in a later milestone.
+  final DateTime? firstOpenedAt;
+
   const Session({
     required this.id,
     required this.clientName,
@@ -60,6 +73,8 @@ class Session {
     this.publishAttemptCount = 0,
     this.circuitCycles = const {},
     this.preferredRestIntervalSeconds,
+    this.practiceId,
+    this.firstOpenedAt,
   });
 
   /// Create a new session with a generated UUID.
@@ -122,11 +137,32 @@ class Session {
       publishAttemptCount: (map['publish_attempt_count'] as int?) ?? 0,
       circuitCycles: cycles,
       preferredRestIntervalSeconds: map['preferred_rest_interval'] as int?,
+      // `practice_id` and `first_opened_at` only exist on remote Supabase rows
+      // today — no local SQLite mirror yet. If present (remote hydration path),
+      // we round-trip them; otherwise they stay null.
+      practiceId: map['practice_id'] as String?,
+      firstOpenedAt: _parseTimestamp(map['first_opened_at']),
     );
+  }
+
+  /// Accept either an ISO-8601 string (remote Supabase JSON) or a
+  /// millisecondsSinceEpoch int (future local SQLite mirror) or null.
+  static DateTime? _parseTimestamp(Object? value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String) return DateTime.tryParse(value);
+    return null;
   }
 
   /// Serialize to a map suitable for SQLite insertion.
   /// Exercises are stored in their own table — not included here.
+  ///
+  /// Note: `practiceId` and `firstOpenedAt` are intentionally NOT included
+  /// here. They exist only on the remote Supabase `plans` row in Milestone A;
+  /// the local SQLite schema gets matching columns when auth / membership
+  /// goes dynamic in a later milestone. Adding them here today would error
+  /// against the current LocalStorageService schema.
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -161,6 +197,8 @@ class Session {
     Map<String, int>? circuitCycles,
     int? preferredRestIntervalSeconds,
     bool clearPreferredRestInterval = false,
+    String? practiceId,
+    DateTime? firstOpenedAt,
   }) {
     return Session(
       id: id,
@@ -180,6 +218,8 @@ class Session {
       preferredRestIntervalSeconds: clearPreferredRestInterval
           ? null
           : (preferredRestIntervalSeconds ?? this.preferredRestIntervalSeconds),
+      practiceId: practiceId ?? this.practiceId,
+      firstOpenedAt: firstOpenedAt ?? this.firstOpenedAt,
     );
   }
 

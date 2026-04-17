@@ -22,6 +22,11 @@ class PublishResult {
   final String? url;
   final int? version;
 
+  /// Credits charged for this publish (computed via [creditCostFor]). Set
+  /// only on success; null otherwise. Milestone A: audit-only — the ledger
+  /// is not decremented yet. Future UI can show "Used N credits".
+  final int? creditsCharged;
+
   /// Exercises whose local media file was missing at pre-flight. Non-null
   /// only for [PublishResult.preflightFailed].
   final List<String>? missingFiles;
@@ -33,13 +38,23 @@ class PublishResult {
     required this.success,
     this.url,
     this.version,
+    this.creditsCharged,
     this.missingFiles,
     this.error,
   });
 
   /// Successful publish.
-  factory PublishResult.success({required String url, required int version}) =>
-      PublishResult._(success: true, url: url, version: version);
+  factory PublishResult.success({
+    required String url,
+    required int version,
+    required int creditsCharged,
+  }) =>
+      PublishResult._(
+        success: true,
+        url: url,
+        version: version,
+        creditsCharged: creditsCharged,
+      );
 
   /// Pre-flight validation failure. Nothing was uploaded; no plan state
   /// changed on Supabase.
@@ -172,6 +187,11 @@ class UploadService {
       // where the plan version is new but exercises are still old is fine.
       // ----------------------------------------------------------------
       final newVersion = session.version + 1;
+      final nonRestCount = session.exercises.where((e) => !e.isRest).length;
+      // Milestone A: every publish stamps the sentinel practice id. When auth
+      // lands (Milestone B) this resolves to the trainer's active practice.
+      final practiceId =
+          session.practiceId ?? AppConfig.sentinelPracticeId;
       await _supabase.from('plans').upsert({
         'id': session.id,
         'client_name': session.clientName,
@@ -179,10 +199,11 @@ class UploadService {
         // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
         'circuit_cycles': session.circuitCycles,
         'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
-        'exercise_count': session.exercises.where((e) => !e.isRest).length,
+        'exercise_count': nonRestCount,
         'version': newVersion,
         'created_at': session.createdAt.toIso8601String(),
         'sent_at': DateTime.now().toIso8601String(),
+        'practice_id': practiceId,
       });
 
       // ----------------------------------------------------------------
@@ -226,6 +247,31 @@ class UploadService {
       await deleteQuery;
 
       // ----------------------------------------------------------------
+      // Step 6 (Milestone A): append an audit row to `plan_issuances`.
+      // Records who published which plan-version at what size for what
+      // credit cost. NO ledger deduction yet — that lands in Milestone D
+      // together with the PayFast webhook. If this insert fails (e.g.
+      // schema_milestone_a.sql hasn't been run yet) we swallow the error:
+      // the publish itself already succeeded and the bio must not be
+      // blocked by an audit-table hiccup. Once the migration is applied
+      // everywhere this try/catch can be removed.
+      // ----------------------------------------------------------------
+      final creditsCharged = creditCostFor(nonRestCount);
+      try {
+        await _supabase.from('plan_issuances').insert({
+          'plan_id': session.id,
+          'practice_id': practiceId,
+          'trainer_id': AppConfig.sentinelTrainerId,
+          'version': newVersion,
+          'exercise_count': nonRestCount,
+          'credits_charged': creditsCharged,
+          'issued_at': DateTime.now().toIso8601String(),
+        });
+      } catch (_) {
+        // Audit write is best-effort for Milestone A. Do not fail the publish.
+      }
+
+      // ----------------------------------------------------------------
       // Success — persist new local state.
       // ----------------------------------------------------------------
       final planUrl = '${AppConfig.webPlayerBaseUrl}/p/${session.id}';
@@ -239,7 +285,11 @@ class UploadService {
       await _storage.saveSession(updated);
       await _recordSuccess(session.id);
 
-      return PublishResult.success(url: planUrl, version: newVersion);
+      return PublishResult.success(
+        url: planUrl,
+        version: newVersion,
+        creditsCharged: creditsCharged,
+      );
     } catch (e) {
       // Media may be orphaned in storage, exercises may be half-written.
       // Plan row version was NOT bumped, so readers still see the previous

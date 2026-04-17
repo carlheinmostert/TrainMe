@@ -84,6 +84,13 @@ async function fetchPlan(planId) {
   // POV phase: tables are open via permissive RLS, so we read directly.
   // A future hardening pass should switch to the `get_plan_full` SECURITY
   // DEFINER RPC (see supabase/schema_hardening.sql) to prevent enumeration.
+  //
+  // Milestone A note (see supabase/schema_milestone_a.sql): the get_plan_full
+  // RPC stamps `first_opened_at` atomically on the first fetch. That column
+  // feeds the future publish-lock rule (once a client opens a plan, the bio
+  // can no longer add/reorder/swap exercises — delete stays free). When this
+  // client swaps to the RPC, first_opened_at will get set automatically with
+  // no client-side code change required here.
   const response = await fetch(
     `${SUPABASE_URL}/rest/v1/plans?id=eq.${planId}&select=*,exercises(*)`,
     {

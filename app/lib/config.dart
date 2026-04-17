@@ -29,4 +29,46 @@ class AppConfig {
   static const int blurKernel = 31;
   static const int thresholdBlock = 9;
   static const int contrastLow = 80;
+
+  // ---------------------------------------------------------------------------
+  // Multi-tenant billing foundation (Milestone A)
+  // ---------------------------------------------------------------------------
+  // Sentinel uuids used while Carl is the sole trainer. Every plan publish
+  // stamps `practice_id = sentinelPracticeId` and `trainer_id = sentinelTrainerId`
+  // on the `plan_issuances` audit row. Milestone B replaces these with values
+  // derived from the authenticated session; Milestone C makes `practice_id`
+  // NOT NULL on `plans` once we are confident every code path stamps it.
+  //
+  // Keep these in lock-step with supabase/schema_milestone_a.sql (sentinel
+  // backfill section).
+  static const String sentinelPracticeId =
+      '00000000-0000-0000-0000-0000000ca71e';
+  static const String sentinelTrainerId =
+      '00000000-0000-0000-0000-000000000001';
+
+  /// Credit cost by plan size (non-rest exercise count).
+  /// 1-8 exercises  → 1 credit
+  /// 9-15 exercises → 2 credits
+  /// 16+ exercises  → 3 credits (clamped)
+  static const int creditsPerSmallPlan = 1; // 1-8 exercises
+  static const int creditsPerMediumPlan = 2; // 9-15 exercises
+  static const int creditsPerLargePlan = 3; // 16+ exercises
+}
+
+/// Credit cost for a plan given its non-rest exercise count.
+///
+/// Formula: `ceil(count / 8)` clamped to `[1, 3]`.
+///   1-8   → 1 credit
+///   9-15  → 2 credits  (9/8 = 1.125 → ceil = 2)
+///   16+   → 3 credits  (clamped)
+///
+/// An empty plan (count == 0) is billed at the minimum of 1 credit so the
+/// audit row is never zero — if we ever see `credits_charged = 0` in
+/// `plan_issuances` it means the clamp was bypassed, which is a bug.
+int creditCostFor(int exerciseCount) {
+  if (exerciseCount <= 0) return AppConfig.creditsPerSmallPlan;
+  final raw = ((exerciseCount + 7) ~/ 8); // ceil(n/8)
+  if (raw <= AppConfig.creditsPerSmallPlan) return AppConfig.creditsPerSmallPlan;
+  if (raw >= AppConfig.creditsPerLargePlan) return AppConfig.creditsPerLargePlan;
+  return raw;
 }
