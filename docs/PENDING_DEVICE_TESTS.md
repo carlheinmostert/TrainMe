@@ -14,6 +14,13 @@ Reference items by commit hash + feature name when reporting feedback.
 - Chevron + drag handle sit flush as a pair
 - Thumbnail tap opened `PlanPreviewScreen` at the exercise's slide index — **superseded** by the next item
 
+### Commit `3c4778b` — Milestone B: Google social sign-in + AuthGate + sentinel claim
+- Launch → Sign-In screen (Google button + Apple "Coming soon" pill).
+- Tap Continue with Google → browser opens Google consent → redirect back to app → land on home screen as signed-in user.
+- First sign-in auto-claims the Carl-sentinel practice with its pre-seeded 1000 credits.
+- Sign out option — should land back on Sign-In screen.
+- Publish a plan — verify `plan_issuances` audit row now uses your real auth.uid() as `trainer_id`.
+
 ### Commit `2de937e` — Slider vertical layout + thumbnail media viewer
 - Slider rows now render as `Column`: `[label on left, value on right]` row above, slider full-width below. Full card width. No truncation, no "R..." artefacts.
 - Thumbnail tap opens a full-screen `_MediaViewer`: auto-plays video (tap to pause/resume), or shows photo, with close button top-right. Rest exercises are non-tappable (no media).
