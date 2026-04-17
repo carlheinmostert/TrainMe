@@ -4,6 +4,20 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+## One-handed reachability — pull-to-latch scroll physics (Studio)
+
+**Status:** Deferred. Custom behaviour, probably a few days of careful work.
+
+**Want:** Let the bio drag the Studio list down and have it LATCH in the dragged position (not bounce back on release) so items that were near the top are now in the thumb zone. Tap an item, viewport snaps back to natural rest.
+
+**Why native alternatives don't fit:** `BouncingScrollPhysics` only holds the stretched position during the active gesture — releasing snaps it back, so items aren't reachable without a second finger. iOS system Reachability works but Carl finds it terrible UX. Standard scroll physics don't have a "latched stretch" state.
+
+**Implementation sketch:** Subclass `ScrollPhysics`, override `applyPhysicsToUserOffset` + `createBallisticSimulation` to allow the scroll offset to extend past the natural minimum (in `reverse: true` that's past the visual top), and prevent the simulation from returning to zero on release below a threshold. Tapping an item anywhere in the app invokes a snap-back animation. Most of the complexity is in the interaction model — drag gestures, tap-to-snap-back, conflict with drag-reorder (`ReorderableListView` has its own drag-start detection).
+
+**Risk:** Non-standard scroll behaviour is user-experience debt. Bios switching between this app and every other app will be surprised by list content that doesn't bounce back. Only revisit if the one-handed friction is observed to be a real problem in testing.
+
+---
+
 ## Point 2 — Performance / feel
 
 **Status:** Deferred. POV currently feels fast on a new iPhone. Revisit when we hit a real bottleneck or when we test on lower-spec devices.
