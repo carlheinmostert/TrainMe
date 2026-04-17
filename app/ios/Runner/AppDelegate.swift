@@ -4,6 +4,10 @@ import AVFoundation
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
+  // Retain the video converter channel as a stored property. Prevents
+  // the instance from being released and losing its method-call handler.
+  private var videoConverter: VideoConverterChannel?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -14,7 +18,11 @@ import AVFoundation
     // This avoids depending on window.rootViewController which may not be
     // set as a FlutterViewController during didFinishLaunchingWithOptions
     // in Flutter 3.41.6's newer engine lifecycle.
-    let messenger = self.registrar(forPlugin: "VideoConverterPlugin")!.messenger()
+    guard let registrar = self.registrar(forPlugin: "VideoConverterPlugin") else {
+      NSLog("Failed to obtain VideoConverterPlugin registrar")
+      return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+    let messenger = registrar.messenger()
 
     // Register a simple thumbnail extraction channel.
     // This bypasses video_thumbnail package issues.
@@ -31,6 +39,18 @@ import AVFoundation
           result(FlutterError(code: "ARGS", message: "Missing inputPath or outputPath", details: nil))
           return
         }
+
+        // Defense in depth: verify the input file exists and is readable.
+        guard FileManager.default.fileExists(atPath: inputPath),
+              FileManager.default.isReadableFile(atPath: inputPath) else {
+          result(FlutterError(
+            code: "FILE_NOT_FOUND",
+            message: "Input file does not exist or is not readable: \(inputPath)",
+            details: nil
+          ))
+          return
+        }
+
         let timeMs = args["timeMs"] as? Int ?? 0
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -68,7 +88,8 @@ import AVFoundation
     }
 
     // Register the full video converter channel using the same messenger.
-    let _ = VideoConverterChannel(messenger: messenger)
+    // Stored on self so the handler registration persists for the app lifetime.
+    videoConverter = VideoConverterChannel(messenger: messenger)
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }

@@ -78,20 +78,25 @@ function getPlanIdFromURL() {
 }
 
 async function fetchPlan(planId) {
+  // Uses the `get_plan_full` RPC so direct SELECT on plans/exercises can be
+  // revoked — prevents table enumeration via the anon key.
   const response = await fetch(
-    `${SUPABASE_URL}/rest/v1/plans?id=eq.${planId}&select=*,exercises(*)`,
+    `${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,
     {
+      method: 'POST',
       headers: {
         'apikey': SUPABASE_ANON_KEY,
         'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-      }
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ plan_id: planId }),
     }
   );
   if (!response.ok) throw new Error('Plan not found');
   const data = await response.json();
-  if (!data.length) throw new Error('Plan not found');
-  const plan = data[0];
-  // Sort exercises by position
+  if (!data || !data.plan) throw new Error('Plan not found');
+  const plan = data.plan;
+  plan.exercises = Array.isArray(data.exercises) ? data.exercises : [];
   plan.exercises.sort((a, b) => a.position - b.position);
   return plan;
 }
@@ -117,7 +122,7 @@ function unrollExercises(plan) {
         group.push(exercises[i]);
         i++;
       }
-      const totalRounds = cycles[circuitId] || 3;
+      const totalRounds = Number.parseInt(cycles[circuitId], 10) || 3;
       for (let round = 1; round <= totalRounds; round++) {
         group.forEach((gex, idx) => {
           result.push({
@@ -142,9 +147,9 @@ function renderPlan() {
   $clientName.textContent = plan.client_name;
   $planTitle.textContent = plan.title;
 
-  // Build navigation dots
+  // Build navigation dots (i is always a numeric loop index — safe)
   $navDots.innerHTML = slides
-    .map((_, i) => `<div class="nav-dot${i === 0 ? ' is-active' : ''}" data-index="${i}"></div>`)
+    .map((_, i) => `<div class="nav-dot${i === 0 ? ' is-active' : ''}" data-index="${Number(i)}"></div>`)
     .join('');
 
   // Build exercise cards
@@ -186,7 +191,7 @@ function buildCard(slide, index) {
           ${mediaHTML}
         </div>
         <div class="card-body">
-          <div class="card-position">Exercise ${slide.position}</div>
+          <div class="card-position">Exercise ${Number.parseInt(slide.position, 10) || index + 1}</div>
           <div class="card-exercise-name">${escapeHTML(displayName)}</div>
           ${prescriptionPills ? `<div class="card-prescription">${prescriptionPills}</div>` : ''}
           ${slide.notes ? `<div class="card-notes">${escapeHTML(slide.notes)}</div>` : ''}
@@ -202,6 +207,8 @@ function buildRestCard(slide, index) {
   const nextUpName = nextSlide ? (nextSlide.name || 'Next exercise') : null;
   const circuitBar = buildCircuitBar(slide);
 
+  const safeDuration = Number.parseInt(duration, 10) || 30;
+
   return `
     <div class="exercise-card" data-index="${index}">
       <div class="card-inner rest-card">
@@ -216,7 +223,7 @@ function buildRestCard(slide, index) {
             </svg>
           </div>
           <div class="rest-title">Rest</div>
-          <div class="rest-duration">${duration}s</div>
+          <div class="rest-duration">${safeDuration}s</div>
           ${nextUpName ? `<div class="rest-next-up">Next up: ${escapeHTML(nextUpName)}</div>` : ''}
         </div>
       </div>
@@ -226,7 +233,11 @@ function buildRestCard(slide, index) {
 
 function buildCircuitBar(slide) {
   if (!slide.circuitRound) return '';
-  return `<div class="circuit-bar">Circuit &middot; Round ${slide.circuitRound} of ${slide.circuitTotalRounds} &middot; Exercise ${slide.positionInCircuit} of ${slide.circuitSize}</div>`;
+  const round = Number.parseInt(slide.circuitRound, 10) || 1;
+  const totalRounds = Number.parseInt(slide.circuitTotalRounds, 10) || 1;
+  const posInCircuit = Number.parseInt(slide.positionInCircuit, 10) || 1;
+  const circuitSize = Number.parseInt(slide.circuitSize, 10) || 1;
+  return `<div class="circuit-bar">Circuit &middot; Round ${round} of ${totalRounds} &middot; Exercise ${posInCircuit} of ${circuitSize}</div>`;
 }
 
 function buildMedia(exercise, index) {
@@ -277,26 +288,39 @@ function buildPrescription(exercise) {
   const pills = [];
 
   if (exercise.reps != null) {
-    pills.push(`<span class="rx-pill">${exercise.reps} <span class="rx-pill-label">reps</span></span>`);
+    const reps = Number.parseInt(exercise.reps, 10);
+    if (Number.isFinite(reps)) {
+      pills.push(`<span class="rx-pill">${reps} <span class="rx-pill-label">reps</span></span>`);
+    }
   }
   if (exercise.sets != null) {
-    pills.push(`<span class="rx-pill">${exercise.sets} <span class="rx-pill-label">sets</span></span>`);
+    const sets = Number.parseInt(exercise.sets, 10);
+    if (Number.isFinite(sets)) {
+      pills.push(`<span class="rx-pill">${sets} <span class="rx-pill-label">sets</span></span>`);
+    }
   }
   if (exercise.hold_seconds != null) {
-    const label = exercise.hold_seconds >= 60
-      ? `${Math.floor(exercise.hold_seconds / 60)}m ${exercise.hold_seconds % 60 ? exercise.hold_seconds % 60 + 's' : ''}`
-      : `${exercise.hold_seconds}s`;
-    pills.push(`<span class="rx-pill">${label} <span class="rx-pill-label">hold</span></span>`);
+    const hold = Number.parseInt(exercise.hold_seconds, 10);
+    if (Number.isFinite(hold)) {
+      const label = hold >= 60
+        ? `${Math.floor(hold / 60)}m ${hold % 60 ? (hold % 60) + 's' : ''}`
+        : `${hold}s`;
+      pills.push(`<span class="rx-pill">${label} <span class="rx-pill-label">hold</span></span>`);
+    }
   }
 
   return pills.join('');
 }
 
 function escapeHTML(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  if (str === null || str === undefined || str === '') return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\//g, '&#47;');
 }
 
 // ============================================================

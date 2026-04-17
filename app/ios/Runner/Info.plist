@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Raidme</string>
+	<string>homefit.studio</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -48,11 +48,15 @@
 		</dict>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Raidme needs camera access to capture exercise photos and videos for your training plans.</string>
+	<string>homefit.studio uses your camera to capture exercise demonstrations during client sessions.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Raidme needs microphone access to record audio with exercise videos.</string>
+	<string>homefit.studio records audio when you capture video demonstrations so you can include verbal cues.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Raidme needs photo library access to save exercise captures.</string>
+	<string>homefit.studio needs access to your photo library to import existing videos or photos of exercises into client plans.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>homefit.studio needs permission to save converted exercise videos back to your photo library when you share them.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

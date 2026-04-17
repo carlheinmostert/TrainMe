@@ -41,21 +41,23 @@ export default async function middleware(request) {
     const planUrl = `https://session.homefit.studio/p/${planId}`;
 
     // Return minimal HTML with OG tags + redirect
+    const safePlanUrl = escapeHtml(planUrl);
     const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' https://*.supabase.co data:;">
   <meta property="og:type" content="website">
   <meta property="og:title" content="${escapeHtml(title)} — HomeFit">
   <meta property="og:description" content="${escapeHtml(description)}">
   <meta property="og:image" content="${escapeHtml(thumbnail)}">
-  <meta property="og:url" content="${planUrl}">
+  <meta property="og:url" content="${safePlanUrl}">
   <meta property="og:site_name" content="HomeFit Studio">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${escapeHtml(title)} — HomeFit">
   <meta name="twitter:description" content="${escapeHtml(description)}">
   <meta name="twitter:image" content="${escapeHtml(thumbnail)}">
-  <meta http-equiv="refresh" content="0;url=${planUrl}">
+  <meta http-equiv="refresh" content="0;url=${safePlanUrl}">
   <title>${escapeHtml(title)} — HomeFit</title>
 </head>
 <body>
@@ -73,8 +75,14 @@ export default async function middleware(request) {
 }
 
 function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  if (str === null || str === undefined || str === '') return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\//g, '&#47;');
 }
 
 export const config = {

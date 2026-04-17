@@ -1,4 +1,5 @@
 import Flutter
+import UIKit
 import AVFoundation
 import Accelerate
 
@@ -91,6 +92,41 @@ class VideoConverterChannel {
         contrastLow: Int,
         result: @escaping FlutterResult
     ) {
+        // --- Defense in depth: validate input file exists and is readable ---
+        guard FileManager.default.fileExists(atPath: inputPath),
+              FileManager.default.isReadableFile(atPath: inputPath) else {
+            DispatchQueue.main.async {
+                result(FlutterError(
+                    code: "FILE_NOT_FOUND",
+                    message: "Input file does not exist or is not readable: \(inputPath)",
+                    details: nil
+                ))
+            }
+            return
+        }
+
+        // --- Background task assertion ---
+        // Bracket the entire processing dispatch with begin/end so that a brief
+        // backgrounding during the convert doesn't corrupt the output. The
+        // background task is ended in both the success and failure paths below.
+        var bgTaskId: UIBackgroundTaskIdentifier = .invalid
+        bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "video-convert") {
+            // Expiration handler — best-effort cleanup if the OS is about to kill us.
+            if bgTaskId != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTaskId)
+                bgTaskId = .invalid
+            }
+        }
+
+        // Helper to guarantee the background task is always released after
+        // result(...) is delivered. Call exactly once per exit path.
+        let endBackgroundTask: () -> Void = {
+            if bgTaskId != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTaskId)
+                bgTaskId = .invalid
+            }
+        }
+
         let inputURL = URL(fileURLWithPath: inputPath)
         let outputURL = URL(fileURLWithPath: outputPath)
 
@@ -107,6 +143,7 @@ class VideoConverterChannel {
                     message: "No video track found in: \(inputPath)",
                     details: nil
                 ))
+                endBackgroundTask()
             }
             return
         }
@@ -125,6 +162,7 @@ class VideoConverterChannel {
                     message: "Could not create AVAssetReader: \(error.localizedDescription)",
                     details: nil
                 ))
+                endBackgroundTask()
             }
             return
         }
@@ -170,6 +208,7 @@ class VideoConverterChannel {
                     message: "Could not create AVAssetWriter: \(error.localizedDescription)",
                     details: nil
                 ))
+                endBackgroundTask()
             }
             return
         }
@@ -183,6 +222,9 @@ class VideoConverterChannel {
         // Apply the video track's transform so portrait videos stay portrait.
         writerInput.transform = transform
 
+        // Pixel buffer attributes drive the adaptor's internal CVPixelBufferPool,
+        // which we use to recycle output buffers frame-to-frame (avoids jetsam
+        // from unbounded CVPixelBufferCreate allocations on longer clips).
         let pixelBufferAttributes: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: videoWidth,
@@ -203,35 +245,29 @@ class VideoConverterChannel {
 
         // Audio track — optional, skip gracefully if incompatible
         if let audioTrack = asset.tracks(withMediaType: .audio).first {
-            do {
-                let audioOutput = AVAssetReaderTrackOutput(
-                    track: audioTrack,
+            let audioOutput = AVAssetReaderTrackOutput(
+                track: audioTrack,
+                outputSettings: nil
+            )
+            audioOutput.alwaysCopiesSampleData = false
+
+            if reader.canAdd(audioOutput) {
+                reader.add(audioOutput)
+                audioReaderOutput = audioOutput
+
+                let audioInput = AVAssetWriterInput(
+                    mediaType: .audio,
                     outputSettings: nil
                 )
-                audioOutput.alwaysCopiesSampleData = false
+                audioInput.expectsMediaDataInRealTime = false
 
-                if reader.canAdd(audioOutput) {
-                    reader.add(audioOutput)
-                    audioReaderOutput = audioOutput
-
-                    let audioInput = AVAssetWriterInput(
-                        mediaType: .audio,
-                        outputSettings: nil
-                    )
-                    audioInput.expectsMediaDataInRealTime = false
-
-                    if writer.canAdd(audioInput) {
-                        writer.add(audioInput)
-                        audioWriterInput = audioInput
-                    } else {
-                        // Audio format incompatible with output — skip audio
-                        audioReaderOutput = nil
-                    }
+                if writer.canAdd(audioInput) {
+                    writer.add(audioInput)
+                    audioWriterInput = audioInput
+                } else {
+                    // Audio format incompatible with output — skip audio
+                    audioReaderOutput = nil
                 }
-            } catch {
-                // Audio setup failed — continue without audio
-                audioReaderOutput = nil
-                audioWriterInput = nil
             }
         }
 
@@ -243,6 +279,7 @@ class VideoConverterChannel {
                     message: "AVAssetReader failed to start: \(reader.error?.localizedDescription ?? "unknown")",
                     details: nil
                 ))
+                endBackgroundTask()
             }
             return
         }
@@ -254,6 +291,7 @@ class VideoConverterChannel {
                     message: "AVAssetWriter failed to start: \(writer.error?.localizedDescription ?? "unknown")",
                     details: nil
                 ))
+                endBackgroundTask()
             }
             return
         }
@@ -271,35 +309,77 @@ class VideoConverterChannel {
         var framesProcessed = 0
         var lastProgressReport = 0
 
+        // --- Frame pump loop ---
+        // Each iteration is wrapped in an autoreleasepool so that sample
+        // buffers, CVPixelBuffers, and other AVFoundation temporaries are
+        // released promptly instead of piling up until the outer @autoreleasepool
+        // drains. On clips >15s this was the root cause of jetsam OOM kills.
+        //
+        // NOTE: the two `isReadyForMoreMediaData` busy-wait loops below are
+        // intentionally left as short sleeps for now. Migrating to
+        // `requestMediaDataWhenReady(on:using:)` is a larger refactor. The 60s
+        // `finishWriting` timeout (see below) prevents indefinite UI hangs if
+        // the writer ever wedges.
         while let sampleBuffer = readerOutput.copyNextSampleBuffer() {
-            guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-                continue
-            }
+            autoreleasepool {
+                guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+                    return
+                }
 
-            let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 
-            // Process the frame into a line drawing.
-            guard let outputBuffer = processor.processFrame(pixelBuffer) else {
-                continue
-            }
+                // Allocate an output pixel buffer from the adaptor's pool
+                // (reuses backing memory frame-to-frame).
+                var outputPixelBuffer: CVPixelBuffer?
+                let allocStatus: CVReturn
+                if let pool = adaptor.pixelBufferPool {
+                    allocStatus = CVPixelBufferPoolCreatePixelBuffer(
+                        nil,
+                        pool,
+                        &outputPixelBuffer
+                    )
+                } else {
+                    // Pool not available (only before startSession on some OS versions);
+                    // fall back to direct allocation so we at least make forward progress.
+                    allocStatus = CVPixelBufferCreate(
+                        kCFAllocatorDefault,
+                        videoWidth,
+                        videoHeight,
+                        kCVPixelFormatType_32BGRA,
+                        nil,
+                        &outputPixelBuffer
+                    )
+                }
 
-            // Wait for the writer input to be ready.
-            while !writerInput.isReadyForMoreMediaData {
-                Thread.sleep(forTimeInterval: 0.01)
-            }
+                guard allocStatus == kCVReturnSuccess,
+                      let outBuffer = outputPixelBuffer else {
+                    return
+                }
 
-            adaptor.append(outputBuffer, withPresentationTime: presentationTime)
-            framesProcessed += 1
+                // Process the frame into a line drawing, writing into outBuffer.
+                guard processor.processFrame(pixelBuffer, into: outBuffer) else {
+                    return
+                }
 
-            // Report progress every 30 frames.
-            if framesProcessed - lastProgressReport >= 30 {
-                lastProgressReport = framesProcessed
-                let progress: [String: Any] = [
-                    "framesProcessed": framesProcessed,
-                    "totalFrames": estimatedTotalFrames,
-                ]
-                DispatchQueue.main.async { [weak self] in
-                    self?.channel.invokeMethod("onProgress", arguments: progress)
+                // Wait for the writer input to be ready.
+                // (Short sleep — see note above about requestMediaDataWhenReady refactor.)
+                while !writerInput.isReadyForMoreMediaData {
+                    Thread.sleep(forTimeInterval: 0.01)
+                }
+
+                adaptor.append(outBuffer, withPresentationTime: presentationTime)
+                framesProcessed += 1
+
+                // Report progress every 30 frames.
+                if framesProcessed - lastProgressReport >= 30 {
+                    lastProgressReport = framesProcessed
+                    let progress: [String: Any] = [
+                        "framesProcessed": framesProcessed,
+                        "totalFrames": estimatedTotalFrames,
+                    ]
+                    DispatchQueue.main.async { [weak self] in
+                        self?.channel.invokeMethod("onProgress", arguments: progress)
+                    }
                 }
             }
         }
@@ -310,21 +390,39 @@ class VideoConverterChannel {
         // --- Copy audio samples ---
         // Drain the audio track after all video frames are written. Audio
         // samples are small and fast to copy, so a simple serial loop is fine.
+        // (Same busy-wait caveat applies — pending requestMediaDataWhenReady refactor.)
         if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
             while let audioSample = audioOutput.copyNextSampleBuffer() {
-                while !audioInput.isReadyForMoreMediaData {
-                    Thread.sleep(forTimeInterval: 0.01)
+                autoreleasepool {
+                    while !audioInput.isReadyForMoreMediaData {
+                        Thread.sleep(forTimeInterval: 0.01)
+                    }
+                    audioInput.append(audioSample)
                 }
-                audioInput.append(audioSample)
             }
             audioInput.markAsFinished()
         }
 
+        // Wait for the writer to finish, with a hard timeout so a wedged writer
+        // can't hang the UI forever.
         let semaphore = DispatchSemaphore(value: 0)
         writer.finishWriting {
             semaphore.signal()
         }
-        semaphore.wait()
+        let waitResult = semaphore.wait(timeout: .now() + 60)
+        if waitResult == .timedOut {
+            writer.cancelWriting()
+            reader.cancelReading()
+            DispatchQueue.main.async {
+                result(FlutterError(
+                    code: "TIMEOUT",
+                    message: "Conversion timed out",
+                    details: nil
+                ))
+                endBackgroundTask()
+            }
+            return
+        }
 
         reader.cancelReading()
 
@@ -335,6 +433,7 @@ class VideoConverterChannel {
                     "framesProcessed": framesProcessed,
                     "outputPath": outputPath,
                 ])
+                endBackgroundTask()
             }
         } else {
             DispatchQueue.main.async {
@@ -343,6 +442,7 @@ class VideoConverterChannel {
                     message: "AVAssetWriter finished with status \(writer.status.rawValue): \(writer.error?.localizedDescription ?? "unknown")",
                     details: nil
                 ))
+                endBackgroundTask()
             }
         }
     }
@@ -355,6 +455,19 @@ class VideoConverterChannel {
         timeMs: Int,
         result: @escaping FlutterResult
     ) {
+        // Defense in depth: verify the input file exists and is readable.
+        guard FileManager.default.fileExists(atPath: inputPath),
+              FileManager.default.isReadableFile(atPath: inputPath) else {
+            DispatchQueue.main.async {
+                result(FlutterError(
+                    code: "FILE_NOT_FOUND",
+                    message: "Input file does not exist or is not readable: \(inputPath)",
+                    details: nil
+                ))
+            }
+            return
+        }
+
         let inputURL = URL(fileURLWithPath: inputPath)
         let asset = AVURLAsset(url: inputURL)
 
@@ -420,8 +533,9 @@ private class LineDrawingProcessor {
     private var combinedBuffer: vImage_Buffer
     private var outputGrayBuffer: vImage_Buffer
 
-    // Temporary buffer for vImage operations.
-    private var tempBuffer: UnsafeMutableRawPointer?
+    // Pre-allocated planar alpha plane (all 255) used by the gray->BGRA
+    // conversion at the end of processFrame.
+    private var alphaPlaneBuffer: vImage_Buffer
 
     init(width: Int, height: Int, blurKernel: Int, thresholdBlock: Int, contrastLow: Int) {
         self.width = width
@@ -483,6 +597,16 @@ private class LineDrawingProcessor {
             width: vImagePixelCount(width),
             rowBytes: rowBytes
         )
+
+        // Solid alpha plane, initialised once to 255.
+        let alphaData = UnsafeMutableRawPointer.allocate(byteCount: dataSize, alignment: 16)
+        memset(alphaData, 255, dataSize)
+        alphaPlaneBuffer = vImage_Buffer(
+            data: alphaData,
+            height: vImagePixelCount(height),
+            width: vImagePixelCount(width),
+            rowBytes: rowBytes
+        )
     }
 
     deinit {
@@ -494,48 +618,46 @@ private class LineDrawingProcessor {
         localMeanBuffer.data.deallocate()
         combinedBuffer.data.deallocate()
         outputGrayBuffer.data.deallocate()
-        tempBuffer?.deallocate()
+        alphaPlaneBuffer.data.deallocate()
     }
 
-    /// Process a single BGRA pixel buffer into a line drawing.
-    /// Returns a new CVPixelBuffer with the result, or nil on failure.
-    func processFrame(_ inputBuffer: CVPixelBuffer) -> CVPixelBuffer? {
+    /// Process a single BGRA pixel buffer into a line drawing, writing the
+    /// result into the supplied output pixel buffer (which is expected to be
+    /// BGRA at the same dimensions). Returns true on success.
+    func processFrame(_ inputBuffer: CVPixelBuffer, into outBuffer: CVPixelBuffer) -> Bool {
         CVPixelBufferLockBaseAddress(inputBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(inputBuffer, .readOnly) }
 
         guard let baseAddress = CVPixelBufferGetBaseAddress(inputBuffer) else {
-            return nil
+            return false
         }
 
         let bytesPerRow = CVPixelBufferGetBytesPerRow(inputBuffer)
         let bufWidth = CVPixelBufferGetWidth(inputBuffer)
         let bufHeight = CVPixelBufferGetHeight(inputBuffer)
 
-        // --- Step 1: Convert BGRA to grayscale ---
-        // Use weighted conversion: gray = 0.114*B + 0.587*G + 0.299*R
-        // (BGRA order, so B is first byte)
+        // --- Step 1: Convert BGRA -> grayscale via vImage ---
+        // vImageMatrixMultiply_ARGB8888ToPlanar8 applies a 4-channel weighted
+        // sum. The pixels are physically laid out as B, G, R, A (so channel 0
+        // is B, channel 1 is G, channel 2 is R, channel 3 is A). Using Rec.601
+        // luma weights scaled to /256: R=77, G=151, B=28 → [B=28, G=151, R=77, A=0].
         var srcBGRA = vImage_Buffer(
             data: baseAddress,
             height: vImagePixelCount(bufHeight),
             width: vImagePixelCount(bufWidth),
             rowBytes: bytesPerRow
         )
-
-        // Convert BGRA to grayscale via weighted luminance:
-        // gray = 0.114*B + 0.587*G + 0.299*R  (BGRA channel order)
-        let srcPtr = baseAddress.assumingMemoryBound(to: UInt8.self)
-        let grayPtr = grayBuffer.data.assumingMemoryBound(to: UInt8.self)
-
-        for y in 0..<bufHeight {
-            let srcRow = srcPtr + y * bytesPerRow
-            let grayRow = grayPtr + y * grayBuffer.rowBytes
-            for x in 0..<bufWidth {
-                let offset = x * 4
-                let b = Int(srcRow[offset])
-                let g = Int(srcRow[offset + 1])
-                let r = Int(srcRow[offset + 2])
-                grayRow[x] = UInt8((r * 299 + g * 587 + b * 114) / 1000)
-            }
+        let matrix: [Int16] = [28, 151, 77, 0]
+        matrix.withUnsafeBufferPointer { matPtr in
+            _ = vImageMatrixMultiply_ARGB8888ToPlanar8(
+                &srcBGRA,
+                &grayBuffer,
+                matPtr.baseAddress!,
+                256,
+                nil,
+                0,
+                vImage_Flags(kvImageNoFlags)
+            )
         }
 
         // --- Step 2: Pencil sketch via divide ---
@@ -592,48 +714,38 @@ private class LineDrawingProcessor {
         // output = clamp((input - contrastLow) * 255 / (255 - contrastLow), 0, 255)
         contrastBoost(src: &combinedBuffer, dst: &outputGrayBuffer, low: contrastLow)
 
-        // --- Step 6: Convert grayscale back to BGRA and write to output pixel buffer ---
-        var outputPixelBuffer: CVPixelBuffer?
-        let status = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            bufWidth,
-            bufHeight,
-            kCVPixelFormatType_32BGRA,
-            nil,
-            &outputPixelBuffer
-        )
-
-        guard status == kCVReturnSuccess, let outBuffer = outputPixelBuffer else {
-            return nil
-        }
-
+        // --- Step 6: Convert grayscale back to BGRA and write into outBuffer ---
         CVPixelBufferLockBaseAddress(outBuffer, [])
         defer { CVPixelBufferUnlockBaseAddress(outBuffer, []) }
 
         guard let outBase = CVPixelBufferGetBaseAddress(outBuffer) else {
-            return nil
+            return false
         }
 
         let outBytesPerRow = CVPixelBufferGetBytesPerRow(outBuffer)
 
-        // Write grayscale as BGRA: B=G=R=gray, A=255
-        let outGrayPtr = outputGrayBuffer.data.assumingMemoryBound(to: UInt8.self)
-        let outPtr = outBase.assumingMemoryBound(to: UInt8.self)
+        var outBGRA = vImage_Buffer(
+            data: outBase,
+            height: vImagePixelCount(bufHeight),
+            width: vImagePixelCount(bufWidth),
+            rowBytes: outBytesPerRow
+        )
 
-        for y in 0..<bufHeight {
-            let grayRow = outGrayPtr + y * outputGrayBuffer.rowBytes
-            let outRow = outPtr + y * outBytesPerRow
-            for x in 0..<bufWidth {
-                let g = grayRow[x]
-                let outOffset = x * 4
-                outRow[outOffset]     = g  // B
-                outRow[outOffset + 1] = g  // G
-                outRow[outOffset + 2] = g  // R
-                outRow[outOffset + 3] = 255  // A
-            }
-        }
+        // vImage only exposes a Planar8 -> ARGB8888 assembler. Since the three
+        // colour channels here all hold the same gray value, the resulting
+        // byte order (B=G=R=gray, A=255) is visually identical whether the
+        // buffer is interpreted as ARGB or BGRA — so we use the ARGB variant
+        // and feed the pre-filled 255 plane as the A/first channel.
+        _ = vImageConvert_Planar8toARGB8888(
+            &alphaPlaneBuffer,   // A / first byte
+            &outputGrayBuffer,   // R (same gray)
+            &outputGrayBuffer,   // G
+            &outputGrayBuffer,   // B
+            &outBGRA,
+            vImage_Flags(kvImageNoFlags)
+        )
 
-        return outBuffer
+        return true
     }
 
     // MARK: - Pixel Operations

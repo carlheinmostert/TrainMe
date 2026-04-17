@@ -54,7 +54,6 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   late Session _session;
   late ConversionService _conversionService;
   StreamSubscription<ExerciseCapture>? _conversionSub;
-  Timer? _refreshTimer;
   final ImagePicker _picker = ImagePicker();
 
   int? _expandedIndex;
@@ -70,19 +69,10 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     _nameFocusNode.addListener(_onNameFocusChange);
     _conversionService = ConversionService.instance;
     _listenToConversions();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      final hasPending = _session.exercises.any((e) =>
-          e.conversionStatus == ConversionStatus.pending ||
-          e.conversionStatus == ConversionStatus.converting);
-      if (hasPending) {
-        _refreshSession();
-      }
-    });
   }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
     _conversionSub?.cancel();
     // Note: _conversionService is a singleton — never dispose it.
     _nameController.dispose();
@@ -105,7 +95,14 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       setState(() {
         _session = _session.copyWith(clientName: newName);
       });
-      widget.storage.saveSession(_session);
+      unawaited(widget.storage.saveSession(_session).catchError((e, st) {
+        debugPrint('saveSession failed: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Unable to save — please try again')),
+          );
+        }
+      }));
     }
     setState(() => _isEditingName = false);
   }
@@ -417,7 +414,11 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     for (final pos in insertPositions) {
       final adjustedPos = pos + (insertPositions.indexOf(pos));
       if (adjustedPos < exercises.length) {
-        widget.storage.saveExercise(exercises[adjustedPos]);
+        unawaited(widget.storage
+            .saveExercise(exercises[adjustedPos])
+            .catchError((e, st) {
+          debugPrint('saveExercise failed: $e');
+        }));
       }
     }
     _saveExerciseOrder();
@@ -450,7 +451,9 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       _session = _session.copyWith(exercises: exercises);
     });
 
-    widget.storage.saveExercise(updated);
+    unawaited(widget.storage.saveExercise(updated).catchError((e, st) {
+      debugPrint('saveExercise failed: $e');
+    }));
   }
 
   /// Delete an exercise and show an undo SnackBar.
@@ -476,7 +479,14 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
 
 
     // Persist deletion
-    widget.storage.deleteExercise(removed.id);
+    unawaited(widget.storage.deleteExercise(removed.id).catchError((e, st) {
+      debugPrint('deleteExercise failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to save — please try again')),
+        );
+      }
+    }));
     _saveExerciseOrder();
 
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -542,7 +552,9 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
       }
       updatedCycles.remove(sourceId);
       _session = _session.copyWith(circuitCycles: updatedCycles);
-      widget.storage.saveSession(_session);
+      unawaited(widget.storage.saveSession(_session).catchError((e, st) {
+        debugPrint('saveSession failed: $e');
+      }));
     }
 
     setState(() {
@@ -599,7 +611,9 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
         updatedCycles[newCircuitId] = updatedCycles[circuitId]!;
       }
       _session = _session.copyWith(circuitCycles: updatedCycles);
-      widget.storage.saveSession(_session);
+      unawaited(widget.storage.saveSession(_session).catchError((e, st) {
+        debugPrint('saveSession failed: $e');
+      }));
     }
 
     setState(() {
@@ -613,7 +627,9 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     setState(() {
       _session = _session.setCircuitCycles(circuitId, cycles);
     });
-    widget.storage.saveSession(_session);
+    unawaited(widget.storage.saveSession(_session).catchError((e, st) {
+      debugPrint('saveSession failed: $e');
+    }));
   }
 
   /// Save all exercises to storage (used after circuit changes).
@@ -1050,7 +1066,9 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
             preferredRestIntervalSeconds: cumulativeSeconds,
           );
         });
-        widget.storage.saveSession(_session);
+        unawaited(widget.storage.saveSession(_session).catchError((e, st) {
+          debugPrint('saveSession failed: $e');
+        }));
       }
     }
   }
@@ -2414,6 +2432,7 @@ class _CameraCaptureScreenState extends State<_CameraCaptureScreen>
   CameraController? _cameraController;
   bool _isCameraInitialized = false;
   bool _isRecording = false;
+  bool _wasRecordingOnBackground = false;
   Timer? _recordingTimer;
   double _recordingProgress = 0.0;
   int _recordingSeconds = 0;
@@ -2441,16 +2460,48 @@ class _CameraCaptureScreenState extends State<_CameraCaptureScreen>
     if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return;
     }
-    if (state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      // Cancel any in-progress recording timer and flag that we tore down
+      // mid-record so we can notify the user on resume.
+      _recordingTimer?.cancel();
+      _recordingTimer = null;
+      if (_isRecording) {
+        _wasRecordingOnBackground = true;
+      }
+      setState(() {
+        _isRecording = false;
+        _recordingProgress = 0.0;
+        _isCameraInitialized = false;
+      });
       _cameraController?.dispose();
-      _isCameraInitialized = false;
+      _cameraController = null;
     } else if (state == AppLifecycleState.resumed) {
       _initCamera();
+      if (_wasRecordingOnBackground && mounted) {
+        _wasRecordingOnBackground = false;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Recording interrupted')),
+        );
+      }
     }
   }
 
   Future<void> _initCamera() async {
-    final cameras = await availableCameras();
+    List<CameraDescription> cameras;
+    try {
+      cameras = await availableCameras();
+    } catch (e) {
+      debugPrint('availableCameras failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Camera unavailable — check permissions')),
+        );
+        Navigator.pop(context);
+      }
+      return;
+    }
     if (cameras.isEmpty) {
       debugPrint('No cameras available');
       if (mounted) {
@@ -2543,7 +2594,15 @@ class _CameraCaptureScreenState extends State<_CameraCaptureScreen>
   }
 
   Future<void> _stopVideoRecording() async {
-    if (!_isRecording) return;
+    if (_cameraController == null ||
+        !_cameraController!.value.isInitialized ||
+        !_isRecording) {
+      setState(() {
+        _isRecording = false;
+        _recordingProgress = 0.0;
+      });
+      return;
+    }
     _recordingTimer?.cancel();
 
     try {
@@ -2578,6 +2637,12 @@ class _CameraCaptureScreenState extends State<_CameraCaptureScreen>
         _isRecording = false;
         _recordingProgress = 0.0;
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Recording failed — please try again')),
+        );
+      }
     }
   }
 

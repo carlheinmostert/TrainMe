@@ -29,6 +29,11 @@ class _HomeScreenState extends State<HomeScreen> {
   late UploadService _uploadService;
   /// Set of session IDs currently being published.
   final Set<String> _publishingIds = {};
+  /// Per-session last publish error, keyed by session id. Populated by
+  /// [_loadSessions] via the UploadService adapter (schema v11
+  /// `last_publish_error` column). Empty when schema v11 hasn't landed yet —
+  /// that's fine, the UI just shows no error affordance.
+  final Map<String, String> _publishErrors = {};
 
   @override
   void initState() {
@@ -39,8 +44,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadSessions() async {
     final sessions = await widget.storage.getActiveSessions();
+    // Fetch publish errors in parallel — skipped silently if schema v11 is
+    // not yet applied.
+    final errorEntries = await Future.wait(
+      sessions.map((s) async {
+        final err = await _uploadService.getLastPublishError(s.id);
+        return MapEntry(s.id, err);
+      }),
+    );
+    if (!mounted) return;
     setState(() {
       _sessions = sessions;
+      _publishErrors
+        ..clear()
+        ..addEntries(
+          errorEntries.where((e) => e.value != null).map(
+                (e) => MapEntry(e.key, e.value!),
+              ),
+        );
       _loading = false;
     });
   }
@@ -138,35 +159,59 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() => _publishingIds.add(session.id));
 
+    PublishResult? result;
     try {
       // Load the full session with exercises from storage
       final fullSession = await widget.storage.getSession(session.id);
       if (fullSession == null) return;
 
-      final result = await _uploadService.uploadPlan(fullSession);
+      result = await _uploadService.uploadPlan(fullSession);
+    } catch (e) {
+      // Defensive: uploadPlan now catches its own errors and returns a
+      // PublishResult, but guard against programming errors here too.
+      result = PublishResult.networkFailed(error: e);
+    } finally {
+      if (mounted) {
+        setState(() => _publishingIds.remove(session.id));
+        // Reload so the card reflects new version / lastPublishError.
+        await _loadSessions();
+      }
+    }
 
-      if (!mounted) return;
+    if (!mounted) return;
 
+    if (result.success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Published v${result.version}'),
           duration: const Duration(seconds: 2),
         ),
       );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+    } else {
+      _showPublishErrorSnackBar(session, result.toErrorString());
+    }
+  }
+
+  /// Show a SnackBar for a failed publish with a Retry action.
+  void _showPublishErrorSnackBar(Session session, String error) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
         SnackBar(
-          content: Text('Publish failed: $e'),
-          duration: const Duration(seconds: 4),
+          content: Text(
+            'Publish failed: $error',
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          duration: const Duration(seconds: 6),
+          backgroundColor: AppColors.error,
+          action: SnackBarAction(
+            label: 'Retry',
+            textColor: Colors.white,
+            onPressed: () => _publishSession(session),
+          ),
         ),
       );
-    } finally {
-      if (mounted) {
-        setState(() => _publishingIds.remove(session.id));
-        _loadSessions();
-      }
-    }
   }
 
   /// Copy the plan URL to the clipboard and show a confirmation snackbar.
@@ -337,6 +382,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final hasExercises = session.exercises.where((e) => !e.isRest).isNotEmpty;
     final canPublish = hasExercises && !hasConversionsRunning && !isPublishing;
     final isPublishedClean = session.isPublished && !_hasUnpublishedChanges(session);
+    final lastError = _publishErrors[session.id];
+    final hasPublishError = lastError != null && !isPublishing;
 
     return Dismissible(
       key: ValueKey(session.id),
@@ -426,25 +473,61 @@ class _HomeScreenState extends State<HomeScreen> {
                       SizedBox(
                         width: 34,
                         height: 34,
-                        child: IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          iconSize: 20,
-                          onPressed: canPublish
-                              ? () => _publishSession(session)
-                              : null,
-                          icon: Icon(
-                            isPublishedClean
-                                ? Icons.check_circle
-                                : Icons.cloud_upload_outlined,
-                            color: isPublishedClean
-                                ? AppColors.circuit
-                                : canPublish
-                                    ? AppColors.textOnDark
-                                    : AppColors.grey600,
-                            size: 20,
-                          ),
-                          tooltip: isPublishedClean ? 'Published' : 'Publish',
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              iconSize: 20,
+                              onPressed: canPublish
+                                  ? () => _publishSession(session)
+                                  : (hasPublishError
+                                      // Publish button disabled (e.g. no
+                                      // exercises) but we still have an error
+                                      // to surface — let the tap show it.
+                                      ? () => _showPublishErrorSnackBar(
+                                          session, lastError)
+                                      : null),
+                              icon: Icon(
+                                hasPublishError
+                                    ? Icons.cloud_off_outlined
+                                    : isPublishedClean
+                                        ? Icons.check_circle
+                                        : Icons.cloud_upload_outlined,
+                                color: hasPublishError
+                                    ? AppColors.error
+                                    : isPublishedClean
+                                        ? AppColors.circuit
+                                        : canPublish
+                                            ? AppColors.textOnDark
+                                            : AppColors.grey600,
+                                size: 20,
+                              ),
+                              tooltip: hasPublishError
+                                  ? 'Publish failed — tap for details'
+                                  : isPublishedClean
+                                      ? 'Published'
+                                      : 'Publish',
+                            ),
+                            if (hasPublishError)
+                              Positioned(
+                                top: 2,
+                                right: 2,
+                                child: Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.error,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: AppColors.darkSurface,
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
 

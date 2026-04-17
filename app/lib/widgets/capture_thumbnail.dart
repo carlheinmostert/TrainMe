@@ -20,6 +20,11 @@ class CaptureThumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Decode images at the pixel size of the thumbnail so we don't burn
+    // memory decoding full-res 12MP images into tiny 64px list cells.
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    final cacheWidth = (size * dpr).round().clamp(1, 4096);
+
     return SizedBox(
       width: size,
       height: size,
@@ -28,7 +33,7 @@ class CaptureThumbnail extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _buildImage(),
+            _buildImage(cacheWidth),
             _buildConversionOverlay(),
             _buildMediaTypeBadge(),
           ],
@@ -38,7 +43,7 @@ class CaptureThumbnail extends StatelessWidget {
   }
 
   /// The thumbnail image. Shows converted version if available, raw otherwise.
-  Widget _buildImage() {
+  Widget _buildImage(int cacheWidth) {
     final path = exercise.displayFilePath;
     final file = File(path);
 
@@ -67,6 +72,7 @@ class CaptureThumbnail extends StatelessWidget {
             Image.file(
               thumbFile,
               fit: BoxFit.cover,
+              cacheWidth: cacheWidth,
               errorBuilder: (_, __, ___) => Container(
                 color: AppColors.darkSurfaceVariant,
                 child: const Center(
@@ -93,6 +99,7 @@ class CaptureThumbnail extends StatelessWidget {
     return Image.file(
       file,
       fit: BoxFit.cover,
+      cacheWidth: cacheWidth,
       errorBuilder: (_, __, ___) => Container(
         color: AppColors.darkSurfaceVariant,
         child: const Center(

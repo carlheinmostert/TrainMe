@@ -373,30 +373,23 @@ class ConversionService extends ChangeNotifier {
   }
 
   /// Convert a single photo to a line drawing using OpenCV.
+  ///
+  /// Runs on a background isolate so the 400-800ms OpenCV work on 12MP
+  /// photos doesn't block the UI thread. The isolate entry handles the
+  /// full imread → process → imwrite cycle with only primitive types
+  /// crossing the isolate boundary (opencv_dart Mat handles wrap FFI
+  /// pointers that don't survive isolate hops).
   Future<void> _convertPhoto(String inputPath, String outputPath) async {
-    final img = cv.imread(inputPath, flags: cv.IMREAD_COLOR);
-    if (img.isEmpty) {
-      throw Exception('Could not read image: $inputPath');
-    }
-
-    try {
-      final result = _frameToLineDrawing(img);
-
-      final ext = p.extension(outputPath).toLowerCase();
-      if (ext == '.jpg' || ext == '.jpeg') {
-        cv.imwrite(outputPath, result,
-            params: cv.VecI32.fromList([cv.IMWRITE_JPEG_QUALITY, 95]));
-      } else if (ext == '.png') {
-        cv.imwrite(outputPath, result,
-            params: cv.VecI32.fromList([cv.IMWRITE_PNG_COMPRESSION, 3]));
-      } else {
-        cv.imwrite(outputPath, result);
-      }
-
-      result.dispose();
-    } finally {
-      img.dispose();
-    }
+    await compute<_PhotoConvertArgs, void>(
+      _convertPhotoIsolate,
+      _PhotoConvertArgs(
+        inputPath: inputPath,
+        outputPath: outputPath,
+        blurKernel: AppConfig.blurKernel,
+        thresholdBlock: AppConfig.thresholdBlock,
+        contrastLow: AppConfig.contrastLow,
+      ),
+    );
   }
 
   /// Convert a video to a line drawing.
@@ -641,8 +634,15 @@ class ConversionService extends ChangeNotifier {
     // Divisor: 255 - blur
     final invBlur = cv.subtract(white, blur);
 
+    // Guard against divide-by-zero on saturated (over-exposed) frames.
+    // Gym lighting can produce frames where blur is near 255, making
+    // invBlur near 0 — which crashes cv.divide. Clamp to minimum 1 by
+    // element-wise max against a ones-filled mat of matching shape.
+    final onesMat = cv.Mat.ones(invBlur.rows, invBlur.cols, cv.MatType.CV_8UC1);
+    final invBlurSafe = cv.max(invBlur, onesMat);
+
     // Divide: sketch = gray / (255 - blur) * 256
-    final sketch = cv.divide(gray, invBlur, scale: 256.0);
+    final sketch = cv.divide(gray, invBlurSafe, scale: 256.0);
 
     // Step 3: Adaptive threshold for crisp structural lines
     final blurredGray = cv.gaussianBlur(gray, (5, 5), 0);
@@ -676,6 +676,8 @@ class ConversionService extends ChangeNotifier {
     inv.dispose();
     blur.dispose();
     invBlur.dispose();
+    onesMat.dispose();
+    invBlurSafe.dispose();
     sketch.dispose();
     blurredGray.dispose();
     adaptive.dispose();
@@ -695,4 +697,120 @@ class ConversionService extends ChangeNotifier {
   // that lives for the entire app lifetime. Closing the StreamController would
   // cause "Bad state: Cannot add new events after calling close" if a screen
   // that holds a reference triggers disposal.
+}
+
+/// Arguments for the photo-convert isolate entry. Must be a const-constructible
+/// value type so it survives isolate boundary serialisation cleanly.
+class _PhotoConvertArgs {
+  final String inputPath;
+  final String outputPath;
+  final int blurKernel;
+  final int thresholdBlock;
+  final int contrastLow;
+
+  const _PhotoConvertArgs({
+    required this.inputPath,
+    required this.outputPath,
+    required this.blurKernel,
+    required this.thresholdBlock,
+    required this.contrastLow,
+  });
+}
+
+/// Top-level isolate entry for photo line drawing conversion.
+///
+/// Must be a top-level function (not a closure or method) so `compute()`
+/// can invoke it on a background isolate. All OpenCV Mat allocations stay
+/// inside this isolate — only file paths cross the boundary.
+void _convertPhotoIsolate(_PhotoConvertArgs args) {
+  final img = cv.imread(args.inputPath, flags: cv.IMREAD_COLOR);
+  if (img.isEmpty) {
+    throw Exception('Could not read image: ${args.inputPath}');
+  }
+
+  try {
+    final result = _frameToLineDrawingSync(
+      img,
+      blurKernel: args.blurKernel,
+      thresholdBlock: args.thresholdBlock,
+      contrastLow: args.contrastLow,
+    );
+
+    final ext = p.extension(args.outputPath).toLowerCase();
+    if (ext == '.jpg' || ext == '.jpeg') {
+      cv.imwrite(args.outputPath, result,
+          params: cv.VecI32.fromList([cv.IMWRITE_JPEG_QUALITY, 95]));
+    } else if (ext == '.png') {
+      cv.imwrite(args.outputPath, result,
+          params: cv.VecI32.fromList([cv.IMWRITE_PNG_COMPRESSION, 3]));
+    } else {
+      cv.imwrite(args.outputPath, result);
+    }
+
+    result.dispose();
+  } finally {
+    img.dispose();
+  }
+}
+
+/// Standalone (top-level) version of the line drawing algorithm for use
+/// inside an isolate. Mirrors [ConversionService._frameToLineDrawing] but
+/// does not depend on the service instance or AppConfig singletons.
+cv.Mat _frameToLineDrawingSync(
+  cv.Mat frame, {
+  required int blurKernel,
+  required int thresholdBlock,
+  required int contrastLow,
+}) {
+  // Step 1: Convert to grayscale
+  final gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY);
+
+  // Step 2: Pencil sketch via divide
+  final white = cv.Mat.ones(gray.rows, gray.cols, cv.MatType.CV_8UC1)
+      .multiplyU8(255);
+  final inv = cv.subtract(white, gray);
+  final blur = cv.gaussianBlur(inv, (blurKernel, blurKernel), 0);
+  final invBlur = cv.subtract(white, blur);
+  // Clamp against divide-by-zero on saturated frames via element-wise max.
+  final onesMat = cv.Mat.ones(invBlur.rows, invBlur.cols, cv.MatType.CV_8UC1);
+  final invBlurSafe = cv.max(invBlur, onesMat);
+  final sketch = cv.divide(gray, invBlurSafe, scale: 256.0);
+
+  // Step 3: Adaptive threshold
+  final blurredGray = cv.gaussianBlur(gray, (5, 5), 0);
+  final adaptive = cv.adaptiveThreshold(
+    blurredGray,
+    255,
+    cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+    cv.THRESH_BINARY,
+    thresholdBlock,
+    2,
+  );
+
+  // Step 4: Combine
+  final combined = cv.min(sketch, adaptive);
+
+  // Step 5: Contrast boost
+  final scale = 255.0 / (255 - contrastLow).clamp(1, 255);
+  final beta = -contrastLow.toDouble() * scale;
+  final boosted = combined.convertTo(cv.MatType.CV_8UC1,
+      alpha: scale, beta: beta);
+
+  // Step 6: Convert to BGR for output
+  final result = cv.cvtColor(boosted, cv.COLOR_GRAY2BGR);
+
+  gray.dispose();
+  white.dispose();
+  inv.dispose();
+  blur.dispose();
+  invBlur.dispose();
+  onesMat.dispose();
+  invBlurSafe.dispose();
+  sketch.dispose();
+  blurredGray.dispose();
+  adaptive.dispose();
+  combined.dispose();
+  boosted.dispose();
+
+  return result;
 }

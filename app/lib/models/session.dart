@@ -26,6 +26,16 @@ class Session {
   /// modification times to detect unpublished changes.
   final DateTime? lastPublishedAt;
 
+  /// Last error message from a failed publish attempt (null when the most
+  /// recent attempt succeeded, or no publish has been attempted yet).
+  /// Column: `last_publish_error`. Set by upload_service.
+  final String? lastPublishError;
+
+  /// How many publish attempts have been made for this session across all
+  /// versions. Incremented by upload_service on each attempt regardless of
+  /// outcome. Column: `publish_attempt_count`.
+  final int publishAttemptCount;
+
   /// Maps circuitId to number of cycles for that circuit. Persisted as JSON.
   final Map<String, int> circuitCycles;
 
@@ -45,6 +55,8 @@ class Session {
     this.planUrl,
     this.version = 0,
     this.lastPublishedAt,
+    this.lastPublishError,
+    this.publishAttemptCount = 0,
     this.circuitCycles = const {},
     this.preferredRestIntervalSeconds,
   });
@@ -69,9 +81,26 @@ class Session {
     Map<String, int> cycles = {};
     final cyclesJson = map['circuit_cycles'] as String?;
     if (cyclesJson != null && cyclesJson.isNotEmpty) {
-      final decoded = json.decode(cyclesJson);
-      if (decoded is Map) {
-        cycles = decoded.map((k, v) => MapEntry(k as String, v as int));
+      try {
+        final decoded = json.decode(cyclesJson);
+        if (decoded is Map) {
+          cycles = decoded.map((k, v) {
+            // Tolerate schema drift: value may be int, String, or null.
+            // Fall back to the default of 3 cycles for anything invalid.
+            int cycleCount = 3;
+            if (v is int) {
+              cycleCount = v;
+            } else if (v is String) {
+              cycleCount = int.tryParse(v) ?? 3;
+            } else if (v is num) {
+              cycleCount = v.toInt();
+            }
+            return MapEntry(k.toString(), cycleCount);
+          });
+        }
+      } catch (_) {
+        // Malformed JSON — start with an empty cycles map.
+        cycles = {};
       }
     }
     return Session(
@@ -88,6 +117,8 @@ class Session {
       lastPublishedAt: map['last_published_at'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['last_published_at'] as int)
           : null,
+      lastPublishError: map['last_publish_error'] as String?,
+      publishAttemptCount: (map['publish_attempt_count'] as int?) ?? 0,
       circuitCycles: cycles,
       preferredRestIntervalSeconds: map['preferred_rest_interval'] as int?,
     );
@@ -105,6 +136,8 @@ class Session {
       'plan_url': planUrl,
       'version': version,
       'last_published_at': lastPublishedAt?.millisecondsSinceEpoch,
+      'last_publish_error': lastPublishError,
+      'publish_attempt_count': publishAttemptCount,
       'circuit_cycles': circuitCycles.isEmpty
           ? null
           : json.encode(circuitCycles),
@@ -121,6 +154,9 @@ class Session {
     String? planUrl,
     int? version,
     DateTime? lastPublishedAt,
+    String? lastPublishError,
+    bool clearLastPublishError = false,
+    int? publishAttemptCount,
     Map<String, int>? circuitCycles,
     int? preferredRestIntervalSeconds,
     bool clearPreferredRestInterval = false,
@@ -135,6 +171,10 @@ class Session {
       planUrl: planUrl ?? this.planUrl,
       version: version ?? this.version,
       lastPublishedAt: lastPublishedAt ?? this.lastPublishedAt,
+      lastPublishError: clearLastPublishError
+          ? null
+          : (lastPublishError ?? this.lastPublishError),
+      publishAttemptCount: publishAttemptCount ?? this.publishAttemptCount,
       circuitCycles: circuitCycles ?? this.circuitCycles,
       preferredRestIntervalSeconds: clearPreferredRestInterval
           ? null

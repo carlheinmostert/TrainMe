@@ -220,6 +220,10 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
       ..setLooping(true)
       ..setVolume(volume)
       ..initialize().then((_) {
+        // Guard against controller-disposed-before-init race: a fast swipe
+        // can call _disposeVideo(index) before init completes, so the
+        // callback may fire on a stale (disposed) controller.
+        if (_videoControllers[index] != controller) return;
         if (mounted && _currentPage == index) {
           setState(() {});
           controller.play();

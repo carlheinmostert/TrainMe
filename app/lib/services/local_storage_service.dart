@@ -14,7 +14,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 10;
+  static const _dbVersion = 11;
 
   Database? _db;
 
@@ -54,7 +54,9 @@ class LocalStorageService {
         circuit_cycles TEXT,
         preferred_rest_interval INTEGER,
         version INTEGER NOT NULL DEFAULT 0,
-        last_published_at INTEGER
+        last_published_at INTEGER,
+        last_publish_error TEXT,
+        publish_attempt_count INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -152,6 +154,16 @@ class LocalStorageService {
         'ALTER TABLE sessions ADD COLUMN last_published_at INTEGER',
       );
     }
+    if (oldVersion < 11) {
+      // Publish tracking columns. Consumed by upload_service.dart.
+      // last_published_at already added in v10 migration above.
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN last_publish_error TEXT',
+      );
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN publish_attempt_count INTEGER NOT NULL DEFAULT 0',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -187,13 +199,7 @@ class LocalStorageService {
       where: 'deleted_at IS NULL',
       orderBy: 'created_at DESC',
     );
-
-    final sessions = <Session>[];
-    for (final row in rows) {
-      final exercises = await _getExercisesForSession(row['id'] as String);
-      sessions.add(Session.fromMap(row, exercises: exercises));
-    }
-    return sessions;
+    return _hydrateSessionsWithExercises(rows);
   }
 
   /// Delete a session and all its exercises. Also removes associated media
@@ -243,13 +249,42 @@ class LocalStorageService {
       where: 'deleted_at IS NOT NULL',
       orderBy: 'deleted_at DESC',
     );
+    return _hydrateSessionsWithExercises(rows);
+  }
 
-    final sessions = <Session>[];
-    for (final row in rows) {
-      final exercises = await _getExercisesForSession(row['id'] as String);
-      sessions.add(Session.fromMap(row, exercises: exercises));
+  /// Fetch exercises for every session id in a single query, then bucket them
+  /// back into their owning session. Replaces the prior N+1 pattern that
+  /// queried exercises once per session.
+  Future<List<Session>> _hydrateSessionsWithExercises(
+      List<Map<String, Object?>> sessionRows) async {
+    if (sessionRows.isEmpty) return const [];
+
+    final sessionIds =
+        sessionRows.map((r) => r['id'] as String).toList(growable: false);
+    final placeholders = List.filled(sessionIds.length, '?').join(',');
+
+    final exerciseRows = await db.query(
+      'exercises',
+      where: 'session_id IN ($placeholders)',
+      whereArgs: sessionIds,
+      orderBy: 'session_id, position ASC',
+    );
+
+    // Bucket exercises by session_id.
+    final bySession = <String, List<ExerciseCapture>>{
+      for (final id in sessionIds) id: <ExerciseCapture>[],
+    };
+    for (final row in exerciseRows) {
+      final sid = row['session_id'] as String;
+      (bySession[sid] ??= <ExerciseCapture>[]).add(ExerciseCapture.fromMap(row));
     }
-    return sessions;
+
+    return sessionRows
+        .map((row) => Session.fromMap(
+              row,
+              exercises: bySession[row['id'] as String] ?? const [],
+            ))
+        .toList(growable: false);
   }
 
   /// Permanently delete sessions that were soft-deleted more than
@@ -286,6 +321,23 @@ class LocalStorageService {
       exercise.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  /// Batch insert or update multiple exercises in a single transaction.
+  /// Far cheaper than calling [saveExercise] in a loop — ~10-100x faster
+  /// for large batches because a single fsync amortises the cost.
+  Future<void> saveExercises(Iterable<ExerciseCapture> exercises) async {
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final ex in exercises) {
+        batch.insert(
+          'exercises',
+          ex.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
   }
 
   /// Delete a single exercise by ID. Also removes its media files from disk.

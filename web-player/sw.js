@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v3-dark';
+const CACHE_NAME = 'homefit-player-v4-secure-cache';
 
 // App shell files — always cached
 const APP_SHELL = [
@@ -77,16 +77,25 @@ self.addEventListener('fetch', (event) => {
 
 async function networkFirstStrategy(request) {
   const cache = await caches.open(CACHE_NAME);
+  const url = new URL(request.url);
 
   try {
     const response = await fetch(request);
-    // Cache successful responses
-    if (response.ok) {
-      cache.put(request, response.clone());
+    // SECURITY: Never cache Supabase REST API responses — they contain PII
+    // (client names, notes, plan data) that would persist indefinitely on any
+    // device that ever loaded a plan. Only cache public media assets.
+    const isRestApi = url.pathname.includes('/rest/v1/');
+    const isPublicMedia = url.pathname.includes('/storage/v1/object/public/media/');
+
+    if (response.ok && !isRestApi && isPublicMedia) {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.startsWith('image/') || contentType.startsWith('video/')) {
+        cache.put(request, response.clone());
+      }
     }
     return response;
   } catch (err) {
-    // Network failed, try cache
+    // Network failed, try cache (only media would be there now)
     const cached = await cache.match(request);
     if (cached) return cached;
     throw err;
@@ -101,7 +110,21 @@ async function cacheFirstStrategy(request) {
     const response = await fetch(request);
     if (response.ok) {
       const cache = await caches.open(CACHE_NAME);
-      cache.put(request, response.clone());
+      const url = new URL(request.url);
+      const isMediaPath = isMediaRequest(request) ||
+        url.pathname.includes('/storage/v1/object/public/media/');
+
+      if (isMediaPath) {
+        // Validate content-type for media to prevent bucket abuse where a
+        // tampered object might be served as something unexpected.
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.startsWith('image/') || contentType.startsWith('video/')) {
+          cache.put(request, response.clone());
+        }
+      } else {
+        // App shell assets — always safe to cache.
+        cache.put(request, response.clone());
+      }
     }
     return response;
   } catch (err) {
