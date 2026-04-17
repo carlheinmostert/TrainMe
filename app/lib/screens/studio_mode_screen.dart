@@ -16,6 +16,7 @@ import '../services/path_resolver.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
 import '../widgets/powered_by_footer.dart';
+import '../widgets/shell_pull_tab.dart';
 import 'plan_preview_screen.dart';
 
 /// Post-session editing — the "Studio" mode.
@@ -679,41 +680,13 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         children: [
           _buildBody(),
           // Right-edge pull-tab hinting at Camera mode.
-          Positioned(
-            right: 0,
-            top: 0,
-            bottom: 0,
-            child: Center(child: _buildCameraPullTab()),
+          Positioned.fill(
+            child: ShellPullTab(
+              side: ShellPullTabSide.right,
+              onActivate: widget.onOpenCapture,
+            ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildCameraPullTab() {
-    return Align(
-      alignment: const Alignment(1.0, -0.55),
-      child: GestureDetector(
-        onTap: widget.onOpenCapture,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          width: 6,
-          height: 64,
-          decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: 0.75),
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(6),
-              bottomLeft: Radius.circular(6),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 4,
-                offset: const Offset(-1, 0),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

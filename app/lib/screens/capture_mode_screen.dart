@@ -13,6 +13,7 @@ import '../services/local_storage_service.dart';
 import '../services/path_resolver.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
+import '../widgets/shell_pull_tab.dart';
 
 /// In-session camera mode.
 ///
@@ -462,11 +463,11 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           ),
 
           // Left-edge pull-tab back to Studio
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            child: Center(child: _buildPullTab()),
+          Positioned.fill(
+            child: ShellPullTab(
+              side: ShellPullTabSide.left,
+              onActivate: widget.onExitToStudio,
+            ),
           ),
 
           // Shutter — bottom centre
@@ -717,44 +718,6 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
                 ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-
-  /// Subtle left-edge pull-tab that hints Studio is one swipe right.
-  ///
-  /// Sits just above the peek box at mid-screen, far enough below to
-  /// not overlap. Tappable for discoverability.
-  Widget _buildPullTab() {
-    return IgnorePointer(
-      // Only the visual pill is shown here; GestureDetector on the
-      // actual pill handles the tap. Keep the parent non-intercepting
-      // so camera preview taps pass through outside the pill.
-      ignoring: false,
-      child: Align(
-        alignment: const Alignment(-1.0, -0.55),
-        child: GestureDetector(
-          onTap: widget.onExitToStudio,
-          behavior: HitTestBehavior.opaque,
-          child: Container(
-            width: 6,
-            height: 64,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.65),
-              borderRadius: const BorderRadius.only(
-                topRight: Radius.circular(6),
-                bottomRight: Radius.circular(6),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 4,
-                  offset: const Offset(1, 0),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );
