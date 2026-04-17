@@ -61,10 +61,6 @@ const $timerRingProgress = document.getElementById('timer-ring-progress');
 const $timerText = document.getElementById('timer-text');
 const $timerModeIconPlay = document.getElementById('timer-mode-icon-play');
 const $timerModeIconPause = document.getElementById('timer-mode-icon-pause');
-const $restCountdown = document.getElementById('rest-countdown');
-const $restCountdownTime = document.getElementById('rest-countdown-time');
-const $restCountdownNext = document.getElementById('rest-countdown-next');
-const $restCountdownPlayIcon = document.getElementById('rest-countdown-play-icon');
 const $workoutComplete = document.getElementById('workout-complete');
 const $workoutTotalTime = document.getElementById('workout-total-time');
 const $workoutCloseBtn = document.getElementById('workout-close-btn');
@@ -209,12 +205,12 @@ function buildCard(slide, index) {
 }
 
 function buildRestCard(slide, index) {
-  const duration = slide.hold_seconds || slide.custom_duration_seconds || 30;
+  // Rest card: icon + "Rest" title + "Next up: X" subtitle only.
+  // The numeric countdown is owned by the bottom-right timer chip in
+  // workout mode — no duplication here.
   const nextSlide = index < slides.length - 1 ? slides[index + 1] : null;
   const nextUpName = nextSlide ? (nextSlide.name || 'Next exercise') : null;
   const circuitBar = buildCircuitBar(slide);
-
-  const safeDuration = Number.parseInt(duration, 10) || 30;
 
   return `
     <div class="exercise-card" data-index="${index}">
@@ -230,7 +226,6 @@ function buildRestCard(slide, index) {
             </svg>
           </div>
           <div class="rest-title">Rest</div>
-          <div class="rest-duration">${safeDuration}s</div>
           ${nextUpName ? `<div class="rest-next-up">Next up: ${escapeHTML(nextUpName)}</div>` : ''}
         </div>
       </div>
@@ -366,7 +361,6 @@ function goNext() {
     isTimerRunning = false;
     isPrepPhase = false;
     hideTimerDisplay();
-    hideRestCountdown();
   }
   goTo(currentIndex + 1);
 }
@@ -378,7 +372,6 @@ function goPrev() {
     isTimerRunning = false;
     isPrepPhase = false;
     hideTimerDisplay();
-    hideRestCountdown();
   }
   goTo(currentIndex - 1);
 }
@@ -622,13 +615,11 @@ function enterWorkoutPhaseForCurrent() {
   remainingSeconds = totalSeconds;
 
   if (slide.media_type === 'rest') {
-    // Rest — no prep, auto-start countdown
-    hideRestCountdown();
-    showRestCountdown();
+    // Rest — no prep, auto-start countdown. The bottom-right timer chip
+    // is the single source of truth for the rest countdown.
     startTimer();
   } else {
     // Exercise — run 15s prep runway, then startTimer()
-    hideRestCountdown();
     startPrepPhase();
   }
 }
@@ -667,20 +658,6 @@ function finishPrepPhase() {
   startTimer();
 }
 
-function showRestCountdown() {
-  const nextSlide = currentIndex < slides.length - 1 ? slides[currentIndex + 1] : null;
-  const nextName = nextSlide ? (nextSlide.name || 'Next exercise') : '';
-
-  $restCountdownTime.textContent = remainingSeconds;
-  $restCountdownNext.textContent = nextName ? `Next up: ${nextName}` : '';
-  $restCountdown.hidden = false;
-  updateRestCountdownModeIcon();
-}
-
-function hideRestCountdown() {
-  $restCountdown.hidden = true;
-}
-
 /**
  * Start the countdown timer for the current slide
  */
@@ -696,11 +673,9 @@ function startTimer() {
 }
 
 function showTimerDisplay() {
-  const slide = slides[currentIndex];
-  // Only show the SVG ring timer for non-rest slides
-  if (slide && slide.media_type !== 'rest') {
-    $timerOverlay.hidden = false;
-  }
+  // Show the timer chip for every slide in workout mode — including rest
+  // slides. The chip is the single source of truth for the countdown.
+  $timerOverlay.hidden = false;
 }
 
 function hideTimerDisplay() {
@@ -736,14 +711,6 @@ function onTimerTick() {
  * (counts down, shows M:SS + pause glyph), paused (frozen, M:SS + play arrow).
  */
 function updateTimerDisplay() {
-  const slide = slides[currentIndex];
-
-  if (slide && slide.media_type === 'rest') {
-    // Rest countdown renders its own number; keep the chip hidden.
-    $restCountdownTime.textContent = remainingSeconds;
-    return;
-  }
-
   if (isPrepPhase) {
     // Prep mode: integer seconds, play-arrow icon, ring counts 15→0.
     $timerText.textContent = String(Math.max(0, prepRemainingSeconds));
@@ -783,7 +750,6 @@ function setTimerModeIcon(mode) {
  */
 function onTimerComplete() {
   hideTimerDisplay();
-  hideRestCountdown();
 
   const nextIndex = currentIndex + 1;
   if (nextIndex >= slides.length) {
@@ -807,7 +773,6 @@ function pauseTimer() {
     currentVideo.pause();
   }
   updateTimerDisplay();
-  updateRestCountdownModeIcon();
 }
 
 /**
@@ -825,30 +790,10 @@ function resumeTimer() {
     });
   }
   updateTimerDisplay();
-  updateRestCountdownModeIcon();
-}
-
-function updateRestCountdownModeIcon() {
-  const slide = slides[currentIndex];
-  const isRest = slide && slide.media_type === 'rest';
-  const paused = isRest && isWorkoutMode && !isTimerRunning;
-  // Show the play arrow on the rest card only when the rest timer is paused.
-  if ($restCountdownPlayIcon) {
-    $restCountdownPlayIcon.hidden = !paused;
-  }
-  // Mirror the timer-chip three-mode pattern: dim the big number when paused
-  // and update the aria-label so the whole card reads as a pause/resume control.
-  if ($restCountdown) {
-    $restCountdown.classList.toggle('is-paused', paused);
-    $restCountdown.setAttribute(
-      'aria-label',
-      paused ? 'Resume rest timer' : 'Pause rest timer'
-    );
-  }
 }
 
 /**
- * Single tap handler for the timer chip (and rest countdown). Dispatches
+ * Single tap handler for the timer chip. Dispatches
  * based on current mode: prep → skip, running → pause, paused → resume.
  *
  * When the user just finished swiping horizontally on this overlay, the
@@ -881,7 +826,6 @@ function finishWorkout() {
   isTimerRunning = false;
 
   hideTimerDisplay();
-  hideRestCountdown();
 
   // Calculate total workout time
   const elapsedMs = Date.now() - workoutStartTime;
@@ -905,7 +849,6 @@ function exitWorkout() {
 
   $workoutComplete.hidden = true;
   hideTimerDisplay();
-  hideRestCountdown();
 
   // Show the start workout button again
   $startWorkoutBtn.hidden = false;
@@ -976,7 +919,6 @@ async function init() {
           clearPrepTimer();
           isTimerRunning = false;
           hideTimerDisplay();
-          hideRestCountdown();
         }
         goTo(parseInt(dot.dataset.index, 10));
       }
@@ -987,12 +929,9 @@ async function init() {
     $workoutCloseBtn.addEventListener('click', exitWorkout);
 
     // Timer chip is the only pause/play control — one tappable element that
-    // dispatches based on mode (prep / running / paused).
+    // dispatches based on mode (prep / running / paused). It shows on all
+    // slides in workout mode, including rest slides.
     $timerOverlay.addEventListener('click', handleTimerOverlayTap);
-    // Rest countdown is also tappable to pause/resume the rest.
-    if ($restCountdown) {
-      $restCountdown.addEventListener('click', handleTimerOverlayTap);
-    }
 
     // Try to autoplay the first slide's video on initial load. The fetchPlan
     // click that opened the URL should have unlocked autoplay on iOS Safari,

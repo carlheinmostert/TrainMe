@@ -682,15 +682,6 @@ body {
   letter-spacing: -0.02em;
 }
 
-.rest-duration {
-  font-family: var(--font-heading);
-  font-size: 48px;
-  font-weight: 800;
-  color: var(--color-primary);
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-}
-
 .rest-next-up {
   font-size: 14px;
   color: var(--color-text-secondary);
@@ -832,83 +823,6 @@ body {
 .timer-mode-icon--pause {
   width: 12px;
   height: 12px;
-}
-
-/* Rest countdown overlay (over the card viewport in workout mode).
-   Tappable: click toggles pause/resume. Mirrors the timer-chip three-mode
-   pattern — running (bright number) vs paused (dim number + play arrow).
-   touch-action: pan-y lets horizontal swipes pass through to the card-track
-   swipe handler (attached via JS) so users can skip forward/back on rest
-   slides instead of getting stuck on the fullscreen overlay. */
-.rest-countdown {
-  position: absolute;
-  inset: 0;
-  z-index: 22;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 17, 23, 0.82);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  cursor: pointer;
-  touch-action: pan-y;
-  -webkit-tap-highlight-color: transparent;
-  user-select: none;
-}
-
-.rest-countdown:active {
-  transform: scale(0.98);
-}
-
-.rest-countdown-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.rest-countdown-time-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.rest-countdown-time {
-  font-family: var(--font-heading);
-  font-size: 72px;
-  font-weight: 800;
-  color: var(--color-primary);
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 2px 16px rgba(255, 107, 53, 0.4);
-  line-height: 1;
-  transition: opacity 0.2s ease;
-}
-
-/* Paused state — dim the number and reveal the play arrow overlay */
-.rest-countdown.is-paused .rest-countdown-time {
-  opacity: 0.5;
-}
-
-.rest-countdown-play-icon {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 56px;
-  height: 56px;
-  transform: translate(-50%, -50%);
-  color: #ffffff;
-  fill: #ffffff;
-  pointer-events: none;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));
-}
-
-.rest-countdown-next {
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--color-text);
-  text-shadow: 0 1px 4px rgba(0,0,0,0.4);
-  letter-spacing: 0.01em;
 }
 
 /* Workout complete overlay */

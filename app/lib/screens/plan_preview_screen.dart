@@ -576,12 +576,13 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                     onPageChanged: _onPageChanged,
                     itemBuilder: (context, index) {
                       final slide = _slides[index];
-                      // Show the consolidated timer chip on non-rest slides
-                      // in workout mode, during prep, running, OR paused.
+                      // Show the consolidated timer chip for every slide in
+                      // workout mode (including rest slides). Rest slides
+                      // skip the prep phase but still show running/paused
+                      // modes on the chip.
                       final showTimerChip = _isWorkoutMode &&
                           !_workoutComplete &&
-                          index == _currentPage &&
-                          !slide.exercise.isRest;
+                          index == _currentPage;
                       return _ExercisePage(
                         slide: slide,
                         session: widget.session,
@@ -630,14 +631,8 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
 
                   // Timer ring is rendered inside the per-slide metadata panel
                   // via _ExercisePage.timerChip, not as a fullscreen overlay.
-
-                  // Rest countdown overlay — larger display for rest slides.
-                  // Shown in both running and paused states so the paused
-                  // state has a visible, tappable control.
-                  if (_isWorkoutMode &&
-                      !_workoutComplete &&
-                      _slides[_currentPage].exercise.isRest)
-                    _buildRestCountdownOverlay(),
+                  // Rest slides use the same chip — the full-screen rest
+                  // countdown overlay was removed to eliminate redundancy.
 
                   // Workout complete overlay
                   if (_workoutComplete) _buildWorkoutCompleteOverlay(),
@@ -703,53 +698,6 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  /// Circular countdown timer with a progress ring.
-  ///
-  /// The ring fills from 0 to 1 as time elapses. Colour shifts from green
-  /// through amber to red based on remaining time thresholds.
-  Widget _buildTimerRing() {
-    final progress = _totalSeconds > 0
-        ? (_totalSeconds - _remainingSeconds) / _totalSeconds
-        : 0.0;
-    final Color color;
-    if (_remainingSeconds > _totalSeconds * 0.25) {
-      color = Colors.green;
-    } else if (_remainingSeconds > _totalSeconds * 0.10) {
-      color = Colors.amber;
-    } else {
-      color = Colors.red;
-    }
-
-    return SizedBox(
-      width: 120,
-      height: 120,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Custom painted ring for a thicker, rounder arc.
-          CustomPaint(
-            size: const Size(120, 120),
-            painter: _TimerRingPainter(
-              progress: progress,
-              color: color,
-              trackColor: Colors.white.withValues(alpha: 0.15),
-              strokeWidth: 6,
-            ),
-          ),
-          Text(
-            _formatTimer(_remainingSeconds),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -1,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -842,80 +790,6 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
               ],
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  /// Rest countdown — large centred number with "Next up" label.
-  ///
-  /// The overlay itself is the pause/resume control: tap anywhere to toggle.
-  /// When paused, the countdown is dimmed to ~50% opacity and a centred
-  /// play-arrow is overlaid so the paused state is unmistakable. Mirrors the
-  /// three-mode pattern of the exercise timer chip.
-  Widget _buildRestCountdownOverlay() {
-    // Find the name of the next non-rest exercise for the "Next up" label.
-    String? nextExerciseName;
-    for (var i = _currentPage + 1; i < _slides.length; i++) {
-      if (!_slides[i].exercise.isRest) {
-        final ex = _slides[i].exercise;
-        nextExerciseName = ex.name ?? 'Exercise ${_slides[i].originalIndex + 1}';
-        break;
-      }
-    }
-
-    final isPaused = !_isTimerRunning;
-
-    // Use Positioned.fill with a translucent GestureDetector so taps toggle
-    // pause/resume but horizontal drags propagate to the underlying PageView.
-    // Critically, we register ONLY a TapGestureRecognizer via RawGestureDetector
-    // — this lets the PageView's HorizontalDragGestureRecognizer win the
-    // gesture arena for swipes, unblocking skip-forward/back on rest slides.
-    return Positioned.fill(
-      child: RawGestureDetector(
-        behavior: HitTestBehavior.translucent,
-        gestures: <Type, GestureRecognizerFactory>{
-          TapGestureRecognizer:
-              GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
-            () => TapGestureRecognizer(),
-            (TapGestureRecognizer instance) {
-              instance.onTap = _isTimerRunning ? _pauseTimer : _resumeTimer;
-            },
-          ),
-        },
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Timer ring — dimmed when paused, with play arrow overlaid.
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  Opacity(
-                    opacity: isPaused ? 0.5 : 1.0,
-                    child: _buildTimerRing(),
-                  ),
-                  if (isPaused)
-                    const Icon(
-                      Icons.play_arrow_rounded,
-                      color: Colors.white,
-                      size: 64,
-                    ),
-                ],
-              ),
-              if (nextExerciseName != null) ...[
-                const SizedBox(height: 20),
-                Text(
-                  'Next up: $nextExerciseName',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ],
-          ),
         ),
       ),
     );
@@ -1219,10 +1093,12 @@ class _ExercisePageState extends State<_ExercisePage> {
     return _buildPhotoViewer();
   }
 
-  /// Rest period display — calming gradient with large rest icon and duration.
+  /// Rest period display — calming gradient with rest icon and "Next up".
+  ///
+  /// The numeric countdown previously shown here has been removed — the
+  /// bottom-right timer chip is the single source of truth for the rest
+  /// countdown in workout mode.
   Widget _buildRestDisplay() {
-    final duration = _exercise.holdSeconds ?? 30;
-
     // Find the next non-rest exercise name for "Next up" label
     String? nextExerciseName;
     final slides = widget.session.exercises;
@@ -1264,18 +1140,8 @@ class _ExercisePageState extends State<_ExercisePage> {
                 letterSpacing: -0.5,
               ),
             ),
-            const SizedBox(height: 12),
-            Text(
-              '${duration}s',
-              style: const TextStyle(
-                color: Color(0xFFFF8F5E),
-                fontSize: 48,
-                fontWeight: FontWeight.w300,
-                letterSpacing: -1,
-              ),
-            ),
             if (nextExerciseName != null) ...[
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               Text(
                 'Next up: $nextExerciseName',
                 style: const TextStyle(
@@ -1434,9 +1300,18 @@ class _ExercisePageState extends State<_ExercisePage> {
   }
 
   /// Semi-transparent metadata card at the bottom of the page.
-  /// Hidden for rest periods — the rest display already shows all info.
+  /// For rest slides the panel is slimmed down to just the timer chip so the
+  /// rest-card content (icon, "Rest" label, "Next up") stays clean — the
+  /// chip still sits in the same bottom-right slot as on exercise slides.
   Widget _buildMetadataOverlay() {
-    if (_exercise.isRest) return const SizedBox.shrink();
+    if (_exercise.isRest) {
+      if (widget.timerChip == null) return const SizedBox.shrink();
+      return Container(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+        alignment: Alignment.centerRight,
+        child: widget.timerChip!,
+      );
+    }
     final exercise = _exercise;
 
     final info = Column(
