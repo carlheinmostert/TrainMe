@@ -163,23 +163,40 @@ class UploadService {
   /// Upload all converted assets for a session, create/update the plan
   /// record in the backend, and return the result.
   ///
-  /// Publish ordering (not a true transaction, but close):
-  ///   0. Credit check — read the practice balance and abort with
-  ///      [PublishResult.insufficientCredits] before any network I/O heavier
-  ///      than a single RPC.
+  /// Publish ordering (not a true transaction, but close). Reordered in the
+  /// wake of Milestone C so the plan row exists BEFORE any storage upload —
+  /// the `media` bucket RLS policy checks `plans.id` for membership, so a
+  /// brand-new plan could not upload media until its row was written.
+  ///
   ///   1. Pre-flight — verify every non-rest exercise has an existing local
   ///      file. If anything is missing, return [PublishResult.preflightFailed]
   ///      without touching Supabase.
-  ///   2. Upload media + thumbnails to the `media` bucket.
+  ///   2. Credit balance pre-check — read the practice balance and abort with
+  ///      [PublishResult.insufficientCredits] before any network I/O heavier
+  ///      than a single RPC. This is best-effort; step 3 is the race-safe
+  ///      source of truth.
   ///   3. Atomically consume credits via `consume_credit` RPC. If this
   ///      returns `{ok: false}` the publish aborts — the fn is race-safe and
   ///      its answer is the truth even if the pre-check said otherwise.
-  ///   4. Upsert the plan row with the bumped version.
-  ///   5. Upsert new exercise rows, then delete stale ones.
-  ///   6. Write the `plan_issuances` audit row.
+  ///      Runs FIRST so a failure in any later step triggers the existing
+  ///      refund path and leaves the ledger balanced.
+  ///   4. Upsert the plan row with the bumped version. Required BEFORE the
+  ///      media upload so the storage RLS policy (which joins against
+  ///      `plans` via the first folder segment of the object name) passes.
+  ///      On a brand-new plan this is the row's first appearance; on a
+  ///      re-publish it's an update.
+  ///   5. Upload media + thumbnails to the `media` bucket. The plan row now
+  ///      exists, so the RLS check in the `Media upload` policy succeeds.
+  ///   6. Upsert new exercise rows. FK to plans is already satisfied.
+  ///   7. Delete stale exercise rows that are no longer in the plan.
+  ///   8. Write the `plan_issuances` audit row (best-effort; swallowed).
   ///
-  /// If any step after credit consumption fails, we insert a compensating
-  /// refund row into `credit_ledger` so the ledger stays balanced.
+  /// If any step AFTER [consume_credit] fails (plan upsert, media upload,
+  /// exercise upsert, delete-orphans), the catch block inserts a
+  /// compensating refund row into `credit_ledger` so the ledger stays
+  /// balanced. Orphan storage objects from a partial step-5 are tolerated
+  /// for now — a retry will succeed because the plan row already exists,
+  /// and the orphan-cleanup backlog item covers stale bucket entries.
   ///
   /// Precondition: all exercises should have [ConversionStatus.done]. The
   /// caller should check [Session.allConversionsComplete] first.
@@ -196,25 +213,6 @@ class UploadService {
     final practiceId = session.practiceId ?? AppConfig.sentinelPracticeId;
     final nonRestCount = session.exercises.where((e) => !e.isRest).length;
     final creditsToCharge = creditCostFor(nonRestCount);
-
-    // ------------------------------------------------------------------
-    // Step 0: Credit pre-check. This is a best-effort early-exit — the
-    // atomic `consume_credit` RPC in Step 3 is the race-safe source of
-    // truth. Null balance (RPC error) falls through; we'd rather let the
-    // RPC reject than punish the bio for a transient read error.
-    // ------------------------------------------------------------------
-    final balance = await _getPracticeBalance(practiceId);
-    if (balance != null && balance < creditsToCharge) {
-      await _recordFailure(
-        session,
-        'Insufficient credits: have $balance, need $creditsToCharge',
-      );
-      return PublishResult.insufficientCredits(
-        balance: balance,
-        required: creditsToCharge,
-        practiceId: practiceId,
-      );
-    }
 
     // ------------------------------------------------------------------
     // Step 1: Pre-flight validation (no network I/O)
@@ -235,12 +233,99 @@ class UploadService {
       return PublishResult.preflightFailed(missing: missing);
     }
 
+    // ------------------------------------------------------------------
+    // Step 2: Credit balance pre-check. Best-effort early-exit — the
+    // atomic `consume_credit` RPC in Step 3 is the race-safe source of
+    // truth. Null balance (RPC error) falls through; we'd rather let the
+    // RPC reject than punish the bio for a transient read error.
+    // ------------------------------------------------------------------
+    final balance = await _getPracticeBalance(practiceId);
+    if (balance != null && balance < creditsToCharge) {
+      await _recordFailure(
+        session,
+        'Insufficient credits: have $balance, need $creditsToCharge',
+      );
+      return PublishResult.insufficientCredits(
+        balance: balance,
+        required: creditsToCharge,
+        practiceId: practiceId,
+      );
+    }
+
+    final newVersion = session.version + 1;
+
     // Tracks whether we've consumed credits so catch blocks can refund.
     bool creditConsumed = false;
 
     try {
       // ----------------------------------------------------------------
-      // Step 2: Upload media files
+      // Step 3: Consume credits atomically FIRST. The Postgres fn locks
+      // the practice balance, appends a ledger row, and ties it to this
+      // plan in a single transaction. If it returns `{ok: false}` the
+      // publish aborts with no plan row mutated. Any failure in the
+      // subsequent steps is caught below and triggers a compensating
+      // refund ledger row so the bio is not charged for a failed publish.
+      // ----------------------------------------------------------------
+      final consumeResult = await _supabase.rpc(
+        'consume_credit',
+        params: {
+          'practice_id': practiceId,
+          'plan_id': session.id,
+          'credits': creditsToCharge,
+        },
+      );
+
+      final consumeMap = consumeResult is Map
+          ? Map<String, dynamic>.from(consumeResult)
+          : const <String, dynamic>{};
+      final ok = consumeMap['ok'] == true;
+      if (!ok) {
+        final reportedBalance = consumeMap['balance'];
+        final int resolvedBalance = reportedBalance is int
+            ? reportedBalance
+            : (reportedBalance is num
+                ? reportedBalance.toInt()
+                : (balance ?? 0));
+        await _recordFailure(
+          session,
+          'consume_credit refused: have $resolvedBalance, need $creditsToCharge',
+        );
+        return PublishResult.insufficientCredits(
+          balance: resolvedBalance,
+          required: creditsToCharge,
+          practiceId: practiceId,
+        );
+      }
+      creditConsumed = true;
+
+      // ----------------------------------------------------------------
+      // Step 4: Upsert the plan row BEFORE any storage upload. The
+      // Milestone C RLS policy on the `media` bucket checks that the
+      // first folder segment of the object name (session.id) matches an
+      // existing row in `plans` owned by the trainer's practice. Without
+      // this row the storage insert in Step 5 is rejected. On a brand-
+      // new plan this is the row's first appearance; on a re-publish
+      // it's an update. Web-player reads are atomic via the
+      // `get_plan_full` RPC, so the brief window where the plan version
+      // is new but media URLs are still old is fine.
+      // ----------------------------------------------------------------
+      await _supabase.from('plans').upsert({
+        'id': session.id,
+        'client_name': session.clientName,
+        'title': session.displayTitle,
+        // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
+        'circuit_cycles': session.circuitCycles,
+        'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
+        'exercise_count': nonRestCount,
+        'version': newVersion,
+        'created_at': session.createdAt.toIso8601String(),
+        'sent_at': DateTime.now().toIso8601String(),
+        'practice_id': practiceId,
+      });
+
+      // ----------------------------------------------------------------
+      // Step 5: Upload media files. The plan row now exists, so the
+      // `Media upload` RLS policy on the `media` bucket passes.
       // ----------------------------------------------------------------
       final mediaUrls = <String, String>{}; // exerciseId -> media URL
       final thumbUrls = <String, String?>{}; // exerciseId -> thumbnail URL
@@ -276,66 +361,8 @@ class UploadService {
       }
 
       // ----------------------------------------------------------------
-      // Step 3: Consume credits atomically BEFORE the plan upsert. The
-      // Postgres fn locks the practice balance, appends a ledger row, and
-      // ties it to this plan in a single transaction. If it returns
-      // `{ok: false}` the publish aborts with no plan row mutated.
-      // ----------------------------------------------------------------
-      final consumeResult = await _supabase.rpc(
-        'consume_credit',
-        params: {
-          'practice_id': practiceId,
-          'plan_id': session.id,
-          'credits': creditsToCharge,
-        },
-      );
-
-      final consumeMap = consumeResult is Map
-          ? Map<String, dynamic>.from(consumeResult)
-          : const <String, dynamic>{};
-      final ok = consumeMap['ok'] == true;
-      if (!ok) {
-        final reportedBalance = consumeMap['balance'];
-        final int resolvedBalance = reportedBalance is int
-            ? reportedBalance
-            : (reportedBalance is num
-                ? reportedBalance.toInt()
-                : (balance ?? 0));
-        await _recordFailure(
-          session,
-          'consume_credit refused: have $resolvedBalance, need $creditsToCharge',
-        );
-        return PublishResult.insufficientCredits(
-          balance: resolvedBalance,
-          required: creditsToCharge,
-          practiceId: practiceId,
-        );
-      }
-      creditConsumed = true;
-
-      // ----------------------------------------------------------------
-      // Step 4: Upsert plan row FIRST so the exercises.plan_id foreign key
-      // is satisfied. Web-player reads are atomic via the get_plan_full
-      // RPC, so the brief window where the plan version is new but
-      // exercises are still old is fine.
-      // ----------------------------------------------------------------
-      final newVersion = session.version + 1;
-      await _supabase.from('plans').upsert({
-        'id': session.id,
-        'client_name': session.clientName,
-        'title': session.displayTitle,
-        // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
-        'circuit_cycles': session.circuitCycles,
-        'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
-        'exercise_count': nonRestCount,
-        'version': newVersion,
-        'created_at': session.createdAt.toIso8601String(),
-        'sent_at': DateTime.now().toIso8601String(),
-        'practice_id': practiceId,
-      });
-
-      // ----------------------------------------------------------------
-      // Step 5: Insert new exercise rows (batched). FK is now satisfied.
+      // Step 6: Upsert exercise rows (batched). FK to plans is satisfied
+      // from Step 4.
       // ----------------------------------------------------------------
       final exerciseRows = session.exercises
           .map((e) => {
@@ -362,8 +389,9 @@ class UploadService {
       }
 
       // ----------------------------------------------------------------
-      // Delete OLD exercise rows for this plan that are not in the new id
-      // set. Rest-only sessions (empty exerciseRows) clear everything.
+      // Step 7: Delete OLD exercise rows for this plan that are not in
+      // the new id set. Rest-only sessions (empty exerciseRows) clear
+      // everything.
       // ----------------------------------------------------------------
       final newIds = exerciseRows.map((r) => r['id'] as String).toList();
       var deleteQuery =
@@ -375,7 +403,7 @@ class UploadService {
       await deleteQuery;
 
       // ----------------------------------------------------------------
-      // Step 6: append an audit row to `plan_issuances`. Records who
+      // Step 8: append an audit row to `plan_issuances`. Records who
       // published which plan-version at what size for what credit cost.
       // The ledger is already authoritative via consume_credit; this row
       // exists for billing history / support queries. If the insert fails
