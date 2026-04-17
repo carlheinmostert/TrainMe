@@ -53,32 +53,76 @@ import AVFoundation
 
         let timeMs = args["timeMs"] as? Int ?? 0
 
-        DispatchQueue.global(qos: .userInitiated).async {
-          let url = URL(fileURLWithPath: inputPath)
-          let asset = AVURLAsset(url: url)
-          let generator = AVAssetImageGenerator(asset: asset)
-          generator.appliesPreferredTrackTransform = true
-          generator.requestedTimeToleranceBefore = .zero
-          generator.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
+        let url = URL(fileURLWithPath: inputPath)
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
+        // Tone-map HDR/Dolby Vision (iPhone 15 Pro+ default) to SDR so thumbnail
+        // extraction succeeds on newer iOS. dynamicRangePolicy is iOS 18+.
+        if #available(iOS 18.0, *) {
+          generator.dynamicRangePolicy = .forceSDR
+        }
 
-          let time = CMTime(value: CMTimeValue(timeMs), timescale: 1000)
+        let time = CMTime(value: CMTimeValue(timeMs), timescale: 1000)
 
-          do {
-            let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
-            let uiImage = UIImage(cgImage: cgImage)
-            guard let jpegData = uiImage.jpegData(compressionQuality: 0.9) else {
-              DispatchQueue.main.async {
-                result(FlutterError(code: "JPEG", message: "Failed to create JPEG", details: nil))
-              }
-              return
+        let handleImage: (CGImage?, Error?) -> Void = { cgImage, error in
+          if let error = error {
+            DispatchQueue.main.async {
+              result(FlutterError(
+                code: "EXTRACT",
+                message: "Frame extraction failed: \(error.localizedDescription)",
+                details: "\(error)"
+              ))
             }
-            try jpegData.write(to: URL(fileURLWithPath: outputPath))
+            return
+          }
+          guard let cgImage = cgImage else {
+            DispatchQueue.main.async {
+              result(FlutterError(code: "EXTRACT", message: "No image returned", details: nil))
+            }
+            return
+          }
+          let uiImage = UIImage(cgImage: cgImage)
+          guard let jpegData = uiImage.jpegData(compressionQuality: 0.9) else {
+            DispatchQueue.main.async {
+              result(FlutterError(code: "JPEG", message: "Failed to create JPEG", details: nil))
+            }
+            return
+          }
+          do {
+            let outURL = URL(fileURLWithPath: outputPath)
+            try FileManager.default.createDirectory(
+              at: outURL.deletingLastPathComponent(),
+              withIntermediateDirectories: true
+            )
+            try jpegData.write(to: outURL)
             DispatchQueue.main.async {
               result(outputPath)
             }
           } catch {
             DispatchQueue.main.async {
-              result(FlutterError(code: "EXTRACT", message: "Frame extraction failed: \(error.localizedDescription)", details: "\(error)"))
+              result(FlutterError(
+                code: "WRITE",
+                message: "Failed to write thumbnail: \(error.localizedDescription)",
+                details: "\(error)"
+              ))
+            }
+          }
+        }
+
+        if #available(iOS 16.0, *) {
+          generator.generateCGImageAsynchronously(for: time) { cgImage, _, error in
+            handleImage(cgImage, error)
+          }
+        } else {
+          DispatchQueue.global(qos: .userInitiated).async {
+            do {
+              let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
+              handleImage(cgImage, nil)
+            } catch {
+              handleImage(nil, error)
             }
           }
         }

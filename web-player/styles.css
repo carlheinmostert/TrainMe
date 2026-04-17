@@ -752,14 +752,14 @@ body {
   stroke: #ffffff;
 }
 
-/* Timer overlay — centered over card viewport */
+/* Timer chip — small ring anchored to the bottom-right of the card,
+   sitting next to the exercise name/badges instead of covering the media. */
 .timer-overlay {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 140px;
-  height: 140px;
+  right: 20px;
+  bottom: 24px;
+  width: 64px;
+  height: 64px;
   z-index: 25;
   display: flex;
   align-items: center;
@@ -769,16 +769,16 @@ body {
 
 .timer-overlay-bg {
   position: absolute;
-  inset: -10px;
-  background: rgba(15, 17, 23, 0.65);
+  inset: -6px;
+  background: rgba(15, 17, 23, 0.55);
   border-radius: 50%;
-  filter: blur(16px);
+  filter: blur(10px);
 }
 
 .timer-ring {
   position: absolute;
-  width: 120px;
-  height: 120px;
+  width: 64px;
+  height: 64px;
 }
 
 .timer-ring-progress {
@@ -788,11 +788,11 @@ body {
 .timer-text {
   position: relative;
   font-family: var(--font-heading);
-  font-size: 36px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 700;
   color: #ffffff;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
   z-index: 1;
 }
 

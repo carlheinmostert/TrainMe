@@ -165,7 +165,28 @@ class UploadService {
       }
 
       // ----------------------------------------------------------------
-      // Step 3: Insert new exercise rows (batched)
+      // Step 3: Upsert plan row FIRST so the exercises.plan_id foreign key
+      // is satisfied. The original design did plan-upsert-last as a "pointer
+      // flip" but the FK constraint forbids it on first publish. Web-player
+      // reads are atomic via the get_plan_full RPC, so the brief window
+      // where the plan version is new but exercises are still old is fine.
+      // ----------------------------------------------------------------
+      final newVersion = session.version + 1;
+      await _supabase.from('plans').upsert({
+        'id': session.id,
+        'client_name': session.clientName,
+        'title': session.displayTitle,
+        // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
+        'circuit_cycles': session.circuitCycles,
+        'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
+        'exercise_count': session.exercises.where((e) => !e.isRest).length,
+        'version': newVersion,
+        'created_at': session.createdAt.toIso8601String(),
+        'sent_at': DateTime.now().toIso8601String(),
+      });
+
+      // ----------------------------------------------------------------
+      // Step 4: Insert new exercise rows (batched). FK is now satisfied.
       // ----------------------------------------------------------------
       final exerciseRows = session.exercises
           .map((e) => {
@@ -192,7 +213,7 @@ class UploadService {
       }
 
       // ----------------------------------------------------------------
-      // Step 4: Delete OLD exercise rows for this plan that are not in the
+      // Step 5: Delete OLD exercise rows for this plan that are not in the
       // new id set. Rest-only sessions (empty exerciseRows) clear everything.
       // ----------------------------------------------------------------
       final newIds = exerciseRows.map((r) => r['id'] as String).toList();
@@ -203,24 +224,6 @@ class UploadService {
         deleteQuery = deleteQuery.not('id', 'in', newIds);
       }
       await deleteQuery;
-
-      // ----------------------------------------------------------------
-      // Step 5: Upsert plan row LAST — this is the atomic pointer flip that
-      // makes web-player clients start seeing the new exercise set.
-      // ----------------------------------------------------------------
-      final newVersion = session.version + 1;
-      await _supabase.from('plans').upsert({
-        'id': session.id,
-        'client_name': session.clientName,
-        'title': session.displayTitle,
-        // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
-        'circuit_cycles': session.circuitCycles,
-        'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
-        'exercise_count': session.exercises.where((e) => !e.isRest).length,
-        'version': newVersion,
-        'created_at': session.createdAt.toIso8601String(),
-        'sent_at': DateTime.now().toIso8601String(),
-      });
 
       // ----------------------------------------------------------------
       // Success — persist new local state.

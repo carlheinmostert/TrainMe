@@ -311,27 +311,42 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   }
 
   /// Begin (or resume) the countdown for the current slide.
+  /// Also plays any video on this slide so the client doesn't have to tap
+  /// the play-gate AND a separate video play button — single tap starts both.
   void _startTimer() {
     setState(() {
       _showPlayGate = false;
       _isTimerRunning = true;
     });
+    final controller = _videoControllers[_currentPage];
+    if (controller != null && controller.value.isInitialized) {
+      controller.play();
+    }
     _workoutTimer?.cancel();
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _onTimerTick();
     });
   }
 
-  /// Pause the running countdown.
+  /// Pause the running countdown. Also pauses any playing video on the
+  /// current slide so the timer and video stay in sync.
   void _pauseTimer() {
     _workoutTimer?.cancel();
+    final controller = _videoControllers[_currentPage];
+    if (controller != null && controller.value.isInitialized) {
+      controller.pause();
+    }
     setState(() => _isTimerRunning = false);
   }
 
-  /// Resume a previously paused countdown.
+  /// Resume a previously paused countdown. Also resumes video playback.
   void _resumeTimer() {
     if (_remainingSeconds <= 0) return;
     setState(() => _isTimerRunning = true);
+    final controller = _videoControllers[_currentPage];
+    if (controller != null && controller.value.isInitialized) {
+      controller.play();
+    }
     _workoutTimer?.cancel();
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _onTimerTick();
@@ -478,10 +493,19 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                     onPageChanged: _onPageChanged,
                     itemBuilder: (context, index) {
                       final slide = _slides[index];
+                      final showTimerChip = _isWorkoutMode &&
+                          !_workoutComplete &&
+                          _isTimerRunning &&
+                          !_showPlayGate &&
+                          index == _currentPage &&
+                          !slide.exercise.isRest;
                       return _ExercisePage(
                         slide: slide,
                         session: widget.session,
                         videoController: _videoControllers[index],
+                        timerChip: showTimerChip
+                            ? _buildInlineTimerRing()
+                            : null,
                       );
                     },
                   ),
@@ -521,13 +545,8 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                   if (!_isWorkoutMode && !_workoutComplete)
                     _buildStartWorkoutOverlay(),
 
-                  // Timer ring — visible while workout mode is active and
-                  // the timer is running (not during play gate).
-                  if (_isWorkoutMode &&
-                      !_workoutComplete &&
-                      _isTimerRunning &&
-                      !_showPlayGate)
-                    _buildTimerOverlay(),
+                  // Timer ring is rendered inside the per-slide metadata panel
+                  // via _ExercisePage.timerChip, not as a fullscreen overlay.
 
                   // Rest countdown overlay — larger display for rest slides
                   if (_isWorkoutMode &&
@@ -659,23 +678,49 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
     );
   }
 
-  /// Timer overlay — centered on the slide with a semi-transparent scrim.
-  Widget _buildTimerOverlay() {
-    // Don't double-up on rest slides; the rest countdown overlay handles those.
-    if (_slides[_currentPage].exercise.isRest) return const SizedBox.shrink();
+  /// Small inline timer ring rendered inside the metadata panel of the
+  /// current slide. Replaces the old centred full-screen overlay so the
+  /// timer sits next to the exercise name/badges instead of covering the
+  /// media.
+  Widget _buildInlineTimerRing() {
+    final progress = _totalSeconds > 0
+        ? (_totalSeconds - _remainingSeconds) / _totalSeconds
+        : 0.0;
+    final Color color;
+    if (_remainingSeconds > _totalSeconds * 0.25) {
+      color = Colors.green;
+    } else if (_remainingSeconds > _totalSeconds * 0.10) {
+      color = Colors.amber;
+    } else {
+      color = Colors.red;
+    }
 
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.35),
-              shape: BoxShape.circle,
+    const size = 64.0;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          CustomPaint(
+            size: const Size(size, size),
+            painter: _TimerRingPainter(
+              progress: progress,
+              color: color,
+              trackColor: Colors.white.withValues(alpha: 0.15),
+              strokeWidth: 4,
             ),
-            child: _buildTimerRing(),
           ),
-        ),
+          Text(
+            _formatTimer(_remainingSeconds),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.5,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1023,10 +1068,15 @@ class _ExercisePage extends StatefulWidget {
   final Session session;
   final VideoPlayerController? videoController;
 
+  /// Optional small timer ring shown in the bottom metadata panel during
+  /// workout mode. Rendered on the right side next to the exercise name.
+  final Widget? timerChip;
+
   const _ExercisePage({
     required this.slide,
     required this.session,
     this.videoController,
+    this.timerChip,
   });
 
   @override
@@ -1322,6 +1372,46 @@ class _ExercisePageState extends State<_ExercisePage> {
     if (_exercise.isRest) return const SizedBox.shrink();
     final exercise = _exercise;
 
+    final info = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Exercise name / number
+        Text(
+          exercise.name ?? 'Exercise ${widget.slide.originalIndex + 1}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.5,
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Metadata badges row
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _buildBadges(exercise),
+        ),
+
+        // Notes
+        if (exercise.notes != null && exercise.notes!.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            exercise.notes!,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 15,
+              height: 1.4,
+            ),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ],
+    );
+
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -1336,42 +1426,13 @@ class _ExercisePageState extends State<_ExercisePage> {
         ),
       ),
       padding: const EdgeInsets.fromLTRB(20, 32, 20, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Exercise name / number
-          Text(
-            exercise.name ?? 'Exercise ${widget.slide.originalIndex + 1}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Metadata badges row
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _buildBadges(exercise),
-          ),
-
-          // Notes
-          if (exercise.notes != null && exercise.notes!.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              exercise.notes!,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 15,
-                height: 1.4,
-              ),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
+          Expanded(child: info),
+          if (widget.timerChip != null) ...[
+            const SizedBox(width: 16),
+            widget.timerChip!,
           ],
         ],
       ),

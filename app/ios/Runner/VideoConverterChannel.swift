@@ -475,11 +475,36 @@ class VideoConverterChannel {
         generator.appliesPreferredTrackTransform = true
         generator.requestedTimeToleranceBefore = CMTime(seconds: 0.5, preferredTimescale: 600)
         generator.requestedTimeToleranceAfter = CMTime(seconds: 0.5, preferredTimescale: 600)
+        // Tone-map HDR/Dolby Vision (iPhone 15 Pro+ default) to SDR so thumbnail
+        // extraction succeeds on newer iOS. Without this, HDR content can fail
+        // silently or produce blank frames. dynamicRangePolicy is iOS 18+.
+        if #available(iOS 18.0, *) {
+            generator.dynamicRangePolicy = .forceSDR
+        }
 
         let time = CMTime(value: CMTimeValue(timeMs), timescale: 1000)
 
-        do {
-            let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
+        let handleImage: (CGImage?, Error?) -> Void = { cgImage, error in
+            if let error = error {
+                DispatchQueue.main.async {
+                    result(FlutterError(
+                        code: "THUMBNAIL_FAILED",
+                        message: "Could not extract thumbnail: \(error.localizedDescription)",
+                        details: nil
+                    ))
+                }
+                return
+            }
+            guard let cgImage = cgImage else {
+                DispatchQueue.main.async {
+                    result(FlutterError(
+                        code: "THUMBNAIL_FAILED",
+                        message: "Thumbnail extraction returned no image",
+                        details: nil
+                    ))
+                }
+                return
+            }
             let uiImage = UIImage(cgImage: cgImage)
             guard let jpegData = uiImage.jpegData(compressionQuality: 0.85) else {
                 DispatchQueue.main.async {
@@ -491,20 +516,42 @@ class VideoConverterChannel {
                 }
                 return
             }
-            try jpegData.write(to: URL(fileURLWithPath: outputPath))
-            DispatchQueue.main.async {
-                result([
-                    "success": true,
-                    "outputPath": outputPath,
-                ])
+            do {
+                let outURL = URL(fileURLWithPath: outputPath)
+                try FileManager.default.createDirectory(
+                    at: outURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try jpegData.write(to: outURL)
+                DispatchQueue.main.async {
+                    result([
+                        "success": true,
+                        "outputPath": outputPath,
+                    ])
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(
+                        code: "WRITE_FAILED",
+                        message: "Could not write thumbnail: \(error.localizedDescription)",
+                        details: nil
+                    ))
+                }
             }
-        } catch {
-            DispatchQueue.main.async {
-                result(FlutterError(
-                    code: "THUMBNAIL_FAILED",
-                    message: "Could not extract thumbnail: \(error.localizedDescription)",
-                    details: nil
-                ))
+        }
+
+        if #available(iOS 16.0, *) {
+            generator.generateCGImageAsynchronously(for: time) { cgImage, _, error in
+                handleImage(cgImage, error)
+            }
+        } else {
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
+                    handleImage(cgImage, nil)
+                } catch {
+                    handleImage(nil, error)
+                }
             }
         }
     }

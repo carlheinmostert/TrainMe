@@ -730,6 +730,11 @@ function pauseTimer() {
     clearInterval(workoutTimer);
     workoutTimer = null;
   }
+  // Keep the video in sync so it doesn't keep playing while the timer is paused.
+  const currentVideo = document.getElementById(`video-${currentIndex}`);
+  if (currentVideo && !currentVideo.paused) {
+    currentVideo.pause();
+  }
   updatePauseButton();
 }
 
@@ -740,6 +745,13 @@ function resumeTimer() {
   if (isTimerRunning) return;
   isTimerRunning = true;
   workoutTimer = setInterval(onTimerTick, 1000);
+  // Resume video playback alongside the timer.
+  const currentVideo = document.getElementById(`video-${currentIndex}`);
+  if (currentVideo && currentVideo.paused) {
+    currentVideo.play().catch((err) => {
+      console.warn('video resume failed:', err);
+    });
+  }
   updatePauseButton();
 }
 
@@ -887,6 +899,19 @@ async function init() {
     $startWorkoutBtn.addEventListener('click', startWorkout);
     $playGateBtn.addEventListener('click', () => {
       hidePlayGate();
+      // Auto-play the current slide's video so the client doesn't have to
+      // tap the play-gate AND a separate video play button — single tap
+      // starts both. Mirrors the Flutter preview behaviour.
+      const currentVideo = document.getElementById(`video-${currentIndex}`);
+      if (currentVideo) {
+        currentVideo.play().catch((err) => {
+          console.warn('video autoplay after play-gate failed:', err);
+        });
+        const overlay = $cardTrack.querySelector(
+          `.video-play-overlay[data-video-index="${currentIndex}"]`
+        );
+        if (overlay) overlay.classList.add('is-hidden');
+      }
       startTimer();
     });
     $pauseBtn.addEventListener('click', togglePause);
