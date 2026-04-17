@@ -15,7 +15,6 @@ import '../services/local_storage_service.dart';
 import '../services/path_resolver.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
-import '../widgets/powered_by_footer.dart';
 import '../widgets/shell_pull_tab.dart';
 import 'plan_preview_screen.dart';
 
@@ -68,29 +67,27 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   late TextEditingController _nameController;
   final FocusNode _nameFocusNode = FocusNode();
 
-  // --- Inverted display (Option B) ---
+  // --- Bottom-anchored display (chat-app pattern) ---
   // Carl's one-handed-use requirement: newest exercise should sit at the
-  // BOTTOM of the viewport (near the thumb). Data stays in ascending
-  // position order (1..N). We simply auto-scroll to the end of the list
-  // on screen open and whenever a new exercise is appended. Drag-reorder,
-  // circuit borders, between-card buttons, and rest-period placement all
-  // keep their existing index-based semantics — no index translation.
-  final ScrollController _scrollController = ScrollController();
-  int _lastExerciseCount = 0;
+  // BOTTOM of the viewport (near the thumb). Even when the list is short
+  // and doesn't fill the screen, items must anchor at the bottom — older
+  // captures push upward as new ones are added.
+  //
+  // Approach: CustomScrollView(reverse: true) + reversed iteration. Data
+  // stays in ascending position order (1..N). The UI translates at the
+  // boundary — itemBuilder maps visualIndex -> dataIndex, _onReorder maps
+  // visual drop slots -> data slots. Every neighbor/circuit check inside
+  // _buildExerciseItem receives DATA indices. Drag handles receive VISUAL
+  // indices (what ReorderableList's API expects).
 
   @override
   void initState() {
     super.initState();
     _session = widget.session;
-    _lastExerciseCount = _session.exercises.length;
     _nameController = TextEditingController(text: _session.clientName);
     _nameFocusNode.addListener(_onNameFocusChange);
     _conversionService = ConversionService.instance;
     _listenToConversions();
-    // First frame: jump to the newest exercise (bottom of the list).
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToNewest(animated: false);
-    });
   }
 
   @override
@@ -106,42 +103,15 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         }
       });
     }
-    // If the exercise list just grew (e.g. camera mode added a capture
-    // and pushed a refreshed session down), slide the newest card into
-    // view at the bottom.
-    final currentCount = _session.exercises.length;
-    if (currentCount > _lastExerciseCount) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToNewest(animated: true);
-      });
-    }
-    _lastExerciseCount = currentCount;
   }
 
   @override
   void dispose() {
     _conversionSub?.cancel();
-    _scrollController.dispose();
     _nameController.dispose();
     _nameFocusNode.removeListener(_onNameFocusChange);
     _nameFocusNode.dispose();
     super.dispose();
-  }
-
-  /// Scrolls the exercise list so the newest exercise (highest position)
-  /// sits at the bottom of the viewport — the thumb-reachable zone.
-  void _scrollToNewest({required bool animated}) {
-    if (!_scrollController.hasClients) return;
-    final maxExtent = _scrollController.position.maxScrollExtent;
-    if (animated) {
-      _scrollController.animateTo(
-        maxExtent,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOut,
-      );
-    } else {
-      _scrollController.jumpTo(maxExtent);
-    }
   }
 
   void _onNameFocusChange() {
@@ -257,12 +227,9 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         _pushSession(_session.copyWith(
           exercises: [..._session.exercises, exercise],
         ));
-        _lastExerciseCount = _session.exercises.length;
       });
-      // Keep the newest import visible at the bottom (thumb zone).
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToNewest(animated: true);
-      });
+      // No scroll-to-newest needed: the reversed CustomScrollView keeps
+      // the newest item bottom-anchored (thumb zone) automatically.
     }
 
     _conversionService.queueConversion(exercise);
@@ -422,19 +389,51 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     }));
     _saveExerciseOrder();
 
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${removed.name ?? 'Exercise ${index + 1}'} deleted'),
-        action: SnackBarAction(
-          label: 'Undo',
-          onPressed: () async {
-            await widget.storage.saveExercise(removed);
-            await _refreshSession();
-          },
+    // Delete-undo uses a MaterialBanner (top of screen) instead of a bottom
+    // SnackBar. Two reasons: (1) a bottom snackbar would collide with the
+    // camera shutter if the bio swipes to Camera mode before it times out,
+    // and (2) banners are the semantically-correct Material component for
+    // a dismissable top notification with an action.
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentMaterialBanner();
+    messenger.clearSnackBars();
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: AppColors.darkSurface,
+        contentTextStyle: const TextStyle(color: AppColors.textOnDark),
+        content: Text(
+          '${removed.name ?? 'Exercise ${index + 1}'} deleted',
         ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              messenger.hideCurrentMaterialBanner();
+              await widget.storage.saveExercise(removed);
+              await _refreshSession();
+            },
+            child: const Text(
+              'Undo',
+              style: TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => messenger.hideCurrentMaterialBanner(),
+            child: const Text(
+              'Dismiss',
+              style: TextStyle(color: AppColors.textSecondaryOnDark),
+            ),
+          ),
+        ],
       ),
     );
+    // Auto-hide after 3 seconds (banners don't auto-dismiss by default).
+    Future.delayed(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+    });
   }
 
   Future<void> _refreshSession() async {
@@ -685,18 +684,11 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
 
   Widget _buildBody() {
     if (_session.exercises.isEmpty) {
-      return Column(
-        children: [
-          Expanded(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: _buildEmptyState(),
-              ),
-            ),
-          ),
-          const PoweredByFooter(),
-        ],
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: _buildEmptyState(),
+        ),
       );
     }
     return _buildExerciseList();
@@ -734,17 +726,27 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   Widget _buildExerciseList() {
     final exercises = _session.exercises;
     final totalDuration = _session.estimatedTotalDurationSeconds;
+    // `reverse: true` makes the scroll origin the bottom of the viewport.
+    // Slivers are laid out bottom-to-top in array order. So sliver[0] sits
+    // at the bottom; sliver[1] sits above it.
+    //
+    // Combined with reversed iteration inside the reorderable list
+    // (visualIndex 0 == newest data item), the newest exercise anchors at
+    // the bottom (thumb zone) even when the list is short.
     return CustomScrollView(
-      controller: _scrollController,
+      reverse: true,
       slivers: [
         SliverReorderableList(
           itemCount: exercises.length,
           onReorder: _onReorder,
-          itemBuilder: _buildExerciseItem,
+          itemBuilder: (context, visualIndex) {
+            final dataIndex = exercises.length - 1 - visualIndex;
+            return _buildExerciseItem(context, dataIndex, visualIndex);
+          },
         ),
         if (totalDuration > 0)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
             sliver: SliverToBoxAdapter(
               child: Text(
                 'Estimated: ${formatDuration(totalDuration)}',
@@ -754,16 +756,23 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
               ),
             ),
           ),
-        const SliverToBoxAdapter(
-          child: PoweredByFooter(),
-        ),
       ],
     );
   }
 
-  Widget _buildExerciseItem(BuildContext context, int index) {
+  /// Builds one exercise row. [dataIndex] is the index into the underlying
+  /// `_session.exercises` list (ascending 0..N-1); [visualIndex] is the
+  /// slot inside the reversed [SliverReorderableList] (0 == bottom of
+  /// viewport == newest).
+  ///
+  /// All circuit/neighbor reasoning uses DATA indices so semantics stay
+  /// identical to the old ascending list. Only drag handles receive
+  /// [visualIndex] because that's what [ReorderableDragStartListener]
+  /// needs to talk to its ancestor list.
+  Widget _buildExerciseItem(
+      BuildContext context, int dataIndex, int visualIndex) {
     final exercises = _session.exercises;
-    final exercise = exercises[index];
+    final exercise = exercises[dataIndex];
 
     if (exercise.isRest) {
       final isInCircuit = exercise.circuitId != null;
@@ -787,11 +796,11 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
                 child: _RestBar(
                   key: ValueKey('rest_${exercise.id}'),
                   exercise: exercise,
-                  index: index,
-                  onUpdate: (updated) => _updateExercise(index, updated),
-                  onDelete: () => _deleteExercise(index),
+                  index: dataIndex,
+                  onUpdate: (updated) => _updateExercise(dataIndex, updated),
+                  onDelete: () => _deleteExercise(dataIndex),
                   dragHandle: ReorderableDragStartListener(
-                    index: index,
+                    index: visualIndex,
                     child: const SizedBox(
                       width: 44,
                       height: 44,
@@ -806,12 +815,12 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
                   ),
                 ),
               ),
-              if (index < exercises.length - 1)
+              if (dataIndex < exercises.length - 1)
                 _buildBetweenCardButtons(
-                  upperIndex: index,
-                  lowerIndex: index + 1,
+                  upperIndex: dataIndex,
+                  lowerIndex: dataIndex + 1,
                   isLinked: exercise.circuitId != null &&
-                      exercises[index + 1].circuitId == exercise.circuitId,
+                      exercises[dataIndex + 1].circuitId == exercise.circuitId,
                 ),
             ],
           ),
@@ -821,18 +830,18 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
 
     final isInCircuit = exercise.circuitId != null;
     final isFirstInCircuit = isInCircuit &&
-        (index == 0 ||
-            exercises[index - 1].circuitId != exercise.circuitId);
+        (dataIndex == 0 ||
+            exercises[dataIndex - 1].circuitId != exercise.circuitId);
     final isLastInCircuit = isInCircuit &&
-        (index == exercises.length - 1 ||
-            exercises[index + 1].circuitId != exercise.circuitId);
+        (dataIndex == exercises.length - 1 ||
+            exercises[dataIndex + 1].circuitId != exercise.circuitId);
     final hasNextInSameCircuit = isInCircuit &&
-        index < exercises.length - 1 &&
-        exercises[index + 1].circuitId == exercise.circuitId;
-    final showBetweenButtons = index < exercises.length - 1;
+        dataIndex < exercises.length - 1 &&
+        exercises[dataIndex + 1].circuitId == exercise.circuitId;
+    final showBetweenButtons = dataIndex < exercises.length - 1;
     final isLinkedBelow = showBetweenButtons &&
         exercise.circuitId != null &&
-        exercises[index + 1].circuitId == exercise.circuitId;
+        exercises[dataIndex + 1].circuitId == exercise.circuitId;
 
     return KeyedSubtree(
       key: ValueKey(exercise.id),
@@ -844,7 +853,8 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
             if (isFirstInCircuit) _buildCircuitHeader(exercise.circuitId!),
             _buildReorderableCard(
               exercise: exercise,
-              index: index,
+              dataIndex: dataIndex,
+              visualIndex: visualIndex,
               isInCircuit: isInCircuit,
               isFirstInCircuit: isFirstInCircuit,
               isLastInCircuit: isLastInCircuit,
@@ -852,8 +862,8 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
             ),
             if (showBetweenButtons)
               _buildBetweenCardButtons(
-                upperIndex: index,
-                lowerIndex: index + 1,
+                upperIndex: dataIndex,
+                lowerIndex: dataIndex + 1,
                 isLinked: isLinkedBelow,
               ),
           ],
@@ -862,9 +872,22 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     );
   }
 
-  void _onReorder(int oldIndex, int newIndex) {
-    if (newIndex > oldIndex) newIndex--;
-    if (oldIndex == newIndex) return;
+  /// [ReorderableList] calls this with VISUAL indices (0 == top slot of the
+  /// widget, which in reverse mode is the bottom of the viewport — our
+  /// newest data item). We translate to data indices before running the
+  /// existing reorder/circuit-cleanup logic.
+  void _onReorder(int oldVisualIndex, int newVisualIndex) {
+    // Standard ReorderableList convention: when dragging downward through
+    // the visual list, the framework passes newIndex = oldIndex+1 meaning
+    // "slot after old". Normalise to a pure swap index.
+    if (newVisualIndex > oldVisualIndex) newVisualIndex--;
+    if (oldVisualIndex == newVisualIndex) return;
+
+    final len = _session.exercises.length;
+    // visualIndex 0 is the newest (data index len-1), so reversal is:
+    //   dataIndex = len - 1 - visualIndex.
+    final oldIndex = len - 1 - oldVisualIndex;
+    final newIndex = len - 1 - newVisualIndex;
 
     setState(() {
       _expandedIndex = null;
@@ -930,7 +953,8 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
 
   Widget _buildReorderableCard({
     required ExerciseCapture exercise,
-    required int index,
+    required int dataIndex,
+    required int visualIndex,
     required bool isInCircuit,
     required bool isFirstInCircuit,
     required bool isLastInCircuit,
@@ -950,7 +974,7 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
       child: Dismissible(
         key: ValueKey('dismiss_${exercise.id}'),
         direction: DismissDirection.endToStart,
-        onDismissed: (_) => _deleteExercise(index),
+        onDismissed: (_) => _deleteExercise(dataIndex),
         background: Container(
           margin: const EdgeInsets.only(bottom: 8),
           decoration: BoxDecoration(
@@ -965,18 +989,19 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         child: _ExerciseCard(
           key: ValueKey('card_${exercise.id}'),
           exercise: exercise,
-          index: index,
-          isExpanded: _expandedIndex == index,
+          index: dataIndex,
+          isExpanded: _expandedIndex == dataIndex,
           isInCircuit: isInCircuit,
           onTap: () {
             setState(() {
-              _expandedIndex = _expandedIndex == index ? null : index;
+              _expandedIndex =
+                  _expandedIndex == dataIndex ? null : dataIndex;
             });
           },
-          onUpdate: (updated) => _updateExercise(index, updated),
+          onUpdate: (updated) => _updateExercise(dataIndex, updated),
           onPreview: () => _previewCapture(exercise),
           dragHandle: ReorderableDragStartListener(
-            index: index,
+            index: visualIndex,
             child: const SizedBox(
               width: 44,
               height: 44,

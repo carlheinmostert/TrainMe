@@ -103,7 +103,14 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
         // own SafeArea where needed.
         body: PageView(
           controller: _pageController,
-          onPageChanged: (_) {},
+          onPageChanged: (_) {
+            // When the bio swipes between Studio and Camera, kill any
+            // in-flight delete-undo banner / snackbar. Otherwise it can
+            // persist across modes and occlude the camera shutter.
+            final messenger = ScaffoldMessenger.of(context);
+            messenger.hideCurrentMaterialBanner();
+            messenger.clearSnackBars();
+          },
           physics: const ClampingScrollPhysics(),
           children: [
             StudioModeScreen(
