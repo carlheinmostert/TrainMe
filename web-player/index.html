@@ -10,20 +10,26 @@
   <!-- Open Graph / WhatsApp link preview -->
   <!-- TODO_SUPABASE: Populate these dynamically via edge function or SSR -->
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Your Exercise Plan — HomeFit">
+  <meta property="og:title" content="Your Exercise Plan — homefit.studio">
   <meta property="og:description" content="Open your personalized exercise plan">
   <meta property="og:image" content="https://placeholder.trainme.app/og-card.png">
   <meta property="og:url" content="">
-  <meta property="og:site_name" content="HomeFit Studio">
+  <meta property="og:site_name" content="homefit.studio">
 
-  <title>TrainMe - Exercise Plan</title>
+  <title>homefit.studio - Exercise Plan</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <!-- Loading state -->
   <div id="loading" class="loading-screen">
     <div class="loading-content">
-      <div class="loading-mark">T</div>
+      <div class="loading-mark">
+        <svg class="pulse-mark" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2"
+                fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
       <p class="loading-text">Loading your plan...</p>
     </div>
   </div>
@@ -39,19 +45,12 @@
 
   <!-- Main app -->
   <div id="app" hidden>
-    <!-- Header -->
-    <header class="header">
-      <div class="header-inner">
-        <div class="header-brand">TrainMe</div>
-        <div class="header-meta">
-          <span id="client-name" class="header-client"></span>
-        </div>
-      </div>
-    </header>
-
     <!-- Plan title bar -->
     <div class="plan-bar">
-      <h1 id="plan-title" class="plan-title"></h1>
+      <div class="plan-bar-left">
+        <h1 id="plan-title" class="plan-title"></h1>
+        <span id="client-name" class="header-client"></span>
+      </div>
       <div id="progress" class="progress-label"></div>
     </div>
 
@@ -154,7 +153,17 @@
 
     <!-- Footer -->
     <footer class="footer">
-      <p class="footer-text">Prepared for you by your biokineticist</p>
+      <div class="footer-brand">
+        <span class="footer-preamble">powered by</span>
+        <div class="footer-logo">
+          <svg class="pulse-mark" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2"
+                  fill="none" stroke="currentColor" stroke-width="2.5"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="footer-wordmark">homefit.studio</span>
+        </div>
+      </div>
     </footer>
   </div>
 

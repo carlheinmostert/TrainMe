@@ -16,6 +16,7 @@ import '../services/conversion_service.dart';
 import '../services/path_resolver.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
+import '../widgets/powered_by_footer.dart';
 import 'plan_preview_screen.dart';
 
 /// Returns true when a video exercise's converted output is a still image
@@ -744,12 +745,19 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   /// or just the add card when the list is empty.
   Widget _buildBody() {
     if (_session.exercises.isEmpty) {
-      // Empty state: centered wireframe card
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: _buildAddExerciseCard(),
-        ),
+      // Empty state: centered wireframe card with footer at bottom
+      return Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _buildAddExerciseCard(),
+              ),
+            ),
+          ),
+          const PoweredByFooter(),
+        ],
       );
     }
     // Non-empty: exercise list is built separately with the card appended
@@ -852,10 +860,13 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
           itemBuilder: _buildExerciseItem,
         ),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           sliver: SliverToBoxAdapter(
             child: _buildAddExerciseCard(),
           ),
+        ),
+        const SliverToBoxAdapter(
+          child: PoweredByFooter(),
         ),
       ],
     );

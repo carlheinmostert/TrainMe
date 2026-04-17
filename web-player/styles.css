@@ -127,20 +127,19 @@ body {
 }
 
 .loading-mark {
-  width: 48px;
-  height: 48px;
+  width: 72px;
+  height: 50px;
   margin: 0 auto 16px;
-  background: var(--color-primary);
-  color: var(--white);
-  border-radius: var(--radius-sm);
+  color: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 24px;
-  letter-spacing: -0.02em;
   animation: pulse 1.5s ease infinite;
+}
+
+.loading-mark .pulse-mark {
+  width: 100%;
+  height: 100%;
 }
 
 @keyframes pulse {
@@ -207,31 +206,11 @@ body {
   position: relative;
 }
 
-/* === Header === */
-.header {
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--gray-100);
-  background: var(--white);
-}
-
-.header-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-}
-
-.header-brand {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: -0.02em;
-  color: var(--color-text-primary);
-}
+/* === Header removed — plan bar now sits at top === */
 
 .header-client {
   font-size: 13px;
-  color: var(--gray-500);
+  color: var(--gray-400);
   font-weight: 500;
 }
 
@@ -243,6 +222,13 @@ body {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+}
+
+.plan-bar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .plan-title {
@@ -557,12 +543,40 @@ body {
 .footer {
   flex-shrink: 0;
   text-align: center;
-  padding: 0 20px 12px;
+  padding: 12px 20px 16px;
 }
 
-.footer-text {
-  font-size: 12px;
+.footer-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.footer-preamble {
+  font-size: 11px;
   color: var(--gray-400);
+  letter-spacing: 0.3px;
+}
+
+.footer-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-primary);
+}
+
+.footer-logo .pulse-mark {
+  width: 26px;
+  height: 18px;
+}
+
+.footer-wordmark {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: -0.2px;
+  color: var(--color-text-on-dark, var(--gray-900));
 }
 
 /* === Swipe Hint === */
