@@ -8,7 +8,7 @@ import 'theme.dart';
 import 'services/local_storage_service.dart';
 import 'services/conversion_service.dart';
 import 'services/path_resolver.dart';
-import 'screens/home_screen.dart';
+import 'screens/auth_gate.dart';
 
 /// TrainMe — Exercise plan capture and sharing for biokineticists.
 ///
@@ -86,7 +86,10 @@ class TrainMeApp extends StatelessWidget {
       title: 'TrainMe',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
-      home: HomeScreen(storage: storage),
+      // AuthGate is the root router: unauthenticated → SignInScreen,
+      // authenticated → HomeScreen. Session persistence is handled by
+      // Supabase's default secure storage (Keychain on iOS).
+      home: AuthGate(storage: storage),
     );
   }
 }

@@ -257,11 +257,17 @@ class UploadService {
       // everywhere this try/catch can be removed.
       // ----------------------------------------------------------------
       final creditsCharged = creditCostFor(nonRestCount);
+      // Milestone B: prefer the authenticated user's uuid. The AuthGate
+      // guarantees a user is present past sign-in, but we null-guard to
+      // the sentinel trainer id as a belt-and-braces fallback so the
+      // audit row is never blank if auth has (somehow) lapsed.
+      final trainerId = _supabase.auth.currentUser?.id ??
+          AppConfig.sentinelTrainerId;
       try {
         await _supabase.from('plan_issuances').insert({
           'plan_id': session.id,
           'practice_id': practiceId,
-          'trainer_id': AppConfig.sentinelTrainerId,
+          'trainer_id': trainerId,
           'version': newVersion,
           'exercise_count': nonRestCount,
           'credits_charged': creditsCharged,

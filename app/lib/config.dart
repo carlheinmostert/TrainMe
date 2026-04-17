@@ -46,6 +46,19 @@ class AppConfig {
   static const String sentinelTrainerId =
       '00000000-0000-0000-0000-000000000001';
 
+  /// Deep-link callback URL used by Supabase OAuth providers (Google, Apple).
+  /// Registered in `app/ios/Runner/Info.plist` under `CFBundleURLTypes` and
+  /// configured in the Supabase dashboard as an allowed redirect URL.
+  /// Matches the iOS app's bundle identifier so the OS routes the callback
+  /// straight back into the app.
+  static const String oauthRedirectUrl =
+      'com.raidme.raidme://login-callback';
+
+  /// Welcome-bonus credits granted to a brand-new practice (user who signs in
+  /// after the sentinel has already been claimed). Lets them publish a couple
+  /// of plans before needing to buy credits.
+  static const int welcomeBonusCredits = 5;
+
   /// Credit cost by plan size (non-rest exercise count).
   /// 1-8 exercises  → 1 credit
   /// 9-15 exercises → 2 credits
