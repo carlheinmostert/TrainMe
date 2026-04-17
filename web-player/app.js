@@ -78,25 +78,22 @@ function getPlanIdFromURL() {
 }
 
 async function fetchPlan(planId) {
-  // Uses the `get_plan_full` RPC so direct SELECT on plans/exercises can be
-  // revoked — prevents table enumeration via the anon key.
+  // POV phase: tables are open via permissive RLS, so we read directly.
+  // A future hardening pass should switch to the `get_plan_full` SECURITY
+  // DEFINER RPC (see supabase/schema_hardening.sql) to prevent enumeration.
   const response = await fetch(
-    `${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,
+    `${SUPABASE_URL}/rest/v1/plans?id=eq.${planId}&select=*,exercises(*)`,
     {
-      method: 'POST',
       headers: {
         'apikey': SUPABASE_ANON_KEY,
         'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ plan_id: planId }),
+      }
     }
   );
   if (!response.ok) throw new Error('Plan not found');
   const data = await response.json();
-  if (!data || !data.plan) throw new Error('Plan not found');
-  const plan = data.plan;
-  plan.exercises = Array.isArray(data.exercises) ? data.exercises : [];
+  if (!data.length) throw new Error('Plan not found');
+  const plan = data[0];
   plan.exercises.sort((a, b) => a.position - b.position);
   return plan;
 }
