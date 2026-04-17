@@ -7,7 +7,7 @@
 **Three surfaces:**
 1. **Flutter mobile app** — the trainer's tool (dark mode, coral orange accent). Capture + Studio modes in a single session shell.
 2. **Web player** at `session.homefit.studio/p/{planId}` — what the client sees. Anonymous, read-only.
-3. **Web portal** at `manage.homefit.studio` (DNS + deploy pending) — where practice owners buy credits, view the audit log, and invite practitioners. Next.js 15 App Router, authenticated via Supabase.
+3. **Web portal** at `manage.homefit.studio` — where practice owners buy credits, view the audit log, and invite practitioners. Next.js 15 App Router, authenticated via Supabase. Live on Vercel since 2026-04-17 evening.
 
 ## Brand
 
@@ -98,11 +98,14 @@
 - Service worker caches app shell + video media (with content-type validation). Cache name bumped on major changes.
 - CSP + HSTS + Permissions-Policy headers.
 
-### Web Portal (manage.homefit.studio — scaffolded, not deployed)
-- Next.js 15 App Router, @supabase/ssr cookie-based auth, Tailwind with brand tokens.
+### Web Portal (manage.homefit.studio — live on Vercel)
+- Next.js 15 App Router (pinned to 15.5.15 for CVE-2025-66478 patch), @supabase/ssr cookie-based auth, Tailwind with brand tokens.
 - Pages: Sign-In gate → Dashboard (practice switcher + credit balance) → Credits (bundle list + PayFast checkout) → Audit (plan_issuances table) → Members (owner-only invite UI).
 - PayFast sandbox integration live; production merchant account pending.
 - Never receives service role key — all writes via Supabase Edge Functions (`payfast-webhook`).
+- Deployed to Vercel project `homefit-web-portal` under team `carlheinmosterts-projects`. DNS: `manage.homefit.studio` CNAME → `00596c638d4cefd8.vercel-dns-017.com.` at Hostinger. TLS via Vercel (auto-renew).
+- Env vars set in Vercel (all envs): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (publishable), `SUPABASE_SERVICE_ROLE_KEY` (secret), `APP_URL=https://manage.homefit.studio`, `PAYFAST_MERCHANT_ID=10000100`, `PAYFAST_MERCHANT_KEY=46f0cd694581a`, `PAYFAST_PASSPHRASE=`, `PAYFAST_SANDBOX=true`.
+- Supabase auth: Site URL = `https://manage.homefit.studio`; redirect allowlist includes `https://manage.homefit.studio/**` + `http://localhost:3000/**`. Without this, Google OAuth bounced login to `session.homefit.studio` (the old Site URL).
 
 ## Current Phase
 
@@ -113,17 +116,20 @@
 - **B** — Google Sign-In + AuthGate + sentinel-claim. Apple button scaffolded, pending Apple Developer enrolment approval.
 - **C** — RLS lockdown scoped by practice membership. SECURITY DEFINER helpers `user_practice_ids()` / `user_is_practice_owner(pid)` avoid self-recursion.
 - **D1** — Credit deduction at publish via `consume_credit` RPC. Refund ledger rows on failure.
-- **D3** — Web portal scaffolded (not deployed; DNS pending).
-- **D4** — PayFast sandbox integration (in flight as of end of 2026-04-17).
+- **D3** — Web portal deployed to Vercel at `manage.homefit.studio`. DNS + TLS live. Env vars + Supabase redirect allowlist configured.
+- **D4 sandbox** — PayFast checkout flow + ITN webhook deployed. Edge function `payfast-webhook` ACTIVE v1. Smoke test step 1/4 confirmed (`/credits` bundle list renders on production URL).
 
 **Milestones remaining:**
 - **D2** — Publish-screen practice picker UI (Flutter).
 - **D4 production** — Swap PayFast sandbox for real merchant credentials when Carl signs up.
 - **E** — First-run onboarding polish for the second bio.
 
+**Tomorrow's resume point (2026-04-18):**
+1. Finish PayFast sandbox smoke test at `https://manage.homefit.studio/credits` → Buy Starter → test card `4000 0000 0000 0002` → verify return to `/credits/return` → dashboard balance +10.
+2. If pass, sign off D4 sandbox and move to **D2** (Flutter practice picker in the publish flow).
+
 **Blocked on Carl:**
 - PayFast production merchant account (D4 prod).
-- DNS for `manage.homefit.studio` (web portal deploy).
 - Apple Developer Program approval (~24-48h, enrolled 2026-04-17).
 
 ## Infrastructure Rules (learned the hard way)
@@ -205,7 +211,7 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 - Bump `sw.js` CACHE_NAME when making major web player changes
 - Supabase schema changes: with the CLI linked, use `supabase db query --linked --file supabase/<file>.sql` to apply directly. Still keep a human-readable `.sql` file in `supabase/` for audit trail. Carl reviews the SQL file before apply.
 - Supabase Edge Functions: `supabase functions deploy <name>` for the PayFast webhook and friends.
-- Web portal deploys via Vercel on push (similar to web-player). DNS CNAME `manage.homefit.studio` → Vercel target (pending).
+- Web portal deploys via Vercel on push (similar to web-player). DNS CNAME `manage.homefit.studio` → `00596c638d4cefd8.vercel-dns-017.com.` live at Hostinger.
 - Always consider offline-first — the bio must be able to work without signal
 
 ## Simulator Testing Notes

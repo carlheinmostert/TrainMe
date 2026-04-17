@@ -2,7 +2,7 @@
 
 Next.js 15 App Router portal for practice owners and practitioners. Sign in with Google, manage credits, inspect the audit log, and invite teammates.
 
-Target deployment: **https://manage.homefit.studio** (DNS pending).
+Deployed: **https://manage.homefit.studio** — live on Vercel since 2026-04-17 evening.
 
 ## Stack
 

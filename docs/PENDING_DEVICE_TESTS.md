@@ -6,6 +6,28 @@ Reference items by commit hash + feature name when reporting feedback.
 
 ---
 
+## Tomorrow's resume point (2026-04-18) — PayFast sandbox smoke test
+
+Portal is live at `https://manage.homefit.studio` (as of 2026-04-17 evening). Smoke step 1/4 passed — `/credits` renders the bundle list. **Remaining steps:**
+
+1. On `https://manage.homefit.studio/credits`, click **Buy Starter**.
+2. Browser bounces to `sandbox.payfast.co.za`. Pay with sandbox test card:
+   - Card: `4000 0000 0000 0002`
+   - Expiry: any future month/year
+   - CVV: any 3 digits
+3. PayFast bounces back to `https://manage.homefit.studio/credits/return`.
+4. Within ~5s, refresh the dashboard — the credit balance should show **+10**.
+
+**If balance doesn't update within ~30s:**
+
+- Check the Supabase `pending_payments` table — the intent row should have status `complete`.
+- Check Supabase Edge Functions → Logs for `payfast-webhook` — look for which of the 4 authenticity gates (signature / IP / validate / amount) failed.
+- Common sandbox gotcha: PayFast's sandbox IPs change periodically; if IP gate fails, we can temporarily set `PAYFAST_SKIP_IP_CHECK=true` as a function secret for testing (never in prod).
+
+Once round-trip is clean, **D4 sandbox is signed off** and we move to **D2 — Flutter practice picker** in a background sub-agent.
+
+---
+
 ## Pending — install and verify
 
 ### Commit `7fc84e6` — Studio card + Home UI refinements
