@@ -149,7 +149,7 @@ class UploadService {
     try {
       final result = await _supabase.rpc(
         'practice_credit_balance',
-        params: {'practice_id_in': practiceId},
+        params: {'p_practice_id': practiceId},
       );
       if (result is int) return result;
       if (result is num) return result.toInt();
@@ -269,9 +269,9 @@ class UploadService {
       final consumeResult = await _supabase.rpc(
         'consume_credit',
         params: {
-          'practice_id': practiceId,
-          'plan_id': session.id,
-          'credits': creditsToCharge,
+          'p_practice_id': practiceId,
+          'p_plan_id': session.id,
+          'p_credits': creditsToCharge,
         },
       );
 
