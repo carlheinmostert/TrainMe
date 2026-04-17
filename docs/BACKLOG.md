@@ -4,6 +4,18 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+## Filter workbench — wire to cloud raw archive once auth lands
+
+**Status:** Deferred. Blocks real filter tuning.
+
+Current limitation: `tools/filter-workbench/` pulls the `media_url` from Supabase, which is the already-filtered + already-two-zoned line-drawing output. Tuning filter params against post-filter content isn't meaningful — the slider tweaks layer on top of work already done. Segmentation re-runs on a line drawing instead of raw pixels.
+
+Fix path once the cloud raw archive (archive pipeline Phase 2) lands post-auth: point the workbench's Supabase client at the private `raw-archive/{trainer_id}/{session_id}/{exercise_id}.mp4` bucket instead of the public `media/` bucket. Frame extraction + filter + segmentation then operate on the true pre-filter source.
+
+Short-term workaround: AirDrop a raw video from the iPhone to the Mac and drop it in `tools/filter-workbench/samples/`. The CLI workbench (`workbench.py`) already accepts local samples; the Streamlit UI could be extended with a "local sample vs Supabase plan" source toggle if needed in the interim. Carl asked to wait for the proper cloud path rather than workaround.
+
+---
+
 ## One-handed reachability — pull-to-latch scroll physics (Studio)
 
 **Status:** Deferred. Custom behaviour, probably a few days of careful work.
