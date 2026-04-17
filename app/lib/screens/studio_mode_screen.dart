@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
+import 'package:video_player/video_player.dart';
 import '../config.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
@@ -546,7 +547,9 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
 
   /// Open the full PlanPreviewScreen positioned on the slide for the
   /// exercise at [dataIndex]. Circuit members land on their first round.
-  /// Used by the thumbnail tap on each exercise card.
+  /// Retained for a future Studio-level "Preview workout" entry point —
+  /// the thumbnail tap now goes to [_openMediaViewer] instead.
+  // ignore: unused_element
   void _openPlanPreviewAt(int dataIndex) {
     final slideIndex = PlanPreviewScreen.slideIndexForExerciseIndex(
       _session,
@@ -558,6 +561,20 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
           session: _session,
           initialSlideIndex: slideIndex,
         ),
+      ),
+    );
+  }
+
+  /// Lightweight full-screen viewer for the media behind a thumbnail.
+  /// Not the workout simulator — just "show me the content". Video
+  /// exercises get a looping autoplay player; photos get a zoomable
+  /// Image.file; rest periods are silently ignored (no media).
+  void _openMediaViewer(ExerciseCapture exercise) {
+    if (exercise.isRest) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _MediaViewer(exercise: exercise),
       ),
     );
   }
@@ -967,7 +984,7 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
             });
           },
           onUpdate: (updated) => _updateExercise(dataIndex, updated),
-          onThumbnailTap: () => _openPlanPreviewAt(dataIndex),
+          onThumbnailTap: () => _openMediaViewer(exercise),
           dragHandle: ReorderableDragStartListener(
             index: visualIndex,
             child: const SizedBox(
@@ -1655,45 +1672,46 @@ class _SliderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    // Vertical layout: label + value share the top row (label grows to fill,
+    // value right-aligned), slider gets the full width below. Removes the
+    // label truncation problem entirely — "Reps" now has the whole card
+    // width to breathe in, not a clamped 34px box.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          width: 34,
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondaryOnDark,
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondaryOnDark,
+                ),
+              ),
             ),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
-          ),
+            Text(
+              displayValue,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textOnDark,
+              ),
+            ),
+          ],
         ),
-        Expanded(
-          child: SliderTheme(
-            data: theme,
-            child: Slider(
-              value: value,
-              min: min,
-              max: max,
-              divisions: divisions,
-              onChanged: onChanged,
-            ),
-          ),
-        ),
-        SizedBox(
-          width: 32,
-          child: Text(
-            displayValue,
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textOnDark,
-            ),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
+        SliderTheme(
+          data: theme,
+          child: Slider(
+            value: value,
+            min: min,
+            max: max,
+            divisions: divisions,
+            onChanged: onChanged,
           ),
         ),
       ],
@@ -1747,75 +1765,68 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
 
   @override
   Widget build(BuildContext context) {
+    // Same vertical layout as _SliderRow — label row on top (with
+    // right-aligned value), slider gets the full card width below.
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
         Row(
           children: [
-            const SizedBox(
-              width: 34,
+            const Expanded(
               child: Text(
                 'Time',
                 style: TextStyle(
-                  fontSize: 13,
+                  fontFamily: 'Inter',
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: AppColors.textSecondaryOnDark,
                 ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
               ),
             ),
-            Expanded(
-              child: SliderTheme(
-                data: SliderThemeData(
-                  trackHeight: 8,
-                  activeTrackColor: AppColors.circuit,
-                  inactiveTrackColor: AppColors.darkBorder,
-                  thumbColor: AppColors.circuit,
-                  thumbShape: const _RectangularSliderThumbShape(
-                      width: 8, height: 24, radius: 4),
-                  overlayShape:
-                      const RoundSliderOverlayShape(overlayRadius: 20),
-                  overlayColor: AppColors.circuit.withValues(alpha: 0.12),
-                  trackShape: const RoundedRectSliderTrackShape(),
-                ),
-                child: Slider(
-                  value: _value,
-                  min: 10,
-                  max: 600,
-                  divisions: 118,
-                  onChanged: (v) {
-                    final snapped = _snapToStep(v);
-                    setState(() => _value = snapped);
-                    widget.onChanged(snapped.round());
-                  },
-                ),
-              ),
-            ),
-            SizedBox(
-              width: 44,
-              child: Text(
-                _formatDuration(_value.round()),
-                textAlign: TextAlign.right,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color:
-                      widget.isCustom ? AppColors.circuit : AppColors.textOnDark,
-                ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
+            Text(
+              _formatDuration(_value.round()),
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color:
+                    widget.isCustom ? AppColors.circuit : AppColors.textOnDark,
               ),
             ),
           ],
         ),
+        SliderTheme(
+          data: SliderThemeData(
+            trackHeight: 8,
+            activeTrackColor: AppColors.circuit,
+            inactiveTrackColor: AppColors.darkBorder,
+            thumbColor: AppColors.circuit,
+            thumbShape: const _RectangularSliderThumbShape(
+                width: 8, height: 24, radius: 4),
+            overlayShape:
+                const RoundSliderOverlayShape(overlayRadius: 20),
+            overlayColor: AppColors.circuit.withValues(alpha: 0.12),
+            trackShape: const RoundedRectSliderTrackShape(),
+          ),
+          child: Slider(
+            value: _value,
+            min: 10,
+            max: 600,
+            divisions: 118,
+            onChanged: (v) {
+              final snapped = _snapToStep(v);
+              setState(() => _value = snapped);
+              widget.onChanged(snapped.round());
+            },
+          ),
+        ),
         if (widget.isCustom)
-          GestureDetector(
-            onTap: widget.onReset,
-            child: const Padding(
-              padding: EdgeInsets.only(left: 34, top: 0),
-              child: Text(
+          Align(
+            alignment: Alignment.centerLeft,
+            child: GestureDetector(
+              onTap: widget.onReset,
+              child: const Text(
                 'Reset to auto',
                 style: TextStyle(
                   fontSize: 12,
@@ -2037,5 +2048,130 @@ class _RectangularSliderThumbShape extends SliderComponentShape {
       Radius.circular(radius),
     );
     canvas.drawRRect(rect, paint);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Media viewer — full-screen playback/display of a single exercise's media.
+// Not the workout simulator; just "show me the content behind this thumbnail".
+// Reached by tapping the thumbnail on an exercise card.
+// -----------------------------------------------------------------------------
+
+bool _isStillImageConversion(ExerciseCapture exercise) {
+  final converted = exercise.convertedFilePath;
+  if (converted == null) return false;
+  final ext = converted.toLowerCase();
+  return ext.endsWith('.jpg') ||
+      ext.endsWith('.jpeg') ||
+      ext.endsWith('.png');
+}
+
+class _MediaViewer extends StatefulWidget {
+  final ExerciseCapture exercise;
+  const _MediaViewer({required this.exercise});
+
+  @override
+  State<_MediaViewer> createState() => _MediaViewerState();
+}
+
+class _MediaViewerState extends State<_MediaViewer> {
+  VideoPlayerController? _controller;
+  bool _initialized = false;
+
+  bool get _isVideo =>
+      widget.exercise.mediaType == MediaType.video &&
+      !_isStillImageConversion(widget.exercise);
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isVideo) {
+      final controller =
+          VideoPlayerController.file(File(widget.exercise.displayFilePath));
+      _controller = controller;
+      controller.initialize().then((_) {
+        if (!mounted) return;
+        setState(() => _initialized = true);
+        controller.setLooping(true);
+        controller.play();
+      }).catchError((e) {
+        debugPrint('Media viewer video init failed: $e');
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  void _togglePlayPause() {
+    final c = _controller;
+    if (c == null || !_initialized) return;
+    setState(() {
+      if (c.value.isPlaying) {
+        c.pause();
+      } else {
+        c.play();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.darkBg,
+      body: GestureDetector(
+        // Tap body to toggle play/pause on video; photos ignore.
+        onTap: _isVideo ? _togglePlayPause : null,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (_isVideo)
+              Center(
+                child: _initialized && _controller != null
+                    ? AspectRatio(
+                        aspectRatio: _controller!.value.aspectRatio,
+                        child: VideoPlayer(_controller!),
+                      )
+                    : const CircularProgressIndicator(color: Colors.white54),
+              )
+            else
+              Center(
+                child: Image.file(
+                  File(widget.exercise.displayFilePath),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) => const Icon(
+                    Icons.broken_image_outlined,
+                    size: 64,
+                    color: Colors.white54,
+                  ),
+                ),
+              ),
+            if (_isVideo &&
+                _initialized &&
+                _controller != null &&
+                !_controller!.value.isPlaying)
+              const Center(
+                child: Icon(Icons.play_arrow,
+                    size: 72, color: Colors.white54),
+              ),
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              right: 8,
+              child: IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black54,
+                ),
+                tooltip: 'Close',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
