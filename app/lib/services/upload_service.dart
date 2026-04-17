@@ -259,12 +259,44 @@ class UploadService {
 
     try {
       // ----------------------------------------------------------------
-      // Step 3: Consume credits atomically FIRST. The Postgres fn locks
-      // the practice balance, appends a ledger row, and ties it to this
-      // plan in a single transaction. If it returns `{ok: false}` the
-      // publish aborts with no plan row mutated. Any failure in the
-      // subsequent steps is caught below and triggers a compensating
-      // refund ledger row so the bio is not charged for a failed publish.
+      // Step 3: Upsert the plan row FIRST. Two reasons it has to come
+      // before consume_credit:
+      //   (a) `credit_ledger.plan_id` has a FK to `plans.id`. The
+      //       consume_credit RPC inserts a ledger row tied to this plan,
+      //       so the plan row must exist first.
+      //   (b) The `Media upload` RLS policy on the `media` bucket checks
+      //       that the first folder segment of the object name
+      //       (session.id) matches an existing row in `plans` owned by
+      //       the trainer's practice. Without this row the storage
+      //       insert in Step 5 is rejected.
+      // On a brand-new plan this is the row's first appearance; on a
+      // re-publish it's an update. Web-player reads are atomic via the
+      // `get_plan_full` RPC, so the brief window where the plan version
+      // is new but media URLs are still old is fine.
+      // ----------------------------------------------------------------
+      await _supabase.from('plans').upsert({
+        'id': session.id,
+        'client_name': session.clientName,
+        'title': session.displayTitle,
+        // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
+        'circuit_cycles': session.circuitCycles,
+        'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
+        'exercise_count': nonRestCount,
+        'version': newVersion,
+        'created_at': session.createdAt.toIso8601String(),
+        'sent_at': DateTime.now().toIso8601String(),
+        'practice_id': practiceId,
+      });
+
+      // ----------------------------------------------------------------
+      // Step 4: Consume credits atomically AFTER the plan row exists.
+      // The Postgres fn locks the practice balance, appends a ledger row
+      // tied to this plan, and validates the balance in one transaction.
+      // If it returns `{ok: false}` the publish aborts with the plan row
+      // already upserted — that's fine, next attempt finds it and
+      // continues idempotently. Any failure in the subsequent steps is
+      // caught below and triggers a compensating refund ledger row so
+      // the bio is not charged for a failed publish.
       // ----------------------------------------------------------------
       final consumeResult = await _supabase.rpc(
         'consume_credit',
@@ -297,31 +329,6 @@ class UploadService {
         );
       }
       creditConsumed = true;
-
-      // ----------------------------------------------------------------
-      // Step 4: Upsert the plan row BEFORE any storage upload. The
-      // Milestone C RLS policy on the `media` bucket checks that the
-      // first folder segment of the object name (session.id) matches an
-      // existing row in `plans` owned by the trainer's practice. Without
-      // this row the storage insert in Step 5 is rejected. On a brand-
-      // new plan this is the row's first appearance; on a re-publish
-      // it's an update. Web-player reads are atomic via the
-      // `get_plan_full` RPC, so the brief window where the plan version
-      // is new but media URLs are still old is fine.
-      // ----------------------------------------------------------------
-      await _supabase.from('plans').upsert({
-        'id': session.id,
-        'client_name': session.clientName,
-        'title': session.displayTitle,
-        // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
-        'circuit_cycles': session.circuitCycles,
-        'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
-        'exercise_count': nonRestCount,
-        'version': newVersion,
-        'created_at': session.createdAt.toIso8601String(),
-        'sent_at': DateTime.now().toIso8601String(),
-        'practice_id': practiceId,
-      });
 
       // ----------------------------------------------------------------
       // Step 5: Upload media files. The plan row now exists, so the
