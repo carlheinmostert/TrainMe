@@ -1,9 +1,12 @@
-# Raidme — Proof of Value (POV) Brief
+# homefit.studio — Proof of Value (POV) Brief
 
-> **Status:** Draft
+> **Status:** Deployed — end-to-end pipeline live
 > **Date:** 2026-04-16
 > **Audience:** Internal + trusted bio tester
 > **Goal:** Working demo to validate the workflow and get stakeholder buy-in
+> **Live client URL:** `https://session.homefit.studio/p/{uuid}`
+> **Domain:** homefit.studio (Hostinger) + Vercel hosting
+> **Internal codename:** TrainMe/Raidme (bundle ID legacy)
 
 ---
 
