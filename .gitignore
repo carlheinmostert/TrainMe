@@ -40,6 +40,10 @@ prototype/frames/
 *.mp4
 *.avi
 
+# Supabase CLI local state
+**/supabase/.temp/
+**/supabase/.branches/
+
 # Flutter
 app/.dart_tool/
 app/.packages
