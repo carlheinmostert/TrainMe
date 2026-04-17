@@ -53,10 +53,10 @@ class AppColors {
   static const Color error = Color(0xFFEF4444); // red-500
   static const Color errorLight = Color(0xFFFEE2E2);
 
-  // Feature accents
-  static const Color circuit = Color(0xFF14B8A6); // teal-500, circuits
-  static const Color circuitLight = Color(0xFFCCFBF1);
-  static const Color circuitDark = Color(0xFF0D9488); // teal-600
+  // Feature accents — now unified with primary coral orange (was teal)
+  static const Color circuit = Color(0xFFFF6B35); // coral orange, circuits
+  static const Color circuitLight = Color(0xFFFFF3ED);
+  static const Color circuitDark = Color(0xFFE85A24);
 
   static const Color rest = Color(0xFF64748B); // slate-500, rest periods
   static const Color restLight = Color(0xFFF1F5F9); // slate-50
@@ -309,8 +309,8 @@ class AppTheme {
       onPrimaryContainer: AppColors.primaryLight,
       secondary: AppColors.circuit,
       onSecondary: Colors.white,
-      secondaryContainer: Color(0xFF0F3D37),
-      onSecondaryContainer: Color(0xFF80CBC4),
+      secondaryContainer: Color(0xFF3D1E0F),
+      onSecondaryContainer: AppColors.primaryLight,
       tertiary: Color(0xFF94A3B8), // slate-400
       onTertiary: Colors.white,
       tertiaryContainer: Color(0xFF1E293B),

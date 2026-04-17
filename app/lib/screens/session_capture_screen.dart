@@ -836,7 +836,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   /// Exercise list — reorderable list with drag handles.
   ///
   /// Each exercise is a single item in a ReorderableListView. Circuit visual
-  /// grouping is achieved via per-card teal left border decoration. Circuit
+  /// grouping is achieved via per-card accent left border decoration. Circuit
   /// headers render above the first card in a circuit group. Between-card
   /// buttons (link + rest insert) render below each card.
   ///
@@ -1119,7 +1119,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   Widget _buildCircuitHeader(String circuitId) {
     final cycles = _session.getCircuitCycles(circuitId);
 
-    // Add teal left border to match the cards below
+    // Add accent left border to match the cards below
     return Container(
       decoration: const BoxDecoration(
         border: Border(
@@ -1194,7 +1194,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   /// items.
   ///
   /// When the exercises above and below are in the same circuit, the row
-  /// also gets the teal left border to maintain visual continuity.
+  /// also gets the accent left border to maintain visual continuity.
   Widget _buildBetweenCardButtons({
     required int upperIndex,
     required int lowerIndex,

@@ -575,12 +575,12 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF4DB6AC), Color(0xFF00897B)],
+                colors: [Color(0xFFFF6B35), Color(0xFFE85A24)],
               ),
               borderRadius: BorderRadius.circular(32),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF4DB6AC).withValues(alpha: 0.4),
+                  color: const Color(0xFFFF6B35).withValues(alpha: 0.4),
                   blurRadius: 16,
                   offset: const Offset(0, 4),
                 ),
@@ -729,11 +729,11 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                   width: 96,
                   height: 96,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF4DB6AC).withValues(alpha: 0.9),
+                    color: const Color(0xFFFF6B35).withValues(alpha: 0.9),
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF4DB6AC).withValues(alpha: 0.4),
+                        color: const Color(0xFFFF6B35).withValues(alpha: 0.4),
                         blurRadius: 24,
                         offset: const Offset(0, 4),
                       ),
@@ -828,7 +828,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
               const Icon(
                 Icons.check_circle_outline_rounded,
                 size: 80,
-                color: Color(0xFF4DB6AC),
+                color: Color(0xFFFF6B35),
               ),
               const SizedBox(height: 24),
               const Text(
@@ -857,7 +857,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                       const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF4DB6AC), Color(0xFF00897B)],
+                      colors: [Color(0xFFFF6B35), Color(0xFFE85A24)],
                     ),
                     borderRadius: BorderRadius.circular(28),
                   ),
@@ -970,7 +970,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                 child: Container(
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Colors.white, Color(0xFF4DB6AC)], // white → teal
+                      colors: [Colors.white, Color(0xFFFF6B35)], // white → orange
                     ),
                     borderRadius: BorderRadius.circular(2),
                   ),
@@ -1134,7 +1134,7 @@ class _ExercisePageState extends State<_ExercisePage> {
             const Icon(
               Icons.self_improvement,
               size: 64,
-              color: Color(0xFF80CBC4), // teal 200
+              color: Color(0xFFFF8F5E), // primary light
             ),
             const SizedBox(height: 16),
             const Text(
@@ -1150,7 +1150,7 @@ class _ExercisePageState extends State<_ExercisePage> {
             Text(
               '${duration}s',
               style: const TextStyle(
-                color: Color(0xFF80CBC4),
+                color: Color(0xFFFF8F5E),
                 fontSize: 48,
                 fontWeight: FontWeight.w300,
                 letterSpacing: -1,
@@ -1260,7 +1260,7 @@ class _ExercisePageState extends State<_ExercisePage> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.teal.withValues(alpha: 0.75),
+        color: const Color(0xFFFF6B35).withValues(alpha: 0.75),
       ),
       child: Row(
         children: [
