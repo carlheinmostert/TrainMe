@@ -12,19 +12,20 @@ import 'local_storage_service.dart';
 // hand media uploads to a native background URLSession / WorkManager so the
 // bio can background/kill the app mid-publish without losing progress.
 
-/// Outcome of a publish attempt. Exhaustive via the three factories:
+/// Outcome of a publish attempt. Exhaustive via the four factories:
 /// [PublishResult.success], [PublishResult.preflightFailed],
-/// [PublishResult.networkFailed].
+/// [PublishResult.networkFailed], [PublishResult.insufficientCredits].
 class PublishResult {
   /// When [success] is true, [url] and [version] are set. Otherwise they are
-  /// null and one of [missingFiles] / [error] is populated.
+  /// null and one of [missingFiles] / [error] / (balance+required) is set.
   final bool success;
   final String? url;
   final int? version;
 
   /// Credits charged for this publish (computed via [creditCostFor]). Set
-  /// only on success; null otherwise. Milestone A: audit-only — the ledger
-  /// is not decremented yet. Future UI can show "Used N credits".
+  /// only on success; null otherwise. Milestone D: reflects the DB truth —
+  /// the `consume_credit` RPC actually decrements the ledger. Future UI can
+  /// show "Used N credits".
   final int? creditsCharged;
 
   /// Exercises whose local media file was missing at pre-flight. Non-null
@@ -34,6 +35,19 @@ class PublishResult {
   /// Underlying exception if the publish failed after pre-flight.
   final Object? error;
 
+  /// Current credit balance for the practice at the moment the publish was
+  /// rejected. Non-null only for [PublishResult.insufficientCredits].
+  final int? balance;
+
+  /// Credits the publish would have cost. Non-null only for
+  /// [PublishResult.insufficientCredits].
+  final int? required;
+
+  /// Practice id that the insufficient-credits rejection applies to. Non-null
+  /// only for [PublishResult.insufficientCredits]. Handy for the D2 UI so the
+  /// "buy credits" CTA can deep-link straight to the right practice page.
+  final String? practiceId;
+
   const PublishResult._({
     required this.success,
     this.url,
@@ -41,6 +55,9 @@ class PublishResult {
     this.creditsCharged,
     this.missingFiles,
     this.error,
+    this.balance,
+    this.required,
+    this.practiceId,
   });
 
   /// Successful publish.
@@ -66,11 +83,28 @@ class PublishResult {
   factory PublishResult.networkFailed({required Object error}) =>
       PublishResult._(success: false, error: error);
 
+  /// Practice does not have enough credits to publish this plan. No network
+  /// I/O past the balance check; no plan state changed on Supabase.
+  factory PublishResult.insufficientCredits({
+    required int balance,
+    required int required,
+    required String practiceId,
+  }) =>
+      PublishResult._(
+        success: false,
+        balance: balance,
+        required: required,
+        practiceId: practiceId,
+      );
+
   /// Convenience: was this a pre-flight failure?
   bool get isPreflightFailure => !success && missingFiles != null;
 
   /// Convenience: was this a network/remote failure?
   bool get isNetworkFailure => !success && error != null;
+
+  /// Convenience: was this an insufficient-credits rejection?
+  bool get isInsufficientCredits => !success && required != null;
 
   /// Human-readable error summary, suitable for snackbar display and storage
   /// in the `last_publish_error` column. Truncated to 500 chars.
@@ -79,6 +113,9 @@ class PublishResult {
     if (isPreflightFailure) {
       final names = missingFiles!.join(', ');
       s = 'Missing local file(s) for exercise(s): $names';
+    } else if (isInsufficientCredits) {
+      s = 'Practice has $balance credits, need $required. '
+          'Buy more via manage.homefit.studio.';
     } else if (isNetworkFailure) {
       s = error.toString();
     } else {
@@ -103,26 +140,82 @@ class UploadService {
 
   UploadService({required LocalStorageService storage}) : _storage = storage;
 
+  /// Read the current credit balance for [practiceId] via the
+  /// `practice_credit_balance` Postgres function. Returns null on any error
+  /// (network hiccup, RLS rejection, function missing) so the caller can
+  /// decide whether to soft-fail or abort. We prefer null to zero here so a
+  /// transient error doesn't get mistaken for "you're out of credits".
+  Future<int?> _getPracticeBalance(String practiceId) async {
+    try {
+      final result = await _supabase.rpc(
+        'practice_credit_balance',
+        params: {'practice_id_in': practiceId},
+      );
+      if (result is int) return result;
+      if (result is num) return result.toInt();
+      if (result is String) return int.tryParse(result);
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Upload all converted assets for a session, create/update the plan
   /// record in the backend, and return the result.
   ///
   /// Publish ordering (not a true transaction, but close):
+  ///   0. Credit check — read the practice balance and abort with
+  ///      [PublishResult.insufficientCredits] before any network I/O heavier
+  ///      than a single RPC.
   ///   1. Pre-flight — verify every non-rest exercise has an existing local
   ///      file. If anything is missing, return [PublishResult.preflightFailed]
   ///      without touching Supabase.
   ///   2. Upload media + thumbnails to the `media` bucket.
-  ///   3. Insert the NEW exercise rows (single batched insert).
-  ///   4. Delete OLD exercise rows for this plan where id is NOT in the new
-  ///      id set — removes leftovers from previous publishes.
-  ///   5. Upsert the plan row with the bumped version LAST. Until this step,
-  ///      web-player clients still see the previous version's exercise set.
+  ///   3. Atomically consume credits via `consume_credit` RPC. If this
+  ///      returns `{ok: false}` the publish aborts — the fn is race-safe and
+  ///      its answer is the truth even if the pre-check said otherwise.
+  ///   4. Upsert the plan row with the bumped version.
+  ///   5. Upsert new exercise rows, then delete stale ones.
+  ///   6. Write the `plan_issuances` audit row.
   ///
-  /// If any step after pre-flight fails, the plan row's version is NOT
-  /// bumped and a [PublishResult.networkFailed] is returned.
+  /// If any step after credit consumption fails, we insert a compensating
+  /// refund row into `credit_ledger` so the ledger stays balanced.
   ///
   /// Precondition: all exercises should have [ConversionStatus.done]. The
   /// caller should check [Session.allConversionsComplete] first.
   Future<PublishResult> uploadPlan(Session session) async {
+    // Milestone B: the AuthGate guarantees a signed-in user at this point,
+    // so any null here is a bug we want surfaced loudly (not papered over
+    // with a sentinel uuid that would silently pollute audit rows).
+    final currentUser = _supabase.auth.currentUser;
+    if (currentUser == null) {
+      throw StateError('Not signed in');
+    }
+    final trainerId = currentUser.id;
+
+    final practiceId = session.practiceId ?? AppConfig.sentinelPracticeId;
+    final nonRestCount = session.exercises.where((e) => !e.isRest).length;
+    final creditsToCharge = creditCostFor(nonRestCount);
+
+    // ------------------------------------------------------------------
+    // Step 0: Credit pre-check. This is a best-effort early-exit — the
+    // atomic `consume_credit` RPC in Step 3 is the race-safe source of
+    // truth. Null balance (RPC error) falls through; we'd rather let the
+    // RPC reject than punish the bio for a transient read error.
+    // ------------------------------------------------------------------
+    final balance = await _getPracticeBalance(practiceId);
+    if (balance != null && balance < creditsToCharge) {
+      await _recordFailure(
+        session,
+        'Insufficient credits: have $balance, need $creditsToCharge',
+      );
+      return PublishResult.insufficientCredits(
+        balance: balance,
+        required: creditsToCharge,
+        practiceId: practiceId,
+      );
+    }
+
     // ------------------------------------------------------------------
     // Step 1: Pre-flight validation (no network I/O)
     // ------------------------------------------------------------------
@@ -141,6 +234,9 @@ class UploadService {
       );
       return PublishResult.preflightFailed(missing: missing);
     }
+
+    // Tracks whether we've consumed credits so catch blocks can refund.
+    bool creditConsumed = false;
 
     try {
       // ----------------------------------------------------------------
@@ -180,18 +276,50 @@ class UploadService {
       }
 
       // ----------------------------------------------------------------
-      // Step 3: Upsert plan row FIRST so the exercises.plan_id foreign key
-      // is satisfied. The original design did plan-upsert-last as a "pointer
-      // flip" but the FK constraint forbids it on first publish. Web-player
-      // reads are atomic via the get_plan_full RPC, so the brief window
-      // where the plan version is new but exercises are still old is fine.
+      // Step 3: Consume credits atomically BEFORE the plan upsert. The
+      // Postgres fn locks the practice balance, appends a ledger row, and
+      // ties it to this plan in a single transaction. If it returns
+      // `{ok: false}` the publish aborts with no plan row mutated.
+      // ----------------------------------------------------------------
+      final consumeResult = await _supabase.rpc(
+        'consume_credit',
+        params: {
+          'practice_id': practiceId,
+          'plan_id': session.id,
+          'credits': creditsToCharge,
+        },
+      );
+
+      final consumeMap = consumeResult is Map
+          ? Map<String, dynamic>.from(consumeResult)
+          : const <String, dynamic>{};
+      final ok = consumeMap['ok'] == true;
+      if (!ok) {
+        final reportedBalance = consumeMap['balance'];
+        final int resolvedBalance = reportedBalance is int
+            ? reportedBalance
+            : (reportedBalance is num
+                ? reportedBalance.toInt()
+                : (balance ?? 0));
+        await _recordFailure(
+          session,
+          'consume_credit refused: have $resolvedBalance, need $creditsToCharge',
+        );
+        return PublishResult.insufficientCredits(
+          balance: resolvedBalance,
+          required: creditsToCharge,
+          practiceId: practiceId,
+        );
+      }
+      creditConsumed = true;
+
+      // ----------------------------------------------------------------
+      // Step 4: Upsert plan row FIRST so the exercises.plan_id foreign key
+      // is satisfied. Web-player reads are atomic via the get_plan_full
+      // RPC, so the brief window where the plan version is new but
+      // exercises are still old is fine.
       // ----------------------------------------------------------------
       final newVersion = session.version + 1;
-      final nonRestCount = session.exercises.where((e) => !e.isRest).length;
-      // Milestone A: every publish stamps the sentinel practice id. When auth
-      // lands (Milestone B) this resolves to the trainer's active practice.
-      final practiceId =
-          session.practiceId ?? AppConfig.sentinelPracticeId;
       await _supabase.from('plans').upsert({
         'id': session.id,
         'client_name': session.clientName,
@@ -207,7 +335,7 @@ class UploadService {
       });
 
       // ----------------------------------------------------------------
-      // Step 4: Insert new exercise rows (batched). FK is now satisfied.
+      // Step 5: Insert new exercise rows (batched). FK is now satisfied.
       // ----------------------------------------------------------------
       final exerciseRows = session.exercises
           .map((e) => {
@@ -234,8 +362,8 @@ class UploadService {
       }
 
       // ----------------------------------------------------------------
-      // Step 5: Delete OLD exercise rows for this plan that are not in the
-      // new id set. Rest-only sessions (empty exerciseRows) clear everything.
+      // Delete OLD exercise rows for this plan that are not in the new id
+      // set. Rest-only sessions (empty exerciseRows) clear everything.
       // ----------------------------------------------------------------
       final newIds = exerciseRows.map((r) => r['id'] as String).toList();
       var deleteQuery =
@@ -247,22 +375,13 @@ class UploadService {
       await deleteQuery;
 
       // ----------------------------------------------------------------
-      // Step 6 (Milestone A): append an audit row to `plan_issuances`.
-      // Records who published which plan-version at what size for what
-      // credit cost. NO ledger deduction yet — that lands in Milestone D
-      // together with the PayFast webhook. If this insert fails (e.g.
-      // schema_milestone_a.sql hasn't been run yet) we swallow the error:
-      // the publish itself already succeeded and the bio must not be
-      // blocked by an audit-table hiccup. Once the migration is applied
-      // everywhere this try/catch can be removed.
+      // Step 6: append an audit row to `plan_issuances`. Records who
+      // published which plan-version at what size for what credit cost.
+      // The ledger is already authoritative via consume_credit; this row
+      // exists for billing history / support queries. If the insert fails
+      // (e.g. schema migration not applied yet) we swallow — the ledger
+      // is consistent and the bio must not be blocked by an audit hiccup.
       // ----------------------------------------------------------------
-      final creditsCharged = creditCostFor(nonRestCount);
-      // Milestone B: prefer the authenticated user's uuid. The AuthGate
-      // guarantees a user is present past sign-in, but we null-guard to
-      // the sentinel trainer id as a belt-and-braces fallback so the
-      // audit row is never blank if auth has (somehow) lapsed.
-      final trainerId = _supabase.auth.currentUser?.id ??
-          AppConfig.sentinelTrainerId;
       try {
         await _supabase.from('plan_issuances').insert({
           'plan_id': session.id,
@@ -270,11 +389,11 @@ class UploadService {
           'trainer_id': trainerId,
           'version': newVersion,
           'exercise_count': nonRestCount,
-          'credits_charged': creditsCharged,
+          'credits_charged': creditsToCharge,
           'issued_at': DateTime.now().toIso8601String(),
         });
       } catch (_) {
-        // Audit write is best-effort for Milestone A. Do not fail the publish.
+        // Audit write is best-effort. Do not fail the publish.
       }
 
       // ----------------------------------------------------------------
@@ -294,14 +413,51 @@ class UploadService {
       return PublishResult.success(
         url: planUrl,
         version: newVersion,
-        creditsCharged: creditsCharged,
+        creditsCharged: creditsToCharge,
       );
     } catch (e) {
       // Media may be orphaned in storage, exercises may be half-written.
-      // Plan row version was NOT bumped, so readers still see the previous
-      // exercise set for this plan_id.
+      // If we already consumed credits, compensate with a refund row so
+      // the ledger stays balanced — otherwise the bio is charged for a
+      // plan that never published.
+      if (creditConsumed) {
+        await _refundCredits(
+          practiceId: practiceId,
+          planId: session.id,
+          credits: creditsToCharge,
+        );
+      }
       await _recordFailure(session, e.toString());
       return PublishResult.networkFailed(error: e);
+    }
+  }
+
+  /// Insert a compensating refund row into `credit_ledger` when a publish
+  /// fails AFTER [consumeCredit] has already deducted credits. Keeps the
+  /// ledger balanced without needing a server-side reversal.
+  ///
+  /// Milestone C's RLS allows practice members to INSERT into
+  /// `credit_ledger`; we rely on that here rather than another RPC. If the
+  /// refund itself fails, log and move on — the ledger may be temporarily
+  /// off by one publish's worth of credits, but support can reconcile via
+  /// the `plan_issuances` table.
+  Future<void> _refundCredits({
+    required String practiceId,
+    required String planId,
+    required int credits,
+  }) async {
+    try {
+      await _supabase.from('credit_ledger').insert({
+        'practice_id': practiceId,
+        'plan_id': planId,
+        'delta': credits,
+        'type': 'refund',
+        'notes': 'Publish failed after credit consumption',
+      });
+    } catch (_) {
+      // Best-effort — the publish already failed and we don't want to mask
+      // that error with a refund error. Support can reconcile manually
+      // using plan_issuances audit rows.
     }
   }
 

@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #0f1117;
+  color: #f0f0f5;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100%;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Montserrat', system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+/* Focus ring — brand coral, meets WCAG 2.1 AA for non-text contrast. */
+:focus-visible {
+  outline: 2px solid #ff6b35;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Buttons inherit focus ring; disable the default browser one. */
+button:focus {
+  outline: none;
+}
