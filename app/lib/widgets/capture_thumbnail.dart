@@ -12,10 +12,17 @@ class CaptureThumbnail extends StatelessWidget {
   final ExerciseCapture exercise;
   final double size;
 
+  /// When false, the conversion status overlay (spinner / checkmark /
+  /// warning) is suppressed. Used in the capture-mode peek box — Carl
+  /// found the perpetual spinner anxiety-inducing mid-session, so there
+  /// the thumbnail swaps silently from raw → converted instead.
+  final bool showConversionOverlay;
+
   const CaptureThumbnail({
     super.key,
     required this.exercise,
     this.size = 64,
+    this.showConversionOverlay = true,
   });
 
   @override
@@ -34,7 +41,7 @@ class CaptureThumbnail extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             _buildImage(cacheWidth),
-            _buildConversionOverlay(),
+            if (showConversionOverlay) _buildConversionOverlay(),
             _buildMediaTypeBadge(),
           ],
         ),
