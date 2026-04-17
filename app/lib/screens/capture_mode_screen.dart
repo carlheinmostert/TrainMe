@@ -13,7 +13,6 @@ import '../services/local_storage_service.dart';
 import '../services/path_resolver.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
-import '../widgets/shell_pull_tab.dart';
 
 /// In-session camera mode.
 ///
@@ -63,8 +62,44 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   bool _isCameraInitialized = false;
   FlashMode _flashMode = FlashMode.off;
 
+  // --- Zoom state ---
+  /// Physical zoom bounds of the active controller (in logical "x" terms:
+  /// 0.5x, 1x, 2x, etc.). Populated after initialization.
+  double _minZoom = 1.0;
+  double _maxZoom = 1.0;
+
+  /// Current logical zoom factor (1.0 = main wide lens).
+  double _currentZoom = 1.0;
+
+  /// Baseline zoom at the start of a pinch gesture — used so we scale
+  /// from the existing zoom, not always from 1.0.
+  double _pinchBaseZoom = 1.0;
+
+  /// Pre-computed list of lens-switch buttons the device supports. Built
+  /// once after the controller initializes (or after flip) so the build
+  /// method stays cheap. `1x` is always present; `0.5x / 2x / 3x` only
+  /// appear if the zoom range covers them.
+  List<double> _availableLenses = const [1.0];
+
   // --- Recording state ---
   bool _isRecording = false;
+
+  /// True between `onLongPressDown` firing and the long-press gesture
+  /// ending (end OR cancel OR pointer-up). Acts as a belt-and-braces
+  /// flag for the release-gesture fix: if the user lifts their finger
+  /// before `_startVideoRecording`'s async init finishes, we still
+  /// honour the release and stop as soon as recording has actually
+  /// started on the controller.
+  bool _longPressActive = false;
+
+  /// Set when the pointer goes up mid-start so the newly-started
+  /// recording immediately stops once the controller confirms the start.
+  bool _pendingStopAfterStart = false;
+
+  /// Guards against double-stop when both `onLongPressEnd` and the raw
+  /// `onPointerUp` Listener fire for the same release.
+  bool _stopInFlight = false;
+
   bool _wasRecordingOnBackground = false;
   Timer? _recordingTimer;
   int _recordingSeconds = 0;
@@ -132,6 +167,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       }
       setState(() {
         _isRecording = false;
+        _longPressActive = false;
+        _pendingStopAfterStart = false;
+        _stopInFlight = false;
         _recordingSeconds = 0;
         _isCameraInitialized = false;
       });
@@ -198,6 +236,28 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       } catch (_) {
         // Some simulators don't support flash; ignore silently.
       }
+
+      // Query zoom range once, up front, so _buildLensRow / pinch can
+      // operate without async calls in the build path.
+      double minZoom = 1.0;
+      double maxZoom = 1.0;
+      try {
+        minZoom = await controller.getMinZoomLevel();
+        maxZoom = await controller.getMaxZoomLevel();
+      } catch (_) {
+        // Some simulators throw — fall back to no-zoom.
+      }
+
+      // Reset to 1x on (re)attach. On iOS the multi-camera virtual
+      // device will auto-pick the matching physical lens under the hood
+      // when the user later changes zoom via pinch or lens pills.
+      try {
+        await controller
+            .setZoomLevel(1.0.clamp(minZoom, maxZoom).toDouble());
+      } catch (_) {
+        // Ignore — zoom not supported on this device.
+      }
+
       if (!mounted) {
         await controller.dispose();
         return;
@@ -205,6 +265,10 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       setState(() {
         _cameraController = controller;
         _isCameraInitialized = true;
+        _minZoom = minZoom;
+        _maxZoom = maxZoom;
+        _currentZoom = 1.0.clamp(minZoom, maxZoom).toDouble();
+        _availableLenses = _buildLensListForRange(minZoom, maxZoom);
       });
     } catch (e) {
       debugPrint('Camera init failed: $e');
@@ -215,6 +279,24 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         widget.onExitToStudio();
       }
     }
+  }
+
+  /// Build the lens-switch button list from the zoom range the active
+  /// controller reports. `1x` is always present (main wide). The rest
+  /// are included only if they fall within [min, max].
+  List<double> _buildLensListForRange(double minZoom, double maxZoom) {
+    const candidates = [0.5, 1.0, 2.0, 3.0];
+    final lenses = <double>[];
+    for (final c in candidates) {
+      if (c == 1.0) {
+        lenses.add(c);
+        continue;
+      }
+      if (c >= minZoom && c <= maxZoom) {
+        lenses.add(c);
+      }
+    }
+    return lenses;
   }
 
   Future<void> _flipCamera() async {
@@ -250,6 +332,38 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   }
 
   // ---------------------------------------------------------------------------
+  // Zoom / lens switching
+  // ---------------------------------------------------------------------------
+
+  /// Apply a logical zoom factor (clamped to the device's zoom range)
+  /// and update state. Setting a value that corresponds to a different
+  /// physical lens triggers iOS's virtual multi-camera device to switch
+  /// under the hood, so this is both "physical lens switch" and "digital
+  /// zoom" — same API, handled by the OS.
+  Future<void> _applyZoom(double requested) async {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    final clamped = requested.clamp(_minZoom, _maxZoom).toDouble();
+    try {
+      await controller.setZoomLevel(clamped);
+      if (!mounted) return;
+      setState(() => _currentZoom = clamped);
+    } catch (e) {
+      debugPrint('setZoomLevel($clamped) failed: $e');
+    }
+  }
+
+  void _onPinchStart(ScaleStartDetails _) {
+    _pinchBaseZoom = _currentZoom;
+  }
+
+  void _onPinchUpdate(ScaleUpdateDetails details) {
+    // Scale relative to the zoom we had when the pinch began.
+    final target = _pinchBaseZoom * details.scale;
+    _applyZoom(target);
+  }
+
+  // ---------------------------------------------------------------------------
   // Capture
   // ---------------------------------------------------------------------------
 
@@ -273,6 +387,31 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
   }
 
+  /// Called when the user's finger touches down on the shutter for a
+  /// potential long-press.
+  void _onShutterPressDown() {
+    if (_isRecording) return;
+    _longPressActive = true;
+    _pendingStopAfterStart = false;
+  }
+
+  /// Called on both `onLongPressEnd` (normal release) and the raw
+  /// pointer-up / cancel safety net. Idempotent — the first call does
+  /// the stop, subsequent calls for the same release are no-ops.
+  void _onShutterReleased() {
+    if (!_longPressActive && !_isRecording) return;
+    _longPressActive = false;
+    if (_isRecording && !_stopInFlight) {
+      _stopInFlight = true;
+      _stopVideoRecording();
+    } else if (!_isRecording) {
+      // The user released before the async start completed — flag it
+      // so the start handler can immediately stop as soon as the
+      // controller confirms it started.
+      _pendingStopAfterStart = true;
+    }
+  }
+
   Future<void> _startVideoRecording() async {
     if (_cameraController == null ||
         !_cameraController!.value.isInitialized ||
@@ -280,13 +419,27 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       return;
     }
 
+    // Fire the haptic BEFORE the await so the bio feels the press
+    // immediately, even if the controller takes a moment to actually
+    // start writing. Use heavy impact — Carl reported feeling nothing
+    // with medium on his device.
+    HapticFeedback.heavyImpact();
+
     try {
       await _cameraController!.startVideoRecording();
-      HapticFeedback.mediumImpact();
+      if (!mounted) return;
       setState(() {
         _isRecording = true;
         _recordingSeconds = 0;
       });
+
+      // If the user already released during the async start, honour
+      // that release now.
+      if (_pendingStopAfterStart) {
+        _pendingStopAfterStart = false;
+        await _stopVideoRecording();
+        return;
+      }
 
       _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         if (!mounted) {
@@ -302,23 +455,48 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       });
     } catch (e) {
       debugPrint('Video recording start failed: $e');
+      _pendingStopAfterStart = false;
     }
   }
 
   Future<void> _stopVideoRecording({bool autoStopped = false}) async {
-    if (_cameraController == null ||
-        !_cameraController!.value.isInitialized ||
-        !_isRecording) {
-      setState(() {
-        _isRecording = false;
-        _recordingSeconds = 0;
-      });
+    // Belt-and-braces: _onShutterReleased also guards, but the
+    // auto-stop timer path doesn't go through there.
+    _stopInFlight = true;
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) {
+      _stopInFlight = false;
+      if (mounted) {
+        setState(() {
+          _isRecording = false;
+          _recordingSeconds = 0;
+        });
+      }
       return;
     }
+
+    // Defer to the underlying controller's own recording state, not
+    // just our `_isRecording` flag. This closes a race where
+    // `onLongPressEnd` can fire after the controller has started
+    // writing but before our setState has landed.
+    final controllerRecording = controller.value.isRecordingVideo;
+    if (!_isRecording && !controllerRecording) {
+      _stopInFlight = false;
+      if (mounted) {
+        setState(() {
+          _isRecording = false;
+          _recordingSeconds = 0;
+        });
+      }
+      return;
+    }
+
     _recordingTimer?.cancel();
 
     try {
-      final xFile = await _cameraController!.stopVideoRecording();
+      final xFile = await controller.stopVideoRecording();
+      _stopInFlight = false;
+      if (!mounted) return;
       setState(() {
         _isRecording = false;
         _recordingSeconds = 0;
@@ -342,10 +520,13 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       }
     } catch (e) {
       debugPrint('Video recording stop failed: $e');
-      setState(() {
-        _isRecording = false;
-        _recordingSeconds = 0;
-      });
+      _stopInFlight = false;
+      if (mounted) {
+        setState(() {
+          _isRecording = false;
+          _recordingSeconds = 0;
+        });
+      }
       // Silent: the count simply doesn't go up.
     }
   }
@@ -463,21 +644,29 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           ),
 
           // Left-edge pull-tab back to Studio
-          Positioned.fill(
-            child: ShellPullTab(
-              side: ShellPullTabSide.left,
-              onActivate: widget.onExitToStudio,
-            ),
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: Center(child: _buildPullTab()),
           ),
 
-          // Shutter — bottom centre
+          // Shutter + lens-switch row — bottom centre. The lens row sits
+          // ABOVE the shutter (inside the same SafeArea) so the two
+          // bottom controls stay grouped.
           Positioned(
             bottom: 0,
             left: 0,
             right: 0,
             child: SafeArea(
               top: false,
-              child: _buildShutter(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildLensRow(),
+                  _buildShutter(),
+                ],
+              ),
             ),
           ),
         ],
@@ -500,11 +689,20 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       );
     }
 
-    return ClipRect(
-      child: OverflowBox(
-        alignment: Alignment.center,
+    // Pinch-to-zoom lives on the preview itself so the whole viewfinder
+    // is a zoom surface — but we keep shutter / peek / top controls
+    // outside this GestureDetector so they retain their own hit-testing.
+    //
+    // BoxFit.contain with black letterboxing shows the full sensor
+    // frame. Carl's "zoomed in" report was the previous BoxFit.cover
+    // cropping the long edge of the frame.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onScaleStart: _onPinchStart,
+      onScaleUpdate: _onPinchUpdate,
+      child: ClipRect(
         child: FittedBox(
-          fit: BoxFit.cover,
+          fit: BoxFit.contain,
           child: SizedBox(
             width: _cameraController!.value.previewSize?.height ?? 0,
             height: _cameraController!.value.previewSize?.width ?? 0,
@@ -723,17 +921,145 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     );
   }
 
-  Widget _buildShutter() {
+  /// Subtle left-edge pull-tab that hints Studio is one swipe right.
+  ///
+  /// Sits just above the peek box at mid-screen, far enough below to
+  /// not overlap. Tappable for discoverability.
+  Widget _buildPullTab() {
+    return IgnorePointer(
+      // Only the visual pill is shown here; GestureDetector on the
+      // actual pill handles the tap. Keep the parent non-intercepting
+      // so camera preview taps pass through outside the pill.
+      ignoring: false,
+      child: Align(
+        alignment: const Alignment(-1.0, -0.55),
+        child: GestureDetector(
+          onTap: widget.onExitToStudio,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            width: 6,
+            height: 64,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.65),
+              borderRadius: const BorderRadius.only(
+                topRight: Radius.circular(6),
+                bottomRight: Radius.circular(6),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 4,
+                  offset: const Offset(1, 0),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Small horizontal row of lens-switch pills, positioned ABOVE the
+  /// shutter (not overlapping it). Only rear-lens selection — the flip
+  /// (front/back) button stays in the top bar.
+  ///
+  /// Hidden when the back camera has no optical variety (just a single
+  /// wide lens) or while recording (mid-clip lens switch causes visible
+  /// jumps in the output).
+  Widget _buildLensRow() {
+    final isBack = _cameras.isNotEmpty &&
+        _activeCameraIndex < _cameras.length &&
+        _cameras[_activeCameraIndex].lensDirection ==
+            CameraLensDirection.back;
+    if (!isBack || _availableLenses.length <= 1 || _isRecording) {
+      return const SizedBox(height: 8);
+    }
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 24, top: 16),
+      padding: const EdgeInsets.only(bottom: 12, top: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          GestureDetector(
-            onTap: _isRecording ? null : _capturePhoto,
-            onLongPressStart: (_) => _startVideoRecording(),
-            onLongPressEnd: (_) => _stopVideoRecording(),
-            child: _buildShutterButton(),
+          for (final lens in _availableLenses)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: _buildLensPill(lens),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLensPill(double lens) {
+    // "Active" when current zoom is within ~15% of this lens value.
+    // Keeps the highlight sensible as the user pinches smoothly across
+    // the range — we don't want every pixel of pinch clearing the
+    // highlight.
+    final active = (_currentZoom - lens).abs() <= lens * 0.15;
+    final bg = active ? AppColors.primary : Colors.black45;
+    final fg = active ? Colors.white : Colors.white70;
+    final label = lens == lens.roundToDouble()
+        ? '${lens.toInt()}x'
+        : '${lens.toStringAsFixed(1).replaceAll(RegExp(r'\.?0+$'), '')}x';
+
+    return Material(
+      color: bg,
+      shape: const StadiumBorder(),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: () => _applyZoom(lens),
+        child: Padding(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: fg,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShutter() {
+    // Layered gesture handling — this is the fix for Carl's
+    // release-gesture bug:
+    //
+    //  * `Listener` catches raw pointer up / cancel events. If the
+    //    GestureDetector's long-press recognizer cedes to another
+    //    recognizer in the arena (e.g. an accidental scale gesture
+    //    from finger jitter) the pointer events still fire — so we'll
+    //    still stop the recording on finger-up.
+    //  * `GestureDetector` handles the semantic tap / long-press on
+    //    top of that.
+    //
+    // `HitTestBehavior.opaque` on both ensures the full 84x84 bounding
+    // box receives pointer events — the previous `deferToChild`
+    // (default) meant transparent corners around the circular button
+    // dropped touches, which is the most likely cause of releases
+    // being missed on-device.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24, top: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerUp: (_) => _onShutterReleased(),
+            onPointerCancel: (_) => _onShutterReleased(),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _isRecording ? null : _capturePhoto,
+              onLongPressDown: (_) => _onShutterPressDown(),
+              onLongPressStart: (_) => _startVideoRecording(),
+              onLongPressEnd: (_) => _onShutterReleased(),
+              onLongPressCancel: _onShutterReleased,
+              child: _buildShutterButton(),
+            ),
           ),
         ],
       ),
