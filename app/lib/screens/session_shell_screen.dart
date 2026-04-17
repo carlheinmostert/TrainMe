@@ -83,28 +83,43 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.darkBg,
-      // Allow camera mode to draw behind safe areas; each mode handles its
-      // own SafeArea where needed.
-      body: PageView(
-        controller: _pageController,
-        onPageChanged: (_) {},
-        physics: const ClampingScrollPhysics(),
-        children: [
-          StudioModeScreen(
-            session: _session,
-            storage: widget.storage,
-            onSessionChanged: (s) => setState(() => _session = s),
-            onOpenCapture: _goToCapture,
-          ),
-          CaptureModeScreen(
-            session: _session,
-            storage: widget.storage,
-            onCapturesChanged: _refreshSession,
-            onExitToStudio: _goToStudio,
-          ),
-        ],
+    // PopScope with canPop:false disables iOS's edge-swipe-to-pop gesture at
+    // the route level. Without this, swiping right while on the Capture page
+    // (index 1) races the shell's PageView: iOS wins at the screen edge and
+    // pops the whole shell back to Home instead of paging to Studio.
+    //
+    // The Exit button in Capture mode's top corner still works — it calls
+    // Navigator.of(context).pop() explicitly, which bypasses canPop.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        // Intentionally empty: we swallow implicit pop attempts (iOS edge
+        // swipe, Android back gesture) so the PageView owns horizontal nav.
+        // Explicit Navigator.pop() from the Exit button still routes home.
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.darkBg,
+        // Allow camera mode to draw behind safe areas; each mode handles its
+        // own SafeArea where needed.
+        body: PageView(
+          controller: _pageController,
+          onPageChanged: (_) {},
+          physics: const ClampingScrollPhysics(),
+          children: [
+            StudioModeScreen(
+              session: _session,
+              storage: widget.storage,
+              onSessionChanged: (s) => setState(() => _session = s),
+              onOpenCapture: _goToCapture,
+            ),
+            CaptureModeScreen(
+              session: _session,
+              storage: widget.storage,
+              onCapturesChanged: _refreshSession,
+              onExitToStudio: _goToStudio,
+            ),
+          ],
+        ),
       ),
     );
   }
