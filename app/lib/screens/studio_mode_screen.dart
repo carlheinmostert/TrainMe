@@ -158,94 +158,36 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Import from library
+  // Import from library (multi-select)
   // ---------------------------------------------------------------------------
 
-  Future<void> _importPhoto() async {
+  static const _videoExtensions = {
+    '.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm', '.3gp', '.hevc'
+  };
+
+  MediaType _detectMediaType(String path) {
+    final ext = p.extension(path).toLowerCase();
+    return _videoExtensions.contains(ext) ? MediaType.video : MediaType.photo;
+  }
+
+  Future<void> _importFromLibrary() async {
     try {
-      final picked = await _picker.pickImage(source: ImageSource.gallery);
-      if (picked == null) return;
-      await _addCaptureFromFile(picked.path, MediaType.photo);
+      final picked = await _picker.pickMultipleMedia();
+      if (picked.isEmpty) return;
+
+      // Sequential: file copy + save + queue per asset, in picker order.
+      for (final xfile in picked) {
+        final type = _detectMediaType(xfile.path);
+        await _addCaptureFromFile(xfile.path, type);
+      }
     } catch (e) {
-      debugPrint('Photo import failed: $e');
+      debugPrint('Library import failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Import failed: $e')),
         );
       }
     }
-  }
-
-  Future<void> _importVideo() async {
-    try {
-      final picked = await _picker.pickVideo(source: ImageSource.gallery);
-      if (picked == null) return;
-      await _addCaptureFromFile(picked.path, MediaType.video);
-    } catch (e) {
-      debugPrint('Video import failed: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: $e')),
-        );
-      }
-    }
-  }
-
-  void _showImportOptions() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.darkSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  'Import from Library',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textOnDark,
-                  ),
-                ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_outlined,
-                    color: AppColors.textSecondaryOnDark),
-                title: const Text('Photo',
-                    style: TextStyle(color: AppColors.textOnDark)),
-                subtitle: const Text('Import a still image',
-                    style:
-                        TextStyle(color: AppColors.textSecondaryOnDark)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _importPhoto();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.videocam_outlined,
-                    color: AppColors.textSecondaryOnDark),
-                title: const Text('Video',
-                    style: TextStyle(color: AppColors.textOnDark)),
-                subtitle: const Text('Import a video clip',
-                    style:
-                        TextStyle(color: AppColors.textSecondaryOnDark)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _importVideo();
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   Future<void> _addCaptureFromFile(String sourcePath, MediaType type) async {
@@ -268,11 +210,13 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
 
     await widget.storage.saveExercise(exercise);
 
-    setState(() {
-      _pushSession(_session.copyWith(
-        exercises: [..._session.exercises, exercise],
-      ));
-    });
+    if (mounted) {
+      setState(() {
+        _pushSession(_session.copyWith(
+          exercises: [..._session.exercises, exercise],
+        ));
+      });
+    }
 
     _conversionService.queueConversion(exercise);
     _autoInsertRestPeriods();
@@ -656,9 +600,10 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         foregroundColor: AppColors.textOnDark,
         elevation: 0,
         actions: [
-          // Import-from-library — lives in studio because it's prep work
+          // Import-from-library — multi-select. Lives in studio because
+          // it's prep work (capture happens in Camera mode).
           IconButton(
-            onPressed: _showImportOptions,
+            onPressed: _importFromLibrary,
             icon: const Icon(Icons.photo_library_outlined),
             tooltip: 'Add from library',
           ),
@@ -698,8 +643,8 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
           Expanded(
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _buildAddExerciseCard(),
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: _buildEmptyState(),
               ),
             ),
           ),
@@ -710,81 +655,30 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     return _buildExerciseList();
   }
 
-  /// Wireframe "Add Exercise" card — dashed-look placeholder card. The
-  /// Camera button here swipes to Capture mode; Library lives in the
-  /// app-bar action.
-  Widget _buildAddExerciseCard() {
-    final totalDuration = _session.estimatedTotalDurationSeconds;
-
+  /// Empty-state hint. Studio is edit-only — capture happens in Camera
+  /// mode (swipe right or use the pull-tab) and existing media comes in
+  /// via the library icon in the app bar.
+  Widget _buildEmptyState() {
     return Column(
       mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_session.exercises.isNotEmpty && totalDuration > 0)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(
-              'Estimated: ${formatDuration(totalDuration)}',
-              style: const TextStyle(fontSize: 12, color: AppColors.grey500),
-            ),
+      children: const [
+        Icon(Icons.drive_file_rename_outline,
+            size: 48, color: AppColors.grey500),
+        SizedBox(height: 12),
+        Text(
+          'No exercises yet',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textOnDark,
           ),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-          decoration: BoxDecoration(
-            color: AppColors.darkSurfaceVariant,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.darkBorder, width: 1.5),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _showImportOptions,
-                      icon: const Icon(Icons.photo_library_outlined, size: 20),
-                      label: const Text('Import'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.textSecondaryOnDark,
-                        side: const BorderSide(color: AppColors.darkBorder),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: widget.onOpenCapture,
-                      icon: const Icon(Icons.videocam_outlined, size: 20),
-                      label: const Text('Capture'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                _session.exercises.isEmpty
-                    ? 'Tap Capture to start recording exercises'
-                    : 'Add an exercise',
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppColors.grey500,
-                ),
-              ),
-            ],
-          ),
+        ),
+        SizedBox(height: 6),
+        Text(
+          'Swipe right for Camera, or tap the library icon above to import.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 13, color: AppColors.grey500),
         ),
       ],
     );
@@ -792,6 +686,7 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
 
   Widget _buildExerciseList() {
     final exercises = _session.exercises;
+    final totalDuration = _session.estimatedTotalDurationSeconds;
     return CustomScrollView(
       slivers: [
         SliverReorderableList(
@@ -799,12 +694,18 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
           onReorder: _onReorder,
           itemBuilder: _buildExerciseItem,
         ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          sliver: SliverToBoxAdapter(
-            child: _buildAddExerciseCard(),
+        if (totalDuration > 0)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            sliver: SliverToBoxAdapter(
+              child: Text(
+                'Estimated: ${formatDuration(totalDuration)}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.grey500),
+              ),
+            ),
           ),
-        ),
         const SliverToBoxAdapter(
           child: PoweredByFooter(),
         ),
