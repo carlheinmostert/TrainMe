@@ -68,14 +68,29 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   late TextEditingController _nameController;
   final FocusNode _nameFocusNode = FocusNode();
 
+  // --- Inverted display (Option B) ---
+  // Carl's one-handed-use requirement: newest exercise should sit at the
+  // BOTTOM of the viewport (near the thumb). Data stays in ascending
+  // position order (1..N). We simply auto-scroll to the end of the list
+  // on screen open and whenever a new exercise is appended. Drag-reorder,
+  // circuit borders, between-card buttons, and rest-period placement all
+  // keep their existing index-based semantics — no index translation.
+  final ScrollController _scrollController = ScrollController();
+  int _lastExerciseCount = 0;
+
   @override
   void initState() {
     super.initState();
     _session = widget.session;
+    _lastExerciseCount = _session.exercises.length;
     _nameController = TextEditingController(text: _session.clientName);
     _nameFocusNode.addListener(_onNameFocusChange);
     _conversionService = ConversionService.instance;
     _listenToConversions();
+    // First frame: jump to the newest exercise (bottom of the list).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToNewest(animated: false);
+    });
   }
 
   @override
@@ -91,15 +106,42 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         }
       });
     }
+    // If the exercise list just grew (e.g. camera mode added a capture
+    // and pushed a refreshed session down), slide the newest card into
+    // view at the bottom.
+    final currentCount = _session.exercises.length;
+    if (currentCount > _lastExerciseCount) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToNewest(animated: true);
+      });
+    }
+    _lastExerciseCount = currentCount;
   }
 
   @override
   void dispose() {
     _conversionSub?.cancel();
+    _scrollController.dispose();
     _nameController.dispose();
     _nameFocusNode.removeListener(_onNameFocusChange);
     _nameFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Scrolls the exercise list so the newest exercise (highest position)
+  /// sits at the bottom of the viewport — the thumb-reachable zone.
+  void _scrollToNewest({required bool animated}) {
+    if (!_scrollController.hasClients) return;
+    final maxExtent = _scrollController.position.maxScrollExtent;
+    if (animated) {
+      _scrollController.animateTo(
+        maxExtent,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOut,
+      );
+    } else {
+      _scrollController.jumpTo(maxExtent);
+    }
   }
 
   void _onNameFocusChange() {
@@ -215,6 +257,11 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         _pushSession(_session.copyWith(
           exercises: [..._session.exercises, exercise],
         ));
+        _lastExerciseCount = _session.exercises.length;
+      });
+      // Keep the newest import visible at the bottom (thumb zone).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToNewest(animated: true);
       });
     }
 
@@ -688,6 +735,7 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     final exercises = _session.exercises;
     final totalDuration = _session.estimatedTotalDurationSeconds;
     return CustomScrollView(
+      controller: _scrollController,
       slivers: [
         SliverReorderableList(
           itemCount: exercises.length,
