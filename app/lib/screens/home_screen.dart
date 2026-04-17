@@ -327,7 +327,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
         ),
 
-        // Powered by homefit.studio footer
         const PoweredByFooter(),
       ],
     );

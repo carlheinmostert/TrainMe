@@ -53,7 +53,7 @@ class PoweredByFooter extends StatelessWidget {
 /// Pulse Mark — heartbeat line tracing a house roof silhouette.
 class _PulseMarkPainter extends CustomPainter {
   final Color color;
-  _PulseMarkPainter({this.color = const Color(0xFFFF6B35)});
+  _PulseMarkPainter({this.color = AppColors.primary});
 
   @override
   void paint(Canvas canvas, Size size) {

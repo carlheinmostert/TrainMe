@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import '../theme.dart';
 
 /// Returns true when a video exercise's converted output is a still image
 /// (i.e. the fallback frame-extraction path produced a .jpg/.png instead
@@ -673,12 +674,12 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFFFF6B35), Color(0xFFE85A24)],
+                colors: [AppColors.primary, AppColors.primaryDark],
               ),
               borderRadius: BorderRadius.circular(32),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFFF6B35).withValues(alpha: 0.4),
+                  color: AppColors.primary.withValues(alpha: 0.4),
                   blurRadius: 16,
                   offset: const Offset(0, 4),
                 ),
@@ -779,7 +780,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
           : 0.0;
       // Use the brand accent for prep so it reads as "get ready" rather
       // than the green→red of an in-progress exercise timer.
-      color = const Color(0xFFFF6B35);
+      color = AppColors.primary;
       label = '$_prepRemainingSeconds';
       actionIcon = Icons.play_arrow_rounded;
     } else {
@@ -937,7 +938,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
               const Icon(
                 Icons.check_circle_outline_rounded,
                 size: 80,
-                color: Color(0xFFFF6B35),
+                color: AppColors.primary,
               ),
               const SizedBox(height: 24),
               const Text(
@@ -966,7 +967,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                       const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFFFF6B35), Color(0xFFE85A24)],
+                      colors: [AppColors.primary, AppColors.primaryDark],
                     ),
                     borderRadius: BorderRadius.circular(28),
                   ),
@@ -1079,7 +1080,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                 child: Container(
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Colors.white, Color(0xFFFF6B35)], // white → orange
+                      colors: [Colors.white, AppColors.primary], // white → orange
                     ),
                     borderRadius: BorderRadius.circular(2),
                   ),
@@ -1380,7 +1381,7 @@ class _ExercisePageState extends State<_ExercisePage> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFFF6B35).withValues(alpha: 0.75),
+        color: AppColors.primary.withValues(alpha: 0.75),
       ),
       child: Row(
         children: [

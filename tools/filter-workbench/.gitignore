@@ -1,0 +1,11 @@
+# Local working files — not checked in.
+samples/
+out/
+
+# Keep the placeholder so the folders exist for new checkouts.
+!samples/.gitkeep
+!out/.gitkeep
+
+# Python bytecode
+__pycache__/
+*.pyc

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
 import '../config.dart';
+import '../utils/duration_format.dart';
 import 'exercise_capture.dart';
 
 /// A capture session — one bio + one client sitting.
@@ -267,12 +268,8 @@ class Session {
 }
 
 /// Format a duration in seconds into a human-readable string.
-String formatDuration(int totalSeconds) {
-  if (totalSeconds < 60) return '${totalSeconds}s';
-  final minutes = totalSeconds ~/ 60;
-  if (minutes < 60) return '$minutes min';
-  final hours = minutes ~/ 60;
-  final remainingMinutes = minutes % 60;
-  if (remainingMinutes == 0) return '${hours}h';
-  return '${hours}h ${remainingMinutes}min';
-}
+///
+/// Thin wrapper that defaults to the verbose style ("Ns" / "N min" /
+/// "Nh Nmin"). Call [formatDurationStyled] directly for other styles.
+String formatDuration(int totalSeconds) =>
+    formatDurationStyled(totalSeconds, style: DurationFormatStyle.verbose);

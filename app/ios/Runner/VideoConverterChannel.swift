@@ -2,6 +2,8 @@ import Flutter
 import UIKit
 import AVFoundation
 import Accelerate
+import Vision
+import CoreVideo
 
 /// Native iOS platform channel for video-to-line-drawing conversion.
 ///
@@ -357,6 +359,14 @@ class VideoConverterChannel {
             contrastLow: contrastLow
         )
 
+        // Pre-allocate the person segmenter (iOS 15+). Returns nil on older iOS
+        // and the pipeline falls through to unmasked output. Pooled across frames
+        // so VNSequenceRequestHandler and the upscale destination are reused.
+        var segmenter: Any? = nil
+        if #available(iOS 15.0, *) {
+            segmenter = PersonSegmenter(width: videoWidth, height: videoHeight)
+        }
+
         var framesProcessed = 0
         var lastProgressReport = 0
 
@@ -407,8 +417,18 @@ class VideoConverterChannel {
                     return
                 }
 
+                // Generate person segmentation mask (iOS 15+). If segmentation
+                // fails or is unavailable, maskPtr stays nil and the processor
+                // falls through to an unmasked line drawing.
+                var maskPtr: UnsafePointer<UInt8>? = nil
+                if #available(iOS 15.0, *), let seg = segmenter as? PersonSegmenter {
+                    maskPtr = seg.generateMask(for: pixelBuffer)
+                }
+
                 // Process the frame into a line drawing, writing into outBuffer.
-                guard processor.processFrame(pixelBuffer, into: outBuffer) else {
+                // When maskPtr != nil the processor erases (forces to white) any
+                // pixel whose mask value is below 128 — the background.
+                guard processor.processFrame(pixelBuffer, mask: maskPtr, into: outBuffer) else {
                     return
                 }
 
@@ -685,7 +705,15 @@ class VideoConverterChannel {
                 }
                 return
             }
-            let uiImage = UIImage(cgImage: cgImage)
+            // Apply person segmentation to the thumbnail (iOS 15+). If it
+            // fails or is unavailable, fall through to the un-masked image.
+            var finalImage: CGImage = cgImage
+            if #available(iOS 15.0, *) {
+                if let masked = Self.applySegmentationToThumbnail(cgImage: cgImage) {
+                    finalImage = masked
+                }
+            }
+            let uiImage = UIImage(cgImage: finalImage)
             guard let jpegData = uiImage.jpegData(compressionQuality: 0.85) else {
                 DispatchQueue.main.async {
                     result(FlutterError(
@@ -735,6 +763,142 @@ class VideoConverterChannel {
             }
         }
     }
+
+    // MARK: - Thumbnail Segmentation Helper
+
+    /// Run person segmentation on a single still image and return a new
+    /// CGImage with the background erased to white. Returns nil on any
+    /// failure — callers should fall through to the un-masked source image.
+    ///
+    /// Used by both the VideoConverterChannel thumbnail path and the
+    /// AppDelegate native_thumb channel, so both surfaces get body-only
+    /// previews that match the video look.
+    @available(iOS 15.0, *)
+    static func applySegmentationToThumbnail(cgImage: CGImage) -> CGImage? {
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0 else { return nil }
+
+        // --- Render the CGImage into a BGRA CVPixelBuffer so Vision can eat it. ---
+        let attrs: [CFString: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+        ]
+        var pixelBufferOut: CVPixelBuffer?
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            attrs as CFDictionary,
+            &pixelBufferOut
+        )
+        guard status == kCVReturnSuccess, let pixelBuffer = pixelBufferOut else {
+            NSLog("applySegmentationToThumbnail: CVPixelBufferCreate failed (\(status))")
+            return nil
+        }
+
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
+
+        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        // BGRA = little-endian 32 with premultiplied first-byte alpha.
+        let bitmapInfo: UInt32 =
+            CGBitmapInfo.byteOrder32Little.rawValue |
+            CGImageAlphaInfo.premultipliedFirst.rawValue
+
+        guard let ctx = CGContext(
+            data: base,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            NSLog("applySegmentationToThumbnail: CGContext init failed")
+            return nil
+        }
+
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        // --- Segment ---
+        let segmenter = PersonSegmenter(width: width, height: height)
+        guard let maskPtr = segmenter.generateMaskOneShot(for: pixelBuffer) else {
+            // No person / error — just return original, caller falls through.
+            return nil
+        }
+
+        // --- Two-zone blend (matches the video pipeline in `applyMaskedDim`).
+        // Soften the mask with a 5x5 tent convolution so the body/background
+        // boundary isn't a hard cutout, then lerp each colour channel between
+        // a dimmed copy of the source pixel (background) and the source pixel
+        // itself (body). dim(v) = 255 - (255 - v) * 0.35 keeps white paper
+        // white and drops black lines to ~90 (dark-grey ghost).
+        let maskByteCount = width * height
+        let blurredMaskData = UnsafeMutableRawPointer.allocate(byteCount: maskByteCount, alignment: 16)
+        defer { blurredMaskData.deallocate() }
+
+        var srcMaskBuffer = vImage_Buffer(
+            data: UnsafeMutableRawPointer(mutating: maskPtr),
+            height: vImagePixelCount(height),
+            width: vImagePixelCount(width),
+            rowBytes: width
+        )
+        var blurredMaskBuffer = vImage_Buffer(
+            data: blurredMaskData,
+            height: vImagePixelCount(height),
+            width: vImagePixelCount(width),
+            rowBytes: width
+        )
+        let tentErr = vImageTentConvolve_Planar8(
+            &srcMaskBuffer,
+            &blurredMaskBuffer,
+            nil,
+            0, 0,
+            5, 5,
+            0,
+            vImage_Flags(kvImageEdgeExtend)
+        )
+        let softMaskPtr: UnsafePointer<UInt8>
+        if tentErr == kvImageNoError {
+            softMaskPtr = UnsafePointer(blurredMaskData.assumingMemoryBound(to: UInt8.self))
+        } else {
+            softMaskPtr = maskPtr
+        }
+
+        // Precompute the dim LUT once.
+        var dimLUT = [UInt8](repeating: 0, count: 256)
+        for v in 0...255 {
+            let dimmed = 255.0 - (255.0 - Double(v)) * 0.35
+            dimLUT[v] = UInt8(max(0, min(255, Int(dimmed.rounded()))))
+        }
+
+        let dstPtr = base.assumingMemoryBound(to: UInt8.self)
+        dimLUT.withUnsafeBufferPointer { lutBuf in
+            guard let lut = lutBuf.baseAddress else { return }
+            for y in 0..<height {
+                let rowStart = y * bytesPerRow
+                let maskRowStart = y * width
+                for x in 0..<width {
+                    let w = Int(softMaskPtr[maskRowStart + x])
+                    let inv = 255 - w
+                    let p = rowStart + x * 4
+                    // B, G, R are blended; A is left at source.
+                    for c in 0..<3 {
+                        let src = Int(dstPtr[p + c])
+                        let dim = Int(lut[src])
+                        let blended = (dim * inv + src * w + 127) / 255
+                        dstPtr[p + c] = UInt8(blended)
+                    }
+                }
+            }
+        }
+
+        return ctx.makeImage()
+    }
 }
 
 // MARK: - Line Drawing Processor
@@ -763,6 +927,12 @@ private class LineDrawingProcessor {
     // Pre-allocated planar alpha plane (all 255) used by the gray->BGRA
     // conversion at the end of processFrame.
     private var alphaPlaneBuffer: vImage_Buffer
+
+    // Pre-allocated scratch for the softened person-segmentation mask. We
+    // tent-convolve the raw mask into this buffer once per frame before using
+    // it as a lerp weight between dimmed-background and full-strength-body
+    // pixels. Pre-allocated so we never allocate per frame.
+    private var blurredMaskBuffer: vImage_Buffer
 
     init(width: Int, height: Int, blurKernel: Int, thresholdBlock: Int, contrastLow: Int) {
         self.width = width
@@ -834,6 +1004,14 @@ private class LineDrawingProcessor {
             width: vImagePixelCount(width),
             rowBytes: rowBytes
         )
+
+        // Scratch for the softened mask. Allocated once and reused.
+        blurredMaskBuffer = vImage_Buffer(
+            data: UnsafeMutableRawPointer.allocate(byteCount: dataSize, alignment: 16),
+            height: vImagePixelCount(height),
+            width: vImagePixelCount(width),
+            rowBytes: rowBytes
+        )
     }
 
     deinit {
@@ -846,12 +1024,20 @@ private class LineDrawingProcessor {
         combinedBuffer.data.deallocate()
         outputGrayBuffer.data.deallocate()
         alphaPlaneBuffer.data.deallocate()
+        blurredMaskBuffer.data.deallocate()
     }
 
     /// Process a single BGRA pixel buffer into a line drawing, writing the
     /// result into the supplied output pixel buffer (which is expected to be
     /// BGRA at the same dimensions). Returns true on success.
-    func processFrame(_ inputBuffer: CVPixelBuffer, into outBuffer: CVPixelBuffer) -> Bool {
+    ///
+    /// When `mask` is supplied, it must be a Planar8 buffer of width*height
+    /// bytes (0 = background, 255 = person). The mask is softened with a
+    /// tent convolution and then used as a lerp weight between a DIMMED copy
+    /// of the sketch (background) and the full-strength sketch (body), so
+    /// both body and equipment show but the body visibly pops. See
+    /// `applyMaskedDim` for the exact blend math.
+    func processFrame(_ inputBuffer: CVPixelBuffer, mask: UnsafePointer<UInt8>? = nil, into outBuffer: CVPixelBuffer) -> Bool {
         CVPixelBufferLockBaseAddress(inputBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(inputBuffer, .readOnly) }
 
@@ -940,6 +1126,16 @@ private class LineDrawingProcessor {
         // --- Step 5: Contrast boost ---
         // output = clamp((input - contrastLow) * 255 / (255 - contrastLow), 0, 255)
         contrastBoost(src: &combinedBuffer, dst: &outputGrayBuffer, low: contrastLow)
+
+        // --- Step 5.5: Apply person segmentation mask (optional) ---
+        // Two-zone blend: body pixels render at full strength, background
+        // pixels render a dimmed version of the SAME sketch so equipment
+        // (leg press, dumbbells, bench) stays visible as a ghost while the
+        // body pops. The mask is softened first so the body/background
+        // boundary doesn't look like a cutout glued onto paper.
+        if let maskPtr = mask {
+            applyMaskedDim(dst: &outputGrayBuffer, mask: maskPtr)
+        }
 
         // --- Step 6: Convert grayscale back to BGRA and write into outBuffer ---
         CVPixelBufferLockBaseAddress(outBuffer, [])
@@ -1042,6 +1238,84 @@ private class LineDrawingProcessor {
         }
     }
 
+    /// Apply a person segmentation mask to the output gray buffer in place,
+    /// producing a two-zone blend that keeps equipment visible as a ghost
+    /// while the body pops at full strength.
+    ///
+    /// Pipeline per frame:
+    ///   1. Tent-convolve the raw 0/255 mask with a 5x5 kernel so its edges
+    ///      become a smooth gradient. Without this, the body looks like a
+    ///      cutout glued onto paper — the edge lines up suspiciously well
+    ///      with the client's silhouette.
+    ///   2. For every pixel, let w = softMask[i] / 255. Lerp:
+    ///         out = dim(src) * (1 - w) + src * w
+    ///      where `dim(v) = 255 - (255 - v) * 0.35`.
+    ///      - At w = 1 (body core): out = src → full-strength sketch.
+    ///      - At w = 0 (clear background): out = dim(src). White paper
+    ///        stays white (dim(255) = 255). Black line pixels
+    ///        render at ~90/255 — dark grey ghost.
+    ///      - Between (soft edge): smooth crossfade, no visible seam.
+    ///
+    /// The dim curve is precomputed into a 256-byte LUT once per call so the
+    /// inner loop is a handful of integer ops per pixel.
+    private func applyMaskedDim(dst: inout vImage_Buffer, mask: UnsafePointer<UInt8>) {
+        let count = Int(dst.height) * dst.rowBytes
+
+        // --- Step 1: Soften the mask into blurredMaskBuffer. ---
+        // vImageTentConvolve_Planar8 with a 5x5 kernel is fast and gives a
+        // smooth falloff across ~3-5 pixels of the mask edge.
+        var srcMask = vImage_Buffer(
+            data: UnsafeMutableRawPointer(mutating: mask),
+            height: vImagePixelCount(dst.height),
+            width: vImagePixelCount(dst.width),
+            rowBytes: Int(dst.width)  // person-segmenter writes tightly-packed rows
+        )
+        let tentErr = vImageTentConvolve_Planar8(
+            &srcMask,
+            &blurredMaskBuffer,
+            nil,
+            0, 0,
+            5, 5,
+            0,
+            vImage_Flags(kvImageEdgeExtend)
+        )
+
+        // If the tent convolve fails for any reason, fall back to using the
+        // raw mask so we still produce the right two-zone blend, just with a
+        // harder edge.
+        let softMaskPtr: UnsafePointer<UInt8>
+        if tentErr == kvImageNoError {
+            softMaskPtr = UnsafePointer(blurredMaskBuffer.data.assumingMemoryBound(to: UInt8.self))
+        } else {
+            softMaskPtr = mask
+        }
+
+        // --- Step 2: Precompute the dim LUT. ---
+        // dim[v] = round(255 - (255 - v) * 0.35)
+        // Near-white stays near-white, black drops to ~90 (dark-grey ghost).
+        var dimLUT = [UInt8](repeating: 0, count: 256)
+        for v in 0...255 {
+            let dimmed = 255.0 - (255.0 - Double(v)) * 0.35
+            dimLUT[v] = UInt8(max(0, min(255, Int(dimmed.rounded()))))
+        }
+
+        // --- Step 3: Per-pixel lerp. ---
+        // out = (dim(src) * (255 - w) + src * w + 127) / 255
+        // Using +127 for rounding so the midpoint converges correctly.
+        let dstPtr = dst.data.assumingMemoryBound(to: UInt8.self)
+        dimLUT.withUnsafeBufferPointer { lutPtr in
+            guard let lut = lutPtr.baseAddress else { return }
+            for i in 0..<count {
+                let src = Int(dstPtr[i])
+                let dim = Int(lut[src])
+                let w = Int(softMaskPtr[i])
+                let inv = 255 - w
+                let blended = (dim * inv + src * w + 127) / 255
+                dstPtr[i] = UInt8(blended)
+            }
+        }
+    }
+
     /// Contrast boost: output = clamp((input - low) * 255 / (255 - low), 0, 255)
     private func contrastBoost(
         src: inout vImage_Buffer,
@@ -1063,5 +1337,196 @@ private class LineDrawingProcessor {
                 dstPtr[i] = UInt8(min(boosted, 255))
             }
         }
+    }
+}
+
+// MARK: - Person Segmentation
+
+/// Runs `VNGeneratePersonSegmentationRequest` per frame and upscales the
+/// resulting mask to a target size. Pooled across frames so the sequence
+/// request handler and the upscale destination buffer are created once.
+///
+/// iOS 15+ only. The caller must gate with `@available(iOS 15.0, *)`.
+@available(iOS 15.0, *)
+private class PersonSegmenter {
+    let width: Int
+    let height: Int
+
+    private let sequenceHandler = VNSequenceRequestHandler()
+    private let request: VNGeneratePersonSegmentationRequest
+
+    // Pre-allocated upscale destination. Vision typically returns a
+    // 256x256 (or thereabouts) mask; we scale it to frame size once per
+    // frame and reuse this buffer's backing memory across every frame.
+    private var upscaledMaskBuffer: vImage_Buffer
+
+    init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+
+        let req = VNGeneratePersonSegmentationRequest()
+        // .accurate runs on the Neural Engine on modern iPhones and produces
+        // cleaner edges than .balanced/.fast. For a 30fps conversion on
+        // iPhone 17 Pro this adds ~8-15ms/frame — well within budget.
+        req.qualityLevel = .accurate
+        req.outputPixelFormat = kCVPixelFormatType_OneComponent8
+        self.request = req
+
+        let dataSize = width * height
+        upscaledMaskBuffer = vImage_Buffer(
+            data: UnsafeMutableRawPointer.allocate(byteCount: dataSize, alignment: 16),
+            height: vImagePixelCount(height),
+            width: vImagePixelCount(width),
+            rowBytes: width
+        )
+    }
+
+    deinit {
+        upscaledMaskBuffer.data.deallocate()
+    }
+
+    /// Run segmentation on the supplied BGRA pixel buffer and return a pointer
+    /// to an internally-owned upscaled Planar8 mask of size width*height.
+    /// The returned pointer is valid until the next call to `generateMask`
+    /// (or until the segmenter is deallocated) — do NOT hold onto it across
+    /// frames.
+    ///
+    /// Returns nil if Vision fails for any reason. Callers should treat nil
+    /// as "skip masking this frame" — the pipeline falls through to the
+    /// un-masked line drawing.
+    func generateMask(for pixelBuffer: CVPixelBuffer) -> UnsafePointer<UInt8>? {
+        do {
+            try sequenceHandler.perform([request], on: pixelBuffer)
+        } catch {
+            NSLog("PersonSegmenter: VNSequenceRequestHandler.perform failed: \(error.localizedDescription)")
+            return nil
+        }
+
+        guard let observation = request.results?.first as? VNPixelBufferObservation else {
+            // No observation = no person detected in an empty frame. Not an
+            // error — but there's no mask to apply so skip.
+            return nil
+        }
+
+        let maskPB = observation.pixelBuffer
+        let maskWidth = CVPixelBufferGetWidth(maskPB)
+        let maskHeight = CVPixelBufferGetHeight(maskPB)
+
+        CVPixelBufferLockBaseAddress(maskPB, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(maskPB, .readOnly) }
+
+        guard let maskBase = CVPixelBufferGetBaseAddress(maskPB) else {
+            return nil
+        }
+
+        let maskRowBytes = CVPixelBufferGetBytesPerRow(maskPB)
+
+        // Fast path: Vision returned a mask already at target size.
+        if maskWidth == width && maskHeight == height {
+            // Copy into our owned buffer so the caller can use it after we
+            // release the pixel buffer lock above. Respect row strides — the
+            // source may have padding between rows.
+            let dstPtr = upscaledMaskBuffer.data.assumingMemoryBound(to: UInt8.self)
+            let dstRowBytes = upscaledMaskBuffer.rowBytes
+            if maskRowBytes == dstRowBytes {
+                memcpy(dstPtr, maskBase, maskRowBytes * maskHeight)
+            } else {
+                for row in 0..<maskHeight {
+                    memcpy(
+                        dstPtr.advanced(by: row * dstRowBytes),
+                        maskBase.advanced(by: row * maskRowBytes),
+                        width
+                    )
+                }
+            }
+            return UnsafePointer(dstPtr)
+        }
+
+        // Common case: upscale from Vision's internal resolution to frame size.
+        var srcBuffer = vImage_Buffer(
+            data: maskBase,
+            height: vImagePixelCount(maskHeight),
+            width: vImagePixelCount(maskWidth),
+            rowBytes: maskRowBytes
+        )
+        let scaleErr = vImageScale_Planar8(
+            &srcBuffer,
+            &upscaledMaskBuffer,
+            nil,
+            vImage_Flags(kvImageNoFlags)
+        )
+        if scaleErr != kvImageNoError {
+            NSLog("PersonSegmenter: vImageScale_Planar8 failed with \(scaleErr)")
+            return nil
+        }
+        let dstPtr = upscaledMaskBuffer.data.assumingMemoryBound(to: UInt8.self)
+        return UnsafePointer(dstPtr)
+    }
+
+    /// One-shot variant for single-frame paths (thumbnails). Uses the
+    /// request-handler-per-call `VNImageRequestHandler` since there's no
+    /// temporal coherence to preserve. The returned mask is still owned by
+    /// this segmenter's pre-allocated buffer.
+    func generateMaskOneShot(for pixelBuffer: CVPixelBuffer) -> UnsafePointer<UInt8>? {
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            NSLog("PersonSegmenter: VNImageRequestHandler.perform failed: \(error.localizedDescription)")
+            return nil
+        }
+
+        guard let observation = request.results?.first as? VNPixelBufferObservation else {
+            return nil
+        }
+
+        let maskPB = observation.pixelBuffer
+        let maskWidth = CVPixelBufferGetWidth(maskPB)
+        let maskHeight = CVPixelBufferGetHeight(maskPB)
+
+        CVPixelBufferLockBaseAddress(maskPB, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(maskPB, .readOnly) }
+
+        guard let maskBase = CVPixelBufferGetBaseAddress(maskPB) else {
+            return nil
+        }
+
+        let maskRowBytes = CVPixelBufferGetBytesPerRow(maskPB)
+
+        if maskWidth == width && maskHeight == height {
+            let dstPtr = upscaledMaskBuffer.data.assumingMemoryBound(to: UInt8.self)
+            let dstRowBytes = upscaledMaskBuffer.rowBytes
+            if maskRowBytes == dstRowBytes {
+                memcpy(dstPtr, maskBase, maskRowBytes * maskHeight)
+            } else {
+                for row in 0..<maskHeight {
+                    memcpy(
+                        dstPtr.advanced(by: row * dstRowBytes),
+                        maskBase.advanced(by: row * maskRowBytes),
+                        width
+                    )
+                }
+            }
+            return UnsafePointer(dstPtr)
+        }
+
+        var srcBuffer = vImage_Buffer(
+            data: maskBase,
+            height: vImagePixelCount(maskHeight),
+            width: vImagePixelCount(maskWidth),
+            rowBytes: maskRowBytes
+        )
+        let scaleErr = vImageScale_Planar8(
+            &srcBuffer,
+            &upscaledMaskBuffer,
+            nil,
+            vImage_Flags(kvImageNoFlags)
+        )
+        if scaleErr != kvImageNoError {
+            NSLog("PersonSegmenter: vImageScale_Planar8 failed with \(scaleErr)")
+            return nil
+        }
+        let dstPtr = upscaledMaskBuffer.data.assumingMemoryBound(to: UInt8.self)
+        return UnsafePointer(dstPtr)
     }
 }

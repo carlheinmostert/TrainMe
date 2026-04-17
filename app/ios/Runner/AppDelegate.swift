@@ -84,7 +84,16 @@ import AVFoundation
             }
             return
           }
-          let uiImage = UIImage(cgImage: cgImage)
+          // Apply Vision person segmentation (iOS 15+) so thumbnails match
+          // the body-only look of the line-drawing video pipeline. Any
+          // failure falls through to the un-masked source image.
+          var finalImage: CGImage = cgImage
+          if #available(iOS 15.0, *) {
+            if let masked = VideoConverterChannel.applySegmentationToThumbnail(cgImage: cgImage) {
+              finalImage = masked
+            }
+          }
+          let uiImage = UIImage(cgImage: finalImage)
           guard let jpegData = uiImage.jpegData(compressionQuality: 0.9) else {
             DispatchQueue.main.async {
               result(FlutterError(code: "JPEG", message: "Failed to create JPEG", details: nil))

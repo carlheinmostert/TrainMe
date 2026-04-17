@@ -15,7 +15,12 @@ import '../services/local_storage_service.dart';
 import '../services/conversion_service.dart';
 import '../services/path_resolver.dart';
 import '../theme.dart';
+import '../utils/duration_format.dart';
+import '../widgets/branded_slider_theme.dart';
 import '../widgets/capture_thumbnail.dart';
+import '../widgets/circuit_accent.dart';
+import '../widgets/drag_handle.dart';
+import '../widgets/inline_editable_text.dart';
 import '../widgets/powered_by_footer.dart';
 import 'plan_preview_screen.dart';
 
@@ -57,16 +62,11 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   final ImagePicker _picker = ImagePicker();
 
   int? _expandedIndex;
-  bool _isEditingName = false;
-  late TextEditingController _nameController;
-  final FocusNode _nameFocusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
     _session = widget.session;
-    _nameController = TextEditingController(text: _session.clientName);
-    _nameFocusNode.addListener(_onNameFocusChange);
     _conversionService = ConversionService.instance;
     _listenToConversions();
   }
@@ -75,22 +75,11 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   void dispose() {
     _conversionSub?.cancel();
     // Note: _conversionService is a singleton — never dispose it.
-    _nameController.dispose();
-    _nameFocusNode.removeListener(_onNameFocusChange);
-    _nameFocusNode.dispose();
     super.dispose();
   }
 
-  /// Save the name when focus leaves the inline editor.
-  void _onNameFocusChange() {
-    if (!_nameFocusNode.hasFocus && _isEditingName) {
-      _saveClientName();
-    }
-  }
-
-  /// Commit the inline name edit.
-  void _saveClientName() {
-    final newName = _nameController.text.trim();
+  /// Commit the inline client-name edit.
+  void _saveClientName(String newName) {
     if (newName.isNotEmpty && newName != _session.clientName) {
       setState(() {
         _session = _session.copyWith(clientName: newName);
@@ -104,7 +93,6 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
         }
       }));
     }
-    setState(() => _isEditingName = false);
   }
 
   /// Listen for conversion updates and refresh the exercise list.
@@ -118,24 +106,6 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
           _session = _session.copyWith(exercises: exercises);
         }
       });
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Client name editing
-  // ---------------------------------------------------------------------------
-
-  /// Switch to inline editing mode for the client name.
-  void _startEditingName() {
-    _nameController.text = _session.clientName;
-    setState(() => _isEditingName = true);
-    // Focus after the frame so the TextField is built
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _nameFocusNode.requestFocus();
-      _nameController.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: _nameController.text.length,
-      );
     });
   }
 
@@ -701,40 +671,16 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     return Scaffold(
       backgroundColor: AppColors.darkBg,
       appBar: AppBar(
-        title: _isEditingName
-            ? TextField(
-                controller: _nameController,
-                focusNode: _nameFocusNode,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.5,
-                  fontSize: 20,
-                  color: AppColors.textOnDark,
-                ),
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-                onSubmitted: (_) => _saveClientName(),
-              )
-            : GestureDetector(
-                onTap: _startEditingName,
-                child: CustomPaint(
-                  painter: _DashedUnderlinePainter(
-                      color: AppColors.grey500),
-                  child: Text(
-                    _session.clientName,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.5,
-                      color: AppColors.textOnDark,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
+        title: InlineEditableText(
+          initialValue: _session.clientName,
+          onCommit: _saveClientName,
+          textStyle: const TextStyle(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.5,
+            fontSize: 20,
+            color: AppColors.textOnDark,
+          ),
+        ),
         backgroundColor: AppColors.darkSurface,
         foregroundColor: AppColors.textOnDark,
         elevation: 0,
@@ -896,16 +842,15 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     // --- Rest period: compact inline bar ---
     if (exercise.isRest) {
       final isInCircuit = exercise.circuitId != null;
-      final restDecoration = isInCircuit
-          ? const BoxDecoration(
-              border: Border(
-                left: BorderSide(
-                  color: AppColors.circuit,
-                  width: 3,
-                ),
-              ),
-            )
-          : null;
+
+      final restBar = _RestBar(
+        key: ValueKey('rest_${exercise.id}'),
+        exercise: exercise,
+        index: index,
+        onUpdate: (updated) => _updateExercise(index, updated),
+        onDelete: () => _deleteExercise(index),
+        dragHandle: DragHandle(index: index),
+      );
 
       return KeyedSubtree(
         key: ValueKey(exercise.id),
@@ -913,31 +858,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Column(
             children: [
-              Container(
-                decoration: restDecoration,
-                padding: isInCircuit ? const EdgeInsets.only(left: 8) : null,
-                child: _RestBar(
-                  key: ValueKey('rest_${exercise.id}'),
-                  exercise: exercise,
-                  index: index,
-                  onUpdate: (updated) => _updateExercise(index, updated),
-                  onDelete: () => _deleteExercise(index),
-                  dragHandle: ReorderableDragStartListener(
-                    index: index,
-                    child: const SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: Center(
-                        child: Icon(
-                          Icons.drag_handle,
-                          color: AppColors.grey500,
-                          size: 24,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+              isInCircuit ? CircuitAccent(child: restBar) : restBar,
               // Between-card buttons after rest bar (if not last item)
               if (index < exercises.length - 1)
                 _buildBetweenCardButtons(
@@ -1082,84 +1003,51 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     required bool isLastInCircuit,
     required bool hasNextInSameCircuit,
   }) {
-    // Circuit border decoration
-    final decoration = isInCircuit
-        ? const BoxDecoration(
-            border: Border(
-              left: BorderSide(
-                color: AppColors.circuit,
-                width: 3,
-              ),
-            ),
-          )
-        : null;
-
-    return Container(
-      decoration: decoration,
-      padding: isInCircuit ? const EdgeInsets.only(left: 8) : null,
-      child: Dismissible(
-        key: ValueKey('dismiss_${exercise.id}'),
-        direction: DismissDirection.endToStart,
-        onDismissed: (_) => _deleteExercise(index),
-        background: Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            color: AppColors.error,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 24),
-          child:
-              const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+    final card = Dismissible(
+      key: ValueKey('dismiss_${exercise.id}'),
+      direction: DismissDirection.endToStart,
+      onDismissed: (_) => _deleteExercise(index),
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: AppColors.error,
+          borderRadius: BorderRadius.circular(12),
         ),
-        child: _ExerciseCard(
-          key: ValueKey('card_${exercise.id}'),
-          exercise: exercise,
-          index: index,
-          isExpanded: _expandedIndex == index,
-          isInCircuit: isInCircuit,
-          onTap: () {
-            setState(() {
-              _expandedIndex = _expandedIndex == index ? null : index;
-            });
-          },
-          onUpdate: (updated) => _updateExercise(index, updated),
-          onPreview: () => _previewCapture(exercise),
-          dragHandle: ReorderableDragStartListener(
-            index: index,
-            child: const SizedBox(
-              width: 44,
-              height: 44,
-              child: Center(
-                child: Icon(
-                  Icons.drag_handle,
-                  color: AppColors.grey500,
-                  size: 24,
-                ),
-              ),
-            ),
-          ),
-        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        child:
+            const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+      ),
+      child: _ExerciseCard(
+        key: ValueKey('card_${exercise.id}'),
+        exercise: exercise,
+        index: index,
+        isExpanded: _expandedIndex == index,
+        isInCircuit: isInCircuit,
+        onTap: () {
+          setState(() {
+            _expandedIndex = _expandedIndex == index ? null : index;
+          });
+        },
+        onUpdate: (updated) => _updateExercise(index, updated),
+        onPreview: () => _previewCapture(exercise),
+        dragHandle: DragHandle(index: index),
       ),
     );
+
+    return isInCircuit ? CircuitAccent(child: card) : card;
   }
 
   /// Build the circuit header row with cycle slider.
   Widget _buildCircuitHeader(String circuitId) {
     final cycles = _session.getCircuitCycles(circuitId);
 
-    // Add accent left border to match the cards below
-    return Container(
-      decoration: const BoxDecoration(
-        border: Border(
-          left: BorderSide(
-            color: AppColors.circuit,
-            width: 3,
-          ),
-        ),
-      ),
+    // Add accent left border to match the cards below. The header uses a
+    // slightly larger interior offset than the card rows (12px total) so the
+    // "Circuit" label breathes away from the accent rule.
+    return CircuitAccent(
       child: Padding(
-        padding: const EdgeInsets.only(left: 12, top: 4, bottom: 4),
+        padding: const EdgeInsets.only(left: 4, top: 4, bottom: 4),
         child: Row(
           children: [
             const Icon(Icons.repeat, size: 16, color: AppColors.circuit),
@@ -1191,16 +1079,15 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
             ),
             Expanded(
               child: SliderTheme(
-                data: SliderThemeData(
+                data: brandedSliderTheme(
+                  accent: AppColors.circuit,
                   trackHeight: 3,
-                  activeTrackColor: AppColors.circuit,
-                  inactiveTrackColor: AppColors.circuit.withValues(alpha: 0.2),
-                  thumbColor: AppColors.circuit,
-                  thumbShape:
-                      const _RectangularSliderThumbShape(width: 6, height: 18, radius: 3),
-                  overlayShape:
-                      const RoundSliderOverlayShape(overlayRadius: 14),
-                  overlayColor: AppColors.circuit.withValues(alpha: 0.12),
+                  thumbWidth: 6,
+                  thumbHeight: 18,
+                  thumbRadius: 3,
+                  overlayRadius: 14,
+                  inactiveTrackColor:
+                      AppColors.circuit.withValues(alpha: 0.2),
                 ),
                 child: Slider(
                   value: cycles.clamp(1, 5).toDouble(),
@@ -1297,18 +1184,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
     );
 
     if (sameContinuousCircuit) {
-      return Container(
-        decoration: const BoxDecoration(
-          border: Border(
-            left: BorderSide(
-              color: AppColors.circuit,
-              width: 3,
-            ),
-          ),
-        ),
-        padding: const EdgeInsets.only(left: 8),
-        child: buttons,
-      );
+      return CircuitAccent(child: buttons);
     }
 
     return buttons;
@@ -1353,11 +1229,6 @@ class _ExerciseCardState extends State<_ExerciseCard> {
   late double _holdValue;
   late TextEditingController _notesController;
 
-  // Inline exercise name editing
-  bool _isEditingName = false;
-  late TextEditingController _nameController;
-  final FocusNode _nameFocusNode = FocusNode();
-
   // Independent collapsible sub-sections
   bool _isSettingsOpen = false;
   bool _isPreviewOpen = false;
@@ -1371,10 +1242,6 @@ class _ExerciseCardState extends State<_ExerciseCard> {
     _holdValue = (widget.exercise.holdSeconds ?? 0).toDouble();
     _notesController =
         TextEditingController(text: widget.exercise.notes ?? '');
-    _nameController = TextEditingController(
-      text: widget.exercise.name ?? 'Exercise ${widget.index + 1}',
-    );
-    _nameFocusNode.addListener(_onNameFocusChange);
   }
 
   @override
@@ -1385,9 +1252,6 @@ class _ExerciseCardState extends State<_ExerciseCard> {
       _setsValue = (widget.exercise.sets ?? 3).toDouble();
       _holdValue = (widget.exercise.holdSeconds ?? 0).toDouble();
       _notesController.text = widget.exercise.notes ?? '';
-      _nameController.text =
-          widget.exercise.name ?? 'Exercise ${widget.index + 1}';
-      _isEditingName = false;
       _isSettingsOpen = false;
       _isPreviewOpen = false;
       _isNotesOpen = false;
@@ -1403,39 +1267,15 @@ class _ExerciseCardState extends State<_ExerciseCard> {
   @override
   void dispose() {
     _notesController.dispose();
-    _nameController.dispose();
-    _nameFocusNode.removeListener(_onNameFocusChange);
-    _nameFocusNode.dispose();
     super.dispose();
-  }
-
-  /// Save the name when focus leaves the inline editor.
-  void _onNameFocusChange() {
-    if (!_nameFocusNode.hasFocus && _isEditingName) {
-      _saveExerciseName();
-    }
   }
 
   /// Display name: custom name if set, otherwise "Exercise {index+1}".
   String get _displayName =>
       widget.exercise.name ?? 'Exercise ${widget.index + 1}';
 
-  /// Switch to inline editing mode for the exercise name.
-  void _startEditingName() {
-    _nameController.text = _displayName;
-    setState(() => _isEditingName = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _nameFocusNode.requestFocus();
-      _nameController.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: _nameController.text.length,
-      );
-    });
-  }
-
   /// Commit the inline name edit.
-  void _saveExerciseName() {
-    final newName = _nameController.text.trim();
+  void _saveExerciseName(String newName) {
     if (newName.isNotEmpty && newName != _displayName) {
       // If the user typed back the default placeholder, clear the custom name
       final isDefault = newName == 'Exercise ${widget.index + 1}';
@@ -1444,7 +1284,6 @@ class _ExerciseCardState extends State<_ExerciseCard> {
         clearName: isDefault,
       ));
     }
-    setState(() => _isEditingName = false);
   }
 
   void _save() {
@@ -1457,15 +1296,9 @@ class _ExerciseCardState extends State<_ExerciseCard> {
   }
 
   /// Shared slider theme — thick track, rectangular thumb, primary fill.
-  static const _sliderTheme = SliderThemeData(
-    trackHeight: 8,
-    activeTrackColor: AppColors.primary,
-    inactiveTrackColor: AppColors.darkBorder,
-    thumbColor: AppColors.primary,
-    thumbShape: _RectangularSliderThumbShape(width: 8, height: 24, radius: 4),
-    overlayShape: RoundSliderOverlayShape(overlayRadius: 20),
-    overlayColor: Color(0x1FFF6B35), // primary with 0.12 alpha
-    trackShape: RoundedRectSliderTrackShape(),
+  static final SliderThemeData _sliderTheme = brandedSliderTheme(
+    accent: AppColors.primary,
+    overlayRadius: 20,
   );
 
   /// Build a conversion status icon for the collapsed header row.
@@ -1630,41 +1463,16 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                     child: Row(
                       children: [
                         Flexible(
-                          child: _isEditingName
-                              ? TextField(
-                                  controller: _nameController,
-                                  focusNode: _nameFocusNode,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 15,
-                                    color: AppColors.textOnDark,
-                                  ),
-                                  textCapitalization:
-                                      TextCapitalization.words,
-                                  decoration: const InputDecoration(
-                                    border: InputBorder.none,
-                                    isDense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                  ),
-                                  onSubmitted: (_) =>
-                                      _saveExerciseName(),
-                                )
-                              : GestureDetector(
-                                  onTap: _startEditingName,
-                                  child: CustomPaint(
-                                    painter: _DashedUnderlinePainter(
-                                        color: AppColors.grey500),
-                                    child: Text(
-                                      _displayName,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 15,
-                                        color: AppColors.textOnDark,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ),
+                          child: InlineEditableText(
+                            key: ValueKey('name_${widget.exercise.id}'),
+                            initialValue: _displayName,
+                            onCommit: _saveExerciseName,
+                            textStyle: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                              color: AppColors.textOnDark,
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 6),
                         _buildStatusIcon(),
@@ -2036,14 +1844,6 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
     return (v / 5).round().clamp(2, 120) * 5.0;
   }
 
-  String _formatDuration(int seconds) {
-    if (seconds < 60) return '${seconds}s';
-    final min = seconds ~/ 60;
-    final sec = seconds % 60;
-    if (sec == 0) return '${min}m';
-    return '${min}m ${sec}s';
-  }
-
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -2065,17 +1865,9 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
             ),
             Expanded(
               child: SliderTheme(
-                data: SliderThemeData(
-                  trackHeight: 8,
-                  activeTrackColor: AppColors.circuit,
-                  inactiveTrackColor: AppColors.darkBorder,
-                  thumbColor: AppColors.circuit,
-                  thumbShape:
-                      const _RectangularSliderThumbShape(width: 8, height: 24, radius: 4),
-                  overlayShape:
-                      const RoundSliderOverlayShape(overlayRadius: 20),
-                  overlayColor: AppColors.circuit.withValues(alpha: 0.12),
-                  trackShape: const RoundedRectSliderTrackShape(),
+                data: brandedSliderTheme(
+                  accent: AppColors.circuit,
+                  overlayRadius: 20,
                 ),
                 child: Slider(
                   value: _value,
@@ -2093,7 +1885,8 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
             SizedBox(
               width: 48,
               child: Text(
-                _formatDuration(_value.round()),
+                formatDurationStyled(_value.round(),
+                    style: DurationFormatStyle.compact),
                 textAlign: TextAlign.right,
                 style: TextStyle(
                   fontSize: 15,
@@ -2171,14 +1964,6 @@ class _RestBarState extends State<_RestBar> {
     }
   }
 
-  String _formatDuration(int seconds) {
-    if (seconds < 60) return '${seconds}s';
-    final min = seconds ~/ 60;
-    final sec = seconds % 60;
-    if (sec == 0) return '${min} min';
-    return '${min}m ${sec}s';
-  }
-
   @override
   Widget build(BuildContext context) {
     final seconds = _durationValue.round();
@@ -2219,17 +2004,15 @@ class _RestBarState extends State<_RestBar> {
           // Compact slider
           Expanded(
             child: SliderTheme(
-              data: SliderThemeData(
+              data: brandedSliderTheme(
+                accent: AppColors.rest,
                 trackHeight: 4,
-                activeTrackColor: AppColors.rest,
-                inactiveTrackColor: AppColors.rest.withValues(alpha: 0.2),
-                thumbColor: AppColors.rest,
-                thumbShape:
-                    const _RectangularSliderThumbShape(width: 6, height: 18, radius: 3),
-                overlayShape:
-                    const RoundSliderOverlayShape(overlayRadius: 14),
-                overlayColor: AppColors.rest.withValues(alpha: 0.12),
-                trackShape: const RoundedRectSliderTrackShape(),
+                thumbWidth: 6,
+                thumbHeight: 18,
+                thumbRadius: 3,
+                overlayRadius: 14,
+                inactiveTrackColor:
+                    AppColors.rest.withValues(alpha: 0.2),
               ),
               child: Slider(
                 value: _durationValue,
@@ -2250,7 +2033,8 @@ class _RestBarState extends State<_RestBar> {
           SizedBox(
             width: 42,
             child: Text(
-              _formatDuration(seconds),
+              formatDurationStyled(seconds,
+                  style: DurationFormatStyle.compact),
               textAlign: TextAlign.right,
               style: const TextStyle(
                 fontSize: 12,
@@ -2281,39 +2065,6 @@ class _RestBarState extends State<_RestBar> {
       ),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Dashed underline painter — used for tappable editable names
-// ---------------------------------------------------------------------------
-
-class _DashedUnderlinePainter extends CustomPainter {
-  final Color color;
-  _DashedUnderlinePainter({this.color = Colors.grey});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1
-      ..style = PaintingStyle.stroke;
-
-    double startX = 0;
-    const dashWidth = 4.0;
-    const dashGap = 3.0;
-
-    while (startX < size.width) {
-      canvas.drawLine(
-        Offset(startX, size.height),
-        Offset(startX + dashWidth, size.height),
-        paint,
-      );
-      startX += dashWidth + dashGap;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // =============================================================================
@@ -2793,48 +2544,3 @@ class _CameraCaptureScreenState extends State<_CameraCaptureScreen>
   }
 }
 
-// ---------------------------------------------------------------------------
-// Rectangular / pill-shaped slider thumb — replaces round thumbs everywhere
-// ---------------------------------------------------------------------------
-
-class _RectangularSliderThumbShape extends SliderComponentShape {
-  final double width;
-  final double height;
-  final double radius;
-
-  const _RectangularSliderThumbShape({
-    this.width = 8,
-    this.height = 24,
-    this.radius = 4,
-  });
-
-  @override
-  Size getPreferredSize(bool isEnabled, bool isDiscrete) => Size(width, height);
-
-  @override
-  void paint(
-    PaintingContext context,
-    Offset center, {
-    required Animation<double> activationAnimation,
-    required Animation<double> enableAnimation,
-    required bool isDiscrete,
-    required TextPainter labelPainter,
-    required RenderBox parentBox,
-    required SliderThemeData sliderTheme,
-    required TextDirection textDirection,
-    required double value,
-    required double textScaleFactor,
-    required Size sizeWithOverflow,
-  }) {
-    final canvas = context.canvas;
-    final paint = Paint()
-      ..color = sliderTheme.thumbColor ?? Colors.black87
-      ..style = PaintingStyle.fill;
-
-    final rect = RRect.fromRectAndRadius(
-      Rect.fromCenter(center: center, width: width, height: height),
-      Radius.circular(radius),
-    );
-    canvas.drawRRect(rect, paint);
-  }
-}

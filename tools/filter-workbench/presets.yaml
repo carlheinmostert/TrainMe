@@ -1,0 +1,28 @@
+# Line-drawing filter presets for the tuning workbench.
+#
+# The `current_production` preset mirrors the values shipped in
+# `app/lib/config.dart` (AppConfig.blurKernel / thresholdBlock / contrastLow).
+# Keep it in sync when you change production values.
+#
+# `blur_kernel` and `threshold_block` must be odd integers; non-odd values
+# are coerced up by one at runtime.
+
+- name: current_production
+  blur_kernel: 31
+  threshold_block: 9
+  contrast_low: 80
+
+- name: softer
+  blur_kernel: 31
+  threshold_block: 21
+  contrast_low: 20
+
+- name: harder
+  blur_kernel: 13
+  threshold_block: 11
+  contrast_low: 60
+
+- name: crisp_high_contrast
+  blur_kernel: 21
+  threshold_block: 7
+  contrast_low: 100
