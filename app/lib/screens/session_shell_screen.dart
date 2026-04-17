@@ -41,13 +41,11 @@ class SessionShellScreen extends StatefulWidget {
 class _SessionShellScreenState extends State<SessionShellScreen> {
   late final PageController _pageController;
   late Session _session;
-  int _currentPage = 0;
 
   @override
   void initState() {
     super.initState();
     _session = widget.session;
-    _currentPage = widget.initialPage;
     _pageController = PageController(initialPage: widget.initialPage);
   }
 
@@ -91,7 +89,7 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
       // own SafeArea where needed.
       body: PageView(
         controller: _pageController,
-        onPageChanged: (i) => setState(() => _currentPage = i),
+        onPageChanged: (_) {},
         physics: const ClampingScrollPhysics(),
         children: [
           StudioModeScreen(
