@@ -284,37 +284,22 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildBody() {
+    // --- Inverted layout (matches studio_mode_screen, commit da58948) ---
+    // Newest session anchors at the BOTTOM of the viewport — thumb reach.
+    // New Session button sits just above the footer; tapping it is a
+    // one-handed gesture near the bottom of the screen. Older sessions
+    // scroll upward.
+    //
+    // Same reverse-iteration pattern as Studio:
+    //   ListView(reverse: true) + itemBuilder that maps visualIndex ->
+    //   dataIndex = len - 1 - visualIndex. Data stays ascending; only the
+    //   UI translates. Swipe-to-delete and tap-to-open work on the
+    //   translated dataIndex so semantics are unchanged.
     return Column(
       children: [
-        const SizedBox(height: 32),
+        const SizedBox(height: 16),
 
-        // Prominent "New Session" button
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: FilledButton.icon(
-              onPressed: _startNewSession,
-              icon: const Icon(Icons.add_a_photo_outlined, size: 24),
-              label: const Text(
-                'New Session',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 32),
-
-        // Recent sessions header
+        // Recent sessions header (kept as a minimal top anchor).
         if (_sessions.isNotEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 24),
@@ -334,16 +319,45 @@ class _HomeScreenState extends State<HomeScreen> {
 
         const SizedBox(height: 8),
 
-        // Session list
+        // Bottom-anchored session list.
         Expanded(
           child: _sessions.isEmpty
               ? _buildEmptyState()
               : ListView.builder(
+                  reverse: true,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   itemCount: _sessions.length,
-                  itemBuilder: (context, index) =>
-                      _buildSessionCard(_sessions[index]),
+                  itemBuilder: (context, visualIndex) {
+                    final dataIndex =
+                        _sessions.length - 1 - visualIndex;
+                    return _buildSessionCard(_sessions[dataIndex]);
+                  },
                 ),
+        ),
+
+        // "New Session" button — pinned just above the footer so it sits
+        // in the thumb zone.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+          child: SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: FilledButton.icon(
+              onPressed: _startNewSession,
+              icon: const Icon(Icons.add_a_photo_outlined, size: 24),
+              label: const Text(
+                'New Session',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+          ),
         ),
 
         const PoweredByFooter(),

@@ -117,10 +117,32 @@ const int _kPrepSeconds = 15;
 class PlanPreviewScreen extends StatefulWidget {
   final Session session;
 
+  /// Slide index to land on when opening the preview. Defaults to 0.
+  ///
+  /// For circuit members, pass the data index (position in
+  /// [Session.exercises]) and use [slideIndexForExerciseIndex] to translate
+  /// it into the unrolled slide index (first round's slide).
+  final int initialSlideIndex;
+
   const PlanPreviewScreen({
     super.key,
     required this.session,
+    this.initialSlideIndex = 0,
   });
+
+  /// Returns the unrolled slide index that corresponds to the first
+  /// occurrence of the exercise at [exerciseIndex] in [session.exercises].
+  ///
+  /// For circuit members this lands on the first round's slide. Returns 0
+  /// if no match is found (defensive — callers already passed a valid
+  /// data index).
+  static int slideIndexForExerciseIndex(Session session, int exerciseIndex) {
+    final slides = _buildUnrolledSlides(session);
+    for (var i = 0; i < slides.length; i++) {
+      if (slides[i].originalIndex == exerciseIndex) return i;
+    }
+    return 0;
+  }
 
   @override
   State<PlanPreviewScreen> createState() => _PlanPreviewScreenState();
@@ -176,10 +198,18 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   void initState() {
     super.initState();
     _slides = _buildUnrolledSlides(widget.session);
-    _pageController = PageController();
+    // Clamp the requested initial index to the valid range. Callers may
+    // pass an index computed from a stale exercise list; better to land on
+    // slide 0 than crash.
+    final initial = _slides.isEmpty
+        ? 0
+        : widget.initialSlideIndex.clamp(0, _slides.length - 1);
+    _currentPage = initial;
+    _currentPageValue = initial.toDouble();
+    _pageController = PageController(initialPage: initial);
     _pageController.addListener(_onPageScroll);
-    // Prepare the first page's video if it is one
-    _prepareVideo(0);
+    // Prepare the initial page's video if it is one
+    _prepareVideo(initial);
   }
 
   @override

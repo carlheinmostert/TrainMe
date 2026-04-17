@@ -6,7 +6,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
-import 'package:video_player/video_player.dart';
 import '../config.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
@@ -45,15 +44,6 @@ class StudioModeScreen extends StatefulWidget {
 
   @override
   State<StudioModeScreen> createState() => _StudioModeScreenState();
-}
-
-bool _isStillImageConversion(ExerciseCapture exercise) {
-  final converted = exercise.convertedFilePath;
-  if (converted == null) return false;
-  final ext = converted.toLowerCase();
-  return ext.endsWith('.jpg') ||
-      ext.endsWith('.jpeg') ||
-      ext.endsWith('.png');
 }
 
 class _StudioModeScreenState extends State<StudioModeScreen> {
@@ -554,44 +544,22 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   // Preview
   // ---------------------------------------------------------------------------
 
-  void _previewCapture(ExerciseCapture exercise) {
-    if (exercise.isRest) return;
-    final path = exercise.displayFilePath;
-    if (exercise.mediaType == MediaType.video &&
-        !_isStillImageConversion(exercise)) {
-      showDialog(
-        context: context,
-        builder: (context) => _VideoPreviewDialog(filePath: path),
-      );
-    } else {
-      showDialog(
-        context: context,
-        builder: (context) => Dialog.fullscreen(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Image.file(
-                File(path),
-                fit: BoxFit.contain,
-                errorBuilder: (_, _, _) => const Center(
-                  child: Icon(Icons.broken_image_outlined,
-                      size: 64, color: Colors.white54),
-                ),
-              ),
-              Positioned(
-                top: MediaQuery.of(context).padding.top + 8,
-                right: 8,
-                child: IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close, color: Colors.white, size: 28),
-                  style: IconButton.styleFrom(backgroundColor: Colors.black54),
-                ),
-              ),
-            ],
-          ),
+  /// Open the full PlanPreviewScreen positioned on the slide for the
+  /// exercise at [dataIndex]. Circuit members land on their first round.
+  /// Used by the thumbnail tap on each exercise card.
+  void _openPlanPreviewAt(int dataIndex) {
+    final slideIndex = PlanPreviewScreen.slideIndexForExerciseIndex(
+      _session,
+      dataIndex,
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlanPreviewScreen(
+          session: _session,
+          initialSlideIndex: slideIndex,
         ),
-      );
-    }
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -999,7 +967,7 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
             });
           },
           onUpdate: (updated) => _updateExercise(dataIndex, updated),
-          onPreview: () => _previewCapture(exercise),
+          onThumbnailTap: () => _openPlanPreviewAt(dataIndex),
           dragHandle: ReorderableDragStartListener(
             index: visualIndex,
             child: const SizedBox(
@@ -1178,7 +1146,7 @@ class _ExerciseCard extends StatefulWidget {
   final bool isInCircuit;
   final VoidCallback onTap;
   final ValueChanged<ExerciseCapture> onUpdate;
-  final VoidCallback onPreview;
+  final VoidCallback onThumbnailTap;
   final Widget? dragHandle;
 
   const _ExerciseCard({
@@ -1189,7 +1157,7 @@ class _ExerciseCard extends StatefulWidget {
     this.isInCircuit = false,
     required this.onTap,
     required this.onUpdate,
-    required this.onPreview,
+    required this.onThumbnailTap,
     this.dragHandle,
   });
 
@@ -1208,7 +1176,6 @@ class _ExerciseCardState extends State<_ExerciseCard> {
   final FocusNode _nameFocusNode = FocusNode();
 
   bool _isSettingsOpen = false;
-  bool _isPreviewOpen = false;
   bool _isNotesOpen = false;
 
   @override
@@ -1237,12 +1204,10 @@ class _ExerciseCardState extends State<_ExerciseCard> {
           widget.exercise.name ?? 'Exercise ${widget.index + 1}';
       _isEditingName = false;
       _isSettingsOpen = false;
-      _isPreviewOpen = false;
       _isNotesOpen = false;
     }
     if (oldWidget.isExpanded && !widget.isExpanded) {
       _isSettingsOpen = false;
-      _isPreviewOpen = false;
       _isNotesOpen = false;
     }
   }
@@ -1451,7 +1416,16 @@ class _ExerciseCardState extends State<_ExerciseCard> {
             children: [
               Row(
                 children: [
-                  CaptureThumbnail(exercise: widget.exercise, size: 56),
+                  // Tap thumbnail to open the full plan preview on this
+                  // exercise's slide. Expand/collapse now lives solely on
+                  // the chevron (see below) so the two affordances don't
+                  // fight for the same gesture.
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: widget.onThumbnailTap,
+                    child: CaptureThumbnail(
+                        exercise: widget.exercise, size: 56),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Row(
@@ -1501,20 +1475,29 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                       ],
                     ),
                   ),
-                  SizedBox(
-                    width: 44,
-                    height: 44,
-                    child: Center(
-                      child: Icon(
-                        widget.isExpanded
-                            ? Icons.expand_less
-                            : Icons.expand_more,
-                        color: AppColors.grey500,
-                        size: 24,
+                  // Chevron + drag handle: paired controls on the right. The
+                  // chevron has its own 44x44 GestureDetector so the tap
+                  // lands here even though the whole card is an InkWell
+                  // (the detector wins the gesture arena for pointer-downs
+                  // inside the 44x44 box). Keeping both icons at 24px /
+                  // AppColors.grey500 makes them read as a unit.
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: widget.onTap,
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Center(
+                        child: Icon(
+                          widget.isExpanded
+                              ? Icons.expand_less
+                              : Icons.expand_more,
+                          color: AppColors.grey500,
+                          size: 24,
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 4),
                   if (widget.dragHandle != null) widget.dragHandle!,
                 ],
               ),
@@ -1613,88 +1596,6 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                 ),
                 const SizedBox(height: 4),
                 _buildSubSection(
-                  title: 'Preview',
-                  isOpen: _isPreviewOpen,
-                  onToggle: () =>
-                      setState(() => _isPreviewOpen = !_isPreviewOpen),
-                  child: GestureDetector(
-                    onTap: widget.onPreview,
-                    child: Container(
-                      height: 180,
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: AppColors.darkSurfaceVariant,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: widget.exercise.mediaType == MediaType.video &&
-                                !_isStillImageConversion(widget.exercise)
-                            ? Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  if (widget.exercise.absoluteThumbnailPath !=
-                                      null)
-                                    Image.file(
-                                      File(widget.exercise.absoluteThumbnailPath!),
-                                      fit: BoxFit.contain,
-                                      width: double.infinity,
-                                      errorBuilder: (_, _, _) => Container(
-                                        color: AppColors.darkSurfaceVariant,
-                                      ),
-                                    )
-                                  else
-                                    Container(
-                                      color: AppColors.darkSurfaceVariant,
-                                    ),
-                                  Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.play_circle_outline,
-                                          size: 48,
-                                          color: widget.exercise
-                                                      .absoluteThumbnailPath !=
-                                                  null
-                                              ? Colors.white70
-                                              : AppColors.grey500,
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Tap to play',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: widget.exercise
-                                                        .absoluteThumbnailPath !=
-                                                    null
-                                                ? Colors.white70
-                                                : AppColors.grey500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : Image.file(
-                                File(widget.exercise.displayFilePath),
-                                fit: BoxFit.contain,
-                                width: double.infinity,
-                                errorBuilder: (_, _, _) => const Center(
-                                  child: Icon(
-                                    Icons.broken_image_outlined,
-                                    size: 48,
-                                    color: AppColors.grey500,
-                                  ),
-                                ),
-                              ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                _buildSubSection(
                   title: 'Notes',
                   subtitle: widget.exercise.notes?.isNotEmpty == true
                       ? widget.exercise.notes!.substring(
@@ -1757,7 +1658,7 @@ class _SliderRow extends StatelessWidget {
     return Row(
       children: [
         SizedBox(
-          width: 40,
+          width: 34,
           child: Text(
             label,
             style: const TextStyle(
@@ -1765,6 +1666,8 @@ class _SliderRow extends StatelessWidget {
               fontWeight: FontWeight.w600,
               color: AppColors.textSecondaryOnDark,
             ),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
           ),
         ),
         Expanded(
@@ -1780,15 +1683,17 @@ class _SliderRow extends StatelessWidget {
           ),
         ),
         SizedBox(
-          width: 36,
+          width: 32,
           child: Text(
             displayValue,
             textAlign: TextAlign.right,
             style: const TextStyle(
-              fontSize: 15,
+              fontSize: 13,
               fontWeight: FontWeight.w700,
               color: AppColors.textOnDark,
             ),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
           ),
         ),
       ],
@@ -1849,7 +1754,7 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
         Row(
           children: [
             const SizedBox(
-              width: 40,
+              width: 34,
               child: Text(
                 'Time',
                 style: TextStyle(
@@ -1857,6 +1762,8 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
                   fontWeight: FontWeight.w600,
                   color: AppColors.textSecondaryOnDark,
                 ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
             ),
             Expanded(
@@ -1887,16 +1794,18 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
               ),
             ),
             SizedBox(
-              width: 48,
+              width: 44,
               child: Text(
                 _formatDuration(_value.round()),
                 textAlign: TextAlign.right,
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color:
                       widget.isCustom ? AppColors.circuit : AppColors.textOnDark,
                 ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
             ),
           ],
@@ -1905,7 +1814,7 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
           GestureDetector(
             onTap: widget.onReset,
             child: const Padding(
-              padding: EdgeInsets.only(left: 40, top: 0),
+              padding: EdgeInsets.only(left: 34, top: 0),
               child: Text(
                 'Reset to auto',
                 style: TextStyle(
@@ -2087,90 +1996,6 @@ class _DashedUnderlinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _VideoPreviewDialog extends StatefulWidget {
-  final String filePath;
-  const _VideoPreviewDialog({required this.filePath});
-
-  @override
-  State<_VideoPreviewDialog> createState() => _VideoPreviewDialogState();
-}
-
-class _VideoPreviewDialogState extends State<_VideoPreviewDialog> {
-  late VideoPlayerController _controller;
-  bool _initialized = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = VideoPlayerController.file(File(widget.filePath))
-      ..initialize().then((_) {
-        if (mounted) {
-          setState(() => _initialized = true);
-          _controller.play();
-        }
-      }).catchError((e) {
-        debugPrint('Video player init failed: $e');
-      });
-    _controller.setLooping(true);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _togglePlayPause() {
-    if (!_initialized) return;
-    setState(() {
-      if (_controller.value.isPlaying) {
-        _controller.pause();
-      } else {
-        _controller.play();
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog.fullscreen(
-      child: GestureDetector(
-        onTap: _togglePlayPause,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Container(color: Colors.black),
-            if (_initialized)
-              Center(
-                child: AspectRatio(
-                  aspectRatio: _controller.value.aspectRatio,
-                  child: VideoPlayer(_controller),
-                ),
-              )
-            else
-              const Center(
-                child: CircularProgressIndicator(color: Colors.white54),
-              ),
-            if (_initialized && !_controller.value.isPlaying)
-              const Center(
-                child: Icon(Icons.play_arrow, size: 72, color: Colors.white54),
-              ),
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              right: 8,
-              child: IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close, color: Colors.white, size: 28),
-                style: IconButton.styleFrom(backgroundColor: Colors.black54),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _RectangularSliderThumbShape extends SliderComponentShape {
