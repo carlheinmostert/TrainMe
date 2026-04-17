@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
@@ -101,6 +102,9 @@ List<PreviewSlide> _buildUnrolledSlides(Session session) {
   return slides;
 }
 
+/// Prep phase duration (seconds) before each exercise in workout mode.
+const int _kPrepSeconds = 15;
+
 /// Full-screen plan preview — simulates the client experience.
 ///
 /// Shows exercises as a swipeable card deck with large media display,
@@ -141,13 +145,18 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   /// Whether the user has entered workout mode (timer-driven progression).
   bool _isWorkoutMode = false;
 
-  /// Whether the countdown timer is actively ticking.
+  /// Whether the exercise countdown timer is actively ticking.
   bool _isTimerRunning = false;
 
-  /// Whether to show the "Tap to start" play gate overlay.
-  bool _showPlayGate = false;
+  /// Whether the current slide is in the 15s prep phase.
+  /// Prep is a silent countdown where the video auto-loops as a preview
+  /// of the motion the client is about to perform.
+  bool _isPrepPhase = false;
 
-  /// Seconds remaining on the current slide's countdown.
+  /// Seconds remaining on the prep-phase countdown.
+  int _prepRemainingSeconds = 0;
+
+  /// Seconds remaining on the current slide's exercise countdown.
   int _remainingSeconds = 0;
 
   /// Total seconds for the current slide (used for progress ring calculation).
@@ -159,7 +168,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   /// Wall-clock time when workout mode was entered.
   DateTime? _workoutStartTime;
 
-  /// The periodic timer that drives the per-second countdown.
+  /// The periodic timer that drives the per-second countdown (exercise or prep).
   Timer? _workoutTimer;
 
   @override
@@ -226,6 +235,9 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
         if (_videoControllers[index] != controller) return;
         if (mounted && _currentPage == index) {
           setState(() {});
+          // Auto-play the current slide's video as soon as it's ready —
+          // works for browse mode, workout mode, AND the initial first slide.
+          // The video is the motion demo; it loops as a continuous reminder.
           controller.play();
         }
       }).catchError((e) {
@@ -262,8 +274,8 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
     }
 
     // When in workout mode and the user manually swipes (skip), reset the
-    // timer for the new slide. The _advanceToNext path handles this via a
-    // post-frame callback, but manual swipes come through here.
+    // prep/timer for the new slide. The _advanceToNext path handles this via
+    // a post-frame callback, but manual swipes come through here.
     if (_isWorkoutMode && !_workoutComplete) {
       _setupSlideTimer(index);
     }
@@ -273,7 +285,8 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   // Workout timer
   // ---------------------------------------------------------------------------
 
-  /// Enter workout mode: record the start time and set up the first slide.
+  /// Enter workout mode: record the start time and set up the first slide
+  /// (which kicks off a 15s prep phase for non-rest exercises).
   void _startWorkout() {
     setState(() {
       _isWorkoutMode = true;
@@ -285,8 +298,9 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
 
   /// Configure the timer for the given slide index.
   ///
-  /// Rest slides auto-start immediately. Exercise slides show the play gate
-  /// so the client can get ready before the countdown begins.
+  /// Rest slides auto-start the countdown immediately. Exercise slides enter
+  /// a 15s prep phase during which the video auto-loops; the prep timer ticks
+  /// down and then the exercise timer starts automatically.
   void _setupSlideTimer(int index) {
     _workoutTimer?.cancel();
     if (index < 0 || index >= _slides.length) return;
@@ -298,24 +312,67 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
       _totalSeconds = duration;
       _remainingSeconds = duration;
       _isTimerRunning = false;
-      _showPlayGate = false;
+      _isPrepPhase = false;
+      _prepRemainingSeconds = 0;
     });
 
     if (exercise.isRest) {
-      // Rest periods start counting down immediately — no play gate.
+      // Rest periods start counting down immediately — no prep phase.
       _startTimer();
     } else {
-      // Exercises show the play gate; client taps when ready.
-      setState(() => _showPlayGate = true);
+      // Exercises get a 15s prep phase first. Video keeps looping in
+      // the background as a motion preview.
+      _startPrepPhase();
     }
   }
 
-  /// Begin (or resume) the countdown for the current slide.
-  /// Also plays any video on this slide so the client doesn't have to tap
-  /// the play-gate AND a separate video play button — single tap starts both.
+  /// Begin the 15-second prep countdown for the current exercise slide.
+  /// Ticks down once per second; on reaching 0, transitions into the running
+  /// exercise timer. The video loops throughout as a motion reminder.
+  void _startPrepPhase() {
+    _workoutTimer?.cancel();
+    setState(() {
+      _isPrepPhase = true;
+      _prepRemainingSeconds = _kPrepSeconds;
+      _isTimerRunning = false;
+    });
+    _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _onPrepTick();
+    });
+  }
+
+  /// Called once per second during prep phase.
+  void _onPrepTick() {
+    if (_prepRemainingSeconds <= 1) {
+      // Prep is done — cancel the prep ticker and start the exercise timer.
+      _workoutTimer?.cancel();
+      setState(() {
+        _prepRemainingSeconds = 0;
+        _isPrepPhase = false;
+      });
+      _startTimer();
+    } else {
+      setState(() => _prepRemainingSeconds--);
+    }
+  }
+
+  /// Skip the prep phase and immediately enter the exercise timer.
+  /// Invoked by tapping the prep timer ring.
+  void _skipPrep() {
+    if (!_isPrepPhase) return;
+    _workoutTimer?.cancel();
+    setState(() {
+      _isPrepPhase = false;
+      _prepRemainingSeconds = 0;
+    });
+    _startTimer();
+  }
+
+  /// Begin (or resume) the exercise countdown for the current slide.
+  /// Also plays any video on this slide so timer and video stay in sync
+  /// (video should already be playing from auto-play, but this is defensive).
   void _startTimer() {
     setState(() {
-      _showPlayGate = false;
       _isTimerRunning = true;
     });
     final controller = _videoControllers[_currentPage];
@@ -353,7 +410,19 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
     });
   }
 
-  /// Called every second while the timer is running.
+  /// Tap handler for the consolidated timer chip. Dispatches to the correct
+  /// action based on current mode (prep / running / paused).
+  void _onTimerChipTap() {
+    if (_isPrepPhase) {
+      _skipPrep();
+    } else if (_isTimerRunning) {
+      _pauseTimer();
+    } else {
+      _resumeTimer();
+    }
+  }
+
+  /// Called every second while the exercise timer is running.
   void _onTimerTick() {
     if (_remainingSeconds <= 1) {
       // Timer has finished — advance or complete.
@@ -382,8 +451,8 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
     }
     _navigateToPage(nextPage);
     // _onPageChanged will fire via PageView, but we also need to set up the
-    // timer for the new slide. Use a post-frame callback so the page has
-    // settled.
+    // timer (and 15s prep, if non-rest) for the new slide. Use a post-frame
+    // callback so the page has settled.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _isWorkoutMode && !_workoutComplete) {
         _setupSlideTimer(nextPage);
@@ -396,7 +465,8 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
     _workoutTimer?.cancel();
     setState(() {
       _isTimerRunning = false;
-      _showPlayGate = false;
+      _isPrepPhase = false;
+      _prepRemainingSeconds = 0;
       _workoutComplete = true;
     });
   }
@@ -407,7 +477,8 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
     setState(() {
       _isWorkoutMode = false;
       _isTimerRunning = false;
-      _showPlayGate = false;
+      _isPrepPhase = false;
+      _prepRemainingSeconds = 0;
       _remainingSeconds = 0;
       _totalSeconds = 0;
       _workoutComplete = false;
@@ -439,15 +510,26 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   /// Circular semi-transparent navigation button with a white arrow icon.
   ///
   /// 56px tap target for gym-friendly finger targeting. The button sits on
-  /// top of the PageView as an overlay and does not block swipe gestures
-  /// (GestureDetector only captures taps, not horizontal drags).
+  /// top of the PageView as an overlay and must not block swipe gestures.
+  /// Uses RawGestureDetector with only a TapGestureRecognizer so horizontal
+  /// drags propagate to the underlying PageView via the gesture arena —
+  /// a plain GestureDetector with behavior: opaque would swallow PointerDown
+  /// events before the PageView ever sees them.
   Widget _buildNavButton({
     required IconData icon,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
+    return RawGestureDetector(
+      behavior: HitTestBehavior.translucent,
+      gestures: <Type, GestureRecognizerFactory>{
+        TapGestureRecognizer:
+            GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+          () => TapGestureRecognizer(),
+          (TapGestureRecognizer instance) {
+            instance.onTap = onTap;
+          },
+        ),
+      },
       child: Container(
         width: 56,
         height: 56,
@@ -493,10 +575,10 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                     onPageChanged: _onPageChanged,
                     itemBuilder: (context, index) {
                       final slide = _slides[index];
+                      // Show the consolidated timer chip on non-rest slides
+                      // in workout mode, during prep, running, OR paused.
                       final showTimerChip = _isWorkoutMode &&
                           !_workoutComplete &&
-                          _isTimerRunning &&
-                          !_showPlayGate &&
                           index == _currentPage &&
                           !slide.exercise.isRest;
                       return _ExercisePage(
@@ -548,26 +630,19 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                   // Timer ring is rendered inside the per-slide metadata panel
                   // via _ExercisePage.timerChip, not as a fullscreen overlay.
 
-                  // Rest countdown overlay — larger display for rest slides
+                  // Rest countdown overlay — larger display for rest slides.
+                  // Shown in both running and paused states so the paused
+                  // state has a visible, tappable control.
                   if (_isWorkoutMode &&
                       !_workoutComplete &&
-                      _isTimerRunning &&
                       _slides[_currentPage].exercise.isRest)
                     _buildRestCountdownOverlay(),
-
-                  // Play gate — "Tap to start" before each exercise.
-                  if (_isWorkoutMode && !_workoutComplete && _showPlayGate)
-                    _buildPlayGateOverlay(),
 
                   // Workout complete overlay
                   if (_workoutComplete) _buildWorkoutCompleteOverlay(),
                 ],
               ),
             ),
-
-            // Workout controls bar (pause/resume) — below the page view
-            if (_isWorkoutMode && !_workoutComplete && !_showPlayGate)
-              _buildWorkoutControls(),
 
             // Dot indicator — only when slide count is manageable (<=10).
             // With many slides the progress bar above is sufficient.
@@ -682,50 +757,101 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   /// current slide. Replaces the old centred full-screen overlay so the
   /// timer sits next to the exercise name/badges instead of covering the
   /// media.
+  ///
+  /// Acts as a three-mode tappable control:
+  ///  - Prep mode: ring counts 15→0, integer seconds, play icon.
+  ///    Tap = skip prep.
+  ///  - Running mode: ring counts down, M:SS, pause icon.
+  ///    Tap = pause.
+  ///  - Paused mode: ring frozen, M:SS, play icon.
+  ///    Tap = resume.
   Widget _buildInlineTimerRing() {
-    final progress = _totalSeconds > 0
-        ? (_totalSeconds - _remainingSeconds) / _totalSeconds
-        : 0.0;
+    // Pick the values to render based on the current mode.
+    final double progress;
     final Color color;
-    if (_remainingSeconds > _totalSeconds * 0.25) {
-      color = Colors.green;
-    } else if (_remainingSeconds > _totalSeconds * 0.10) {
-      color = Colors.amber;
+    final String label;
+    final IconData actionIcon;
+
+    if (_isPrepPhase) {
+      // Prep: ring fills as the 15s count down toward 0.
+      progress = _kPrepSeconds > 0
+          ? (_kPrepSeconds - _prepRemainingSeconds) / _kPrepSeconds
+          : 0.0;
+      // Use the brand accent for prep so it reads as "get ready" rather
+      // than the green→red of an in-progress exercise timer.
+      color = const Color(0xFFFF6B35);
+      label = '$_prepRemainingSeconds';
+      actionIcon = Icons.play_arrow_rounded;
     } else {
-      color = Colors.red;
+      progress = _totalSeconds > 0
+          ? (_totalSeconds - _remainingSeconds) / _totalSeconds
+          : 0.0;
+      if (_remainingSeconds > _totalSeconds * 0.25) {
+        color = Colors.green;
+      } else if (_remainingSeconds > _totalSeconds * 0.10) {
+        color = Colors.amber;
+      } else {
+        color = Colors.red;
+      }
+      label = _formatTimer(_remainingSeconds);
+      actionIcon = _isTimerRunning
+          ? Icons.pause_rounded
+          : Icons.play_arrow_rounded;
     }
 
     const size = 64.0;
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          CustomPaint(
-            size: const Size(size, size),
-            painter: _TimerRingPainter(
-              progress: progress,
-              color: color,
-              trackColor: Colors.white.withValues(alpha: 0.15),
-              strokeWidth: 4,
+    return GestureDetector(
+      onTap: _onTimerChipTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CustomPaint(
+              size: const Size(size, size),
+              painter: _TimerRingPainter(
+                progress: progress,
+                color: color,
+                trackColor: Colors.white.withValues(alpha: 0.15),
+                strokeWidth: 4,
+              ),
             ),
-          ),
-          Text(
-            _formatTimer(_remainingSeconds),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
+            // Time label + small action icon stacked vertically inside ring.
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.5,
+                    height: 1.0,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Icon(
+                  actionIcon,
+                  size: 11,
+                  color: Colors.white70,
+                ),
+              ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   /// Rest countdown — large centred number with "Next up" label.
+  ///
+  /// The overlay itself is the pause/resume control: tap anywhere to toggle.
+  /// When paused, the countdown is dimmed to ~50% opacity and a centred
+  /// play-arrow is overlaid so the paused state is unmistakable. Mirrors the
+  /// three-mode pattern of the exercise timer chip.
   Widget _buildRestCountdownOverlay() {
     // Find the name of the next non-rest exercise for the "Next up" label.
     String? nextExerciseName;
@@ -737,13 +863,45 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
       }
     }
 
+    final isPaused = !_isTimerRunning;
+
+    // Use Positioned.fill with a translucent GestureDetector so taps toggle
+    // pause/resume but horizontal drags propagate to the underlying PageView.
+    // Critically, we register ONLY a TapGestureRecognizer via RawGestureDetector
+    // — this lets the PageView's HorizontalDragGestureRecognizer win the
+    // gesture arena for swipes, unblocking skip-forward/back on rest slides.
     return Positioned.fill(
-      child: IgnorePointer(
+      child: RawGestureDetector(
+        behavior: HitTestBehavior.translucent,
+        gestures: <Type, GestureRecognizerFactory>{
+          TapGestureRecognizer:
+              GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+            () => TapGestureRecognizer(),
+            (TapGestureRecognizer instance) {
+              instance.onTap = _isTimerRunning ? _pauseTimer : _resumeTimer;
+            },
+          ),
+        },
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildTimerRing(),
+              // Timer ring — dimmed when paused, with play arrow overlaid.
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  Opacity(
+                    opacity: isPaused ? 0.5 : 1.0,
+                    child: _buildTimerRing(),
+                  ),
+                  if (isPaused)
+                    const Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 64,
+                    ),
+                ],
+              ),
               if (nextExerciseName != null) ...[
                 const SizedBox(height: 20),
                 Text(
@@ -756,104 +914,6 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                 ),
               ],
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Play gate — large play button with "Tap to start" text.
-  Widget _buildPlayGateOverlay() {
-    return Positioned.fill(
-      child: GestureDetector(
-        onTap: _startTimer,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          color: Colors.black.withValues(alpha: 0.5),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 96,
-                  height: 96,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFF6B35).withValues(alpha: 0.9),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFFFF6B35).withValues(alpha: 0.4),
-                        blurRadius: 24,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.play_arrow_rounded,
-                    size: 56,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Tap to start',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _formatTimer(_totalSeconds),
-                  style: const TextStyle(
-                    color: Colors.white38,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Pause / resume controls below the page view.
-  Widget _buildWorkoutControls() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Center(
-        child: GestureDetector(
-          onTap: _isTimerRunning ? _pauseTimer : _resumeTimer,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _isTimerRunning
-                      ? Icons.pause_rounded
-                      : Icons.play_arrow_rounded,
-                  color: Colors.white,
-                  size: 24,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _isTimerRunning ? 'Pause' : 'Resume',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
           ),
         ),
       ),
@@ -1085,6 +1145,9 @@ class _ExercisePage extends StatefulWidget {
 
 class _ExercisePageState extends State<_ExercisePage> {
   /// Tracks whether the video is paused by user tap (not by page change).
+  /// Overlay is only visible when the user has explicitly paused the video —
+  /// it must not flash while the video is transiently paused by the parent
+  /// (e.g. during page change or workout pause).
   bool _showPlayOverlay = false;
 
   ExerciseCapture get _exercise => widget.slide.exercise;
@@ -1243,7 +1306,9 @@ class _ExercisePageState extends State<_ExercisePage> {
     );
   }
 
-  /// Video display with play/pause on tap and a play icon when paused.
+  /// Video display with play/pause on tap. Play overlay only appears when the
+  /// user has explicitly paused via tap (`_showPlayOverlay`). It never flashes
+  /// while the video is auto-playing.
   Widget _buildVideoPlayer() {
     final controller = widget.videoController;
 
@@ -1264,8 +1329,9 @@ class _ExercisePageState extends State<_ExercisePage> {
               child: VideoPlayer(controller),
             ),
           ),
-          // Play button overlay when paused
-          if (_showPlayOverlay || !controller.value.isPlaying)
+          // Play overlay — only shown when the user has explicitly tapped
+          // to pause. Never appears during auto-play / transient pauses.
+          if (_showPlayOverlay)
             Container(
               width: 72,
               height: 72,

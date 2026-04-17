@@ -233,13 +233,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final url = session.planUrl;
     if (url == null) return;
 
-    final text = '${session.displayTitle}\n\n'
-        '${session.exercises.where((e) => !e.isRest).length} exercises ready for you:\n'
-        '$url';
     try {
       final box = context.findRenderObject() as RenderBox?;
+      // Share only the URL so WhatsApp/Messages unfurl it into a clean
+      // link preview instead of posting the URL-plus-preamble as plain text.
       await Share.share(
-        text,
+        url,
         sharePositionOrigin: box != null
             ? box.localToGlobal(Offset.zero) & box.size
             : const Rect.fromLTWH(0, 0, 100, 100),

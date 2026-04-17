@@ -18,16 +18,21 @@ const SUPABASE_ANON_KEY = 'sb_publishable_cwhfavfji552BN8X0uPIpA_pwWQ-gw3';
 let plan = null;
 let slides = [];
 let currentIndex = 0;
-let swipeState = { active: false, startX: 0, currentX: 0, startTime: 0 };
+let swipeState = { active: false, startX: 0, startY: 0, currentX: 0, startTime: 0, didSwipe: false };
 
 // Workout timer state
 let isWorkoutMode = false;
 let isTimerRunning = false;
-let showPlayGate = false;
 let remainingSeconds = 0;
 let totalSeconds = 0;
 let workoutTimer = null;
 let workoutStartTime = null;
+
+// Prep-countdown state (15s runway before each non-rest exercise)
+const PREP_SECONDS = 15;
+let isPrepPhase = false;
+let prepRemainingSeconds = 0;
+let prepTimer = null;
 
 // Timing constants (from config.dart)
 const SECONDS_PER_REP = 3;
@@ -54,18 +59,16 @@ const $btnNext = document.getElementById('btn-next');
 const $timerOverlay = document.getElementById('timer-overlay');
 const $timerRingProgress = document.getElementById('timer-ring-progress');
 const $timerText = document.getElementById('timer-text');
-const $playGate = document.getElementById('play-gate');
-const $playGateBtn = document.getElementById('play-gate-btn');
+const $timerModeIconPlay = document.getElementById('timer-mode-icon-play');
+const $timerModeIconPause = document.getElementById('timer-mode-icon-pause');
 const $restCountdown = document.getElementById('rest-countdown');
 const $restCountdownTime = document.getElementById('rest-countdown-time');
 const $restCountdownNext = document.getElementById('rest-countdown-next');
+const $restCountdownPlayIcon = document.getElementById('rest-countdown-play-icon');
 const $workoutComplete = document.getElementById('workout-complete');
 const $workoutTotalTime = document.getElementById('workout-total-time');
 const $workoutCloseBtn = document.getElementById('workout-close-btn');
 const $startWorkoutBtn = document.getElementById('start-workout-btn');
-const $pauseBtn = document.getElementById('pause-btn');
-const $pauseIcon = document.getElementById('pause-icon');
-const $resumeIcon = document.getElementById('resume-icon');
 
 // ============================================================
 // Data fetching
@@ -268,7 +271,7 @@ function buildMedia(exercise, index) {
         preload="auto"
         ${posterAttr}
       ></video>
-      <div class="video-play-overlay" data-video-index="${index}">
+      <div class="video-play-overlay is-hidden" data-video-index="${index}">
         <div class="play-button">
           <svg viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
         </div>
@@ -330,46 +333,74 @@ function goTo(index) {
   // Pause any playing videos on current card
   pauseAllVideos();
 
+  // Cancel any in-flight prep countdown; the new slide gets its own setup.
+  clearPrepTimer();
+
   currentIndex = index;
   updateUI();
 
-  // If in workout mode and navigating manually (via skip buttons),
-  // reset timer state for the new slide
-  if (isWorkoutMode && !isTimerRunning && !showPlayGate) {
-    // User skipped — show play gate for the new slide
-    showPlayGateForCurrent();
+  // Auto-play the current slide's video (muted, looped). Safari's autoplay
+  // policy may block this if there hasn't been a user gesture yet — swallow
+  // the rejection so we don't crash. The first gesture (tap on the URL /
+  // Start Workout button) typically unlocks it.
+  autoPlayCurrentVideo();
+
+  if (isWorkoutMode) {
+    // New slide in workout mode — start prep or auto-start rest
+    enterWorkoutPhaseForCurrent();
   }
 }
 
 function goNext() {
   if (isWorkoutMode) {
     // Stop current timer when skipping
-    if (workoutTimer) {
-      clearInterval(workoutTimer);
-      workoutTimer = null;
-    }
+    clearWorkoutTimer();
+    clearPrepTimer();
     isTimerRunning = false;
+    isPrepPhase = false;
     hideTimerDisplay();
-    hidePlayGate();
     hideRestCountdown();
-    showPlayGate = false;
   }
   goTo(currentIndex + 1);
 }
 
 function goPrev() {
   if (isWorkoutMode) {
-    if (workoutTimer) {
-      clearInterval(workoutTimer);
-      workoutTimer = null;
-    }
+    clearWorkoutTimer();
+    clearPrepTimer();
     isTimerRunning = false;
+    isPrepPhase = false;
     hideTimerDisplay();
-    hidePlayGate();
     hideRestCountdown();
-    showPlayGate = false;
   }
   goTo(currentIndex - 1);
+}
+
+function clearWorkoutTimer() {
+  if (workoutTimer) {
+    clearInterval(workoutTimer);
+    workoutTimer = null;
+  }
+}
+
+function clearPrepTimer() {
+  if (prepTimer) {
+    clearInterval(prepTimer);
+    prepTimer = null;
+  }
+  isPrepPhase = false;
+}
+
+function autoPlayCurrentVideo() {
+  const currentVideo = document.getElementById(`video-${currentIndex}`);
+  if (!currentVideo) return;
+  const overlay = $cardTrack.querySelector(
+    `.video-play-overlay[data-video-index="${currentIndex}"]`
+  );
+  if (overlay) overlay.classList.add('is-hidden');
+  currentVideo.play().catch((err) => {
+    console.warn('video autoplay blocked:', err);
+  });
 }
 
 function updateUI() {
@@ -420,8 +451,10 @@ function pauseAllVideos() {
   document.querySelectorAll('video').forEach(v => {
     v.pause();
   });
+  // Per-video play overlay is hidden by default; we only reveal it when the
+  // user manually pauses the current slide's video via tap (see handleVideoTap).
   document.querySelectorAll('.video-play-overlay').forEach(o => {
-    o.classList.remove('is-hidden');
+    o.classList.add('is-hidden');
   });
 }
 
@@ -434,8 +467,10 @@ function onTouchStart(e) {
 
   swipeState.active = true;
   swipeState.startX = e.touches[0].clientX;
+  swipeState.startY = e.touches[0].clientY;
   swipeState.currentX = e.touches[0].clientX;
   swipeState.startTime = Date.now();
+  swipeState.didSwipe = false;
 
   $cardTrack.classList.add('is-swiping');
 }
@@ -445,6 +480,14 @@ function onTouchMove(e) {
 
   swipeState.currentX = e.touches[0].clientX;
   const dx = swipeState.currentX - swipeState.startX;
+  const dy = e.touches[0].clientY - swipeState.startY;
+
+  // Track whether this gesture became a swipe. Used by the overlays to
+  // suppress the synthetic click (pause/resume) when the user was navigating.
+  if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+    swipeState.didSwipe = true;
+  }
+
   const viewportWidth = $cardViewport.offsetWidth;
 
   // Add resistance at edges
@@ -494,13 +537,7 @@ function onKeyDown(e) {
     goPrev();
   } else if (e.key === ' ' && isWorkoutMode) {
     e.preventDefault();
-    if (showPlayGate) {
-      // Spacebar starts the exercise from play gate
-      hidePlayGate();
-      startTimer();
-    } else if (isTimerRunning || remainingSeconds > 0) {
-      togglePause();
-    }
+    handleTimerOverlayTap();
   }
 }
 
@@ -541,7 +578,8 @@ function formatTime(seconds) {
 }
 
 /**
- * Enter workout mode
+ * Enter workout mode. Calling goTo(0) triggers the prep-or-rest flow for the
+ * first slide via enterWorkoutPhaseForCurrent().
  */
 function startWorkout() {
   isWorkoutMode = true;
@@ -550,17 +588,21 @@ function startWorkout() {
   // Hide the start button
   $startWorkoutBtn.hidden = true;
 
-  // Go to the first slide
-  goTo(0);
-
-  // Show play gate on first exercise (or auto-start if rest)
-  showPlayGateForCurrent();
+  if (currentIndex === 0) {
+    // Already on the first slide — goTo() short-circuits when index is
+    // unchanged, so manually kick off the workout phase.
+    autoPlayCurrentVideo();
+    enterWorkoutPhaseForCurrent();
+  } else {
+    goTo(0);
+  }
 }
 
 /**
- * Show the play gate overlay, or auto-start for rest slides
+ * Called whenever workout mode enters a slide. Non-rest slides get a 15s prep
+ * countdown first; rest slides auto-start their countdown immediately.
  */
-function showPlayGateForCurrent() {
+function enterWorkoutPhaseForCurrent() {
   if (!isWorkoutMode) return;
 
   const slide = slides[currentIndex];
@@ -569,32 +611,53 @@ function showPlayGateForCurrent() {
     return;
   }
 
-  // Calculate duration for this slide
   totalSeconds = calculateDuration(slide);
   remainingSeconds = totalSeconds;
 
   if (slide.media_type === 'rest') {
-    // Rest periods auto-start -- show rest countdown overlay
-    hidePlayGate();
+    // Rest — no prep, auto-start countdown
+    hideRestCountdown();
     showRestCountdown();
     startTimer();
   } else {
-    // Exercise slides show play gate
+    // Exercise — run 15s prep runway, then startTimer()
     hideRestCountdown();
-    hideTimerDisplay();
-    showPlayGateOverlay();
+    startPrepPhase();
   }
 }
 
-function showPlayGateOverlay() {
-  showPlayGate = true;
-  $playGate.hidden = false;
-  $pauseBtn.hidden = true;
+/**
+ * Begin the 15-second prep countdown. The timer chip shows the prep seconds
+ * with a play-arrow glyph; tapping the chip skips to the running phase.
+ */
+function startPrepPhase() {
+  clearPrepTimer();
+  clearWorkoutTimer();
+
+  isPrepPhase = true;
+  isTimerRunning = false;
+  prepRemainingSeconds = PREP_SECONDS;
+
+  updateTimerDisplay();
+  showTimerDisplay();
+
+  prepTimer = setInterval(onPrepTick, 1000);
 }
 
-function hidePlayGate() {
-  showPlayGate = false;
-  $playGate.hidden = true;
+function onPrepTick() {
+  if (!isPrepPhase) return;
+  prepRemainingSeconds--;
+
+  if (prepRemainingSeconds <= 0) {
+    finishPrepPhase();
+    return;
+  }
+  updateTimerDisplay();
+}
+
+function finishPrepPhase() {
+  clearPrepTimer();
+  startTimer();
 }
 
 function showRestCountdown() {
@@ -604,10 +667,7 @@ function showRestCountdown() {
   $restCountdownTime.textContent = remainingSeconds;
   $restCountdownNext.textContent = nextName ? `Next up: ${nextName}` : '';
   $restCountdown.hidden = false;
-
-  // Also show pause button during rest
-  $pauseBtn.hidden = false;
-  updatePauseButton();
+  updateRestCountdownModeIcon();
 }
 
 function hideRestCountdown() {
@@ -618,13 +678,12 @@ function hideRestCountdown() {
  * Start the countdown timer for the current slide
  */
 function startTimer() {
-  if (workoutTimer) clearInterval(workoutTimer);
+  clearWorkoutTimer();
+  clearPrepTimer();
 
   isTimerRunning = true;
   updateTimerDisplay();
   showTimerDisplay();
-  $pauseBtn.hidden = false;
-  updatePauseButton();
 
   workoutTimer = setInterval(onTimerTick, 1000);
 }
@@ -665,46 +724,60 @@ function onTimerTick() {
 }
 
 /**
- * Update the visual timer display (ring + text)
+ * Update the visual timer display (ring + text + mode icon). Handles three
+ * modes: prep (counts 15→0, shows integer seconds + play arrow), running
+ * (counts down, shows M:SS + pause glyph), paused (frozen, M:SS + play arrow).
  */
 function updateTimerDisplay() {
   const slide = slides[currentIndex];
 
   if (slide && slide.media_type === 'rest') {
-    // Update rest countdown number
+    // Rest countdown renders its own number; keep the chip hidden.
     $restCountdownTime.textContent = remainingSeconds;
     return;
   }
 
-  // Update text
+  if (isPrepPhase) {
+    // Prep mode: integer seconds, play-arrow icon, ring counts 15→0.
+    $timerText.textContent = String(Math.max(0, prepRemainingSeconds));
+    const progress = PREP_SECONDS > 0
+      ? (1 - (prepRemainingSeconds / PREP_SECONDS))
+      : 0;
+    const offset = TIMER_CIRCUMFERENCE * (1 - progress);
+    $timerRingProgress.setAttribute('stroke-dashoffset', offset.toString());
+    $timerRingProgress.setAttribute('stroke', '#FF6B35');
+    setTimerModeIcon('play');
+    return;
+  }
+
+  // Running / paused mode
   $timerText.textContent = formatTime(remainingSeconds);
 
-  // Update SVG ring progress
   const progress = totalSeconds > 0 ? (1 - (remainingSeconds / totalSeconds)) : 0;
   const offset = TIMER_CIRCUMFERENCE * (1 - progress);
   $timerRingProgress.setAttribute('stroke-dashoffset', offset.toString());
 
-  // Update color based on remaining percentage — stay on-brand (coral orange),
-  // only shift to red in the final seconds for urgency.
+  // Red only in final 10% of the exercise for urgency; otherwise coral.
   const pct = totalSeconds > 0 ? (remainingSeconds / totalSeconds) : 1;
-  let color;
-  if (pct <= 0.10) {
-    color = '#EF4444'; // red — final urgency
-  } else {
-    color = '#FF6B35'; // coral orange (brand primary)
-  }
-  $timerRingProgress.setAttribute('stroke', color);
+  $timerRingProgress.setAttribute('stroke', pct <= 0.10 ? '#EF4444' : '#FF6B35');
+
+  setTimerModeIcon(isTimerRunning ? 'pause' : 'play');
+}
+
+function setTimerModeIcon(mode) {
+  // mode: 'play' or 'pause'
+  $timerModeIconPlay.hidden = mode !== 'play';
+  $timerModeIconPause.hidden = mode !== 'pause';
 }
 
 /**
- * Timer hit zero -- advance to next slide
+ * Timer hit zero -- advance to next slide. goTo() re-enters the workout
+ * phase (prep for exercises, auto-start for rest) for the new slide.
  */
 function onTimerComplete() {
   hideTimerDisplay();
   hideRestCountdown();
-  $pauseBtn.hidden = true;
 
-  // Move to next slide
   const nextIndex = currentIndex + 1;
   if (nextIndex >= slides.length) {
     finishWorkout();
@@ -712,9 +785,6 @@ function onTimerComplete() {
   }
 
   goTo(nextIndex);
-
-  // Show play gate for the new slide (or auto-start rest)
-  showPlayGateForCurrent();
 }
 
 /**
@@ -723,16 +793,14 @@ function onTimerComplete() {
 function pauseTimer() {
   if (!isTimerRunning) return;
   isTimerRunning = false;
-  if (workoutTimer) {
-    clearInterval(workoutTimer);
-    workoutTimer = null;
-  }
+  clearWorkoutTimer();
   // Keep the video in sync so it doesn't keep playing while the timer is paused.
   const currentVideo = document.getElementById(`video-${currentIndex}`);
   if (currentVideo && !currentVideo.paused) {
     currentVideo.pause();
   }
-  updatePauseButton();
+  updateTimerDisplay();
+  updateRestCountdownModeIcon();
 }
 
 /**
@@ -749,40 +817,64 @@ function resumeTimer() {
       console.warn('video resume failed:', err);
     });
   }
-  updatePauseButton();
+  updateTimerDisplay();
+  updateRestCountdownModeIcon();
 }
 
-/**
- * Toggle pause/resume
- */
-function togglePause() {
-  if (isTimerRunning) {
-    pauseTimer();
-  } else {
-    resumeTimer();
+function updateRestCountdownModeIcon() {
+  const slide = slides[currentIndex];
+  const isRest = slide && slide.media_type === 'rest';
+  const paused = isRest && isWorkoutMode && !isTimerRunning;
+  // Show the play arrow on the rest card only when the rest timer is paused.
+  if ($restCountdownPlayIcon) {
+    $restCountdownPlayIcon.hidden = !paused;
+  }
+  // Mirror the timer-chip three-mode pattern: dim the big number when paused
+  // and update the aria-label so the whole card reads as a pause/resume control.
+  if ($restCountdown) {
+    $restCountdown.classList.toggle('is-paused', paused);
+    $restCountdown.setAttribute(
+      'aria-label',
+      paused ? 'Resume rest timer' : 'Pause rest timer'
+    );
   }
 }
 
-function updatePauseButton() {
-  $pauseIcon.hidden = !isTimerRunning;
-  $resumeIcon.hidden = isTimerRunning;
+/**
+ * Single tap handler for the timer chip (and rest countdown). Dispatches
+ * based on current mode: prep → skip, running → pause, paused → resume.
+ *
+ * When the user just finished swiping horizontally on this overlay, the
+ * browser still fires a synthetic click on touchend. Bail out so the swipe
+ * doesn't also toggle pause/resume.
+ */
+function handleTimerOverlayTap() {
+  if (!isWorkoutMode) return;
+  if (swipeState.didSwipe) {
+    swipeState.didSwipe = false;
+    return;
+  }
+  if (isPrepPhase) {
+    finishPrepPhase();
+    return;
+  }
+  if (isTimerRunning) {
+    pauseTimer();
+  } else if (remainingSeconds > 0) {
+    resumeTimer();
+  }
 }
 
 /**
  * Show workout complete screen
  */
 function finishWorkout() {
-  // Stop any running timer
-  if (workoutTimer) {
-    clearInterval(workoutTimer);
-    workoutTimer = null;
-  }
+  clearWorkoutTimer();
+  clearPrepTimer();
   isTimerRunning = false;
 
   hideTimerDisplay();
-  hidePlayGate();
   hideRestCountdown();
-  $pauseBtn.hidden = true;
 
   // Calculate total workout time
   const elapsedMs = Date.now() - workoutStartTime;
@@ -798,20 +890,15 @@ function finishWorkout() {
 function exitWorkout() {
   isWorkoutMode = false;
   isTimerRunning = false;
-  showPlayGate = false;
 
-  if (workoutTimer) {
-    clearInterval(workoutTimer);
-    workoutTimer = null;
-  }
+  clearWorkoutTimer();
+  clearPrepTimer();
 
   workoutStartTime = null;
 
   $workoutComplete.hidden = true;
   hideTimerDisplay();
-  hidePlayGate();
   hideRestCountdown();
-  $pauseBtn.hidden = true;
 
   // Show the start workout button again
   $startWorkoutBtn.hidden = false;
@@ -878,15 +965,11 @@ async function init() {
       if (dot) {
         if (isWorkoutMode) {
           // Reset timer when jumping via dots
-          if (workoutTimer) {
-            clearInterval(workoutTimer);
-            workoutTimer = null;
-          }
+          clearWorkoutTimer();
+          clearPrepTimer();
           isTimerRunning = false;
           hideTimerDisplay();
-          hidePlayGate();
           hideRestCountdown();
-          showPlayGate = false;
         }
         goTo(parseInt(dot.dataset.index, 10));
       }
@@ -894,25 +977,20 @@ async function init() {
 
     // Workout timer events
     $startWorkoutBtn.addEventListener('click', startWorkout);
-    $playGateBtn.addEventListener('click', () => {
-      hidePlayGate();
-      // Auto-play the current slide's video so the client doesn't have to
-      // tap the play-gate AND a separate video play button — single tap
-      // starts both. Mirrors the Flutter preview behaviour.
-      const currentVideo = document.getElementById(`video-${currentIndex}`);
-      if (currentVideo) {
-        currentVideo.play().catch((err) => {
-          console.warn('video autoplay after play-gate failed:', err);
-        });
-        const overlay = $cardTrack.querySelector(
-          `.video-play-overlay[data-video-index="${currentIndex}"]`
-        );
-        if (overlay) overlay.classList.add('is-hidden');
-      }
-      startTimer();
-    });
-    $pauseBtn.addEventListener('click', togglePause);
     $workoutCloseBtn.addEventListener('click', exitWorkout);
+
+    // Timer chip is the only pause/play control — one tappable element that
+    // dispatches based on mode (prep / running / paused).
+    $timerOverlay.addEventListener('click', handleTimerOverlayTap);
+    // Rest countdown is also tappable to pause/resume the rest.
+    if ($restCountdown) {
+      $restCountdown.addEventListener('click', handleTimerOverlayTap);
+    }
+
+    // Try to autoplay the first slide's video on initial load. The fetchPlan
+    // click that opened the URL should have unlocked autoplay on iOS Safari,
+    // but we swallow the rejection defensively if the browser blocks it.
+    autoPlayCurrentVideo();
 
     // Show the Start Workout button
     $startWorkoutBtn.hidden = false;

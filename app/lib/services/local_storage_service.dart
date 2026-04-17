@@ -14,7 +14,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 11;
+  static const _dbVersion = 13;
 
   Database? _db;
 
@@ -79,6 +79,9 @@ class LocalStorageService {
         circuit_id TEXT,
         include_audio INTEGER NOT NULL DEFAULT 0,
         custom_duration INTEGER,
+        video_duration_ms INTEGER,
+        archive_file_path TEXT,
+        archived_at INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -162,6 +165,27 @@ class LocalStorageService {
       );
       await db.execute(
         'ALTER TABLE sessions ADD COLUMN publish_attempt_count INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (oldVersion < 12) {
+      // Per-exercise video duration in ms. Used so estimatedDurationSeconds
+      // can treat one rep = one video length for video exercises instead of
+      // the hardcoded 3s default.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN video_duration_ms INTEGER',
+      );
+    }
+    if (oldVersion < 13) {
+      // Local raw-video archive: every captured video gets compressed to a
+      // 720p H.264 copy in {Documents}/archive/, tracked here so we can
+      // re-run better line-drawing filters against the original footage
+      // later, and ultimately upload to a private Supabase bucket once auth
+      // lands. Archives older than 90 days are purged on startup.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN archive_file_path TEXT',
+      );
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN archived_at INTEGER',
       );
     }
   }
@@ -308,6 +332,54 @@ class LocalStorageService {
       final id = row['id'] as String;
       await deleteSession(id);
     }
+  }
+
+  /// Delete archived raw-video copies older than [retention] (default 90
+  /// days) and clear the corresponding columns on the exercise rows. Called
+  /// fire-and-forget on app startup to keep `{Documents}/archive/` bounded.
+  ///
+  /// The exercise rows themselves are preserved — only [archiveFilePath] and
+  /// [archivedAt] are nulled out. Returns the number of archives purged.
+  Future<int> purgeOldArchives({
+    Duration retention = const Duration(days: 90),
+  }) async {
+    final cutoff = DateTime.now().subtract(retention).millisecondsSinceEpoch;
+
+    final rows = await db.query(
+      'exercises',
+      columns: ['id', 'archive_file_path'],
+      where: 'archive_file_path IS NOT NULL AND archived_at < ?',
+      whereArgs: [cutoff],
+    );
+
+    if (rows.isEmpty) return 0;
+
+    final purgedIds = <String>[];
+    for (final row in rows) {
+      final relPath = row['archive_file_path'] as String?;
+      if (relPath == null || relPath.isEmpty) continue;
+      try {
+        final file = File(PathResolver.resolve(relPath));
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (_) {
+        // Best-effort — if we can't delete the file, still clear the row
+        // so we don't keep retrying on every startup.
+      }
+      purgedIds.add(row['id'] as String);
+    }
+
+    if (purgedIds.isEmpty) return 0;
+
+    final placeholders = List.filled(purgedIds.length, '?').join(',');
+    await db.rawUpdate(
+      'UPDATE exercises '
+      'SET archive_file_path = NULL, archived_at = NULL '
+      'WHERE id IN ($placeholders)',
+      purgedIds,
+    );
+    return purgedIds.length;
   }
 
   // ---------------------------------------------------------------------------

@@ -69,8 +69,8 @@
       </div>
     </main>
 
-    <!-- Timer overlay (workout mode) -->
-    <div id="timer-overlay" class="timer-overlay" hidden>
+    <!-- Timer overlay (workout mode) — three-mode tappable chip (prep / running / paused) -->
+    <div id="timer-overlay" class="timer-overlay" role="button" tabindex="0" aria-label="Timer control" hidden>
       <div class="timer-overlay-bg"></div>
       <svg class="timer-ring" viewBox="0 0 120 120">
         <circle cx="60" cy="60" r="54" stroke-width="6" fill="none" stroke="rgba(255,255,255,0.15)"/>
@@ -80,22 +80,24 @@
                 transform="rotate(-90 60 60)" stroke-linecap="round"/>
       </svg>
       <div id="timer-text" class="timer-text">0:00</div>
+      <svg id="timer-mode-icon-play" class="timer-mode-icon timer-mode-icon--play" viewBox="0 0 24 24" fill="currentColor" hidden>
+        <polygon points="6 3 20 12 6 21 6 3"></polygon>
+      </svg>
+      <svg id="timer-mode-icon-pause" class="timer-mode-icon timer-mode-icon--pause" viewBox="0 0 24 24" fill="currentColor" hidden>
+        <rect x="6" y="4" width="4" height="16" rx="1"/>
+        <rect x="14" y="4" width="4" height="16" rx="1"/>
+      </svg>
     </div>
 
-    <!-- Play gate overlay (workout mode — between exercises) -->
-    <div id="play-gate" class="play-gate" hidden>
-      <div class="play-gate-inner">
-        <button class="play-gate-btn" id="play-gate-btn" aria-label="Start exercise">
-          <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
-        </button>
-        <div class="play-gate-label">Tap to start</div>
-      </div>
-    </div>
-
-    <!-- Rest countdown overlay (workout mode) -->
-    <div id="rest-countdown" class="rest-countdown" hidden>
+    <!-- Rest countdown overlay (workout mode) — tappable: click toggles pause/resume -->
+    <div id="rest-countdown" class="rest-countdown" role="button" tabindex="0" aria-label="Rest timer control" hidden>
       <div class="rest-countdown-inner">
-        <div id="rest-countdown-time" class="rest-countdown-time">30</div>
+        <div class="rest-countdown-time-wrap">
+          <div id="rest-countdown-time" class="rest-countdown-time">30</div>
+          <svg id="rest-countdown-play-icon" class="rest-countdown-play-icon" viewBox="0 0 24 24" fill="currentColor" hidden>
+            <polygon points="6 3 20 12 6 21 6 3"></polygon>
+          </svg>
+        </div>
         <div id="rest-countdown-next" class="rest-countdown-next">Next up: Exercise</div>
       </div>
     </div>
@@ -122,17 +124,6 @@
         <polyline points="12 6 12 12 16 14"/>
       </svg>
       Start Workout
-    </button>
-
-    <!-- Pause / Resume button (workout mode) -->
-    <button id="pause-btn" class="pause-btn" hidden>
-      <svg id="pause-icon" viewBox="0 0 24 24" fill="currentColor">
-        <rect x="6" y="4" width="4" height="16" rx="1"/>
-        <rect x="14" y="4" width="4" height="16" rx="1"/>
-      </svg>
-      <svg id="resume-icon" viewBox="0 0 24 24" fill="currentColor" hidden>
-        <polygon points="6 3 20 12 6 21 6 3"/>
-      </svg>
     </button>
 
     <!-- Navigation -->

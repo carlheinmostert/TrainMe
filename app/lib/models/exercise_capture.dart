@@ -47,6 +47,24 @@ class ExerciseCapture {
   /// Nullable — null means "use the auto-calculated value".
   final int? customDurationSeconds;
 
+  /// Duration of the raw video file in milliseconds. Populated by the
+  /// conversion service after a successful video conversion using the native
+  /// AVURLAsset probe. For video exercises, this is used as "one rep" in the
+  /// auto-calculated duration estimate (the video IS the demonstration of one
+  /// iteration). Null for photos, rest periods, and legacy rows pre-migration.
+  final int? videoDurationMs;
+
+  /// Relative path (via [PathResolver]) to the compressed 720p H.264 archive
+  /// copy of the raw video. Populated fire-and-forget after a successful video
+  /// conversion so we can re-run better line-drawing filters later against a
+  /// compact copy of the original footage. Null for photos, rest periods, and
+  /// exercises where the archive step hasn't run yet (or failed non-fatally).
+  final String? archiveFilePath;
+
+  /// When the [archiveFilePath] was written. Used by the 90-day retention
+  /// purge on app startup. Null when [archiveFilePath] is null.
+  final DateTime? archivedAt;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -65,6 +83,9 @@ class ExerciseCapture {
     this.circuitId,
     this.includeAudio = false,
     this.customDurationSeconds,
+    this.videoDurationMs,
+    this.archiveFilePath,
+    this.archivedAt,
   });
 
   /// Create a new capture with a generated UUID.
@@ -127,6 +148,11 @@ class ExerciseCapture {
       circuitId: map['circuit_id'] as String?,
       includeAudio: (map['include_audio'] as int?) == 1,
       customDurationSeconds: map['custom_duration'] as int?,
+      videoDurationMs: map['video_duration_ms'] as int?,
+      archiveFilePath: map['archive_file_path'] as String?,
+      archivedAt: map['archived_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['archived_at'] as int)
+          : null,
     );
   }
 
@@ -150,6 +176,9 @@ class ExerciseCapture {
       'circuit_id': circuitId,
       'include_audio': includeAudio ? 1 : 0,
       'custom_duration': customDurationSeconds,
+      'video_duration_ms': videoDurationMs,
+      'archive_file_path': archiveFilePath,
+      'archived_at': archivedAt?.millisecondsSinceEpoch,
     };
   }
 
@@ -177,6 +206,12 @@ class ExerciseCapture {
     bool? includeAudio,
     int? customDurationSeconds,
     bool clearCustomDuration = false,
+    int? videoDurationMs,
+    bool clearVideoDurationMs = false,
+    String? archiveFilePath,
+    bool clearArchiveFilePath = false,
+    DateTime? archivedAt,
+    bool clearArchivedAt = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -198,14 +233,30 @@ class ExerciseCapture {
       customDurationSeconds: clearCustomDuration
           ? null
           : (customDurationSeconds ?? this.customDurationSeconds),
+      videoDurationMs: clearVideoDurationMs
+          ? null
+          : (videoDurationMs ?? this.videoDurationMs),
+      archiveFilePath: clearArchiveFilePath
+          ? null
+          : (archiveFilePath ?? this.archiveFilePath),
+      archivedAt: clearArchivedAt ? null : (archivedAt ?? this.archivedAt),
     );
   }
 
   /// Estimated duration in seconds for this exercise (all sets).
   /// Rest periods simply return their holdSeconds.
+  ///
+  /// For video exercises, "one rep" is the actual video duration (the video
+  /// IS the demonstration of one iteration). For photos, it falls back to
+  /// the config-level [AppConfig.secondsPerRep] constant.
   int get estimatedDurationSeconds {
     if (isRest) return holdSeconds ?? AppConfig.defaultRestDuration;
-    final repsTime = (reps ?? 10) * AppConfig.secondsPerRep;
+    final perRep = (mediaType == MediaType.video &&
+            videoDurationMs != null &&
+            videoDurationMs! > 0)
+        ? (videoDurationMs! / 1000).round()
+        : AppConfig.secondsPerRep;
+    final repsTime = (reps ?? 10) * perRep;
     final holdTime = holdSeconds ?? 0;
     final perSetTime = repsTime + holdTime;
     final totalSets = sets ?? 3;
@@ -235,4 +286,8 @@ class ExerciseCapture {
   /// Absolute path to the thumbnail, or null.
   String? get absoluteThumbnailPath =>
       thumbnailPath != null ? PathResolver.resolve(thumbnailPath!) : null;
+
+  /// Absolute path to the compressed raw archive, or null.
+  String? get absoluteArchiveFilePath =>
+      archiveFilePath != null ? PathResolver.resolve(archiveFilePath!) : null;
 }

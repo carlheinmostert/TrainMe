@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -37,6 +39,11 @@ void main() async {
 
     // Clean up sessions that have been in the recycle bin too long
     await storage.purgeExpiredSessions();
+
+    // Fire-and-forget: purge archived raw videos older than 90 days so the
+    // local archive/ directory doesn't grow without bound. Non-blocking —
+    // the bio shouldn't wait on disk I/O at launch.
+    unawaited(storage.purgeOldArchives());
 
     // Initialize the conversion service singleton and restore any queued
     // items from a previous session (crash recovery)

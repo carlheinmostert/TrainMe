@@ -77,6 +77,57 @@ class VideoConverterChannel {
                 )
             }
 
+        case "compressVideo":
+            guard let args = call.arguments as? [String: Any],
+                  let inputPath = args["inputPath"] as? String,
+                  let outputPath = args["outputPath"] as? String else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing required arguments for compressVideo",
+                    details: nil
+                ))
+                return
+            }
+            processingQueue.async { [weak self] in
+                self?.compressVideo(
+                    inputPath: inputPath,
+                    outputPath: outputPath,
+                    result: result
+                )
+            }
+
+        case "getVideoDuration":
+            guard let args = call.arguments as? [String: Any],
+                  let inputPath = args["inputPath"] as? String else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing inputPath for getVideoDuration",
+                    details: nil
+                ))
+                return
+            }
+            processingQueue.async {
+                guard FileManager.default.fileExists(atPath: inputPath),
+                      FileManager.default.isReadableFile(atPath: inputPath) else {
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "FILE_NOT_FOUND",
+                            message: "Input file does not exist: \(inputPath)",
+                            details: nil
+                        ))
+                    }
+                    return
+                }
+                let asset = AVURLAsset(url: URL(fileURLWithPath: inputPath))
+                let seconds = CMTimeGetSeconds(asset.duration)
+                // Return milliseconds as an Int64-friendly number; NSNumber keeps
+                // it safe across the platform channel (Flutter expects `int`).
+                let ms = Int64((seconds.isFinite ? seconds : 0) * 1000)
+                DispatchQueue.main.async {
+                    result(NSNumber(value: ms))
+                }
+            }
+
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -443,6 +494,135 @@ class VideoConverterChannel {
                     details: nil
                 ))
                 endBackgroundTask()
+            }
+        }
+    }
+
+    // MARK: - Video Compression (Raw Archive)
+
+    /// Compress a video to 720p H.264 + AAC using AVAssetExportSession.
+    /// Used by the local raw-archive pipeline so every captured clip has a
+    /// compact archival copy for re-running future line-drawing filters.
+    /// Fire-and-forget from Dart — failures must not disturb the main flow.
+    private func compressVideo(
+        inputPath: String,
+        outputPath: String,
+        result: @escaping FlutterResult
+    ) {
+        // --- Defense in depth: validate input file exists and is readable ---
+        guard FileManager.default.fileExists(atPath: inputPath),
+              FileManager.default.isReadableFile(atPath: inputPath) else {
+            DispatchQueue.main.async {
+                result(FlutterError(
+                    code: "FILE_NOT_FOUND",
+                    message: "Input file does not exist or is not readable: \(inputPath)",
+                    details: nil
+                ))
+            }
+            return
+        }
+
+        // --- Background task assertion ---
+        // Bracket the export with begin/end so a brief backgrounding during
+        // compression doesn't truncate the output. The background task is
+        // ended on both success and failure paths below.
+        var bgTaskId: UIBackgroundTaskIdentifier = .invalid
+        bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "video-compress") {
+            if bgTaskId != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTaskId)
+                bgTaskId = .invalid
+            }
+        }
+        let endBackgroundTask: () -> Void = {
+            if bgTaskId != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTaskId)
+                bgTaskId = .invalid
+            }
+        }
+
+        let inputURL = URL(fileURLWithPath: inputPath)
+        let outputURL = URL(fileURLWithPath: outputPath)
+
+        // Ensure the parent directory exists.
+        do {
+            try FileManager.default.createDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            DispatchQueue.main.async {
+                result(FlutterError(
+                    code: "COMPRESS_FAILED",
+                    message: "Could not create output directory: \(error.localizedDescription)",
+                    details: nil
+                ))
+                endBackgroundTask()
+            }
+            return
+        }
+
+        // Remove any pre-existing output file (AVAssetExportSession refuses to overwrite).
+        try? FileManager.default.removeItem(at: outputURL)
+
+        let asset = AVURLAsset(url: inputURL)
+
+        guard let exportSession = AVAssetExportSession(
+            asset: asset,
+            presetName: AVAssetExportPreset1280x720
+        ) else {
+            DispatchQueue.main.async {
+                result(FlutterError(
+                    code: "COMPRESS_FAILED",
+                    message: "Could not create AVAssetExportSession",
+                    details: nil
+                ))
+                endBackgroundTask()
+            }
+            return
+        }
+
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = .mp4
+        exportSession.shouldOptimizeForNetworkUse = true
+
+        exportSession.exportAsynchronously {
+            switch exportSession.status {
+            case .completed:
+                let sizeBytes: Int64
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: outputPath),
+                   let size = attrs[.size] as? NSNumber {
+                    sizeBytes = size.int64Value
+                } else {
+                    sizeBytes = 0
+                }
+                DispatchQueue.main.async {
+                    result([
+                        "success": true,
+                        "outputPath": outputPath,
+                        "sizeBytes": NSNumber(value: sizeBytes),
+                    ])
+                    endBackgroundTask()
+                }
+            case .cancelled:
+                DispatchQueue.main.async {
+                    result(FlutterError(
+                        code: "EXPORT_CANCELLED",
+                        message: "Compression was cancelled",
+                        details: nil
+                    ))
+                    endBackgroundTask()
+                }
+            default:
+                let message = exportSession.error?.localizedDescription
+                    ?? "Export finished with status \(exportSession.status.rawValue)"
+                DispatchQueue.main.async {
+                    result(FlutterError(
+                        code: "COMPRESS_FAILED",
+                        message: message,
+                        details: nil
+                    ))
+                    endBackgroundTask()
+                }
             }
         }
     }

@@ -753,7 +753,10 @@ body {
 }
 
 /* Timer chip — small ring anchored to the bottom-right of the card,
-   sitting next to the exercise name/badges instead of covering the media. */
+   sitting next to the exercise name/badges instead of covering the media.
+   Tappable: cycles prep → running → paused → resume.
+   touch-action: pan-y lets horizontal swipes bubble to the card-track handler
+   so users can still navigate between slides while the chip is visible. */
 .timer-overlay {
   position: absolute;
   right: 20px;
@@ -764,7 +767,15 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  pointer-events: none;
+  pointer-events: auto;
+  touch-action: pan-y;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.timer-overlay:active {
+  transform: scale(0.94);
 }
 
 .timer-overlay-bg {
@@ -794,66 +805,41 @@ body {
   font-variant-numeric: tabular-nums;
   text-shadow: 0 1px 4px rgba(0,0,0,0.6);
   z-index: 1;
+  line-height: 1;
+  transform: translateY(-4px);
 }
 
-/* Play gate — full viewport overlay between exercises */
-.play-gate {
+/* Tiny play/pause glyph below the timer number */
+.timer-mode-icon {
   position: absolute;
-  inset: 0;
-  z-index: 22;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 17, 23, 0.72);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  -webkit-tap-highlight-color: transparent;
-}
-
-.play-gate-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-}
-
-.play-gate-btn {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  border: none;
-  background: var(--color-primary);
+  left: 50%;
+  bottom: 14px;
+  width: 12px;
+  height: 12px;
+  transform: translateX(-50%);
   color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: var(--shadow-glow-primary), 0 8px 32px rgba(0,0,0,0.4);
-  transition: transform var(--transition-fast);
-  -webkit-tap-highlight-color: transparent;
-}
-
-.play-gate-btn:active {
-  transform: scale(0.92);
-}
-
-.play-gate-btn svg {
-  width: 36px;
-  height: 36px;
-  margin-left: 4px;
   fill: #ffffff;
+  z-index: 2;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
 }
 
-.play-gate-label {
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--color-text);
-  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
-  letter-spacing: 0.02em;
+.timer-mode-icon--play {
+  width: 12px;
+  height: 12px;
 }
 
-/* Rest countdown overlay (over the card viewport in workout mode) */
+.timer-mode-icon--pause {
+  width: 12px;
+  height: 12px;
+}
+
+/* Rest countdown overlay (over the card viewport in workout mode).
+   Tappable: click toggles pause/resume. Mirrors the timer-chip three-mode
+   pattern — running (bright number) vs paused (dim number + play arrow).
+   touch-action: pan-y lets horizontal swipes pass through to the card-track
+   swipe handler (attached via JS) so users can skip forward/back on rest
+   slides instead of getting stuck on the fullscreen overlay. */
 .rest-countdown {
   position: absolute;
   inset: 0;
@@ -864,6 +850,14 @@ body {
   background: rgba(15, 17, 23, 0.82);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.rest-countdown:active {
+  transform: scale(0.98);
 }
 
 .rest-countdown-inner {
@@ -871,6 +865,13 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 8px;
+}
+
+.rest-countdown-time-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .rest-countdown-time {
@@ -881,6 +882,25 @@ body {
   font-variant-numeric: tabular-nums;
   text-shadow: 0 2px 16px rgba(255, 107, 53, 0.4);
   line-height: 1;
+  transition: opacity 0.2s ease;
+}
+
+/* Paused state — dim the number and reveal the play arrow overlay */
+.rest-countdown.is-paused .rest-countdown-time {
+  opacity: 0.5;
+}
+
+.rest-countdown-play-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  transform: translate(-50%, -50%);
+  color: #ffffff;
+  fill: #ffffff;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));
 }
 
 .rest-countdown-next {
@@ -889,39 +909,6 @@ body {
   color: var(--color-text);
   text-shadow: 0 1px 4px rgba(0,0,0,0.4);
   letter-spacing: 0.01em;
-}
-
-/* Pause / Resume button */
-.pause-btn {
-  position: absolute;
-  bottom: 80px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  border: 1px solid var(--color-dark-border);
-  background: rgba(26, 29, 39, 0.75);
-  color: var(--color-text);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 26;
-  -webkit-tap-highlight-color: transparent;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  transition: all var(--transition-fast);
-}
-
-.pause-btn:active {
-  transform: translateX(-50%) scale(0.92);
-}
-
-.pause-btn svg {
-  width: 20px;
-  height: 20px;
-  fill: var(--color-text);
 }
 
 /* Workout complete overlay */

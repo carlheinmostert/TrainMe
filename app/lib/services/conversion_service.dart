@@ -159,6 +159,25 @@ class ConversionService extends ChangeNotifier {
             debugPrint('Post-conversion thumbnail update failed: $e');
             // Non-fatal — keep the raw thumbnail
           }
+
+          // Probe the raw video duration via AVURLAsset so the "one rep" in
+          // the duration estimate reflects the actual clip length instead of
+          // the hardcoded AppConfig.secondsPerRep constant. Non-fatal — if the
+          // probe fails we leave videoDurationMs null and fall back.
+          try {
+            final rawPath = PathResolver.resolve(exercise.rawFilePath);
+            final ms = await _videoChannel.invokeMethod<int>(
+              'getVideoDuration',
+              {'inputPath': rawPath},
+            );
+            if (ms != null && ms > 0) {
+              done = done.copyWith(videoDurationMs: ms);
+            }
+          } catch (e) {
+            debugPrint('Video duration probe failed for ${exercise.id}: $e');
+            // Non-fatal — leave videoDurationMs unset, estimator falls back
+            // to AppConfig.secondsPerRep.
+          }
         }
 
         await _storage.saveExercise(done);
@@ -166,6 +185,12 @@ class ConversionService extends ChangeNotifier {
           _updateController.add(done);
         }
         notifyListeners();
+
+        // Fire-and-forget raw archive — compresses the raw video to a 720p
+        // H.264 copy in {Documents}/archive/ so we can re-run better
+        // line-drawing filters against the original footage later. A failure
+        // here must not disturb the main conversion flow.
+        unawaited(_archiveRawVideo(done));
       } catch (e, stack) {
         // Write error to a log file for debugging (readable from simulator filesystem)
         try {
@@ -685,6 +710,73 @@ class ConversionService extends ChangeNotifier {
     boosted.dispose();
 
     return result;
+  }
+
+  /// Compress the raw video to a 720p H.264 archive copy and record the
+  /// location on the exercise row. Fire-and-forget from [_processQueue] —
+  /// any failure is swallowed and logged so it never disturbs the bio's
+  /// main flow. No-op for non-video media.
+  ///
+  /// The raw file in `{Documents}/raw/` is intentionally NOT deleted here —
+  /// that's a separate cleanup pass we can add in a follow-up once the
+  /// archive pipeline has been exercised in the wild. Safer to over-retain.
+  Future<void> _archiveRawVideo(ExerciseCapture done) async {
+    // TODO: upload archived raw to private Supabase bucket once auth is in.
+    if (done.mediaType != MediaType.video) return;
+
+    try {
+      final rawPath = done.absoluteRawFilePath;
+      if (rawPath.isEmpty) return;
+      if (!await File(rawPath).exists()) {
+        debugPrint('Archive skipped — raw file missing for ${done.id}: $rawPath');
+        return;
+      }
+
+      final docsDir = await getApplicationDocumentsDirectory();
+      final archiveDir = p.join(docsDir.path, 'archive');
+      await Directory(archiveDir).create(recursive: true);
+      final archivePath = p.join(archiveDir, '${done.id}.mp4');
+
+      final result = await _videoChannel.invokeMethod<Map>(
+        'compressVideo',
+        {
+          'inputPath': rawPath,
+          'outputPath': archivePath,
+        },
+      );
+
+      if (result == null || result['success'] != true) {
+        debugPrint('Archive compression returned unexpected result for ${done.id}: $result');
+        return;
+      }
+
+      // TODO: delete the raw file from {Documents}/raw/ once we're confident
+      // the archive is sufficient. Leaving the raw in place for now is safer
+      // — a failed archive would otherwise lose the only copy of the clip.
+      final updated = done.copyWith(
+        archiveFilePath: PathResolver.toRelative(archivePath),
+        archivedAt: DateTime.now(),
+      );
+      await _storage.saveExercise(updated);
+      if (!_updateController.isClosed) {
+        _updateController.add(updated);
+      }
+      debugPrint(
+          'Archived raw video for ${done.id}: $archivePath '
+          '(${result["sizeBytes"]} bytes)');
+    } catch (e, stack) {
+      debugPrint('Raw archive failed for ${done.id}: $e');
+      try {
+        final logDir = await getApplicationDocumentsDirectory();
+        final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+        await logFile.writeAsString(
+          '${DateTime.now()} [_archiveRawVideo]\n'
+          'Exercise: ${done.id}\n'
+          'Error: $e\n$stack\n\n',
+          mode: FileMode.append,
+        );
+      } catch (_) {}
+    }
   }
 
   /// Number of items currently waiting in the queue.
