@@ -23,9 +23,11 @@ import '../widgets/shell_pull_tab.dart';
 /// peek-only capture box mid-left showing the last capture's thumbnail
 /// and total count.
 ///
-/// Video recording gets a pulsing red dot, a large 30-second countdown,
-/// and per-second haptic ticks so the bio knows the recording is live
-/// without staring at the screen.
+/// Video recording gets a scale-pulsing red dot (1s cycle, same clock
+/// as the haptic tick), a large 30-second countdown, and per-second
+/// `mediumImpact` haptic ticks so the bio knows the recording is live
+/// without staring at the screen. The visual pulse is a backup for the
+/// haptic — iOS can suppress softer haptics while the mic is active.
 ///
 /// Failures are silent — the count doesn't increment — because the bio
 /// shouldn't have their attention pulled away from the client by modal
@@ -148,6 +150,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (_recordingTickTimer != null) {
+      debugPrint('recording tick timer cancelled (dispose)');
+    }
     _recordingTickTimer?.cancel();
     _recordingTickTimer = null;
     _cameraController?.dispose();
@@ -162,6 +167,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
+      if (_recordingTickTimer != null) {
+        debugPrint('recording tick timer cancelled (lifecycle paused)');
+      }
       _recordingTickTimer?.cancel();
       _recordingTickTimer = null;
       if (_isRecording) {
@@ -447,21 +455,26 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       // Per-second haptic tick. Fires IMMEDIATELY once we've confirmed
       // (a) the controller started recording, (b) `_isRecording = true`,
       // and (c) the release didn't already land during the async start.
-      // `lightImpact` is used over `selectionClick` — selection-click is
-      // too subtle to feel reliably while the bio is focused on framing
-      // the shot; light impact is perceptible but not intrusive.
+      // Upgraded to `mediumImpact` — on-device testing showed `lightImpact`
+      // was not perceptible during active video recording (iOS may suppress
+      // softer haptics while the mic is hot to avoid audio contamination).
+      // Debug prints confirm via console that the timer actually fires and
+      // hasn't been cancelled early.
       _recordingTickTimer =
           Timer.periodic(const Duration(seconds: 1), (timer) {
+        debugPrint(
+            'haptic tick t=${DateTime.now().toIso8601String()}');
         if (!mounted) {
           timer.cancel();
           return;
         }
         setState(() => _recordingSeconds++);
-        HapticFeedback.lightImpact();
+        HapticFeedback.mediumImpact();
         if (_recordingSeconds >= AppConfig.maxVideoSeconds) {
           _stopVideoRecording(autoStopped: true);
         }
       });
+      debugPrint('recording tick timer started');
     } catch (e) {
       debugPrint('Video recording start failed: $e');
       _pendingStopAfterStart = false;
@@ -502,6 +515,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
     // Cancel the tick timer BEFORE any further haptics so the
     // per-second tick can't overlap with the forthcoming stop haptic.
+    if (_recordingTickTimer != null) {
+      debugPrint('recording tick timer cancelled (stop)');
+    }
     _recordingTickTimer?.cancel();
     _recordingTickTimer = null;
 
@@ -888,11 +904,18 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
                 ],
               ),
               child: hasCapture
+                  // `showConversionOverlay: false` — the perpetual
+                  // spinner was anxiety-inducing mid-session. The
+                  // thumbnail already shows the raw frame while
+                  // conversion runs and silently swaps to the line-
+                  // drawing version once ready (via displayFilePath).
+                  // No spinner, no animation on the swap.
                   ? Padding(
                       padding: const EdgeInsets.all(2),
                       child: CaptureThumbnail(
                         exercise: _lastCapture!,
                         size: boxSize - 4,
+                        showConversionOverlay: false,
                       ),
                     )
                   : const Center(
@@ -1087,6 +1110,13 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
 /// Pulsing red dot shown in the top-left of the viewfinder during
 /// recording.
+///
+/// The scale pulse is deliberately locked to a 1-second cycle so it
+/// matches the per-second haptic tick — giving the bio a peripheral-
+/// vision confirm that recording is alive even when haptics are
+/// suppressed by the OS (e.g. iOS mutes softer haptics while the mic
+/// is hot). Size stays the same on average; we just breathe the scale
+/// between 1.0 and 1.2.
 class _PulsingDot extends StatefulWidget {
   const _PulsingDot();
 
@@ -1097,14 +1127,18 @@ class _PulsingDot extends StatefulWidget {
 class _PulsingDotState extends State<_PulsingDot>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c;
+  late final Animation<double> _scale;
 
   @override
   void initState() {
     super.initState();
     _c = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(seconds: 1),
     )..repeat(reverse: true);
+    _scale = Tween<double>(begin: 1.0, end: 1.2).animate(
+      CurvedAnimation(parent: _c, curve: Curves.easeInOut),
+    );
   }
 
   @override
@@ -1115,29 +1149,36 @@ class _PulsingDotState extends State<_PulsingDot>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (context, _) {
-        final t = _c.value;
-        return Container(
-          width: 14,
-          height: 14,
-          decoration: BoxDecoration(
-            color: Color.lerp(
-              const Color(0xFFEF4444),
-              const Color(0xFFFCA5A5),
-              t,
-            ),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFFEF4444).withValues(alpha: 0.4 + 0.3 * t),
-                blurRadius: 6 + 4 * t,
+    // Keep the colour/glow pulse we had before (bios already learned
+    // it as "recording is live"); overlay the scale pulse on top via
+    // ScaleTransition for the peripheral-vision signal.
+    return ScaleTransition(
+      scale: _scale,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final t = _c.value;
+          return Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
+              color: Color.lerp(
+                const Color(0xFFEF4444),
+                const Color(0xFFFCA5A5),
+                t,
               ),
-            ],
-          ),
-        );
-      },
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color:
+                      const Color(0xFFEF4444).withValues(alpha: 0.4 + 0.3 * t),
+                  blurRadius: 6 + 4 * t,
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }
