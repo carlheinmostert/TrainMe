@@ -913,88 +913,103 @@ class _SetPasswordBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Two-row layout: icon + full-width text on top, then buttons right-
+    // aligned on the second row. A single-row version squashed the text
+    // column to ~100px on a 375px viewport because the two buttons ate
+    // too much horizontal space, wrapping every word onto its own line.
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceBase,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.surfaceBorder),
       ),
-      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: const BoxDecoration(
-              color: AppColors.brandTintBg,
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: const Icon(
-              Icons.lock_outline,
-              color: AppColors.primary,
-              size: 18,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  color: AppColors.brandTintBg,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.lock_outline,
+                  color: AppColors.primary,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Faster sign-in next time — set a password.',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textOnDark,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Text(
-              'Faster sign-in next time — set a password.',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textOnDark,
-                height: 1.3,
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: onDismiss,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.textSecondaryOnDark,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  'Not now',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          TextButton(
-            onPressed: onDismiss,
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.textSecondaryOnDark,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 6,
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: onSetPassword,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(AppTheme.radiusMd),
+                  ),
+                ),
+                child: const Text(
+                  'Set password',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            child: const Text(
-              'Not now',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          const SizedBox(width: 2),
-          FilledButton(
-            onPressed: onSetPassword,
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 8,
-              ),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-              ),
-            ),
-            child: const Text(
-              'Set password',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            ],
           ),
         ],
       ),
