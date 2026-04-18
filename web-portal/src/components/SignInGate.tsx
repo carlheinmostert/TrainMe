@@ -28,7 +28,7 @@ export function SignInGate() {
 
   return (
     <section
-      className="w-full max-w-sm rounded-lg border border-surface-border bg-surface-base p-8 shadow-card"
+      className="w-full max-w-sm rounded-lg border border-surface-border bg-surface-base p-8"
       aria-labelledby="signin-heading"
     >
       <h1
@@ -45,7 +45,7 @@ export function SignInGate() {
         type="button"
         onClick={handleGoogle}
         disabled={loading}
-        className="flex w-full items-center justify-center gap-3 rounded-md bg-white px-4 py-3 text-sm font-medium text-[#1f1f1f] shadow-card transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex w-full items-center justify-center gap-3 rounded-md bg-white px-4 py-3 text-sm font-medium text-[#1f1f1f] transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-60"
       >
         <GoogleIcon />
         {loading ? 'Signing in…' : 'Continue with Google'}
@@ -65,7 +65,7 @@ export function SignInGate() {
       {error && (
         <p
           role="alert"
-          className="mt-4 rounded-md border border-err/40 bg-err/10 px-3 py-2 text-sm text-err"
+          className="mt-4 rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
         >
           {error}
         </p>

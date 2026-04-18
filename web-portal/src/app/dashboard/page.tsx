@@ -101,7 +101,7 @@ export default async function DashboardPage({
 
           <Link
             href={`/credits${qs}`}
-            className="rounded-lg border border-surface-border bg-surface-base p-5 shadow-card transition hover:border-brand hover:shadow-brand-glow"
+            className="rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring"
           >
             <h2 className="font-heading text-lg font-semibold">Buy credits</h2>
             <p className="mt-1 text-sm text-ink-muted">
@@ -112,7 +112,7 @@ export default async function DashboardPage({
 
           <Link
             href={`/audit${qs}`}
-            className="rounded-lg border border-surface-border bg-surface-base p-5 shadow-card transition hover:border-brand hover:shadow-brand-glow"
+            className="rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring"
           >
             <h2 className="font-heading text-lg font-semibold">Audit log</h2>
             <p className="mt-1 text-sm text-ink-muted">
@@ -123,7 +123,7 @@ export default async function DashboardPage({
 
           <Link
             href={`/members${qs}`}
-            className="rounded-lg border border-surface-border bg-surface-base p-5 shadow-card transition hover:border-brand hover:shadow-brand-glow"
+            className="rounded-lg border border-surface-border bg-surface-base p-5 transition hover:border-brand hover:shadow-focus-ring"
           >
             <h2 className="font-heading text-lg font-semibold">Members</h2>
             <p className="mt-1 text-sm text-ink-muted">

@@ -46,7 +46,7 @@ export default async function CreditsPage({
             return (
               <article
                 key={b.key}
-                className="flex flex-col rounded-lg border border-surface-border bg-surface-base p-6 shadow-card"
+                className="flex flex-col rounded-lg border border-surface-border bg-surface-base p-6"
               >
                 <h2 className="font-heading text-xl font-bold">{b.name}</h2>
                 <p className="mt-1 text-sm text-ink-muted">

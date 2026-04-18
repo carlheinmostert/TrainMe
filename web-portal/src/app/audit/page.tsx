@@ -89,7 +89,7 @@ export default async function AuditPage({
             here.
           </p>
         ) : (
-          <div className="mt-8 overflow-hidden rounded-lg border border-surface-border bg-surface-base shadow-card">
+          <div className="mt-8 overflow-hidden rounded-lg border border-surface-border bg-surface-base">
             <table className="w-full text-left text-sm">
               <thead className="bg-surface-raised text-xs uppercase tracking-wider text-ink-muted">
                 <tr>

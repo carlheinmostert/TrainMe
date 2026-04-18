@@ -55,7 +55,7 @@ export function BuyBundleButton({ bundleKey, bundleName, practiceId }: Props) {
         {loading ? 'Redirecting to PayFast…' : `Buy ${bundleName}`}
       </button>
       {error && (
-        <p className="mt-2 text-xs text-warn" role="alert">
+        <p className="mt-2 text-xs text-warning" role="alert">
           {error}
         </p>
       )}

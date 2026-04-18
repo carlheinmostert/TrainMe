@@ -94,7 +94,7 @@ export default async function MembersPage({
                 >
                   Send invite (wiring pending)
                 </button>
-                <p className="text-xs text-warn">
+                <p className="text-xs text-warning">
                   Member-invite wiring is pending — Milestone D4 follow-up.
                 </p>
               </form>
@@ -107,7 +107,7 @@ export default async function MembersPage({
             No members found for this practice.
           </p>
         ) : (
-          <ul className="mt-8 divide-y divide-surface-border rounded-lg border border-surface-border bg-surface-base shadow-card">
+          <ul className="mt-8 divide-y divide-surface-border rounded-lg border border-surface-border bg-surface-base">
             {members.map((m) => (
               <li
                 key={m.trainer_id}
