@@ -22,9 +22,14 @@ echo "▸ Pulling latest main..."
 cd /Users/chm/dev/TrainMe
 git pull origin main
 
-echo "▸ Building Flutter app for physical device (first run ≈ 3-5 min)..."
+echo "▸ Building Flutter app for physical device in RELEASE mode (first run ≈ 5-8 min)..."
+# Release build is required for physical-device standalone launch — iOS 14+
+# rejects debug-mode Flutter binaries launched outside of `flutter run`
+# ("Cannot create a FlutterEngine instance in debug mode without Flutter
+#  tooling or Xcode"). Release strips debug symbols, compiles AOT, and
+# produces a binary the device can launch from the home screen on its own.
 cd /Users/chm/dev/TrainMe/app
-LC_ALL=en_US.UTF-8 flutter build ios --debug
+LC_ALL=en_US.UTF-8 flutter build ios --release
 
 echo "▸ Installing to iPhone CHM..."
 xcrun devicectl device install app --device "$DEVICE" "$APP_PATH"
