@@ -54,12 +54,16 @@ class AuthService {
     await _supabase.auth.signInWithOAuth(
       OAuthProvider.google,
       redirectTo: AppConfig.oauthRedirectUrl,
-      // platformDefault → ASWebAuthenticationSession on iOS. Apple's
-      // dedicated OAuth handler follows custom-scheme redirects back to
-      // the app without the iOS 17+ "Open in app?" prompt that full
-      // Safari now always shows. Also shares Safari cookies, so
-      // subsequent Google sign-ins don't re-prompt for credentials.
-      authScreenLaunchMode: LaunchMode.platformDefault,
+      // inAppBrowserView → SFSafariViewController on iOS. The
+      // Goldilocks launch mode for Google OAuth:
+      //   • Shares Safari cookies (active Google session just works)
+      //   • Follows custom-scheme redirects back to the app without the
+      //     iOS 17+ "Open in app?" prompt that full Safari now shows
+      //   • Doesn't trip Google's browser-fingerprint block the way
+      //     ASWebAuthenticationSession does (white page on accounts.
+      //     google.com on first-time use from a real device)
+      //   • Stays in-app, no context switch
+      authScreenLaunchMode: LaunchMode.inAppBrowserView,
     );
   }
 
@@ -74,12 +78,16 @@ class AuthService {
     await _supabase.auth.signInWithOAuth(
       OAuthProvider.apple,
       redirectTo: AppConfig.oauthRedirectUrl,
-      // platformDefault → ASWebAuthenticationSession on iOS. Apple's
-      // dedicated OAuth handler follows custom-scheme redirects back to
-      // the app without the iOS 17+ "Open in app?" prompt that full
-      // Safari now always shows. Also shares Safari cookies, so
-      // subsequent Google sign-ins don't re-prompt for credentials.
-      authScreenLaunchMode: LaunchMode.platformDefault,
+      // inAppBrowserView → SFSafariViewController on iOS. The
+      // Goldilocks launch mode for Google OAuth:
+      //   • Shares Safari cookies (active Google session just works)
+      //   • Follows custom-scheme redirects back to the app without the
+      //     iOS 17+ "Open in app?" prompt that full Safari now shows
+      //   • Doesn't trip Google's browser-fingerprint block the way
+      //     ASWebAuthenticationSession does (white page on accounts.
+      //     google.com on first-time use from a real device)
+      //   • Stays in-app, no context switch
+      authScreenLaunchMode: LaunchMode.inAppBrowserView,
     );
   }
 
