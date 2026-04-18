@@ -1,51 +1,12 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
+import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { CreditBalance } from '@/components/CreditBalance';
-import {
-  PracticeSwitcher,
-  type PracticeSummary,
-} from '@/components/PracticeSwitcher';
+import { PracticeSwitcher } from '@/components/PracticeSwitcher';
 
 type SearchParams = { practice?: string };
-
-async function loadPractices(): Promise<PracticeSummary[]> {
-  const supabase = await getServerClient();
-
-  // RLS (Milestone C) will restrict practice_members to rows where
-  // trainer_id = auth.uid(). No extra filter needed here.
-  const { data, error } = await supabase
-    .from('practice_members')
-    .select('role, practice_id, practices:practice_id ( id, name )')
-    .order('joined_at', { ascending: true });
-
-  if (error || !data) return [];
-
-  return data
-    .map((row) => {
-      // Supabase typing for nested single-row joins is loose; guard it.
-      const practice = Array.isArray(row.practices)
-        ? row.practices[0]
-        : row.practices;
-      if (!practice) return null;
-      return {
-        id: practice.id as string,
-        name: practice.name as string,
-        role: row.role as 'owner' | 'practitioner',
-      };
-    })
-    .filter((p): p is PracticeSummary => p !== null);
-}
-
-async function loadBalance(practiceId: string): Promise<number> {
-  const supabase = await getServerClient();
-  const { data, error } = await supabase.rpc('practice_credit_balance', {
-    p_practice_id: practiceId,
-  });
-  if (error || data === null) return 0;
-  return typeof data === 'number' ? data : 0;
-}
 
 export default async function DashboardPage({
   searchParams,
@@ -58,8 +19,9 @@ export default async function DashboardPage({
   } = await supabase.auth.getUser();
   if (!user) redirect('/');
 
+  const api = createPortalApi(supabase);
   const params = await searchParams;
-  const practices = await loadPractices();
+  const practices = await api.listMyPractices();
 
   if (practices.length === 0) {
     return (
@@ -79,7 +41,7 @@ export default async function DashboardPage({
 
   const selectedId = params.practice ?? practices[0].id;
   const selected = practices.find((p) => p.id === selectedId) ?? practices[0];
-  const balance = await loadBalance(selected.id);
+  const balance = await api.getPracticeBalance(selected.id);
   const qs = `?practice=${selected.id}`;
 
   return (

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
-import { createClient } from '@supabase/supabase-js';
 import { getServerClient } from '@/lib/supabase-server';
+import { createAdminApi, createPortalApi } from '@/lib/supabase/api';
 import { getBundle, formatAmountZar } from '@/lib/bundles';
 import {
   buildCheckoutUrl,
@@ -67,51 +67,41 @@ export async function POST(request: Request) {
   }
 
   // Verify the user actually belongs to this practice before we spend a
-  // pending_payments row on them. RLS on practice_members means the select
-  // silently returns 0 rows if they don't — perfect for this guard.
-  const { data: membership, error: memberErr } = await supabase
-    .from('practice_members')
-    .select('practice_id')
-    .eq('practice_id', practiceId)
-    .eq('trainer_id', user.id)
-    .maybeSingle();
-  if (memberErr) {
-    return NextResponse.json({ error: memberErr.message }, { status: 500 });
-  }
-  if (!membership) {
+  // pending_payments row on them. RLS on practice_members means the lookup
+  // silently returns null if they don't — perfect for this guard.
+  const api = createPortalApi(supabase);
+  const isMember = await api.isUserInPractice(practiceId, user.id);
+  if (!isMember) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 
   // Record intent server-side using the service role. The anon key can't
   // insert into pending_payments by design (webhook-only table).
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ??
-    'https://yrwcofhovrcydootivjx.supabase.co';
-  if (!serviceRoleKey) {
+  let admin;
+  try {
+    admin = await createAdminApi();
+  } catch (err) {
     return NextResponse.json(
-      {
-        error:
-          'SUPABASE_SERVICE_ROLE_KEY is not set — cannot record payment intent',
-      },
+      { error: err instanceof Error ? err.message : 'admin init failed' },
       { status: 500 },
     );
   }
-  const admin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
 
   const mPaymentId = randomUUID();
-  const { error: insertErr } = await admin.from('pending_payments').insert({
-    id: mPaymentId,
-    practice_id: practiceId,
-    credits: bundle.credits,
-    amount_zar: bundle.priceZar,
-    status: 'pending',
-    bundle_key: bundle.key,
-  });
-  if (insertErr) {
-    return NextResponse.json({ error: insertErr.message }, { status: 500 });
+  try {
+    await admin.insertPendingPayment({
+      id: mPaymentId,
+      practice_id: practiceId,
+      credits: bundle.credits,
+      amount_zar: bundle.priceZar,
+      status: 'pending',
+      bundle_key: bundle.key,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'insert failed' },
+      { status: 500 },
+    );
   }
 
   const appUrl = getAppUrl();
@@ -125,6 +115,9 @@ export async function POST(request: Request) {
 
   // Notify URL points at the Supabase edge function (not the Next app) so
   // ITNs survive redeploys and so the service-role key stays off the portal.
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL ??
+    'https://yrwcofhovrcydootivjx.supabase.co';
   const notifyUrl = `${supabaseUrl.replace(/\/$/, '')}/functions/v1/payfast-webhook`;
 
   // ORDER MATTERS. Keep this in the exact order PayFast documents.

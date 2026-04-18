@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import type { Database } from './supabase/database.types';
 
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
@@ -16,7 +17,10 @@ const SUPABASE_ANON_KEY =
 export async function getServerClient() {
   const cookieStore = await cookies();
 
-  return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  // Typed with `Database` so `.from(...)` rows and `.rpc(...)` params are
+  // compile-time checked. See the comment in `supabase-browser.ts` for the
+  // 2026-04-18 rename that motivated this.
+  return createServerClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
