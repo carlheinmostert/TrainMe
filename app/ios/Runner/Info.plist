@@ -41,22 +41,21 @@
 			<string>Google Sign-In</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<!-- TODO(Carl): replace PLACEHOLDER with the REVERSED_CLIENT_ID from
-				     GoogleService-Info.plist (iOS OAuth client). Format is
-				     com.googleusercontent.apps.<numeric-id>-<suffix>. The native
+				<!-- Reversed iOS OAuth client ID. Mirror of GIDClientID below; the
 				     Google Sign-In SDK uses this URL scheme to hand the auth
-				     response back to the app without bouncing through Safari. -->
-				<string>com.googleusercontent.apps.PLACEHOLDER</string>
+				     response back to the app without bouncing through Safari.
+				     Update in lockstep with GIDClientID if the client ever rotates. -->
+				<string>com.googleusercontent.apps.846780406660-lv8l6a83hlm7npvo5fj16m3n91evceih</string>
 			</array>
 		</dict>
 	</array>
-	<!-- TODO(Carl): replace PLACEHOLDER with the iOS OAuth client ID from
-	     Google Cloud Console (same id used to populate Supabase's "Authorized
-	     Client IDs" list). Full form is <numeric>-<suffix>.apps.googleusercontent.com.
-	     The Google Sign-In iOS plugin reads this at runtime — no need to also
-	     pass clientId in Dart. -->
+	<!-- iOS OAuth client ID from Google Cloud Console (same id listed in
+	     Supabase's Google provider "Authorized Client IDs"). The Google
+	     Sign-In iOS plugin reads this at runtime — no need to also pass
+	     clientId in Dart. If this rotates, update the reversed form in
+	     CFBundleURLSchemes above to match. -->
 	<key>GIDClientID</key>
-	<string>PLACEHOLDER.apps.googleusercontent.com</string>
+	<string>846780406660-lv8l6a83hlm7npvo5fj16m3n91evceih.apps.googleusercontent.com</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
