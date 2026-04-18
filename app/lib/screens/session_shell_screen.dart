@@ -98,7 +98,7 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
         // Explicit Navigator.pop() from the Exit button still routes home.
       },
       child: Scaffold(
-        backgroundColor: AppColors.darkBg,
+        backgroundColor: AppColors.surfaceBg,
         // Allow camera mode to draw behind safe areas; each mode handles its
         // own SafeArea where needed.
         body: PageView(

@@ -57,7 +57,7 @@ class CaptureThumbnail extends StatelessWidget {
     // Rest periods: show a calming icon in a dark surface.
     if (exercise.isRest) {
       return Container(
-        color: AppColors.darkSurfaceVariant,
+        color: AppColors.surfaceRaised,
         child: Center(
           child: Icon(
             Icons.self_improvement,
@@ -81,7 +81,7 @@ class CaptureThumbnail extends StatelessWidget {
               fit: BoxFit.cover,
               cacheWidth: cacheWidth,
               errorBuilder: (_, __, ___) => Container(
-                color: AppColors.darkSurfaceVariant,
+                color: AppColors.surfaceRaised,
                 child: const Center(
                   child: Icon(Icons.play_circle_outline,
                       color: Colors.white54, size: 28),
@@ -96,7 +96,7 @@ class CaptureThumbnail extends StatelessWidget {
         );
       }
       return Container(
-        color: AppColors.darkSurfaceVariant,
+        color: AppColors.surfaceRaised,
         child: const Center(
           child: Icon(Icons.play_circle_outline, color: Colors.white54, size: 28),
         ),
@@ -108,7 +108,7 @@ class CaptureThumbnail extends StatelessWidget {
       fit: BoxFit.cover,
       cacheWidth: cacheWidth,
       errorBuilder: (_, __, ___) => Container(
-        color: AppColors.darkSurfaceVariant,
+        color: AppColors.surfaceRaised,
         child: const Center(
           child: Icon(Icons.broken_image_outlined, color: AppColors.grey500, size: 24),
         ),

@@ -275,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.darkBg,
+      backgroundColor: AppColors.surfaceBg,
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
@@ -403,7 +403,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppColors.darkSurface,
+      backgroundColor: AppColors.surfaceBase,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -423,7 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     height: 4,
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
-                      color: AppColors.darkBorder,
+                      color: AppColors.surfaceBorder,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -478,7 +478,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        backgroundColor: AppColors.darkSurface,
+        backgroundColor: AppColors.surfaceBase,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppTheme.radiusLg),
         ),
@@ -606,11 +606,11 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Card(
         elevation: 0,
-        color: AppColors.darkSurface,
+        color: AppColors.surfaceBase,
         margin: const EdgeInsets.symmetric(vertical: 4),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: AppColors.darkBorder, width: 1),
+          side: const BorderSide(color: AppColors.surfaceBorder, width: 1),
         ),
         child: InkWell(
           onTap: () => _openSession(session),
@@ -725,7 +725,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     color: AppColors.error,
                                     shape: BoxShape.circle,
                                     border: Border.all(
-                                      color: AppColors.darkSurface,
+                                      color: AppColors.surfaceBase,
                                       width: 1,
                                     ),
                                   ),

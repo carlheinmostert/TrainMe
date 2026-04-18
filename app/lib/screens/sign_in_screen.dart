@@ -47,7 +47,7 @@ class _SignInScreenState extends State<SignInScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.darkBg,
+      backgroundColor: AppColors.surfaceBg,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -185,13 +185,13 @@ class _SignInButton extends StatelessWidget {
     final enabled = onTap != null && !loading;
     final bg = primary
         ? (enabled ? AppColors.primary : AppColors.primary.withValues(alpha: 0.4))
-        : AppColors.darkSurfaceVariant;
+        : AppColors.surfaceRaised;
     final fg = primary
         ? Colors.white
         : (enabled ? AppColors.textOnDark : AppColors.textSecondaryOnDark);
     final border = primary
         ? null
-        : Border.all(color: AppColors.darkBorder);
+        : Border.all(color: AppColors.surfaceBorder);
 
     return Opacity(
       opacity: enabled ? 1.0 : 0.6,
@@ -239,7 +239,7 @@ class _SignInButton extends StatelessWidget {
                       vertical: 3,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.darkBorder,
+                      color: AppColors.surfaceBorder,
                       borderRadius: BorderRadius.circular(100),
                     ),
                     child: const Text(

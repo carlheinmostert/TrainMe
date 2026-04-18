@@ -60,7 +60,7 @@ SliderThemeData brandedSliderTheme({
   return SliderThemeData(
     trackHeight: trackHeight,
     activeTrackColor: accent,
-    inactiveTrackColor: inactiveTrackColor ?? AppColors.darkBorder,
+    inactiveTrackColor: inactiveTrackColor ?? AppColors.surfaceBorder,
     thumbColor: accent,
     thumbShape: RectangularSliderThumbShape(
       width: thumbWidth,

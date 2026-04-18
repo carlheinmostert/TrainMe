@@ -63,11 +63,34 @@ class AppColors {
   static const Color restSurface =
       Color(0xFFE2E8F0); // slate-200, rest card bg
 
-  // Dark mode surfaces
-  static const Color darkBg = Color(0xFF0F1117);
-  static const Color darkSurface = Color(0xFF1A1D27);
-  static const Color darkSurfaceVariant = Color(0xFF242733);
-  static const Color darkBorder = Color(0xFF2E3140);
+  // ── Dark surface tokens (semantic names — D-02) ──
+  // Mirrors docs/design/project/tokens.json `color.surface.dark.*`.
+  static const Color surfaceBg = Color(0xFF0F1117);      // App root bg. Elevation 0.
+  static const Color surfaceBase = Color(0xFF1A1D27);    // Card / sheet. Elevation 1.
+  static const Color surfaceRaised = Color(0xFF242733);  // Popover / modal / hover. Elevation 2.
+  static const Color surfaceBorder = Color(0xFF2E3140);  // 1px hairline separation.
+
+  // ── Light surface tokens (mirror — D-08, gated by kEnableLightTheme) ──
+  // Mirrors docs/design/project/tokens.json `color.surface.light.*`.
+  static const Color lightBg = Color(0xFFFAFAF7);
+  static const Color lightBase = Color(0xFFFFFFFF);
+  static const Color lightRaised = Color(0xFFF5F5F0);
+  static const Color lightBorder = Color(0xFFE5E7EB);
+
+  // ── Light ink tokens (mirror — D-08) ──
+  static const Color lightInkPrimary = Color(0xFF0F1117);
+  static const Color lightInkSecondary = Color(0xFF4B5563);
+  static const Color lightInkMuted = Color(0xFF6B7280);
+  static const Color lightInkDisabled = Color(0xFF9CA3AF);
+
+  // ── Brand tint tokens (D-10) ──
+  // Explicit constants so call sites don't reach for .withValues on every use.
+  static const Color brandTintBg = Color.fromRGBO(255, 107, 53, 0.12);
+  static const Color brandTintBorder = Color.fromRGBO(255, 107, 53, 0.30);
+
+  // NOTE (D-06): Canonical Empty/Loading/Error/Success/Disabled state treatments
+  // are a per-screen refactor. Apply incrementally as screens get touched —
+  // see docs/design/project/components.md for the approved treatments.
 }
 
 // ── Theme Data ─────────────────────────────────────────────────────────────
@@ -279,7 +302,7 @@ class AppTheme {
         activeTrackColor: AppColors.primary,
         inactiveTrackColor: AppColors.grey200,
         thumbColor: AppColors.primary,
-        overlayColor: AppColors.primary.withValues(alpha: 0.12),
+        overlayColor: AppColors.brandTintBg,
         trackHeight: 4,
       ),
       snackBarTheme: SnackBarThemeData(
@@ -319,29 +342,29 @@ class AppTheme {
       onError: Colors.white,
       errorContainer: Color(0xFF3B1111),
       onErrorContainer: Color(0xFFFCA5A5),
-      surface: AppColors.darkSurface,
+      surface: AppColors.surfaceBase,
       onSurface: AppColors.textOnDark,
       onSurfaceVariant: AppColors.textSecondaryOnDark,
-      outline: AppColors.darkBorder,
+      outline: AppColors.surfaceBorder,
       outlineVariant: Color(0xFF1E2130),
       shadow: Colors.black,
       scrim: Colors.black,
       inverseSurface: AppColors.grey100,
       onInverseSurface: AppColors.grey900,
       inversePrimary: AppColors.primaryDark,
-      surfaceContainerLowest: AppColors.darkBg,
+      surfaceContainerLowest: AppColors.surfaceBg,
       surfaceContainerLow: Color(0xFF151822),
-      surfaceContainer: AppColors.darkSurface,
-      surfaceContainerHigh: AppColors.darkSurfaceVariant,
+      surfaceContainer: AppColors.surfaceBase,
+      surfaceContainerHigh: AppColors.surfaceRaised,
       surfaceContainerHighest: Color(0xFF2E3140),
     );
 
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: AppColors.darkBg,
+      scaffoldBackgroundColor: AppColors.surfaceBg,
       appBarTheme: const AppBarTheme(
-        backgroundColor: AppColors.darkSurface,
+        backgroundColor: AppColors.surfaceBase,
         foregroundColor: AppColors.textOnDark,
         elevation: 0,
         scrolledUnderElevation: 1,
@@ -372,7 +395,7 @@ class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.textOnDark,
-          side: const BorderSide(color: AppColors.darkBorder),
+          side: const BorderSide(color: AppColors.surfaceBorder),
           textStyle: const TextStyle(
             fontFamily: 'Inter',
             fontSize: 15,
@@ -386,16 +409,16 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.darkSurfaceVariant,
+        fillColor: AppColors.surfaceRaised,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusSm),
-          borderSide: const BorderSide(color: AppColors.darkBorder),
+          borderSide: const BorderSide(color: AppColors.surfaceBorder),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusSm),
-          borderSide: const BorderSide(color: AppColors.darkBorder),
+          borderSide: const BorderSide(color: AppColors.surfaceBorder),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusSm),
@@ -409,20 +432,20 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: AppColors.darkSurface,
+        color: AppColors.surfaceBase,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radiusLg),
-          side: const BorderSide(color: AppColors.darkBorder),
+          side: const BorderSide(color: AppColors.surfaceBorder),
         ),
       ),
       dividerTheme: const DividerThemeData(
-        color: AppColors.darkBorder,
+        color: AppColors.surfaceBorder,
         thickness: 1,
         space: 1,
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-        backgroundColor: AppColors.darkSurface,
+        backgroundColor: AppColors.surfaceBase,
         selectedItemColor: AppColors.primary,
         unselectedItemColor: AppColors.textSecondaryOnDark,
         type: BottomNavigationBarType.fixed,
@@ -430,17 +453,17 @@ class AppTheme {
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(
         color: AppColors.primary,
-        linearTrackColor: AppColors.darkBorder,
+        linearTrackColor: AppColors.surfaceBorder,
       ),
       sliderTheme: SliderThemeData(
         activeTrackColor: AppColors.primary,
-        inactiveTrackColor: AppColors.darkBorder,
+        inactiveTrackColor: AppColors.surfaceBorder,
         thumbColor: AppColors.primary,
-        overlayColor: AppColors.primary.withValues(alpha: 0.12),
+        overlayColor: AppColors.brandTintBg,
         trackHeight: 4,
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: AppColors.darkSurfaceVariant,
+        backgroundColor: AppColors.surfaceRaised,
         contentTextStyle: const TextStyle(
           fontFamily: 'Inter',
           color: AppColors.textOnDark,

@@ -106,7 +106,7 @@ class _AuthLoader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: AppColors.darkBg,
+      backgroundColor: AppColors.surfaceBg,
       body: Center(
         child: SizedBox(
           width: 32,

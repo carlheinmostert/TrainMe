@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config.dart';
 import 'theme.dart';
+import 'theme/flags.dart';
 import 'services/local_storage_service.dart';
 import 'services/conversion_service.dart';
 import 'services/path_resolver.dart';
@@ -82,10 +83,15 @@ class TrainMeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // D-08: light theme tokens exist as a mirror but the app stays dark-first
+    // until the second-bio onboarding polish lands. Flip kEnableLightTheme in
+    // theme/flags.dart to unlock light mode.
     return MaterialApp(
       title: 'TrainMe',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.dark,
+      theme: kEnableLightTheme ? AppTheme.light : AppTheme.dark,
+      darkTheme: AppTheme.dark,
+      themeMode: kEnableLightTheme ? ThemeMode.system : ThemeMode.dark,
       // AuthGate is the root router: unauthenticated → SignInScreen,
       // authenticated → HomeScreen. Session persistence is handled by
       // Supabase's default secure storage (Keychain on iOS).

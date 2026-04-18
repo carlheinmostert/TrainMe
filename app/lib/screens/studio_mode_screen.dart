@@ -390,7 +390,7 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     messenger.clearSnackBars();
     messenger.showMaterialBanner(
       MaterialBanner(
-        backgroundColor: AppColors.darkSurface,
+        backgroundColor: AppColors.surfaceBase,
         contentTextStyle: const TextStyle(color: AppColors.textOnDark),
         content: Text(
           '${removed.name ?? 'Exercise ${index + 1}'} deleted',
@@ -586,7 +586,7 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.darkBg,
+      backgroundColor: AppColors.surfaceBg,
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -627,7 +627,7 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
                   ),
                 ),
               ),
-        backgroundColor: AppColors.darkSurface,
+        backgroundColor: AppColors.surfaceBase,
         foregroundColor: AppColors.textOnDark,
         elevation: 0,
         actions: [
@@ -1102,7 +1102,7 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
                 shape: BoxShape.circle,
                 color: isLinked
                     ? AppColors.circuit
-                    : AppColors.darkSurfaceVariant,
+                    : AppColors.surfaceRaised,
                 border: Border.all(
                   color: isLinked ? AppColors.circuit : AppColors.grey500,
                   width: 1.5,
@@ -1123,7 +1123,7 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
               height: 28,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppColors.darkSurfaceVariant,
+                color: AppColors.surfaceRaised,
                 border: Border.all(color: AppColors.rest, width: 1.5),
               ),
               child: const Icon(
@@ -1283,7 +1283,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
   static const _sliderTheme = SliderThemeData(
     trackHeight: 8,
     activeTrackColor: AppColors.primary,
-    inactiveTrackColor: AppColors.darkBorder,
+    inactiveTrackColor: AppColors.surfaceBorder,
     thumbColor: AppColors.primary,
     thumbShape: _RectangularSliderThumbShape(width: 8, height: 24, radius: 4),
     overlayShape: RoundSliderOverlayShape(overlayRadius: 20),
@@ -1366,7 +1366,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: AppColors.darkSurfaceVariant,
+              color: AppColors.surfaceRaised,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
@@ -1417,11 +1417,11 @@ class _ExerciseCardState extends State<_ExerciseCard> {
   Widget build(BuildContext context) {
     return Card(
       elevation: 0,
-      color: AppColors.darkSurface,
+      color: AppColors.surfaceBase,
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: AppColors.darkBorder, width: 1),
+        side: const BorderSide(color: AppColors.surfaceBorder, width: 1),
       ),
       child: InkWell(
         onTap: widget.onTap,
@@ -1800,7 +1800,7 @@ class _DurationSliderInlineState extends State<_DurationSliderInline> {
           data: SliderThemeData(
             trackHeight: 8,
             activeTrackColor: AppColors.circuit,
-            inactiveTrackColor: AppColors.darkBorder,
+            inactiveTrackColor: AppColors.surfaceBorder,
             thumbColor: AppColors.circuit,
             thumbShape: const _RectangularSliderThumbShape(
                 width: 8, height: 24, radius: 4),
@@ -1899,9 +1899,9 @@ class _RestBarState extends State<_RestBar> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: AppColors.darkSurfaceVariant,
+        color: AppColors.surfaceRaised,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.darkBorder, width: 1),
+        border: Border.all(color: AppColors.surfaceBorder, width: 1),
       ),
       child: Row(
         children: [
@@ -2121,7 +2121,7 @@ class _MediaViewerState extends State<_MediaViewer> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.darkBg,
+      backgroundColor: AppColors.surfaceBg,
       body: GestureDetector(
         // Tap body to toggle play/pause on video; photos ignore.
         onTap: _isVideo ? _togglePlayPause : null,

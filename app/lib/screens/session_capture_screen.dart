@@ -151,7 +151,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   void _showImportOptions() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.darkSurface,
+      backgroundColor: AppColors.surfaceBase,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -669,7 +669,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.darkBg,
+      backgroundColor: AppColors.surfaceBg,
       appBar: AppBar(
         title: InlineEditableText(
           initialValue: _session.clientName,
@@ -681,7 +681,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
             color: AppColors.textOnDark,
           ),
         ),
-        backgroundColor: AppColors.darkSurface,
+        backgroundColor: AppColors.surfaceBase,
         foregroundColor: AppColors.textOnDark,
         elevation: 0,
         actions: [
@@ -746,9 +746,9 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
           decoration: BoxDecoration(
-            color: AppColors.darkSurfaceVariant,
+            color: AppColors.surfaceRaised,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.darkBorder, width: 1.5),
+            border: Border.all(color: AppColors.surfaceBorder, width: 1.5),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -762,7 +762,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
                       label: const Text('Import'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.textSecondaryOnDark,
-                        side: const BorderSide(color: AppColors.darkBorder),
+                        side: const BorderSide(color: AppColors.surfaceBorder),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -778,7 +778,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
                       label: const Text('Capture'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.textSecondaryOnDark,
-                        side: const BorderSide(color: AppColors.darkBorder),
+                        side: const BorderSide(color: AppColors.surfaceBorder),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -1142,7 +1142,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
                 shape: BoxShape.circle,
                 color: isLinked
                     ? AppColors.circuit
-                    : AppColors.darkSurfaceVariant,
+                    : AppColors.surfaceRaised,
                 border: Border.all(
                   color: isLinked
                       ? AppColors.circuit
@@ -1166,7 +1166,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
               height: 28,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppColors.darkSurfaceVariant,
+                color: AppColors.surfaceRaised,
                 border: Border.all(
                   color: AppColors.rest,
                   width: 1.5,
@@ -1383,7 +1383,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: AppColors.darkSurfaceVariant,
+              color: AppColors.surfaceRaised,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
@@ -1434,11 +1434,11 @@ class _ExerciseCardState extends State<_ExerciseCard> {
   Widget build(BuildContext context) {
     return Card(
       elevation: 0,
-      color: AppColors.darkSurface,
+      color: AppColors.surfaceBase,
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: AppColors.darkBorder, width: 1),
+        side: const BorderSide(color: AppColors.surfaceBorder, width: 1),
       ),
       child: InkWell(
         onTap: widget.onTap,
@@ -1622,7 +1622,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                       height: 180,
                       width: double.infinity,
                       decoration: BoxDecoration(
-                        color: AppColors.darkSurfaceVariant,
+                        color: AppColors.surfaceRaised,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: ClipRRect(
@@ -1642,12 +1642,12 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                       width: double.infinity,
                                       errorBuilder:
                                           (_, __, ___) => Container(
-                                        color: AppColors.darkSurfaceVariant,
+                                        color: AppColors.surfaceRaised,
                                       ),
                                     )
                                   else
                                     Container(
-                                        color: AppColors.darkSurfaceVariant),
+                                        color: AppColors.surfaceRaised),
                                   Center(
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
@@ -1973,9 +1973,9 @@ class _RestBarState extends State<_RestBar> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: AppColors.darkSurfaceVariant,
+        color: AppColors.surfaceRaised,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.darkBorder, width: 1),
+        border: Border.all(color: AppColors.surfaceBorder, width: 1),
       ),
       child: Row(
         children: [
