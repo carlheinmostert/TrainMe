@@ -885,10 +885,18 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
           // Circuit header — sits above the first card of each circuit.
           if (isFirstInCircuit)
             _buildCircuitHeaderRow(exercise.circuitId!),
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+          // NOTE: previously wrapped in IntrinsicHeight with
+          // crossAxisAlignment.stretch. That combination broke when the
+          // expanded exercise card contained AnimatedSize / AnimatedContainer
+          // widgets (no intrinsic-height support), causing the Row to
+          // allocate max-available height per row — visually producing a
+          // huge empty gap between cards, especially around circuit members.
+          // Using crossAxisAlignment.start lets the card dictate height;
+          // the gutter cell paints its rail within its own fixed 80px zone
+          // aligned to the top of the card.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
                 // Gutter cell.
                 ReorderableDelayedDragStartListener(
                   index: visualIndex,
@@ -939,7 +947,6 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
                 ),
               ],
             ),
-          ),
           // Gap below this card (unless it's the last card).
           if (dataIndex < exercises.length - 1)
             _buildGap(dataIndex + 1, exercise, exercises[dataIndex + 1]),
@@ -1056,11 +1063,13 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     final showRest = !upper.isRest && !lower.isRest;
     final showLink = !sameCircuit && !upper.isRest && !lower.isRest;
 
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          GutterGapCell(
+    return Row(
+      // Start alignment — same reason as _buildRowWithContext:
+      // IntrinsicHeight + stretch breaks when the action-tray child
+      // uses AnimatedSize / AnimatedOpacity (no intrinsic support).
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GutterGapCell(
             state: isActive
                 ? GutterDotState.active
                 : GutterDotState.idle,
@@ -1103,7 +1112,6 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
             ),
           ),
         ],
-      ),
     );
   }
 
