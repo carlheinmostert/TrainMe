@@ -2,16 +2,12 @@
 # homefit.studio — physical device install (iPhone CHM)
 #
 # Purpose: pull latest main, build, install on your physical iPhone.
-# Run this SOLO (Claude's API isn't reachable while VPN is off).
 #
-# VPN dance:
-#   1. Disconnect NordVPN before running this script (Xcode's device
-#      tunnel breaks when NordVPN is on, per experience).
-#   2. Make sure your iPhone is plugged in via USB and unlocked.
-#   3. Run ./install-device.sh
-#   4. When the script finishes, reconnect VPN.
-#   5. Tell Claude "device install done" — Claude can't see anything
-#      that happened while you were offline.
+# As of 2026-04-18, NordVPN + Xcode device tunnel coexist — run this
+# straight through, no VPN dance. iPhone plugged in via USB + unlocked
+# is all that's needed. If device-tunnel ever regresses after a NordVPN
+# update, the historic workaround was "VPN off for the install window";
+# see memory/vpn_api_constraint.md.
 set -e
 
 DEVICE=00008150-001A31D40E88401C   # iPhone CHM
@@ -41,5 +37,3 @@ echo "▸ Installing to iPhone CHM..."
 xcrun devicectl device install app --device "$DEVICE" "$APP_PATH"
 
 echo "✓ Done. Open homefit.studio on your phone — it will be on the Sign-In screen (fresh session)."
-echo ""
-echo "Reminder: reconnect your VPN before coming back to Claude."
