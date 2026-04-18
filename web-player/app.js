@@ -95,29 +95,32 @@ function getPlanIdFromURL() {
 }
 
 async function fetchPlan(planId) {
-  // POV phase: tables are open via permissive RLS, so we read directly.
-  // A future hardening pass should switch to the `get_plan_full` SECURITY
-  // DEFINER RPC (see supabase/schema_hardening.sql) to prevent enumeration.
-  //
-  // Milestone A note (see supabase/schema_milestone_a.sql): the get_plan_full
-  // RPC stamps `first_opened_at` atomically on the first fetch. That column
-  // feeds the future publish-lock rule (once a client opens a plan, the bio
-  // can no longer add/reorder/swap exercises — delete stays free). When this
-  // client swaps to the RPC, first_opened_at will get set automatically with
-  // no client-side code change required here.
+  // Milestone C (RLS lockdown): plans + exercises are now scoped by
+  // practice membership, so anon PostgREST SELECT returns nothing. Read
+  // via the `get_plan_full(p_plan_id)` SECURITY DEFINER RPC which
+  // bypasses RLS and also atomically stamps `first_opened_at` on the
+  // first fetch (feeds the publish-lock rule: once a client opens a
+  // plan, structural edits lock on the practitioner's side).
   const response = await fetch(
-    `${SUPABASE_URL}/rest/v1/plans?id=eq.${planId}&select=*,exercises(*)`,
+    `${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,
     {
+      method: 'POST',
       headers: {
         'apikey': SUPABASE_ANON_KEY,
         'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-      }
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ p_plan_id: planId }),
     }
   );
   if (!response.ok) throw new Error('Plan not found');
-  const data = await response.json();
-  if (!data.length) throw new Error('Plan not found');
-  const plan = data[0];
+  const payload = await response.json();
+  if (!payload || !payload.plan) throw new Error('Plan not found');
+
+  // Reshape: RPC returns { plan: {...}, exercises: [...] }. The renderer
+  // expects the plan object with exercises nested as a property, which is
+  // the shape the old PostgREST query produced.
+  const plan = { ...payload.plan, exercises: payload.exercises || [] };
   plan.exercises.sort((a, b) => a.position - b.position);
   return plan;
 }
