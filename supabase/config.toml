@@ -1,0 +1,9 @@
+# Supabase CLI project config.
+#
+# Per-function settings. The main one is payfast-webhook: PayFast's ITN POST
+# carries no JWT (it can't — it's an external system), so the default JWT
+# gateway check would reject every ITN with 401 before our handler runs.
+# We disable JWT verification here so the function actually executes its
+# own 4-gate authenticity check (signature, IP, validate, amount-match).
+[functions.payfast-webhook]
+verify_jwt = false
