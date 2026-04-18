@@ -6,7 +6,7 @@ One page. Healthcare-professional, warm not clinical, South African English.
 
 ## Principle
 
-We sound like a **trusted bio who's good at their job** — confident, direct, respectful. Not a chatbot, not a Silicon Valley growth hacker, not a medical device UI.
+We sound like a **trusted practitioner who's good at their job** — confident, direct, respectful. Not a chatbot, not a Silicon Valley growth hacker, not a medical device UI.
 
 Three knobs:
 - **Confident**, never hedging
@@ -25,23 +25,25 @@ Always use:
 | exercise | workout, movement |
 | plan | program, routine, regimen |
 | credits | tokens, points, coins |
-| trainer / practitioner / bio | coach, user |
+| practitioner | bio, trainer, physio, coach, user |
 | client / patient | customer, athlete |
 | capture / Studio | record / edit |
 | share | send, publish, post |
 
-"bio" is acceptable shorthand when talking to trainers. Never to patients.
+**"practitioner" is the canonical role name across every surface and every audience.** Discipline-specific words (bio, physio, trainer, OT, fitness coach) are retired from UI copy — they alienate the other disciplines and bake a single scope into the product voice. Exceptions: when a practitioner customises their own display name or bio in their profile, their own language is preserved verbatim.
+
+In client-facing copy, use `{TrainerName}` wherever a name is available. Fall back to "your practitioner" only when the name is unknown.
 
 ---
 
 ## Tone by surface
 
-**Flutter app (trainer-facing):** peer-to-peer, terse. The trainer is mid-session, hands half-busy. Short labels, verbs first.
+**Flutter app (practitioner-facing):** peer-to-peer, terse. The practitioner is mid-session, hands half-busy. Short labels, verbs first.
 > "Capture exercise" · "Add rest" · "Share plan"
 
-**Web player (patient-facing):** warm, instructional, calm. The patient may be anxious, post-op, or unsure. Full sentences, encouraging.
+**Web player (patient-facing):** warm, instructional, calm. The patient may be anxious, post-op, or unsure. Full sentences, encouraging. Always uses `{TrainerName}` when the practitioner's name is known.
 > "You've got this. Take it at your own pace."
-> "If something hurts, stop and message your bio."
+> "If something hurts, stop and message {TrainerName}."
 
 **Web portal (practice-owner-facing):** business-like, transparent. Numbers, receipts, clarity.
 > "You have 42 credits remaining." · "Credits never expire."
@@ -69,7 +71,7 @@ Always use:
 
 ## WhatsApp share message template
 
-Auto-filled when the trainer taps "Share plan". Editable before send.
+Auto-filled when the practitioner taps "Share plan". Editable before send.
 
 ```
 Hi {ClientName},
@@ -86,7 +88,7 @@ Open the link to see the demos.
 **Rules:**
 - No emoji. Professional tone.
 - Plan URL is the full `session.homefit.studio/p/{id}` — never a shortener.
-- Sign-off uses the trainer's first name, not "homefit.studio".
+- Sign-off uses the practitioner's first name, not "homefit.studio".
 
 ---
 
@@ -108,14 +110,14 @@ Never claim clinical outcomes ("this will fix your back"). Describe the *activit
 When we touch anything medical-sounding, we say less, not more.
 
 **Allowed:**
-- "Exercises captured by your bio."
-- "For best results, do this plan {N} times per week, as your bio recommends."
-- "If something hurts, stop and message your bio."
+- "Exercises captured by {TrainerName}." (fall back: "by your practitioner.")
+- "For best results, do this plan {N} times per week, as {TrainerName} recommends." (fall back: "as your practitioner recommends.")
+- "If something hurts, stop and message {TrainerName}." (fall back: "message your practitioner.")
 
 **Banned:**
-- "Rehabilitation", "recovery", "treatment", "therapy" as product-level claims. *(OK in trainer-side copy when quoting the trainer.)*
+- "Rehabilitation", "recovery", "treatment", "therapy" as product-level claims. *(OK in practitioner-side copy when quoting the practitioner.)*
 - "Clinically proven", "doctor-recommended", "approved by…" — unless we have signed evidence.
-- Diagnostic language: "your condition", "your injury", "your symptoms" — the app doesn't know. Only the bio knows.
+- Diagnostic language: "your condition", "your injury", "your symptoms" — the app doesn't know. Only the practitioner knows.
 
 **POPIA data copy:**
 - "Videos stay on your device until you publish a plan. Once published, the client sees only the line-drawing version."
@@ -163,6 +165,6 @@ Exception: destructive actions keep the object ("Delete plan", not "Delete"). Th
 | "You've got this." | "Let's crush it! 💪" |
 | "Published." | "Hooray! Your plan is live 🎉" |
 | "Not enough credits." | "Oh no! You've run out of credits." |
-| "Message your bio." | "Contact your healthcare provider." |
+| "Message {TrainerName}." / "Message your practitioner." | "Contact your healthcare provider." |
 | "Watch the demo, then try it." | "Observe the demonstration and replicate." |
 | "Rest — 30 seconds." | "Recovery period: thirty (30) seconds." |
