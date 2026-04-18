@@ -511,32 +511,30 @@ class UploadService {
     }
   }
 
-  /// Insert a compensating refund row into `credit_ledger` when a publish
-  /// fails AFTER [consumeCredit] has already deducted credits. Keeps the
-  /// ledger balanced without needing a server-side reversal.
+  /// Issue a compensating refund when a publish fails AFTER consume_credit
+  /// has already deducted credits. Delegates to the `refund_credit`
+  /// SECURITY DEFINER RPC, which:
+  ///   * validates a matching consumption row exists for this plan,
+  ///   * enforces the caller's practice membership inside the function,
+  ///   * is idempotent (a second call for the same plan is a no-op).
   ///
-  /// Milestone C's RLS allows practice members to INSERT into
-  /// `credit_ledger`; we rely on that here rather than another RPC. If the
-  /// refund itself fails, log and move on — the ledger may be temporarily
-  /// off by one publish's worth of credits, but support can reconcile via
-  /// the `plan_issuances` table.
+  /// Network failure of the RPC has the same failure mode as the previous
+  /// direct-INSERT path: the publish has already failed and we do not want
+  /// a refund error to mask the original cause. The ledger may be
+  /// temporarily off by one publish's worth of credits; support can
+  /// reconcile via the `plan_issuances` audit rows.
   Future<void> _refundCredits({
     required String practiceId,
     required String planId,
     required int credits,
   }) async {
     try {
-      await _supabase.from('credit_ledger').insert({
-        'practice_id': practiceId,
-        'plan_id': planId,
-        'delta': credits,
-        'type': 'refund',
-        'notes': 'Publish failed after credit consumption',
-      });
+      await _supabase.rpc(
+        'refund_credit',
+        params: {'p_plan_id': planId},
+      );
     } catch (_) {
-      // Best-effort — the publish already failed and we don't want to mask
-      // that error with a refund error. Support can reconcile manually
-      // using plan_issuances audit rows.
+      // Best-effort — see docstring above.
     }
   }
 

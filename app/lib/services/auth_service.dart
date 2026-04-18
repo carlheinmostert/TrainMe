@@ -205,96 +205,43 @@ class AuthService {
     await _supabase.auth.signOut();
   }
 
+  /// Notifier for the last bootstrap-membership error, or null on success.
+  /// The HomeScreen binds a banner to this so the user can retry a failed
+  /// bootstrap instead of silently landing in a broken state (previously
+  /// the failure was swallowed with a debugPrint, which meant an
+  /// offline/RLS/network hiccup could leave a user with no practice
+  /// membership and no way to publish, with nothing on screen explaining
+  /// why).
+  final ValueNotifier<String?> bootstrapError = ValueNotifier<String?>(null);
+
   /// Ensure the signed-in user is a member of at least one practice.
   ///
-  /// Idempotent. Safe to call on every `onAuthStateChange` event where
-  /// a user is present — returns immediately if the user already has a
-  /// membership row.
+  /// Idempotent. Safe to call on every `onAuthStateChange` event where a
+  /// user is present. Delegates to the `bootstrap_practice_for_user`
+  /// SECURITY DEFINER RPC, which folds the former three-step client flow
+  /// (check membership → claim sentinel → create fresh practice) into a
+  /// single atomic server-side call.
   ///
-  /// Flow:
-  ///   1. SELECT from `practice_members` — any row for this user? done.
-  ///   2. If not, SELECT the sentinel practice. If `owner_trainer_id IS
-  ///      NULL`, UPDATE it with this user (conditional UPDATE — losers
-  ///      of the race get 0 rows affected and fall through to step 3)
-  ///      and INSERT the membership row as 'owner'.
-  ///   3. Otherwise, INSERT a fresh practice named after the user's
-  ///      email, INSERT the owner membership, and seed a 5-credit
-  ///      welcome bonus in `credit_ledger`.
-  ///
-  /// Every failure is swallowed with a debugPrint — auth state must
-  /// never get stuck because a background write hiccuped.
+  /// On success [bootstrapError] is cleared. On failure the exception
+  /// string is surfaced via [bootstrapError] so the HomeScreen banner can
+  /// offer a Retry affordance. We still debugPrint the failure; the
+  /// ValueNotifier is additive, not a replacement.
   Future<void> ensurePracticeMembership() async {
     final user = _supabase.auth.currentUser;
     if (user == null) return;
 
     try {
-      // Step 1: already a member of anything?
-      final existing = await _supabase
-          .from('practice_members')
-          .select('practice_id')
-          .eq('trainer_id', user.id)
-          .limit(1);
-      if (existing.isNotEmpty) {
-        return; // returning user, nothing to do
-      }
-
-      // Step 2: try to claim the sentinel practice atomically.
-      // The UPDATE is conditional on owner_trainer_id being NULL, so
-      // only the first caller wins. `select()` after the update returns
-      // the rows that were actually changed — empty list = someone else
-      // got there first.
-      final claimed = await _supabase
-          .from('practices')
-          .update({'owner_trainer_id': user.id})
-          .eq('id', AppConfig.sentinelPracticeId)
-          .isFilter('owner_trainer_id', null)
-          .select('id');
-
-      if (claimed.isNotEmpty) {
-        // Won the claim — add membership row as owner.
-        await _supabase.from('practice_members').insert({
-          'practice_id': AppConfig.sentinelPracticeId,
-          'trainer_id': user.id,
-          'role': 'owner',
-        });
-        debugPrint('AuthService: claimed sentinel practice for ${user.id}');
-        return;
-      }
-
-      // Step 3: sentinel already owned — create a fresh personal practice.
-      final email = user.email ?? 'trainer';
-      final name = "${email.split('@').first}'s Practice";
-      final insertedPractice = await _supabase
-          .from('practices')
-          .insert({
-            'name': name,
-            'owner_trainer_id': user.id,
-          })
-          .select('id')
-          .single();
-      final newPracticeId = insertedPractice['id'] as String;
-
-      await _supabase.from('practice_members').insert({
-        'practice_id': newPracticeId,
-        'trainer_id': user.id,
-        'role': 'owner',
-      });
-
-      // Seed welcome bonus so the new practice can try publishing before
-      // buying credits. Ledger is append-only; balance is derived by
-      // summing `amount`.
-      await _supabase.from('credit_ledger').insert({
-        'practice_id': newPracticeId,
-        'amount': AppConfig.welcomeBonusCredits,
-        'type': 'adjustment',
-        'notes': 'Welcome bonus',
-      });
-
+      final result = await _supabase.rpc('bootstrap_practice_for_user');
+      final practiceId = result is String ? result : result?.toString();
+      bootstrapError.value = null;
       debugPrint(
-        'AuthService: created fresh practice $newPracticeId for ${user.id}',
+        'AuthService: bootstrap returned practice $practiceId for ${user.id}',
       );
     } catch (e, stack) {
-      // Best-effort — never block the UI on a membership bootstrap failure.
+      // Best-effort — never block the UI on a membership bootstrap failure,
+      // but now the UI has a signal via [bootstrapError] and can offer a
+      // manual Retry. See home_screen._BootstrapErrorBanner.
+      bootstrapError.value = e.toString();
       debugPrint('AuthService.ensurePracticeMembership failed: $e');
       debugPrint('$stack');
     }
