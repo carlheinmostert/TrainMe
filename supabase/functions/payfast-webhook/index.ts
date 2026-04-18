@@ -120,6 +120,13 @@ function parseClientIp(req: Request): string {
 /**
  * Build the signature base from the received fields in their ORIGINAL order.
  * Deno's URLSearchParams preserves insertion order when iterated.
+ *
+ * IMPORTANT: for INCOMING ITN signatures, PayFast's reference PHP implementation
+ * uses `http_build_query` over the full $_POST (minus `signature`) — which
+ * INCLUDES empty-valued fields as `key=`. Their ITN typically sends ~23
+ * fields, many empty (name_first, custom_int1..5, token, billing_date, etc.),
+ * and all of them participate in the hash on their side. Skipping empties
+ * on our side produced a shorter base → different MD5 → false mismatch.
  */
 function buildSignatureBase(
   entries: Array<[string, string]>,
@@ -128,9 +135,10 @@ function buildSignatureBase(
   const parts: string[] = [];
   for (const [key, value] of entries) {
     if (key === 'signature') continue;
-    if (value === undefined || value === null) continue;
-    const trimmed = String(value).trim();
-    if (trimmed === '') continue;
+    // Trim-but-keep: empty fields MUST stay in the base (as `key=`) to match
+    // PayFast's PHP canonicalization. Previously skipped them — that was the
+    // bug that broke every real ITN signature.
+    const trimmed = String(value ?? '').trim();
     parts.push(`${key}=${rfc1738Encode(trimmed)}`);
   }
   let base = parts.join('&');
@@ -172,6 +180,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
       mPaymentId,
       expected: expectedSignature,
       received: receivedSignature,
+      // Diagnostic: exposes exactly what we hashed so encoding / ordering
+      // drift can be compared against what PayFast hashed on their side.
+      // Passphrase is REDACTED — last 4 chars only so we can verify secret
+      // propagation without leaking the full value to logs.
+      signatureBasePreview: base.replace(
+        /passphrase=[^&]+/,
+        (m) => {
+          const val = m.slice('passphrase='.length);
+          if (val.length <= 4) return 'passphrase=****';
+          return `passphrase=${'*'.repeat(val.length - 4)}${val.slice(-4)}`;
+        },
+      ),
+      rawBodyLength: rawBody.length,
+      fieldCount: entries.length,
     });
     return new Response('signature mismatch', { status: 400 });
   }
