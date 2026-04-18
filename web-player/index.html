@@ -60,7 +60,9 @@
     <!-- Progress-pill matrix — replaces the legacy single linear bar.
          Horizontally scrolling grid of exercise pills. Auto-centres on the
          active pill, stacks circuit cycles vertically, supports long-press
-         peek + slide to jump. See docs/design/mockups/progress-pills.html. -->
+         peek + slide to jump. See docs/design/mockups/progress-pills.html.
+         The ETA widget lives inside .progress-matrix-inner so it scrolls
+         with the matrix. -->
     <div class="progress-matrix" id="progress-matrix">
       <div class="progress-matrix-inner" id="progress-matrix-inner"></div>
       <div class="progress-matrix-chevron" id="progress-matrix-chevron" hidden>

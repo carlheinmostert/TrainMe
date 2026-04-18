@@ -62,6 +62,17 @@ const $peekPanel = document.getElementById('peek-panel');
 const $peekName = document.getElementById('peek-name');
 const $peekMeta = document.getElementById('peek-meta');
 
+// ETA refs (assigned after buildProgressMatrix injects them).
+let $etaBlock = null;
+let $etaRemaining = null;
+let $etaFinish = null;
+
+// Wall-clock ticker for the ETA widget. Runs 1/sec so the finish-time label
+// keeps drifting forward while the workout is paused (remaining holds steady,
+// now() advances → finish = now + remaining also advances). Independent of
+// the workoutTimer and prepTimer.
+let etaClockTimer = null;
+
 // Workout timer DOM refs
 const $timerOverlay = document.getElementById('timer-overlay');
 const $timerRingProgress = document.getElementById('timer-ring-progress');
@@ -164,6 +175,12 @@ function renderPlan() {
 
   // Build the progress-pill matrix (replaces legacy single linear bar).
   buildProgressMatrix();
+
+  // Prime the ETA widget and start its wall-clock ticker. The ticker runs
+  // for the lifetime of the session so the finish-time drifts forward even
+  // during paused states.
+  updateEtaDisplay();
+  startEtaClock();
 
   // Build exercise cards
   $cardTrack.innerHTML = slides.map((slide, i) => buildCard(slide, i)).join('');
@@ -446,7 +463,7 @@ function buildProgressMatrix() {
   // seamlessly via the negative-margin rule in styles.css.
 
   $matrixInner.className = 'progress-matrix-inner';
-  $matrixInner.innerHTML = columns.map((col, colIdx) => {
+  const columnsHTML = columns.map((col, colIdx) => {
     const rowsHTML = col.slideIndices.map((slideIdx) => {
       const slide = slides[slideIdx];
       const isRest = slide.media_type === 'rest';
@@ -469,6 +486,25 @@ function buildProgressMatrix() {
     const circuitClass = col.isCircuit ? ' is-circuit' : '';
     return `<div class="matrix-col${circuitClass}" data-col="${colIdx}">${rowsHTML}</div>`;
   }).join('');
+
+  // ETA widget — last grid column in the matrix. Scrolls with the matrix by
+  // virtue of being a child of .progress-matrix-inner; its content is driven
+  // separately by the updateEtaDisplay() tick so the wall-clock drifts while
+  // paused (see pattern note at calculateRemainingWorkoutSeconds()).
+  const etaHTML = `
+    <div class="matrix-eta" id="matrix-eta" aria-live="polite">
+      <div class="matrix-eta-remaining">
+        <span class="matrix-eta-remaining-value" id="matrix-eta-remaining">0:00</span><span class="matrix-eta-remaining-suffix"> left</span>
+      </div>
+      <div class="matrix-eta-finish" id="matrix-eta-finish">~--:--</div>
+    </div>`;
+
+  $matrixInner.innerHTML = columnsHTML + etaHTML;
+
+  // Cache ETA DOM refs after the innerHTML swap.
+  $etaBlock = $matrixInner.querySelector('#matrix-eta');
+  $etaRemaining = $matrixInner.querySelector('#matrix-eta-remaining');
+  $etaFinish = $matrixInner.querySelector('#matrix-eta-finish');
 
   // Force layout to run so offsetLeft queries are accurate before first updateUI.
   // No-op if we can't read (jsdom etc.); cheap otherwise.
@@ -772,6 +808,8 @@ function goTo(index) {
 
   currentIndex = index;
   updateUI();
+  // After a jump, recompute immediately so we don't wait 1s for the ticker.
+  updateEtaDisplay();
 
   // Auto-play the current slide's video (muted, looped). Safari's autoplay
   // policy may block this if there hasn't been a user gesture yet — swallow
@@ -1009,12 +1047,114 @@ function formatTime(seconds) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+// ------------------------------------------------------------
+// ETA (matrix right-end widget) — "7:42 left" + "~7:42 PM".
+// Remaining ticks down when the workout is running, holds steady when paused;
+// finish time = now() + remaining, so it drifts forward while paused — by
+// design. See the semantic table in the task brief.
+// ------------------------------------------------------------
+
+/**
+ * Sum of expected-durations for every slide strictly after the active one.
+ * Each slide in `slides[]` is already one pass of its exercise (circuits are
+ * unrolled upstream in unrollExercises), so we can sum per-slide without
+ * re-multiplying by cycles.
+ */
+function sumUpcomingDurations(startIndex) {
+  let sum = 0;
+  for (let i = startIndex; i < slides.length; i++) {
+    sum += calculateDuration(slides[i]);
+  }
+  return sum;
+}
+
+/**
+ * Workout seconds left from "right now" — the active slide's remaining
+ * portion plus the full duration of every slide after it.
+ *
+ * Pre-workout: shows total plan duration (stale finish-time-if-started-now).
+ * Prep phase: add the prep runway + full active-slide duration.
+ * Running / paused: use `remainingSeconds` (the 1s tick loop is authoritative).
+ */
+function calculateRemainingWorkoutSeconds() {
+  if (!slides.length) return 0;
+  if (!isWorkoutMode) {
+    // Not started yet — total plan time from the current slide forward.
+    return sumUpcomingDurations(currentIndex);
+  }
+  let active = 0;
+  if (isPrepPhase) {
+    active = prepRemainingSeconds + calculateDuration(slides[currentIndex]);
+  } else {
+    active = Math.max(0, remainingSeconds);
+  }
+  return active + sumUpcomingDurations(currentIndex + 1);
+}
+
+/**
+ * Format the finish wall-clock time using the device locale. Mirrors
+ * MaterialLocalizations.formatTimeOfDay on the Flutter side — 12h vs 24h is
+ * chosen automatically.
+ */
+function formatFinishTime(date) {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(date);
+  } catch (_err) {
+    // Extremely defensive fallback — Intl should always be present.
+    const h = date.getHours();
+    const m = date.getMinutes().toString().padStart(2, '0');
+    return `${h}:${m}`;
+  }
+}
+
+/**
+ * Render the ETA widget. Called on every workout-tick AND on an independent
+ * 1s wall-clock tick so the finish time drifts forward while paused.
+ */
+function updateEtaDisplay() {
+  if (!$etaBlock) return;
+  if (workoutCompleteFlag) {
+    // Set the "Done" markup once; subsequent ticks are no-ops until the flag
+    // flips (exitWorkout() rebuilds the whole matrix so refs are refreshed).
+    if (!$etaBlock.classList.contains('is-done')) {
+      $etaBlock.classList.add('is-done');
+      $etaBlock.innerHTML = '<div class="matrix-eta-done">Done</div>';
+    }
+    return;
+  }
+
+  const secs = calculateRemainingWorkoutSeconds();
+  const finishAt = new Date(Date.now() + secs * 1000);
+
+  if ($etaRemaining) $etaRemaining.textContent = formatTime(Math.max(0, secs));
+  if ($etaFinish) $etaFinish.textContent = `~${formatFinishTime(finishAt)}`;
+}
+
+// Mirrors the Flutter widget.workoutComplete flag for the ETA "Done" state.
+let workoutCompleteFlag = false;
+
+function startEtaClock() {
+  if (etaClockTimer) return;
+  etaClockTimer = setInterval(updateEtaDisplay, 1000);
+}
+
+function stopEtaClock() {
+  if (etaClockTimer) {
+    clearInterval(etaClockTimer);
+    etaClockTimer = null;
+  }
+}
+
 /**
  * Enter workout mode. Calling goTo(0) triggers the prep-or-rest flow for the
  * first slide via enterWorkoutPhaseForCurrent().
  */
 function startWorkout() {
   isWorkoutMode = true;
+  workoutCompleteFlag = false;
   workoutStartTime = Date.now();
 
   // Hide the start button
@@ -1030,6 +1170,7 @@ function startWorkout() {
   }
   // Matrix needs an active-state redraw now that isWorkoutMode is true.
   updateProgressMatrix();
+  updateEtaDisplay();
 }
 
 /**
@@ -1072,6 +1213,8 @@ function startPrepPhase() {
 
   updateTimerDisplay();
   showTimerDisplay();
+  // ETA now reflects prep seconds + new slide's full duration + upcoming.
+  updateEtaDisplay();
 
   prepTimer = setInterval(onPrepTick, 1000);
 }
@@ -1085,6 +1228,8 @@ function onPrepTick() {
     return;
   }
   updateTimerDisplay();
+  // Prep seconds are part of "remaining" — tick the ETA too.
+  updateEtaDisplay();
 }
 
 function finishPrepPhase() {
@@ -1102,6 +1247,7 @@ function startTimer() {
   isTimerRunning = true;
   updateTimerDisplay();
   showTimerDisplay();
+  updateEtaDisplay();
 
   workoutTimer = setInterval(onTimerTick, 1000);
 }
@@ -1140,6 +1286,7 @@ function onTimerTick() {
   updateTimerDisplay();
   // Matrix active-pill fill needs a per-second nudge too.
   updateProgressMatrix();
+  updateEtaDisplay();
 }
 
 /**
@@ -1210,6 +1357,9 @@ function pauseTimer() {
     currentVideo.pause();
   }
   updateTimerDisplay();
+  // ETA clock keeps running in the background — remaining stays static,
+  // finish-time drifts forward. Nudge once to reflect immediately.
+  updateEtaDisplay();
 }
 
 /**
@@ -1227,6 +1377,7 @@ function resumeTimer() {
     });
   }
   updateTimerDisplay();
+  updateEtaDisplay();
 }
 
 /**
@@ -1270,6 +1421,10 @@ function finishWorkout() {
   $workoutTotalTime.textContent = `Total time: ${formatTime(elapsedSeconds)}`;
 
   $workoutComplete.hidden = false;
+
+  // Flip the ETA to "Done" end-state.
+  workoutCompleteFlag = true;
+  updateEtaDisplay();
 }
 
 /**
@@ -1292,6 +1447,14 @@ function exitWorkout() {
 
   // Reset matrix state — active/completed classes drop back to idle.
   updateProgressMatrix();
+
+  // Rebuild the matrix (which re-injects the ETA HTML replacing the "Done"
+  // innerHTML, if it was set) and reset the end-state flag so the readout
+  // shows the pre-workout stale total again.
+  workoutCompleteFlag = false;
+  buildProgressMatrix();
+  updateProgressMatrix();
+  updateEtaDisplay();
 }
 
 // ============================================================

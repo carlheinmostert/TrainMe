@@ -83,6 +83,11 @@ const double _kEdgeFadeWidth = 40.0;
 const Cubic _kEmphasized = Cubic(0.16, 1, 0.3, 1);
 const Duration _kPulseDuration = Duration(milliseconds: 1400);
 
+/// Width reserved for the ETA widget at the right end of row 1. It sits inside
+/// the scrollable track, so the matrix sizes itself to include this slot.
+const double _kEtaSlotWidth = 96.0;
+const double _kEtaSlotGap = 12.0;
+
 // ---------------------------------------------------------------------------
 // Model
 // ---------------------------------------------------------------------------
@@ -275,6 +280,18 @@ class ProgressPillMatrix extends StatefulWidget {
   /// When true, the fill-bar animation is frozen (e.g. during a long-press).
   final bool paused;
 
+  /// Seconds of workout time remaining. Parent is authoritative: when the
+  /// exercise timer is running this should tick down each second; when paused
+  /// it should hold steady. The ETA widget uses this + live DateTime.now() to
+  /// render "X left" (from this value) and "~finish-time" (= now + this), so
+  /// the finish time naturally drifts forward while paused and stays fixed
+  /// while running. Pass a negative value (e.g. -1) to render the completed
+  /// "Done" state.
+  final int remainingSeconds;
+
+  /// True once the workout has finished. Shows the "Done" end state.
+  final bool workoutComplete;
+
   /// Called when the user releases a long-press on a different pill. Consumers
   /// should [PageController.jumpToPage] and reset the timer.
   final OnJumpToSlide? onJumpTo;
@@ -285,6 +302,8 @@ class ProgressPillMatrix extends StatefulWidget {
     required this.activeSlideIndex,
     this.timerProgress = 0.0,
     this.paused = false,
+    this.remainingSeconds = 0,
+    this.workoutComplete = false,
     this.onJumpTo,
   });
 
@@ -580,6 +599,8 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
                         timerProgress: widget.timerProgress,
                         paused: widget.paused || _longPressActive,
                         pulseController: _pulseController,
+                        remainingSeconds: widget.remainingSeconds,
+                        workoutComplete: widget.workoutComplete,
                       ),
                     ),
                   ),
@@ -646,6 +667,8 @@ class _MatrixTrack extends StatelessWidget {
   final double timerProgress;
   final bool paused;
   final AnimationController pulseController;
+  final int remainingSeconds;
+  final bool workoutComplete;
 
   const _MatrixTrack({
     required this.columns,
@@ -657,6 +680,8 @@ class _MatrixTrack extends StatelessWidget {
     required this.timerProgress,
     required this.paused,
     required this.pulseController,
+    required this.remainingSeconds,
+    required this.workoutComplete,
   });
 
   @override
@@ -665,7 +690,13 @@ class _MatrixTrack extends StatelessWidget {
     final rowStride = spec.height + _kPillGap;
     final maxRows = columns.fold<int>(
         1, (acc, col) => col.slideIndices.length > acc ? col.slideIndices.length : acc);
-    final width = columns.length * stride;
+    // Reserve room at the right end for the ETA widget. It scrolls with the
+    // matrix so it's OK that it goes off-screen during deep scrub-back. The
+    // columns block ends one `_kPillGap` before `columns.length * stride`
+    // (the trailing gap after the final column), so we subtract that and
+    // then add the ETA gap + slot width.
+    final width =
+        columns.length * stride - _kPillGap + _kEtaSlotGap + _kEtaSlotWidth;
     final height = maxRows * rowStride - _kPillGap + _kCircuitBandInset * 2;
 
     final children = <Widget>[];
@@ -720,10 +751,177 @@ class _MatrixTrack extends StatelessWidget {
       }
     }
 
+    // ETA widget — positioned at the right end of row 1, aligned vertically
+    // with the first row of pills. Sits inside the scrollable track so it
+    // moves with manual scrub / auto-centre. Its own internal 1s timer keeps
+    // the wall-clock drifting forward while the workout is paused.
+    //
+    // On the densest tier the pills are only 12px tall — far too short for
+    // the two-line readout. Clamp to a sane minimum so the ETA always has
+    // room to render without forcing the pill-row layout wider.
+    const double etaMinHeight = 36.0;
+    final etaHeight = spec.height < etaMinHeight ? etaMinHeight : spec.height;
+    children.add(Positioned(
+      left: columns.length * stride + _kEtaSlotGap - _kPillGap,
+      top: _kCircuitBandInset,
+      width: _kEtaSlotWidth,
+      height: etaHeight,
+      child: _EtaDisplay(
+        remainingSeconds: remainingSeconds,
+        workoutComplete: workoutComplete,
+      ),
+    ));
+
     return SizedBox(
       width: width,
       height: height,
       child: Stack(clipBehavior: Clip.none, children: children),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ETA display — right-aligned two-line readout at the end of row 1.
+//
+// Line 1: "7:42 left"   — drops by one each second while the workout is
+//                         running; holds steady while paused or before start.
+// Line 2: "~7:42 PM"    — finish time = DateTime.now() + remainingSeconds.
+//                         Owns its own 1s Timer so the wall-clock keeps moving
+//                         while the parent's remainingSeconds is static
+//                         (paused state). "now() advances, remaining doesn't,
+//                         so the finish time drifts forward" — intentional.
+//
+// After finish, shows "Done".
+// ---------------------------------------------------------------------------
+
+class _EtaDisplay extends StatefulWidget {
+  final int remainingSeconds;
+  final bool workoutComplete;
+
+  const _EtaDisplay({
+    required this.remainingSeconds,
+    required this.workoutComplete,
+  });
+
+  @override
+  State<_EtaDisplay> createState() => _EtaDisplayState();
+}
+
+class _EtaDisplayState extends State<_EtaDisplay> {
+  /// Wall-clock ticker — forces a rebuild every second so the finish time
+  /// keeps rolling forward even when the parent hasn't rebuilt (e.g. paused
+  /// state where remainingSeconds is static).
+  Timer? _clockTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  String _formatRemaining(int secs) {
+    final s = secs < 0 ? 0 : secs;
+    final m = s ~/ 60;
+    final r = s % 60;
+    return '$m:${r.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.workoutComplete) {
+      // End state — single centred "Done" label. Keeps the slot occupied so
+      // the overall layout doesn't shift on completion.
+      return const Align(
+        alignment: Alignment.centerRight,
+        child: Text(
+          'Done',
+          textAlign: TextAlign.right,
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textOnDark,
+            letterSpacing: -0.2,
+          ),
+        ),
+      );
+    }
+
+    final remaining = widget.remainingSeconds < 0 ? 0 : widget.remainingSeconds;
+    final finishAt = DateTime.now().add(Duration(seconds: remaining));
+    final remainingLabel = _formatRemaining(remaining);
+    final finishLabel =
+        MaterialLocalizations.of(context).formatTimeOfDay(
+      TimeOfDay.fromDateTime(finishAt),
+    );
+
+    // Digits get JetBrainsMono with Menlo/Courier fallback (same pattern as
+    // app/lib/widgets/gutter_rail.dart — font isn't bundled, so the fallback
+    // is the one that actually renders).
+    const monoFamily = 'JetBrainsMono';
+    const monoFallback = ['Menlo', 'Courier'];
+
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // "7:42 left" — primary read.
+          Text.rich(
+            TextSpan(children: [
+              TextSpan(
+                text: remainingLabel,
+                style: const TextStyle(
+                  fontFamily: monoFamily,
+                  fontFamilyFallback: monoFallback,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textOnDark,
+                  letterSpacing: -0.2,
+                  height: 1.0,
+                ),
+              ),
+              const TextSpan(
+                text: ' left',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textOnDark,
+                  letterSpacing: 0.1,
+                  height: 1.0,
+                ),
+              ),
+            ]),
+            textAlign: TextAlign.right,
+          ),
+          const SizedBox(height: 3),
+          // "~7:42 PM" — secondary planning read. The tilde signals estimate.
+          Text(
+            '~$finishLabel',
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontFamily: monoFamily,
+              fontFamilyFallback: monoFallback,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondaryOnDark,
+              letterSpacing: 0.0,
+              height: 1.0,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

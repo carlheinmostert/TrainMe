@@ -471,6 +471,68 @@ body {
 }
 .progress-matrix-chevron svg { width: 14px; height: 14px; }
 
+/* === Matrix ETA — "7:42 left" / "~7:42 PM" ============================
+   Sits as the last grid column inside .progress-matrix-inner so it scrolls
+   with the matrix. Right-aligned, stacked two-line readout. Digits use a
+   monospace (JetBrains Mono when available, else system mono) so a 1 and a
+   7 take the same width — the reading eye isn't jittered by the per-second
+   tick. */
+
+.matrix-eta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 96px;
+  padding: 0 12px 0 4px;
+  /* Align vertically with row-1 pills (which are 40px tall in spacious). */
+  height: 40px;
+  white-space: nowrap;
+  color: var(--c-ink-primary);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.matrix-eta-remaining {
+  line-height: 1;
+  color: var(--c-ink-primary);
+}
+
+.matrix-eta-remaining-value {
+  font-family: var(--f-mono);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: -0.2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.matrix-eta-remaining-suffix {
+  font-family: var(--f-body);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.1px;
+  color: var(--c-ink-primary);
+}
+
+.matrix-eta-finish {
+  margin-top: 3px;
+  font-family: var(--f-mono);
+  font-weight: 500;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0;
+  color: var(--c-ink-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.matrix-eta-done {
+  font-family: var(--f-body);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.2px;
+  color: var(--c-ink-primary);
+}
+
 /* === Peek panel — long-press preview ==================================== */
 
 .peek-panel {

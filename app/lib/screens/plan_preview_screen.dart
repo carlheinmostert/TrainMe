@@ -519,6 +519,53 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
         .clamp(0.0, 1.0);
   }
 
+  /// Seconds of workout time remaining. Drives the ETA widget's "X left" and
+  /// "~finish" readouts.
+  ///
+  /// In workout mode: what's left of the active slide (from _remainingSeconds)
+  /// + the estimated duration of every slide after it. The active-slide
+  /// portion only decreases while the timer is actually running (the parent
+  /// rebuild cadence handles this). Paused → this value stays static, which
+  /// is exactly what we want: "remaining holds, finish drifts".
+  ///
+  /// Before Start Workout: total plan duration (stale finish-time-if-started
+  /// -now). After finish: 0 (but workoutComplete flag takes precedence in the
+  /// widget itself).
+  int _computeRemainingWorkoutSeconds() {
+    if (_slides.isEmpty) return 0;
+    if (_workoutComplete) return 0;
+
+    int sum = 0;
+
+    // The portion of the "now playing" slide that still has to run.
+    if (_isWorkoutMode && _currentPage >= 0 && _currentPage < _slides.length) {
+      if (_isPrepPhase) {
+        // Prep hasn't started the exercise countdown yet — the full slide
+        // duration is still ahead, plus whatever's left of the 15s prep
+        // runway.
+        sum += _prepRemainingSeconds +
+            _slides[_currentPage].exercise.effectiveDurationSeconds;
+      } else {
+        // Running or paused — use the authoritative _remainingSeconds the
+        // tick loop is driving. When paused this number doesn't change, so
+        // the total stays static (which makes the finish time drift via
+        // DateTime.now() advancing in the child ticker).
+        sum += _remainingSeconds;
+      }
+    } else {
+      // Not yet in workout mode — include the current slide's full duration.
+      if (_currentPage >= 0 && _currentPage < _slides.length) {
+        sum += _slides[_currentPage].exercise.effectiveDurationSeconds;
+      }
+    }
+
+    // All slides strictly after the active one — full estimated duration.
+    for (var i = _currentPage + 1; i < _slides.length; i++) {
+      sum += _slides[i].exercise.effectiveDurationSeconds;
+    }
+    return sum;
+  }
+
   /// Matrix jump — user released a long-press on a different pill. Jump the
   /// page view to that slide and, when in workout mode, reset its timer.
   void _onMatrixJumpTo(int slideIndex) {
@@ -616,6 +663,8 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                   activeSlideIndex: _isWorkoutMode ? _currentPage : -1,
                   timerProgress: _computeTimerProgress(),
                   paused: !_isTimerRunning && !_isPrepPhase,
+                  remainingSeconds: _computeRemainingWorkoutSeconds(),
+                  workoutComplete: _workoutComplete,
                   onJumpTo: _onMatrixJumpTo,
                 ),
               ),
