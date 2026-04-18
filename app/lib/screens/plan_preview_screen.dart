@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../theme.dart';
+import '../widgets/progress_pill_matrix.dart';
 
 /// Returns true when a video exercise's converted output is a still image
 /// (i.e. the fallback frame-extraction path produced a .jpg/.png instead
@@ -151,10 +152,11 @@ class PlanPreviewScreen extends StatefulWidget {
 class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   late final PageController _pageController;
   late final List<PreviewSlide> _slides;
-  int _currentPage = 0;
 
-  /// Continuous page value (e.g. 2.35) for smooth progress bar animation.
-  double _currentPageValue = 0.0;
+  /// Matrix-ready slide list — same ordering as [_slides], carrying the
+  /// circuit metadata the [ProgressPillMatrix] needs.
+  late final List<ProgressPillSlide> _pillSlides;
+  int _currentPage = 0;
 
   /// Video controllers keyed by *slide* index (not exercise index).
   /// Each slide gets its own controller even when the same exercise file
@@ -198,6 +200,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   void initState() {
     super.initState();
     _slides = _buildUnrolledSlides(widget.session);
+    _pillSlides = buildProgressPillSlides(widget.session);
     // Clamp the requested initial index to the valid range. Callers may
     // pass an index computed from a stale exercise list; better to land on
     // slide 0 than crash.
@@ -205,9 +208,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
         ? 0
         : widget.initialSlideIndex.clamp(0, _slides.length - 1);
     _currentPage = initial;
-    _currentPageValue = initial.toDouble();
     _pageController = PageController(initialPage: initial);
-    _pageController.addListener(_onPageScroll);
     // Prepare the initial page's video if it is one
     _prepareVideo(initial);
   }
@@ -215,21 +216,11 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   @override
   void dispose() {
     _workoutTimer?.cancel();
-    _pageController.removeListener(_onPageScroll);
     _pageController.dispose();
     for (final controller in _videoControllers.values) {
       controller.dispose();
     }
     super.dispose();
-  }
-
-  /// Fires continuously as the user drags between pages — gives us a smooth
-  /// fractional page value (e.g. 2.35) rather than integer snaps.
-  void _onPageScroll() {
-    final page = _pageController.page;
-    if (page != null) {
-      setState(() => _currentPageValue = page);
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -517,6 +508,30 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
     });
   }
 
+  /// Fraction 0..1 the active pill's fill bar should show. During prep we
+  /// keep the fill at zero — the pulse glow is enough of a cue that the
+  /// exercise is live, and the timer chip shows the 15s countdown.
+  double _computeTimerProgress() {
+    if (!_isWorkoutMode) return 0.0;
+    if (_isPrepPhase) return 0.0;
+    if (_totalSeconds <= 0) return 0.0;
+    return ((_totalSeconds - _remainingSeconds) / _totalSeconds)
+        .clamp(0.0, 1.0);
+  }
+
+  /// Matrix jump — user released a long-press on a different pill. Jump the
+  /// page view to that slide and, when in workout mode, reset its timer.
+  void _onMatrixJumpTo(int slideIndex) {
+    if (slideIndex < 0 || slideIndex >= _slides.length) return;
+    _navigateToPage(slideIndex);
+    if (_isWorkoutMode && !_workoutComplete) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _setupSlideTimer(slideIndex);
+      });
+    }
+  }
+
   /// Format seconds as "M:SS".
   String _formatTimer(int seconds) {
     final m = seconds ~/ 60;
@@ -589,11 +604,22 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
             // Top bar
             _buildTopBar(slideCount),
 
-            // Progress bar — always visible when more than 1 slide
+            // Progress-pill matrix — replaces the previous linear bar.
+            // Always render when more than 1 slide so the bio can scan the
+            // plan structure at a glance. Single-exercise plans skip this.
             if (slideCount > 1) ...[
-              const SizedBox(height: 4),
-              _buildProgressBar(),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: ProgressPillMatrix(
+                  slides: _pillSlides,
+                  activeSlideIndex: _isWorkoutMode ? _currentPage : -1,
+                  timerProgress: _computeTimerProgress(),
+                  paused: !_isTimerRunning && !_isPrepPhase,
+                  onJumpTo: _onMatrixJumpTo,
+                ),
+              ),
+              const SizedBox(height: 8),
             ],
 
             // Page view — exercise cards + navigation button overlay
@@ -950,49 +976,6 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  /// Thin progress bar showing overall workout completion.
-  ///
-  /// Uses [_currentPageValue] (a continuous double from the PageController
-  /// listener) so the fill animates smoothly as the user drags between pages
-  /// rather than jumping discretely on page snap.
-  Widget _buildProgressBar() {
-    final total = _slides.length;
-    final fraction = total <= 1 ? 1.0 : (_currentPageValue + 1) / total;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: SizedBox(
-        height: 3.5,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(2),
-          child: Stack(
-            children: [
-              // Track
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              // Fill — uses FractionallySizedBox for smooth width
-              FractionallySizedBox(
-                widthFactor: fraction.clamp(0.0, 1.0),
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Colors.white, AppColors.primary], // white → orange
-                    ),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
