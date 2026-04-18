@@ -189,6 +189,12 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
               Padding(
                 padding: const EdgeInsets.all(12),
                 child: Column(
+                  // mainAxisSize.min so the card hugs its content. Without
+                  // this, the card lives inside an Expanded inside a
+                  // sliver itemBuilder with unbounded main-axis height;
+                  // Column.max then expands to viewport height, which
+                  // cascades into the list blow-out symptom.
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildHeader(),
@@ -277,6 +283,7 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
   Widget _buildExpandedPanel() {
     final isVideo = widget.exercise.mediaType == MediaType.video;
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (widget.exercise.conversionStatus == ConversionStatus.failed)

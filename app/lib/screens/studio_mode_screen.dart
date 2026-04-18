@@ -880,6 +880,15 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Column(
+        // mainAxisSize.min is CRITICAL inside a SliverReorderableList
+        // itemBuilder. Sliver items are laid out with unbounded main-axis
+        // constraints; a Column defaulting to mainAxisSize.max in that
+        // environment expands to fill the viewport per row, pushing
+        // earlier rows off-screen and leaving a huge gap before the
+        // tail rows. Every Studio layout bug that manifested as "items
+        // 1+2 clipped at the top, huge gap in the middle, items 3+4 at
+        // the bottom" traces back to this.
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Circuit header — sits above the first card of each circuit.
