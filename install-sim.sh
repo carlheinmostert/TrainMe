@@ -18,7 +18,11 @@ xcrun simctl uninstall "$DEVICE" "$BUNDLE" 2>/dev/null || true
 
 echo "▸ Building Flutter app for simulator (first run ≈ 2-3 min)..."
 cd /Users/chm/dev/TrainMe/app
-LC_ALL=en_US.UTF-8 flutter build ios --debug --simulator
+# Bakes short git SHA into AppConfig.buildSha so the Pulse Mark footer
+# renders a tiny muted build marker — lets us verify which commit is
+# actually installed after a rebuild.
+GIT_SHA=$(git -C /Users/chm/dev/TrainMe rev-parse --short HEAD)
+LC_ALL=en_US.UTF-8 flutter build ios --debug --simulator --dart-define=GIT_SHA="$GIT_SHA"
 
 echo "▸ Installing fresh build..."
 xcrun simctl install "$DEVICE" "$APP_PATH"
