@@ -57,10 +57,21 @@ class AuthService {
   SupabaseClient get _supabase => Supabase.instance.client;
 
   /// Lazy singleton for the Google Sign-In SDK. v6's API is an instance
-  /// pattern — one `GoogleSignIn` instance per app lifetime. The iOS
-  /// plugin reads the client ID from the `GIDClientID` key in
-  /// `Info.plist`, so we don't pass one here.
-  late final GoogleSignIn _googleSignIn = GoogleSignIn();
+  /// pattern — one `GoogleSignIn` instance per app lifetime.
+  ///
+  /// Both iOS and server (web) client IDs are supplied here, matching
+  /// Supabase's canonical native-sign-in example. The `serverClientId`
+  /// tells Google to issue an id_token whose `aud` claim is the web
+  /// client ID — which flips the iOS SDK into a different auth flow that
+  /// does NOT auto-inject a nonce claim, unblocking
+  /// `signInWithIdToken` on the Supabase side. Both client IDs must be
+  /// present in Supabase's Google provider "Authorized Client IDs" list.
+  late final GoogleSignIn _googleSignIn = GoogleSignIn(
+    clientId:
+        '846780406660-lv8l6a83hlm7npvo5fj16m3n91evceih.apps.googleusercontent.com',
+    serverClientId:
+        '846780406660-v64pgkj2lv0mf71t269hrdenpr9nsq2c.apps.googleusercontent.com',
+  );
 
   /// Current session snapshot. Null when the user isn't signed in.
   /// Persists across app restarts via Supabase's default secure storage
