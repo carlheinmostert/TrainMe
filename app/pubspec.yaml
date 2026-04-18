@@ -37,7 +37,12 @@ dependencies:
   # that proved fragile on iOS 17+ (ASWebAuthenticationSession friction,
   # SFSafariViewController blank pages, externalApplication "Open in app?"
   # prompts).
-  google_sign_in: ^7.2.0
+  # Pinned to 6.x: v7 auto-adds a nonce claim to id_tokens that the
+  # Flutter-side API doesn't let us introspect, so Supabase rejects
+  # with "Passed nonce and nonce in id_token should either both exist
+  # or not." v6 doesn't inject a nonce and matches Supabase's canonical
+  # native-sign-in example verbatim.
+  google_sign_in: ^6.2.2
   sign_in_with_apple: ^7.0.1
 
   # UI

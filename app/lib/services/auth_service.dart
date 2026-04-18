@@ -56,11 +56,11 @@ class AuthService {
 
   SupabaseClient get _supabase => Supabase.instance.client;
 
-  /// One-shot guard for [GoogleSignIn.initialize]. The v7 API requires
-  /// `initialize()` to complete exactly once before any other call; we
-  /// lazy-init on the first sign-in attempt and cache the future so
-  /// concurrent taps don't double-init.
-  Future<void>? _googleInitFuture;
+  /// Lazy singleton for the Google Sign-In SDK. v6's API is an instance
+  /// pattern — one `GoogleSignIn` instance per app lifetime. The iOS
+  /// plugin reads the client ID from the `GIDClientID` key in
+  /// `Info.plist`, so we don't pass one here.
+  late final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   /// Current session snapshot. Null when the user isn't signed in.
   /// Persists across app restarts via Supabase's default secure storage
@@ -76,39 +76,32 @@ class AuthService {
   Stream<supa.Session?> get authStateChanges =>
       _supabase.auth.onAuthStateChange.map((event) => event.session);
 
-  /// Kick off (once) the platform-side initialisation required by
-  /// `google_sign_in` 7.x. The iOS plugin picks up the client ID from
-  /// the `GIDClientID` key in `Info.plist`, so we don't pass it here.
-  Future<void> _ensureGoogleInitialised() {
-    return _googleInitFuture ??= GoogleSignIn.instance.initialize();
-  }
-
-  /// Start Google sign-in using the native iOS SDK.
+  /// Start Google sign-in using the native iOS SDK (google_sign_in v6).
   ///
   /// Flow:
-  ///   1. Present the system Google account picker via
-  ///      [GoogleSignIn.authenticate]. This either silently picks up a
-  ///      system-level Google account or shows Google's native chooser.
-  ///   2. Grab the ID token (a JWT signed by Google).
-  ///   3. Hand it to Supabase via [SupabaseAuth.signInWithIdToken]. Supabase
+  ///   1. Present the system Google account picker via [GoogleSignIn.signIn].
+  ///      iOS shows Google's native chooser sheet; the user picks an account.
+  ///   2. Grab the ID token + access token from the returned account.
+  ///   3. Hand both to Supabase via [SupabaseAuth.signInWithIdToken]. Supabase
   ///      verifies the JWT against its configured Google OAuth client IDs
   ///      (both the web and iOS client IDs must be in the provider's
   ///      "Authorized Client IDs" list in the Supabase dashboard).
   ///
-  /// The v7 `authenticate()` call returns the ID token only. An access token
-  /// must be requested separately via `authorizationClient` if needed — we
-  /// don't call Google APIs directly, so we skip that and pass only the
-  /// idToken to Supabase.
+  /// v6 does NOT auto-insert a nonce claim into the id_token — so Supabase
+  /// won't demand a raw nonce back. v7 does inject one automatically, without
+  /// exposing it to Dart, which made signInWithIdToken impossible; we pinned
+  /// this dep to 6.x in pubspec.yaml for exactly that reason.
   ///
-  /// Throws if the SDK fails. Cancellation surfaces as a
-  /// [GoogleSignInException] with code `canceled`; callers should catch and
-  /// treat as a no-op (user changed their mind).
+  /// Cancellation: [GoogleSignIn.signIn] returns `null` when the user
+  /// dismisses the sheet. We treat that as a no-op.
   Future<void> signInWithGoogle() async {
-    await _ensureGoogleInitialised();
-
-    final GoogleSignInAccount account =
-        await GoogleSignIn.instance.authenticate();
-    final idToken = account.authentication.idToken;
+    final account = await _googleSignIn.signIn();
+    if (account == null) {
+      return; // user dismissed the picker
+    }
+    final auth = await account.authentication;
+    final idToken = auth.idToken;
+    final accessToken = auth.accessToken;
     if (idToken == null) {
       throw Exception('Google sign-in did not return an idToken');
     }
@@ -116,6 +109,7 @@ class AuthService {
     await _supabase.auth.signInWithIdToken(
       provider: OAuthProvider.google,
       idToken: idToken,
+      accessToken: accessToken,
     );
   }
 
@@ -153,10 +147,10 @@ class AuthService {
   /// fresh (without this, the SDK would silently re-sign the same user).
   Future<void> signOut() async {
     try {
-      await GoogleSignIn.instance.signOut();
+      await _googleSignIn.signOut();
     } catch (e) {
-      // If the SDK wasn't initialised yet (user never signed in with
-      // Google this session) signOut can throw — harmless, ignore.
+      // If the user never signed in with Google this session, signOut
+      // can throw. Harmless — ignore.
       debugPrint('AuthService.signOut: GoogleSignIn.signOut swallowed: $e');
     }
     await _supabase.auth.signOut();
