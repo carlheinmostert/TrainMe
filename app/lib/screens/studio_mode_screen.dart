@@ -854,6 +854,27 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
 
   /// One row + the gap below it. Gap always renders (insertion dot /
   /// circuit rail carry-through / action tray when active).
+  ///
+  /// Layout strategy: **Stack-based rail**. The card is a normal,
+  /// non-positioned child that drives the row's height. The rail
+  /// (CustomPaint) and number glyph are `Positioned` children in the
+  /// left gutter strip; they inherit the card's height via `top: 0`
+  /// and `bottom: 0`.
+  ///
+  /// Why not a Row with `Expanded`? Inside a `SliverReorderableList`
+  /// inside a `CustomScrollView(reverse: true)`, the sliver gives each
+  /// item unbounded vertical constraints. A `Row` with
+  /// `CrossAxisAlignment.start` in that environment still requires its
+  /// children to compute their own intrinsic height; the
+  /// `AnimatedContainer` + `Stack` inside `StudioExerciseCard` doesn't
+  /// participate in intrinsic-height cleanly, and the combined
+  /// `Row + Expanded + AnimatedContainer + Stack` chain propagates
+  /// unbounded constraints such that each row claims
+  /// multiple-viewports worth of vertical space. See commits `9bfc0f8`
+  /// and `89e4e2d` for earlier attempts that didn't hold.
+  ///
+  /// With `Stack`, the non-positioned card supplies the row height
+  /// directly; positioned gutter children inherit it.
   Widget _buildRowWithContext(int dataIndex, int visualIndex) {
     final exercises = _session.exercises;
     final exercise = exercises[dataIndex];
@@ -877,85 +898,95 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
       positionNumber = n;
     }
 
+    // Card content (rest bar or exercise card). Always wrapped in a
+    // ReorderableDelayedDragStartListener so SliverReorderableList's
+    // drag-to-reorder still works.
+    final Widget cardContent = exercise.isRest
+        ? _buildRestRow(dataIndex)
+        : StudioExerciseCard(
+            key: ValueKey('card_${exercise.id}'),
+            exercise: exercise,
+            isExpanded: _expandedIndex == dataIndex,
+            isInCircuit: isInCircuit,
+            onTap: () {
+              setState(() {
+                _expandedIndex =
+                    _expandedIndex == dataIndex ? null : dataIndex;
+                _activeInsertIndex = null;
+              });
+            },
+            onUpdate: (u) => _updateExercise(dataIndex, u),
+            onThumbnailTap: () => _openMediaViewer(exercise),
+            onReplaceMedia: () => _replaceMedia(dataIndex),
+            onDelete: () {
+              if (_isPublishLocked) {
+                showPublishLockToast(context);
+                return;
+              }
+              _deleteExercise(dataIndex);
+            },
+          );
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Column(
-        // mainAxisSize.min is CRITICAL inside a SliverReorderableList
-        // itemBuilder. Sliver items are laid out with unbounded main-axis
-        // constraints; a Column defaulting to mainAxisSize.max in that
-        // environment expands to fill the viewport per row, pushing
-        // earlier rows off-screen and leaving a huge gap before the
-        // tail rows. Every Studio layout bug that manifested as "items
-        // 1+2 clipped at the top, huge gap in the middle, items 3+4 at
-        // the bottom" traces back to this.
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Circuit header — sits above the first card of each circuit.
           if (isFirstInCircuit)
             _buildCircuitHeaderRow(exercise.circuitId!),
-          // NOTE: previously wrapped in IntrinsicHeight with
-          // crossAxisAlignment.stretch. That combination broke when the
-          // expanded exercise card contained AnimatedSize / AnimatedContainer
-          // widgets (no intrinsic-height support), causing the Row to
-          // allocate max-available height per row — visually producing a
-          // huge empty gap between cards, especially around circuit members.
-          // Using crossAxisAlignment.start lets the card dictate height;
-          // the gutter cell paints its rail within its own fixed 80px zone
-          // aligned to the top of the card.
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-                // Gutter cell.
-                ReorderableDelayedDragStartListener(
-                  index: visualIndex,
-                  child: GutterCardCell(
-                    numberGlyph: positionNumber,
-                    isInCircuit: isInCircuit,
-                    isFirstInCircuit: isFirstInCircuit,
-                    isLastInCircuit: isLastInCircuit,
-                    dimmed: _isPublishLocked,
+          // The row: a Stack that the card's intrinsic height drives.
+          ReorderableDelayedDragStartListener(
+            index: visualIndex,
+            child: Stack(
+              children: [
+                // Non-positioned child — drives the row's height. Left
+                // margin of (kGutterVisibleWidth + 4) leaves the gutter
+                // strip free for the rail.
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: kGutterVisibleWidth + 4,
+                  ),
+                  child: cardContent,
+                ),
+                // Rail: Positioned on the LEFT gutter strip, stretches
+                // top-to-bottom to inherit the card's height.
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: kGutterVisibleWidth,
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      painter: GutterCardPainter(
+                        isInCircuit: isInCircuit,
+                        isFirstInCircuit: isFirstInCircuit,
+                        isLastInCircuit: isLastInCircuit,
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 4),
-                // Card column.
-                Expanded(
-                  child: exercise.isRest
-                      ? _buildRestRow(dataIndex)
-                      : ReorderableDelayedDragStartListener(
-                          index: visualIndex,
-                          child: StudioExerciseCard(
-                            key: ValueKey('card_${exercise.id}'),
-                            exercise: exercise,
-                            isExpanded: _expandedIndex == dataIndex,
-                            isInCircuit: isInCircuit,
-                            onTap: () {
-                              setState(() {
-                                _expandedIndex =
-                                    _expandedIndex == dataIndex
-                                        ? null
-                                        : dataIndex;
-                                _activeInsertIndex = null;
-                              });
-                            },
-                            onUpdate: (u) =>
-                                _updateExercise(dataIndex, u),
-                            onThumbnailTap: () =>
-                                _openMediaViewer(exercise),
-                            onReplaceMedia: () =>
-                                _replaceMedia(dataIndex),
-                            onDelete: () {
-                              if (_isPublishLocked) {
-                                showPublishLockToast(context);
-                                return;
-                              }
-                              _deleteExercise(dataIndex);
-                            },
-                          ),
-                        ),
-                ),
+                // Number glyph — fixed offset from top of gutter so it
+                // aligns visually with the first line of the card
+                // header regardless of card height.
+                if (positionNumber != null)
+                  Positioned(
+                    left: 0,
+                    top: 18,
+                    width: kGutterVisibleWidth,
+                    height: 14,
+                    child: Center(
+                      child: GutterNumberGlyph(
+                        value: positionNumber,
+                        onBrand: isInCircuit,
+                        dimmed: _isPublishLocked,
+                      ),
+                    ),
+                  ),
               ],
             ),
+          ),
           // Gap below this card (unless it's the last card).
           if (dataIndex < exercises.length - 1)
             _buildGap(dataIndex + 1, exercise, exercises[dataIndex + 1]),
@@ -1060,6 +1091,13 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   /// A gutter gap between two cards at `[lowerIndex - 1]` and
   /// `[lowerIndex]`. Shows the insertion dot + the inline action tray
   /// when active.
+  ///
+  /// Layout strategy: same Stack pattern as [_buildRowWithContext].
+  /// The tray column drives the height; the gutter rail/dot paints in
+  /// the left strip via `Positioned.fill`. When idle, the tray
+  /// collapses (via `AnimatedSize` -> `SizedBox.shrink()`), so we pad
+  /// the card column with a 20px minimum so the rail/dot have a
+  /// paintable zone.
   Widget _buildGap(
     int lowerIndex,
     ExerciseCapture upper,
@@ -1072,55 +1110,80 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     final showRest = !upper.isRest && !lower.isRest;
     final showLink = !sameCircuit && !upper.isRest && !lower.isRest;
 
-    return Row(
-      // Start alignment — same reason as _buildRowWithContext:
-      // IntrinsicHeight + stretch breaks when the action-tray child
-      // uses AnimatedSize / AnimatedOpacity (no intrinsic support).
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Stack(
       children: [
-        GutterGapCell(
-            state: isActive
-                ? GutterDotState.active
-                : GutterDotState.idle,
-            continuousRail: sameCircuit,
-            dimmed: _isPublishLocked && !isActive,
+        // Card-column content: min-height placeholder + tray. The
+        // placeholder gives the Stack a bounded height when the tray
+        // is collapsed so the gutter rail / dot has something to paint
+        // against.
+        Padding(
+          padding: const EdgeInsets.only(left: kGutterVisibleWidth + 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Baseline 20px so the dot has room when the tray is idle.
+              // Active tray animates over and past this via AnimatedSize.
+              const SizedBox(height: 20),
+              InlineActionTray(
+                visible: isActive,
+                showRestAction: showRest,
+                showLinkAction: showLink,
+                showInsertAction: true,
+                locked: _isPublishLocked,
+                onLockedAction: () {
+                  showPublishLockToast(context);
+                  setState(() => _activeInsertIndex = null);
+                },
+                onRestHere: () async {
+                  setState(() => _activeInsertIndex = null);
+                  await _insertRestBetween(lowerIndex);
+                },
+                onLinkCircuit: () {
+                  setState(() => _activeInsertIndex = null);
+                  _linkExercises(lowerIndex - 1, lowerIndex);
+                },
+                onInsertExercise: () async {
+                  setState(() => _activeInsertIndex = null);
+                  await _importFromLibrary(insertAt: lowerIndex);
+                },
+                onClose: () {
+                  setState(() => _activeInsertIndex = null);
+                },
+              ),
+            ],
+          ),
+        ),
+        // Gutter rail / dot — fills the left strip, height inherited
+        // from the card column above.
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: kGutterVisibleWidth,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () {
+              HapticFeedback.selectionClick();
               setState(() {
                 _activeInsertIndex = isActive ? null : lowerIndex;
                 _expandedIndex = null;
               });
             },
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: InlineActionTray(
-              visible: isActive,
-              showRestAction: showRest,
-              showLinkAction: showLink,
-              showInsertAction: true,
-              locked: _isPublishLocked,
-              onLockedAction: () {
-                showPublishLockToast(context);
-                setState(() => _activeInsertIndex = null);
-              },
-              onRestHere: () async {
-                setState(() => _activeInsertIndex = null);
-                await _insertRestBetween(lowerIndex);
-              },
-              onLinkCircuit: () {
-                setState(() => _activeInsertIndex = null);
-                _linkExercises(lowerIndex - 1, lowerIndex);
-              },
-              onInsertExercise: () async {
-                setState(() => _activeInsertIndex = null);
-                await _importFromLibrary(insertAt: lowerIndex);
-              },
-              onClose: () {
-                setState(() => _activeInsertIndex = null);
-              },
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: GutterGapPainter(
+                  state: isActive
+                      ? GutterDotState.active
+                      : GutterDotState.idle,
+                  continuousRail: sameCircuit,
+                  dimmed: _isPublishLocked && !isActive,
+                ),
+              ),
             ),
           ),
-        ],
+        ),
+      ],
     );
   }
 

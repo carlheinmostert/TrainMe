@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — progress-pills matrix mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    /* ------------------------------------------------------------------ */
+    /*  Tokens (mirrored from docs/design/project/tokens.json)            */
+    /* ------------------------------------------------------------------ */
+    :root {
+      /* color.brand */
+      --brand-default: #ff6b35;
+      --brand-dark: #e85a24;
+      --brand-light: #ff8f5e;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+
+      /* color.surface.dark */
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+
+      /* color.ink.dark */
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --ink-disabled: #4b5563;
+      --ink-on-brand: #ffffff;
+
+      /* color.semantic */
+      --rest: #64748b;
+      --rest-tint: rgba(100, 116, 139, 0.18);
+
+      /* typography */
+      --font-display: "Montserrat", system-ui, sans-serif;
+      --font-body: "Inter", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+      /* radius */
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-full: 9999px;
+
+      /* motion */
+      --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-pulse: cubic-bezier(0.4, 0, 0.6, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Page layout                                                       */
+    /* ------------------------------------------------------------------ */
+    .page {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 64px 32px 96px;
+    }
+
+    .page-header {
+      margin-bottom: 64px;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 36px;
+      letter-spacing: -0.5px;
+      margin: 0 0 12px;
+      color: var(--ink-primary);
+    }
+
+    .page-header .eyebrow {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .page-header p {
+      color: var(--ink-secondary);
+      max-width: 680px;
+      font-size: 15px;
+      margin: 0;
+    }
+
+    section {
+      margin-bottom: 80px;
+    }
+
+    section > .section-head {
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--surface-border);
+      padding-bottom: 12px;
+    }
+
+    section > .section-head h2 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: -0.3px;
+      margin: 0 0 4px;
+      color: var(--ink-primary);
+    }
+
+    section > .section-head .section-num {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin-right: 8px;
+    }
+
+    section > .section-head p {
+      margin: 0;
+      color: var(--ink-secondary);
+      font-size: 13px;
+      max-width: 680px;
+    }
+
+    .surface-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+    }
+
+    .label-kicker {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .annotation {
+      color: var(--ink-secondary);
+      font-size: 12px;
+      line-height: 1.5;
+      max-width: 600px;
+    }
+
+    .annotation em {
+      color: var(--ink-primary);
+      font-style: normal;
+      font-weight: 600;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Pill primitives                                                   */
+    /* ------------------------------------------------------------------ */
+
+    .pill {
+      position: relative;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      overflow: hidden;
+      color: var(--ink-secondary);
+      font-family: var(--font-body);
+      font-weight: 600;
+      flex-shrink: 0;
+      transition: transform 150ms var(--ease-standard);
+    }
+
+    /* sizes */
+    .pill.spacious {
+      width: 72px;
+      height: 40px;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+    }
+    .pill.medium {
+      width: 48px;
+      height: 32px;
+      font-size: 0;
+    }
+    .pill.dense {
+      width: 24px;
+      height: 12px;
+      font-size: 0;
+    }
+
+    .pill .pill-content {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      opacity: 0.6;
+      transition: opacity 200ms var(--ease-standard);
+    }
+    .pill .pill-icon {
+      width: 14px;
+      height: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .pill.medium .pill-icon {
+      width: 16px;
+      height: 16px;
+    }
+    .pill.dense .pill-content {
+      display: none;
+    }
+
+    .pill .pill-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 0%;
+      background: rgba(255, 107, 53, 0.85); /* brand @ 85% */
+      z-index: 1;
+      transition: width 120ms linear;
+    }
+
+    /* --- State: idle (default) — already the base .pill styling ------- */
+
+    /* --- State: active ------------------------------------------------ */
+    .pill.active {
+      border-color: var(--brand-default);
+      border-width: 2px;
+      animation: pulse-glow 1.4s var(--ease-pulse) infinite;
+    }
+    .pill.active .pill-content {
+      opacity: 1;
+      color: var(--ink-primary);
+    }
+    .pill.active .pill-fill {
+      animation: fill-timer 10s linear infinite;
+    }
+
+    /* --- Rest active: blue-grey glow + fill --------------------------- */
+    .pill.rest.active {
+      border-color: var(--rest);
+      animation: pulse-glow-rest 1.4s var(--ease-pulse) infinite;
+    }
+    .pill.rest.active .pill-fill {
+      background: rgba(100, 116, 139, 0.85);
+    }
+
+    /* --- State: completed --------------------------------------------- */
+    .pill.completed {
+      border-color: var(--surface-border);
+    }
+    .pill.completed .pill-content {
+      opacity: 0.4;
+      color: var(--ink-muted);
+    }
+    .pill.completed .pill-fill {
+      width: 100%;
+      background: var(--ink-muted);
+      opacity: 0.55;
+    }
+
+    /* --- Rest variant ------------------------------------------------- */
+    .pill.rest .pill-content {
+      color: var(--rest);
+    }
+    .pill.rest .pill-fill {
+      background: rgba(100, 116, 139, 0.65);
+    }
+    .pill.rest.completed .pill-fill {
+      background: var(--ink-muted);
+      opacity: 0.4;
+      width: 100%;
+    }
+
+    /* --- Paused (timer frozen) --------------------------------------- */
+    .pill.paused .pill-fill {
+      animation-play-state: paused;
+    }
+    .pill.paused {
+      animation-play-state: paused;
+    }
+
+    /* --- Partial-fill static (for state gallery) --------------------- */
+    .pill.fill-62 .pill-fill {
+      width: 62%;
+      animation: none;
+    }
+    .pill.fill-30 .pill-fill {
+      width: 30%;
+      animation: none;
+    }
+
+    /* --- Animations --------------------------------------------------- */
+    @keyframes pulse-glow {
+      0%,
+      100% {
+        box-shadow: 0 0 0 0 rgba(255, 107, 53, 0.40);
+      }
+      50% {
+        box-shadow: 0 0 0 8px rgba(255, 107, 53, 0);
+      }
+    }
+
+    @keyframes pulse-glow-rest {
+      0%,
+      100% {
+        box-shadow: 0 0 0 0 rgba(100, 116, 139, 0.40);
+      }
+      50% {
+        box-shadow: 0 0 0 8px rgba(100, 116, 139, 0);
+      }
+    }
+
+    @keyframes fill-timer {
+      0% {
+        width: 0%;
+      }
+      100% {
+        width: 100%;
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Matrix primitives                                                 */
+    /* ------------------------------------------------------------------ */
+
+    .matrix {
+      display: inline-grid;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .matrix-row {
+      display: grid;
+      grid-auto-flow: column;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .matrix-cell {
+      /* Matches spacious pill width so empty cells hold column */
+      width: 72px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .matrix-cell.medium {
+      width: 48px;
+    }
+
+    .matrix-cell.dense {
+      width: 24px;
+    }
+
+    /* Circuit band backing — applied via grid positioning */
+    .circuit-band {
+      background: var(--brand-tint-bg);
+      border-radius: var(--radius-md);
+      padding: 6px;
+      margin: -6px -6px;
+    }
+
+    /* Viewport simulation */
+    .player-viewport {
+      position: relative;
+      width: 375px;
+      max-width: 100%;
+      background: var(--surface-bg);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 24px 0;
+      overflow: hidden;
+    }
+
+    .player-viewport::before,
+    .player-viewport::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 40px;
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .player-viewport::before {
+      left: 0;
+      background: linear-gradient(to right, var(--surface-bg) 0%, rgba(15, 17, 23, 0) 100%);
+    }
+
+    .player-viewport::after {
+      right: 0;
+      /* No fade on right edge per spec — keep transparent so upcoming pills read full strength */
+      background: transparent;
+    }
+
+    .player-viewport-inner {
+      display: flex;
+      align-items: flex-start;
+      padding: 0 16px;
+      transition: transform 300ms var(--ease-emphasized);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Peek panel                                                        */
+    /* ------------------------------------------------------------------ */
+
+    .peek-wrapper {
+      position: relative;
+      display: inline-block;
+    }
+
+    .peek-panel {
+      position: absolute;
+      bottom: calc(100% + 16px);
+      left: 50%;
+      transform: translateX(-50%);
+      width: 200px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      z-index: 10;
+      animation: peek-enter 250ms var(--ease-emphasized);
+    }
+
+    .peek-panel::after {
+      content: "";
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-top: 6px solid var(--surface-raised);
+    }
+
+    .peek-thumb {
+      width: 100%;
+      height: 88px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      margin-bottom: 10px;
+      position: relative;
+      overflow: hidden;
+      background-image: repeating-linear-gradient(
+        135deg,
+        var(--surface-border) 0 1px,
+        transparent 1px 6px
+      );
+    }
+
+    .peek-thumb::after {
+      /* Simple 'figure' silhouette suggestion */
+      content: "";
+      position: absolute;
+      inset: 16px 40% 12px 40%;
+      background: linear-gradient(
+        180deg,
+        var(--ink-secondary) 0 18%,
+        transparent 18% 24%,
+        var(--ink-secondary) 24% 70%,
+        transparent 70% 76%,
+        var(--ink-secondary) 76% 100%
+      );
+      opacity: 0.35;
+      border-radius: 4px;
+    }
+
+    .peek-name {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      color: var(--ink-primary);
+      margin: 0 0 2px;
+    }
+
+    .peek-meta {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-secondary);
+      margin: 0 0 10px;
+    }
+
+    .peek-hint {
+      font-size: 11px;
+      color: var(--brand-default);
+      letter-spacing: 0.2px;
+      border-top: 1px dashed var(--brand-tint-border);
+      padding-top: 8px;
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    @keyframes peek-enter {
+      from {
+        opacity: 0;
+        transform: translateX(-50%) scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(-50%) scale(1);
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Utility / layout helpers                                          */
+    /* ------------------------------------------------------------------ */
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+
+    @media (max-width: 720px) {
+      .grid-2,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .size-demo {
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .size-demo h3 {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .size-demo p {
+      margin: 0;
+      color: var(--ink-secondary);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .state-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 16px;
+    }
+
+    .state-item {
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 20px 16px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .state-item .state-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+    }
+
+    .state-item .state-desc {
+      font-size: 11px;
+      color: var(--ink-secondary);
+      text-align: center;
+      min-height: 30px;
+    }
+
+    /* Chevron nudge for scrub mode */
+    .scrub-chevron {
+      position: absolute;
+      top: 50%;
+      left: 8px;
+      transform: translateY(-50%);
+      width: 20px;
+      height: 20px;
+      border-radius: var(--radius-full);
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--brand-default);
+      animation: pulse-glow 1.4s var(--ease-pulse) infinite;
+      font-size: 12px;
+      z-index: 4;
+    }
+
+    /* Rules list */
+    .rules {
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 24px;
+    }
+
+    .rules dl {
+      margin: 0;
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 16px 32px;
+    }
+
+    .rules dt {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+    }
+
+    .rules dd {
+      margin: 0;
+      color: var(--ink-secondary);
+      font-size: 13px;
+    }
+
+    @media (max-width: 640px) {
+      .rules dl {
+        grid-template-columns: 1fr;
+        gap: 4px 0;
+      }
+      .rules dt {
+        margin-top: 12px;
+      }
+    }
+
+    /* Frame labels for auto-scroll demo */
+    .frame-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .frame-caption {
+      font-size: 12px;
+      color: var(--ink-secondary);
+      margin-top: 12px;
+    }
+
+    .circuit-note {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      margin-top: 16px;
+      padding: 12px;
+      background: var(--brand-tint-bg);
+      border-left: 2px solid var(--brand-default);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      color: var(--ink-secondary);
+      font-size: 12px;
+    }
+
+    .circuit-note strong {
+      color: var(--ink-primary);
+      font-weight: 600;
+    }
+
+    /* Axis labels for circuit matrix */
+    .axis-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+    }
+
+    .row-label {
+      display: flex;
+      align-items: center;
+      padding-right: 12px;
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      justify-content: flex-end;
+      min-width: 64px;
+    }
+
+    /* hero-specific: draw the circuit band behind multi-row circuits */
+    .hero-matrix {
+      display: grid;
+      grid-auto-flow: column;
+      gap: 8px;
+      padding: 8px;
+      align-items: start;
+    }
+
+    .hero-col {
+      display: grid;
+      gap: 8px;
+    }
+
+    .hero-col.circuit {
+      background: var(--brand-tint-bg);
+      border-radius: var(--radius-md);
+      padding: 6px;
+      margin: -6px -2px;
+    }
+
+    /* icon glyphs (inline SVG) — brief generic exercise glyph */
+    .glyph-body {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Footer                                                            */
+    /* ------------------------------------------------------------------ */
+
+    footer {
+      margin-top: 80px;
+      padding-top: 32px;
+      border-top: 1px solid var(--surface-border);
+      color: var(--ink-muted);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      letter-spacing: 0.3px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <!-- ============================================================== -->
+    <!--  Page header                                                   -->
+    <!-- ============================================================== -->
+    <header class="page-header">
+      <div class="eyebrow">homefit.studio · player · design artifact</div>
+      <h1>Progress-pill matrix</h1>
+      <p>
+        Replacement for the web player's single linear progress bar.
+        Horizontal sequence, vertical cycle stacking, dual-channel active state,
+        auto-centring scroll, long-press scrub navigator.
+        Static mockup — for design development only.
+      </p>
+    </header>
+
+    <!-- ============================================================== -->
+    <!--  1. Hero — matrix as it would appear mid-session               -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">01</span>Hero — mid-session</h2>
+        <p>
+          8 exercises. Circuit A covers exercises 3 & 4 over 3 cycles.
+          Circuit B covers exercises 6, 7 & 8 over 2 cycles.
+          Active pill is exercise 4, cycle 2 — middle of circuit A's second round.
+          Viewport width 375px; matrix already auto-scrolled to centre the active pill.
+        </p>
+      </div>
+
+      <div class="surface-card">
+        <div class="label-kicker">Simulated player viewport · 375px</div>
+
+        <div class="player-viewport">
+          <div class="player-viewport-inner" style="transform: translateX(-108px);">
+            <!-- Standalone: Ex 1 -->
+            <div class="hero-col">
+              <div class="pill spacious completed">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>1</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Standalone: Ex 2 -->
+            <div class="hero-col">
+              <div class="pill spacious completed">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>2</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Circuit A: Ex 3 & 4, cycles 1-3 -->
+            <div class="hero-col circuit">
+              <!-- Ex 3 cycle 1 — completed -->
+              <div class="pill spacious completed">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>3</span>
+                </span>
+              </div>
+              <!-- Ex 3 cycle 2 — completed -->
+              <div class="pill spacious completed">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>3</span>
+                </span>
+              </div>
+              <!-- Ex 3 cycle 3 — idle -->
+              <div class="pill spacious">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>3</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="hero-col circuit">
+              <!-- Ex 4 cycle 1 — completed -->
+              <div class="pill spacious completed">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>4</span>
+                </span>
+              </div>
+              <!-- Ex 4 cycle 2 — ACTIVE -->
+              <div class="pill spacious active">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>4</span>
+                </span>
+              </div>
+              <!-- Ex 4 cycle 3 — idle -->
+              <div class="pill spacious">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>4</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Standalone: Ex 5 -->
+            <div class="hero-col">
+              <div class="pill spacious">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>5</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Circuit B: Ex 6 & 7 & 8, cycles 1-2 -->
+            <div class="hero-col circuit">
+              <div class="pill spacious">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>6</span>
+                </span>
+              </div>
+              <div class="pill spacious">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>6</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="hero-col circuit">
+              <div class="pill spacious">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>7</span>
+                </span>
+              </div>
+              <div class="pill spacious">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>7</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="hero-col circuit">
+              <div class="pill spacious">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>8</span>
+                </span>
+              </div>
+              <div class="pill spacious">
+                <span class="pill-fill"></span>
+                <span class="pill-content">
+                  <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                  <span>8</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="annotation" style="margin-top: 20px;">
+          <em>Horizontal axis</em> = plan sequence.
+          <em>Vertical stacks under a coral tint</em> = circuit cycles (row 1 = cycle 1, row 2 = cycle 2, row 3 = cycle 3).
+          Standalone exercises (1, 2, 5) occupy row 1 only. Pill 4/cycle-2 is active — coral border pulses (breathing at 1.4s, matching the Pulse Mark logo), timer fill rises left to right inside the pill independently.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  2. Size tiers                                                 -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">02</span>Size tiers</h2>
+        <p>Three tiers, swapped by plan length so the whole matrix fits a reasonable window.</p>
+      </div>
+
+      <div class="grid-3">
+        <div class="size-demo">
+          <h3>Spacious · 72 × 40</h3>
+          <div class="pill spacious">
+            <span class="pill-fill"></span>
+            <span class="pill-content">
+              <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+              <span>SQUAT</span>
+            </span>
+          </div>
+          <p>Icon + short label. Default for plans up to ~10 total pills visible.</p>
+        </div>
+
+        <div class="size-demo">
+          <h3>Medium · 48 × 32</h3>
+          <div class="pill medium">
+            <span class="pill-fill"></span>
+            <span class="pill-content">
+              <svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+            </span>
+          </div>
+          <p>Icon only. Used when plan has ~10–20 pills to show.</p>
+        </div>
+
+        <div class="size-demo">
+          <h3>Dense · 24 × 12</h3>
+          <div class="pill dense">
+            <span class="pill-fill"></span>
+          </div>
+          <p>Fill bar only, no content. For long plans (20+ pills) — becomes pure shape.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  3. State gallery                                              -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">03</span>State gallery</h2>
+        <p>
+          The dual-channel active state is load-bearing.
+          Border pulses on its own clock; timer fill rises independently inside.
+          One signals "right now"; the other signals "how far through".
+        </p>
+      </div>
+
+      <div class="state-grid">
+        <div class="state-item">
+          <div class="pill spacious">
+            <span class="pill-fill"></span>
+            <span class="pill-content">
+              <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+              <span>IDLE</span>
+            </span>
+          </div>
+          <div class="state-label">Idle · upcoming</div>
+          <div class="state-desc">Content at 60% opacity. Full strength shape — upcoming plan must stay legible.</div>
+        </div>
+
+        <div class="state-item">
+          <div class="pill spacious active fill-62">
+            <span class="pill-fill"></span>
+            <span class="pill-content">
+              <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+              <span>ACTIVE</span>
+            </span>
+          </div>
+          <div class="state-label">Active · 62% through</div>
+          <div class="state-desc">Coral border pulses at 1.4s. Timer fill at 62% shown statically here to prove the two channels.</div>
+        </div>
+
+        <div class="state-item">
+          <div class="pill spacious active">
+            <span class="pill-fill"></span>
+            <span class="pill-content">
+              <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+              <span>LIVE</span>
+            </span>
+          </div>
+          <div class="state-label">Active · animating</div>
+          <div class="state-desc">Same pill with the timer fill animated 0 → 100% (10s loop, linear). Demonstrates the live feel.</div>
+        </div>
+
+        <div class="state-item">
+          <div class="pill spacious completed">
+            <span class="pill-fill"></span>
+            <span class="pill-content">
+              <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+              <span>DONE</span>
+            </span>
+          </div>
+          <div class="state-label">Completed</div>
+          <div class="state-desc">Muted fill (ink.muted, not coral). Content at 40%. "Cooled down" — move on.</div>
+        </div>
+
+        <div class="state-item">
+          <div class="pill spacious rest">
+            <span class="pill-fill"></span>
+            <span class="pill-content">
+              <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="7" r="4"/><path d="M4.5 7l2 1.5L9.5 5.5"/></svg>
+              <span>REST</span>
+            </span>
+          </div>
+          <div class="state-label">Rest · idle</div>
+          <div class="state-desc">Same shape. Blue-grey ink. Distinct category — not an accent.</div>
+        </div>
+
+        <div class="state-item">
+          <div class="pill spacious rest active fill-30">
+            <span class="pill-fill"></span>
+            <span class="pill-content">
+              <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="7" r="4"/><path d="M4.5 7l2 1.5L9.5 5.5"/></svg>
+              <span>REST</span>
+            </span>
+          </div>
+          <div class="state-label">Rest · active</div>
+          <div class="state-desc">Blue-grey pulse + blue-grey timer fill. Same dual-channel logic.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  4. Circuit matrix zoom                                        -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">04</span>Circuit stacking rule</h2>
+        <p>Zoom on a 2-exercise × 3-cycle circuit. Rows = cycles, columns = exercises in the circuit. Coral tint band groups the stack visually.</p>
+      </div>
+
+      <div class="surface-card">
+        <div style="display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap;">
+          <div>
+            <div class="axis-label" style="margin-bottom: 12px; padding-left: 72px;">COLUMNS → exercises in circuit</div>
+
+            <div style="display: grid; grid-template-columns: auto auto; gap: 0 16px; align-items: center;">
+              <div class="axis-label" style="writing-mode: vertical-rl; transform: rotate(180deg); grid-row: 1 / span 3; align-self: center; padding-right: 8px; text-align: center;">
+                ROWS ↓ cycles
+              </div>
+
+              <div class="hero-matrix" style="padding: 8px;">
+                <div class="hero-col circuit">
+                  <!-- Ex 1 cycle 1 — active -->
+                  <div class="pill spacious active fill-30">
+                    <span class="pill-fill"></span>
+                    <span class="pill-content">
+                      <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                      <span>A1</span>
+                    </span>
+                  </div>
+                  <!-- Ex 1 cycle 2 — idle -->
+                  <div class="pill spacious">
+                    <span class="pill-fill"></span>
+                    <span class="pill-content">
+                      <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                      <span>A1</span>
+                    </span>
+                  </div>
+                  <!-- Ex 1 cycle 3 — idle -->
+                  <div class="pill spacious">
+                    <span class="pill-fill"></span>
+                    <span class="pill-content">
+                      <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                      <span>A1</span>
+                    </span>
+                  </div>
+                </div>
+
+                <div class="hero-col circuit">
+                  <!-- Ex 2 cycle 1 — idle -->
+                  <div class="pill spacious">
+                    <span class="pill-fill"></span>
+                    <span class="pill-content">
+                      <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                      <span>A2</span>
+                    </span>
+                  </div>
+                  <div class="pill spacious">
+                    <span class="pill-fill"></span>
+                    <span class="pill-content">
+                      <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                      <span>A2</span>
+                    </span>
+                  </div>
+                  <div class="pill spacious">
+                    <span class="pill-fill"></span>
+                    <span class="pill-content">
+                      <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                      <span>A2</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="circuit-note" style="max-width: 320px;">
+            <strong>Why stack?</strong>
+            A circuit is a short loop — presenting cycles as <em>additional rows under the same columns</em> preserves spatial memory: the bio sees at a glance "I'm on round 2, looping back to exercise A1". The coral tint band (brand.tint-bg, 12% alpha) visually groups what scrolls together.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  5. Auto-scroll demonstration                                  -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">05</span>Auto-scroll</h2>
+        <p>Active pill always sits at viewport centre. Completed pills fade off the left edge; upcoming stay full-strength on the right.</p>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <div class="frame-label">FRAME A · active = exercise 2 of 12</div>
+          <div class="player-viewport">
+            <div class="player-viewport-inner" style="transform: translateX(108px);">
+              <!-- 12 medium dense pills; active = #2 -->
+              <div class="pill medium completed" style="margin-right: 8px;">
+                <span class="pill-fill"></span>
+                <span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span>
+              </div>
+              <div class="pill medium active" style="margin-right: 8px;">
+                <span class="pill-fill"></span>
+                <span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span>
+              </div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+            </div>
+          </div>
+          <p class="frame-caption">
+            Early in plan — pill 1 already off-left (fading), pill 2 centred under the pulse, pills 3–12 read at full strength.
+          </p>
+        </div>
+
+        <div>
+          <div class="frame-label">FRAME B · active = exercise 8 of 12</div>
+          <div class="player-viewport">
+            <div class="player-viewport-inner" style="transform: translateX(-228px);">
+              <div class="pill medium completed" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium completed" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium completed" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium completed" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium completed" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium completed" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium completed" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium active" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium" style="margin-right: 8px;"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+              <div class="pill medium"><span class="pill-fill"></span><span class="pill-content"><svg class="glyph-body" viewBox="0 0 14 14" style="width:16px;height:16px"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg></span></div>
+            </div>
+            <div class="scrub-chevron" title="Manual scrub active — pulse back to current">‹</div>
+          </div>
+          <p class="frame-caption">
+            Mid-plan — pills 1–6 fade off-left (inside the 40px gradient mask), pill 8 centred, 9–12 full strength on right. Small coral chevron at left hints "scrub back to active" after manual swipe. Auto-snap-back after 4s.
+          </p>
+        </div>
+      </div>
+
+      <div class="circuit-note" style="margin-top: 24px;">
+        <strong>Rule:</strong>
+        active pill always centred · completed flow off the left (40px linear fade to surface.bg) · upcoming stays full-strength on the right (no fade) · circuit rows scroll in lockstep with row 1 because they share columns · translate animated 300ms <code style="font-family: var(--font-mono); background: var(--surface-raised); padding: 2px 6px; border-radius: 4px; color: var(--ink-primary);">cubic-bezier(0.16, 1, 0.3, 1)</code>.
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  6. Peek panel                                                 -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">06</span>Long-press peek panel</h2>
+        <p>Long-press a pill to preview it, slide to scan, release to jump.</p>
+      </div>
+
+      <div class="surface-card" style="padding: 64px 32px 32px;">
+        <div style="display: flex; justify-content: center; align-items: flex-end; min-height: 200px;">
+          <div class="peek-wrapper">
+            <div class="peek-panel">
+              <div class="peek-thumb"></div>
+              <div class="peek-name">Bent-over row</div>
+              <div class="peek-meta">3 × 12 · hold 2s</div>
+              <div class="peek-hint">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h6M6 3l3 3-3 3"/></svg>
+                release to jump here
+              </div>
+            </div>
+
+            <div class="pill spacious paused fill-62" style="border-color: var(--brand-default); border-width: 2px;">
+              <span class="pill-fill"></span>
+              <span class="pill-content" style="opacity: 1; color: var(--ink-primary);">
+                <svg class="glyph-body" viewBox="0 0 14 14"><circle cx="7" cy="3.5" r="1.6"/><path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>
+                <span>ROW</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="circuit-note" style="margin-top: 32px;">
+          <strong>Gesture chain:</strong>
+          long-press any pill → peek panel rises 80px above showing thumbnail, name, settings. Slide finger left/right — peek follows the pill under finger, haptic selection click per pill crossed. Release on a new pill = jump + reset timer. Release on original pill = peek dismisses, nothing changes. Active pill's timer fill <em>freezes at its current position</em> for the duration of the press; resumes or resets on release.
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  7. Interaction rules                                          -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">07</span>Interaction rules</h2>
+        <p>Complete list of gestures, their behaviours, and open questions.</p>
+      </div>
+
+      <div class="rules">
+        <dl>
+          <dt>Tap pill</dt>
+          <dd>No-op for now. Post-mockup decision: either no-op or open the expanded exercise card (same as the carousel card tap).</dd>
+
+          <dt>Long-press pill</dt>
+          <dd>Open peek panel (thumbnail + name + settings + "release to jump" hint). Freezes the active pill's timer fill for the press duration.</dd>
+
+          <dt>Long-press + slide</dt>
+          <dd>Peek follows the pill under the finger. Haptic <code>selectionClick</code> fires each time a new pill is crossed.</dd>
+
+          <dt>Release on new pill</dt>
+          <dd>That pill becomes active. Its timer resets to 0 and starts counting. The matrix auto-scrolls to re-centre it (300ms emphasized).</dd>
+
+          <dt>Release on original pill</dt>
+          <dd>Peek dismisses. Timer fill resumes from its frozen position. No navigation.</dd>
+
+          <dt>Swipe matrix left/right</dt>
+          <dd>Manual scrub — scan ahead or back without navigating. A pulsing coral chevron appears near the appropriate edge pointing to the active pill. Auto-snap-back to centre after 4 seconds idle.</dd>
+
+          <dt>Completed pill recolour</dt>
+          <dd>Muted ink fill, not coral. Completed should read as "cooled down, done, relax"  —  not as "you're here".</dd>
+
+          <dt>Rest pills</dt>
+          <dd>Same shape + dual-channel active behaviour, but everything coral becomes blue-grey (<code>semantic.rest</code>). Rest is a distinct category, not an accent variant.</dd>
+
+          <dt>Circuit band</dt>
+          <dd>Coral tint background (<code>brand.tint-bg</code>, 12% alpha) behind all rows of a circuit's columns. Purely a grouping affordance — no interaction.</dd>
+
+          <dt>Dense tier pill hit area</dt>
+          <dd>Even though the dense pill is 24×12, the hit rectangle extends 8px on all sides so fat-finger scrubbing works on small plans too.</dd>
+        </dl>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  Footer                                                        -->
+    <!-- ============================================================== -->
+    <footer>
+      homefit.studio · progress-pills · static design mockup · tokens mirrored from docs/design/project/tokens.json
+    </footer>
+  </div>
+</body>
+</html>
