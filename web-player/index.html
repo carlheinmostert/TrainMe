@@ -57,9 +57,30 @@
       <div id="progress" class="progress-label"></div>
     </div>
 
-    <!-- Progress track -->
-    <div class="progress-track">
-      <div id="progress-fill" class="progress-fill"></div>
+    <!-- Progress-pill matrix — replaces the legacy single linear bar.
+         Horizontally scrolling grid of exercise pills. Auto-centres on the
+         active pill, stacks circuit cycles vertically, supports long-press
+         peek + slide to jump. See docs/design/mockups/progress-pills.html. -->
+    <div class="progress-matrix" id="progress-matrix">
+      <div class="progress-matrix-inner" id="progress-matrix-inner"></div>
+      <div class="progress-matrix-chevron" id="progress-matrix-chevron" hidden>
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="8 3 4 6 8 9"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Long-press peek panel — spawned/positioned dynamically. -->
+    <div class="peek-panel" id="peek-panel" hidden>
+      <div class="peek-thumb"></div>
+      <div class="peek-name" id="peek-name"></div>
+      <div class="peek-meta" id="peek-meta"></div>
+      <div class="peek-hint">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h6M6 3l3 3-3 3"/>
+        </svg>
+        release to jump here
+      </div>
     </div>
 
     <!-- Card viewport -->

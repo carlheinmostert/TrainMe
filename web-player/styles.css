@@ -261,22 +261,306 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* === Progress Track === */
-.progress-track {
+/* === Progress-pill matrix =================================================
+   Replaces the legacy single linear progress bar. Horizontal grid of pills,
+   one per exercise slide. Circuit cycles stack vertically under a coral tint
+   band. Active pill pulses + fills left-to-right with live timer. Canonical
+   source: docs/design/mockups/progress-pills.html. */
+
+.progress-matrix {
+  position: relative;
   flex-shrink: 0;
-  height: 3px;
-  background: var(--c-surface-border);
-  margin: 0 20px 4px;
-  border-radius: 2px;
+  margin: 4px 0 8px;
   overflow: hidden;
+  /* Prevent iOS from treating vertical scrolls on the matrix as page scroll */
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--c-brand) 0%, #FFB08A 100%);
-  border-radius: 2px;
-  transition: width var(--dur-slow) var(--ease-emphasized);
+/* Left-edge fade — completed pills flow under a 40px gradient to surface.bg */
+.progress-matrix::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40px;
+  pointer-events: none;
+  z-index: 3;
+  background: linear-gradient(
+    to right,
+    var(--c-surface-bg) 0%,
+    rgba(15, 17, 23, 0) 100%
+  );
+}
+
+.progress-matrix-inner {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 8px;
+  align-items: start;
+  padding: 2px 16px;
+  transition: transform 300ms var(--ease-emphasized);
+  will-change: transform;
+}
+
+.progress-matrix-inner.is-scrubbing {
+  transition: none;
+}
+
+/* Column = one exercise vertical stack (1 row standalone, N rows per cycle) */
+.matrix-col {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+  grid-auto-rows: min-content;
+}
+
+/* Coral tint band behind circuit columns. Applied directly to the column so
+   adjacent circuit columns visually merge into one band via negative margins. */
+.matrix-col.is-circuit {
+  background: var(--c-brand-tint-bg);
+  border-radius: var(--radius-md);
+  padding: 6px;
+  margin: -6px 0;
+}
+
+/* Run of adjacent circuit columns that share a circuit id — seam them together
+   horizontally with tighter side insets. */
+.matrix-col.is-circuit + .matrix-col.is-circuit {
+  margin-left: -4px;
+}
+
+/* === Pill primitives ==================================================== */
+
+.pill {
+  position: relative;
+  background: var(--c-surface-raised);
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--c-ink-secondary);
+  font-family: var(--f-body);
+  font-weight: 600;
+  flex-shrink: 0;
+  transition: transform 150ms var(--ease-standard),
+              border-color 150ms var(--ease-standard);
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+}
+
+.pill.size-spacious { width: 72px; height: 40px; font-size: 10px; letter-spacing: 0.5px; }
+.pill.size-medium   { width: 48px; height: 32px; font-size: 0; }
+.pill.size-dense    { width: 24px; height: 12px; font-size: 0; }
+
+.pill .pill-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.6;
+  transition: opacity 200ms var(--ease-standard);
+  pointer-events: none;
+}
+
+.pill .pill-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pill.size-medium .pill-icon { width: 16px; height: 16px; }
+.pill.size-dense .pill-content { display: none; }
+
+.pill .pill-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
   width: 0%;
+  background: rgba(255, 107, 53, 0.85);
+  z-index: 1;
+  transition: width 120ms linear;
+}
+
+/* State: active — coral border + pulse glow + live fill */
+.pill.is-active {
+  border-color: var(--c-brand);
+  border-width: 2px;
+  /* Compensate the extra 1px of border so width/height match idle size. */
+  margin: -1px 0;
+  animation: pill-pulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.pill.is-active .pill-content { opacity: 1; color: var(--c-ink-primary); }
+
+/* State: active + paused — freeze pulse + fill at current values */
+.pill.is-active.is-paused { animation-play-state: paused; }
+.pill.is-active.is-paused .pill-fill { transition: none; }
+
+/* State: completed — cooled down, muted fill */
+.pill.is-completed .pill-content { opacity: 0.4; color: var(--c-ink-muted); }
+.pill.is-completed .pill-fill {
+  width: 100% !important;
+  background: var(--c-ink-muted);
+  opacity: 0.55;
+}
+
+/* Rest pills — blue-grey variant of the same shape. */
+.pill.is-rest { color: var(--c-rest); }
+.pill.is-rest .pill-fill { background: rgba(100, 116, 139, 0.65); }
+.pill.is-rest.is-active {
+  border-color: var(--c-rest);
+  animation-name: pill-pulse-rest;
+}
+.pill.is-rest.is-active .pill-fill { background: rgba(100, 116, 139, 0.85); }
+.pill.is-rest.is-completed .pill-fill { background: var(--c-ink-muted); opacity: 0.4; }
+
+/* State: scrubbed — slight scale bump while finger hovers during long-press */
+.pill.is-scrubbed {
+  transform: scale(1.06);
+  border-color: var(--c-brand-light);
+}
+
+/* Pulse keyframes — mirror the mockup's box-shadow breathing. */
+@keyframes pill-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 53, 0.40); }
+  50%      { box-shadow: 0 0 0 8px rgba(255, 107, 53, 0); }
+}
+@keyframes pill-pulse-rest {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(100, 116, 139, 0.40); }
+  50%      { box-shadow: 0 0 0 8px rgba(100, 116, 139, 0); }
+}
+
+/* Stick-figure glyph inside the pill. */
+.glyph-body {
+  stroke: currentColor;
+  stroke-width: 1.5;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.glyph-body .glyph-head { fill: currentColor; stroke: none; }
+
+/* Manual-scrub chevron — pulses back toward the active pill. */
+.progress-matrix-chevron {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--c-brand-tint-bg);
+  border: 1px solid var(--c-brand-tint-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-brand);
+  animation: pill-pulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  z-index: 4;
+  pointer-events: none;
+}
+.progress-matrix-chevron svg { width: 14px; height: 14px; }
+
+/* === Peek panel — long-press preview ==================================== */
+
+.peek-panel {
+  position: fixed; /* positioned imperatively in JS */
+  width: 200px;
+  background: var(--c-surface-raised);
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  z-index: 60;
+  pointer-events: none;
+  animation: peek-enter 220ms var(--ease-emphasized);
+  /* The little tail pointing down to the pill. */
+}
+
+.peek-panel::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--c-surface-raised);
+}
+
+.peek-thumb {
+  width: 100%;
+  height: 88px;
+  border-radius: var(--radius-sm);
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  margin-bottom: 10px;
+  position: relative;
+  overflow: hidden;
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--c-surface-border) 0 1px,
+    transparent 1px 6px
+  );
+}
+.peek-thumb::after {
+  content: "";
+  position: absolute;
+  inset: 16px 40% 12px 40%;
+  background: linear-gradient(
+    180deg,
+    var(--c-ink-secondary) 0 18%,
+    transparent 18% 24%,
+    var(--c-ink-secondary) 24% 70%,
+    transparent 70% 76%,
+    var(--c-ink-secondary) 76% 100%
+  );
+  opacity: 0.35;
+  border-radius: 4px;
+}
+.peek-name {
+  font-family: var(--f-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--c-ink-primary);
+  margin: 0 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.peek-meta {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--c-ink-secondary);
+  margin: 0 0 10px;
+}
+.peek-hint {
+  font-size: 11px;
+  color: var(--c-brand);
+  letter-spacing: 0.2px;
+  border-top: 1px dashed var(--c-brand-tint-border);
+  padding-top: 8px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@keyframes peek-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* === Card Viewport === */
