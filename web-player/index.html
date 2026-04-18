@@ -171,6 +171,10 @@
     </footer>
   </div>
 
+  <!-- Data-access layer — MUST load before app.js. The web player's entire
+       Supabase surface lives in api.js; app.js is forbidden from calling
+       fetch('.../rest/v1/...') directly. See docs/DATA_ACCESS_LAYER.md. -->
+  <script src="/api.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
