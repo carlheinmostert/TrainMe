@@ -24,6 +24,7 @@
 
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.46.1';
+import { createHash } from 'node:crypto';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -71,10 +72,12 @@ function rfc1738Encode(value: string): string {
     .replace(/\*/g, '%2A');
 }
 
-async function md5Hex(input: string): Promise<string> {
-  // Deno's SubtleCrypto doesn't support MD5; use the std library variant.
-  const { Md5 } = await import('https://deno.land/std@0.224.0/hash/md5.ts');
-  return new Md5().update(input).toString();
+function md5Hex(input: string): string {
+  // Supabase's Deno edge runtime supports Node compatibility, so `node:crypto`
+  // is the safest MD5 path. We previously tried `deno.land/std@.../hash/md5.ts`
+  // but that module was removed from Deno std and now 404s — every import
+  // attempt threw at signature-verification time and surfaced as a bare 500.
+  return createHash('md5').update(input).digest('hex');
 }
 
 function ipToLong(ip: string): number | null {
@@ -163,7 +166,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   // --- 1. Signature check -------------------------------------------------
   const base = buildSignatureBase(entries, PASSPHRASE);
-  const expectedSignature = (await md5Hex(base)).toLowerCase();
+  const expectedSignature = md5Hex(base).toLowerCase();
   if (expectedSignature !== receivedSignature) {
     console.warn('[payfast-webhook] signature mismatch', {
       mPaymentId,
