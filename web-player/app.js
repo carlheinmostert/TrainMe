@@ -48,12 +48,30 @@ const $app = document.getElementById('app');
 const $clientName = document.getElementById('client-name');
 const $planTitle = document.getElementById('plan-title');
 const $progress = document.getElementById('progress');
-const $progressFill = document.getElementById('progress-fill');
 const $cardViewport = document.getElementById('card-viewport');
 const $cardTrack = document.getElementById('card-track');
 const $navDots = document.getElementById('nav-dots');
 const $btnPrev = document.getElementById('btn-prev');
 const $btnNext = document.getElementById('btn-next');
+
+// Progress-pill matrix refs
+const $matrix = document.getElementById('progress-matrix');
+const $matrixInner = document.getElementById('progress-matrix-inner');
+const $matrixChevron = document.getElementById('progress-matrix-chevron');
+const $peekPanel = document.getElementById('peek-panel');
+const $peekName = document.getElementById('peek-name');
+const $peekMeta = document.getElementById('peek-meta');
+
+// ETA refs (assigned after buildProgressMatrix injects them).
+let $etaBlock = null;
+let $etaRemaining = null;
+let $etaFinish = null;
+
+// Wall-clock ticker for the ETA widget. Runs 1/sec so the finish-time label
+// keeps drifting forward while the workout is paused (remaining holds steady,
+// now() advances → finish = now + remaining also advances). Independent of
+// the workoutTimer and prepTimer.
+let etaClockTimer = null;
 
 // Workout timer DOM refs
 const $timerOverlay = document.getElementById('timer-overlay');
@@ -154,6 +172,15 @@ function renderPlan() {
   $navDots.innerHTML = slides
     .map((_, i) => `<div class="nav-dot${i === 0 ? ' is-active' : ''}" data-index="${Number(i)}"></div>`)
     .join('');
+
+  // Build the progress-pill matrix (replaces legacy single linear bar).
+  buildProgressMatrix();
+
+  // Prime the ETA widget and start its wall-clock ticker. The ticker runs
+  // for the lifetime of the session so the finish-time drifts forward even
+  // during paused states.
+  updateEtaDisplay();
+  startEtaClock();
 
   // Build exercise cards
   $cardTrack.innerHTML = slides.map((slide, i) => buildCard(slide, i)).join('');
@@ -314,6 +341,447 @@ function buildPrescription(exercise) {
   return pills.join('');
 }
 
+// ============================================================
+// Progress-pill matrix
+// Canonical design source: docs/design/mockups/progress-pills.html
+// ============================================================
+
+// Size tier — chosen once at build time based on slide count + viewport width.
+// 'spacious' = icon + short label, 'medium' = icon only, 'dense' = fill-bar only.
+let matrixSizeTier = 'spacious';
+
+// Manual scrub offset in px. When non-zero, the matrix is dragged off-centre;
+// chevron appears and we snap back after 4s idle.
+let matrixManualOffset = 0;
+let matrixSnapBackTimer = null;
+
+// Long-press state for peek-and-slide.
+let peekState = {
+  active: false,
+  startedAt: 0,
+  startedIndex: -1,
+  currentIndex: -1,
+  timer: null,
+};
+
+const MATRIX_SPECS = {
+  spacious: { width: 72, height: 40, gap: 8 },
+  medium:   { width: 48, height: 32, gap: 8 },
+  dense:    { width: 24, height: 12, gap: 8 },
+};
+
+const LONG_PRESS_MS = 380;
+const MATRIX_AUTO_SNAP_MS = 4000;
+
+/**
+ * Choose a size tier based on total columns + viewport width. Spacious when
+ * the matrix comfortably fits within ~1.5 × viewport, medium when it fits in
+ * ~1.8 × viewport, else dense. The goal is "most pills visible most of the time".
+ */
+function chooseMatrixSizeTier(columnCount, viewportWidth) {
+  const fits = (spec) => columnCount * (spec.width + spec.gap);
+  if (fits(MATRIX_SPECS.spacious) <= viewportWidth * 1.5) return 'spacious';
+  if (fits(MATRIX_SPECS.medium)   <= viewportWidth * 1.8) return 'medium';
+  return 'dense';
+}
+
+/**
+ * Collapse the unrolled slides into column descriptors. Standalone slides
+ * produce a 1-row column; circuit groups produce one column per position,
+ * with one row per cycle (cycle 1 on top).
+ *
+ * Returns { columns: [{ slideIndices: [...], isCircuit, circuitId }], bands }
+ * where `bands` describes contiguous runs of same-circuit columns for the
+ * coral tint band.
+ */
+function buildMatrixColumns() {
+  const columns = [];
+  let i = 0;
+  while (i < slides.length) {
+    const s = slides[i];
+    if (!s.circuitRound) {
+      columns.push({ slideIndices: [i], isCircuit: false, circuitId: null });
+      i++;
+      continue;
+    }
+    // Circuit: collect cycle-1 entries to discover column count.
+    const circuitId = s.circuit_id;
+    const groupStart = i;
+    const firstCycleEnd = (() => {
+      let k = i;
+      while (k < slides.length &&
+             slides[k].circuit_id === circuitId &&
+             slides[k].circuitRound === 1) {
+        k++;
+      }
+      return k;
+    })();
+    const groupSize = firstCycleEnd - groupStart;
+    const total = s.circuitTotalRounds || 1;
+    for (let pos = 0; pos < groupSize; pos++) {
+      const slideIndices = [];
+      for (let cycle = 1; cycle <= total; cycle++) {
+        slideIndices.push(groupStart + (cycle - 1) * groupSize + pos);
+      }
+      columns.push({ slideIndices, isCircuit: true, circuitId });
+    }
+    i = groupStart + groupSize * total;
+  }
+  return columns;
+}
+
+/** SVG body glyph (stick figure) or rest glyph (tick in circle). */
+function glyphSVG(isRest) {
+  if (isRest) {
+    return '<svg class="glyph-body" viewBox="0 0 14 14" width="14" height="14">'
+         + '<circle cx="7" cy="7" r="4"/>'
+         + '<path d="M4.5 7l2 1.5L9.5 5.5"/></svg>';
+  }
+  return '<svg class="glyph-body" viewBox="0 0 14 14" width="14" height="14">'
+       + '<circle class="glyph-head" cx="7" cy="3.5" r="1.6"/>'
+       + '<path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>';
+}
+
+function shortLabelFor(slide, index) {
+  if (slide.media_type === 'rest') return 'REST';
+  const name = slide.name || '';
+  if (!name) return String(index + 1);
+  const first = name.split(/\s+/)[0] || '';
+  const up = first.toUpperCase();
+  return up.length > 6 ? up.substring(0, 6) : up;
+}
+
+/** Build the DOM for the matrix (columns + pills). One-time per render. */
+function buildProgressMatrix() {
+  if (!$matrixInner) return;
+
+  const columns = buildMatrixColumns();
+  const viewportWidth = window.innerWidth || 375;
+  matrixSizeTier = chooseMatrixSizeTier(columns.length, viewportWidth);
+  // The circuit tint band is drawn via the .matrix-col.is-circuit class rather
+  // than a separately positioned overlay — adjacent circuit columns merge
+  // seamlessly via the negative-margin rule in styles.css.
+
+  $matrixInner.className = 'progress-matrix-inner';
+  const columnsHTML = columns.map((col, colIdx) => {
+    const rowsHTML = col.slideIndices.map((slideIdx) => {
+      const slide = slides[slideIdx];
+      const isRest = slide.media_type === 'rest';
+      const sizeClass = 'size-' + matrixSizeTier;
+      const restClass = isRest ? ' is-rest' : '';
+      const label = shortLabelFor(slide, slideIdx);
+      const glyph = glyphSVG(isRest);
+      const content = matrixSizeTier === 'dense'
+        ? ''
+        : `<span class="pill-content">
+             <span class="pill-icon">${glyph}</span>
+             ${matrixSizeTier === 'spacious' ? `<span>${escapeHTML(label)}</span>` : ''}
+           </span>`;
+      return `<div class="pill ${sizeClass}${restClass}" data-slide="${slideIdx}">
+                <span class="pill-fill"></span>
+                ${content}
+              </div>`;
+    }).join('');
+
+    const circuitClass = col.isCircuit ? ' is-circuit' : '';
+    return `<div class="matrix-col${circuitClass}" data-col="${colIdx}">${rowsHTML}</div>`;
+  }).join('');
+
+  // ETA widget — last grid column in the matrix. Scrolls with the matrix by
+  // virtue of being a child of .progress-matrix-inner; its content is driven
+  // separately by the updateEtaDisplay() tick so the wall-clock drifts while
+  // paused (see pattern note at calculateRemainingWorkoutSeconds()).
+  const etaHTML = `
+    <div class="matrix-eta" id="matrix-eta" aria-live="polite">
+      <div class="matrix-eta-remaining">
+        <span class="matrix-eta-remaining-value" id="matrix-eta-remaining">0:00</span><span class="matrix-eta-remaining-suffix"> left</span>
+      </div>
+      <div class="matrix-eta-finish" id="matrix-eta-finish">~--:--</div>
+    </div>`;
+
+  $matrixInner.innerHTML = columnsHTML + etaHTML;
+
+  // Cache ETA DOM refs after the innerHTML swap.
+  $etaBlock = $matrixInner.querySelector('#matrix-eta');
+  $etaRemaining = $matrixInner.querySelector('#matrix-eta-remaining');
+  $etaFinish = $matrixInner.querySelector('#matrix-eta-finish');
+
+  // Force layout to run so offsetLeft queries are accurate before first updateUI.
+  // No-op if we can't read (jsdom etc.); cheap otherwise.
+  void $matrixInner.offsetWidth;
+}
+
+/** Update visible state — active/completed classes + centring scroll + fill width. */
+function updateProgressMatrix() {
+  if (!$matrixInner) return;
+  const spec = MATRIX_SPECS[matrixSizeTier];
+  const pills = $matrixInner.querySelectorAll('.pill');
+
+  const isWorkoutActive = isWorkoutMode && !isPrepPhase;
+  const activeIdx = isWorkoutMode ? currentIndex : -1;
+
+  pills.forEach((pill) => {
+    const slideIdx = Number(pill.getAttribute('data-slide'));
+    const isActive = slideIdx === activeIdx;
+    const isCompleted = activeIdx >= 0 && slideIdx < activeIdx;
+    pill.classList.toggle('is-active', isActive);
+    pill.classList.toggle('is-completed', isCompleted);
+    pill.classList.remove('is-scrubbed');
+
+    const fill = pill.querySelector('.pill-fill');
+    if (!fill) return;
+    if (isCompleted) {
+      fill.style.width = '100%';
+    } else if (isActive) {
+      // Live progress: fraction of the active slide's timer elapsed.
+      const frac = isWorkoutActive && totalSeconds > 0
+        ? Math.max(0, Math.min(1, (totalSeconds - remainingSeconds) / totalSeconds))
+        : 0;
+      fill.style.width = `${frac * 100}%`;
+    } else {
+      fill.style.width = '0%';
+    }
+  });
+
+  // Centre the active pill.
+  const activePill = $matrixInner.querySelector(`.pill[data-slide="${activeIdx}"]`);
+  const viewportWidth = $matrix.clientWidth || window.innerWidth || 375;
+  let centeringOffset = 0;
+  if (activePill) {
+    // activePill is inside a .matrix-col which is the direct grid child.
+    const col = activePill.parentElement;
+    const colLeft = col.offsetLeft;
+    // pill.offsetLeft is relative to its column; add both.
+    const pillLeft = colLeft + activePill.offsetLeft;
+    const pillCentre = pillLeft + activePill.offsetWidth / 2;
+    centeringOffset = viewportWidth / 2 - pillCentre;
+  }
+  const translateX = centeringOffset + matrixManualOffset;
+  $matrixInner.style.transform = `translateX(${translateX}px)`;
+
+  // Chevron visible only when the user has dragged the matrix away from centre.
+  if (Math.abs(matrixManualOffset) > 16 && activeIdx >= 0) {
+    $matrixChevron.hidden = false;
+  } else {
+    $matrixChevron.hidden = true;
+  }
+}
+
+// ------------------------------------------------------------
+// Matrix gestures — long-press peek, slide to scrub, release to jump
+// ------------------------------------------------------------
+
+function matrixPointToPillEl(clientX, clientY) {
+  const el = document.elementFromPoint(clientX, clientY);
+  if (!el) return null;
+  return el.closest ? el.closest('.pill[data-slide]') : null;
+}
+
+function openPeek(slideIdx) {
+  const slide = slides[slideIdx];
+  if (!slide) return;
+  const name = slide.media_type === 'rest'
+    ? 'Rest'
+    : (slide.name || `Exercise ${slideIdx + 1}`);
+  const metaParts = [];
+  if (slide.sets && slide.reps) metaParts.push(`${slide.sets} × ${slide.reps}`);
+  else if (slide.reps) metaParts.push(`${slide.reps} reps`);
+  if (slide.hold_seconds) metaParts.push(`hold ${slide.hold_seconds}s`);
+  $peekName.textContent = name;
+  $peekMeta.textContent = metaParts.join(' · ');
+
+  // Make visible first so we can measure, then position above the pill.
+  $peekPanel.hidden = false;
+  positionPeek(slideIdx);
+}
+
+function positionPeek(slideIdx) {
+  if ($peekPanel.hidden) return;
+  const pill = $matrixInner.querySelector(`.pill[data-slide="${slideIdx}"]`);
+  if (!pill) return;
+  const rect = pill.getBoundingClientRect();
+  const panelWidth = $peekPanel.offsetWidth || 200;
+  const panelHeight = $peekPanel.offsetHeight || 140;
+  // Centre horizontally over the pill; clamp to viewport edges (8px margin).
+  let left = rect.left + rect.width / 2 - panelWidth / 2;
+  left = Math.max(8, Math.min(window.innerWidth - panelWidth - 8, left));
+  const top = rect.top - panelHeight - 16;
+  $peekPanel.style.left = `${left}px`;
+  $peekPanel.style.top = `${Math.max(8, top)}px`;
+}
+
+function closePeek() {
+  $peekPanel.hidden = true;
+}
+
+function highlightScrubbedPill(slideIdx) {
+  $matrixInner.querySelectorAll('.pill.is-scrubbed').forEach((p) =>
+    p.classList.remove('is-scrubbed')
+  );
+  if (slideIdx >= 0) {
+    const pill = $matrixInner.querySelector(`.pill[data-slide="${slideIdx}"]`);
+    if (pill) pill.classList.add('is-scrubbed');
+  }
+}
+
+function beginLongPress(slideIdx) {
+  peekState.active = true;
+  peekState.startedIndex = slideIdx;
+  peekState.currentIndex = slideIdx;
+  openPeek(slideIdx);
+  highlightScrubbedPill(slideIdx);
+  // Haptic hint (ignored on unsupported browsers).
+  if (navigator.vibrate) navigator.vibrate(8);
+  // Freeze active pill's fill animation while peek is open.
+  $matrixInner.querySelectorAll('.pill.is-active').forEach((p) =>
+    p.classList.add('is-paused')
+  );
+}
+
+function endLongPress(commit) {
+  if (!peekState.active) return;
+  const target = peekState.currentIndex;
+  const source = peekState.startedIndex;
+  peekState.active = false;
+  peekState.startedIndex = -1;
+  peekState.currentIndex = -1;
+  closePeek();
+  highlightScrubbedPill(-1);
+  $matrixInner.querySelectorAll('.pill.is-paused').forEach((p) =>
+    p.classList.remove('is-paused')
+  );
+  if (commit && target >= 0 && target !== source && target !== currentIndex) {
+    jumpToSlide(target);
+  }
+}
+
+/** Jump to a specific slide — resets timer when in workout mode. */
+function jumpToSlide(slideIdx) {
+  if (slideIdx < 0 || slideIdx >= slides.length) return;
+  if (isWorkoutMode) {
+    clearWorkoutTimer();
+    clearPrepTimer();
+    isTimerRunning = false;
+    hideTimerDisplay();
+  }
+  goTo(slideIdx);
+}
+
+// ------------------------------------------------------------
+// Touch handlers — a single pointer drives both peek + manual scrub. If the
+// user's finger lingers (>LONG_PRESS_MS) without significant movement, we
+// enter peek mode; otherwise horizontal drags become a manual scrub.
+// ------------------------------------------------------------
+
+let matrixTouchStart = { x: 0, y: 0, time: 0, slideIdx: -1, moved: false };
+
+function onMatrixTouchStart(e) {
+  const touch = e.touches ? e.touches[0] : e;
+  if (!touch) return;
+  matrixTouchStart.x = touch.clientX;
+  matrixTouchStart.y = touch.clientY;
+  matrixTouchStart.time = Date.now();
+  matrixTouchStart.moved = false;
+  matrixTouchStart._lastX = touch.clientX;
+  if (matrixSnapBackTimer) {
+    clearTimeout(matrixSnapBackTimer);
+    matrixSnapBackTimer = null;
+  }
+  // Which pill is under the initial touch?
+  const pill = matrixPointToPillEl(touch.clientX, touch.clientY);
+  matrixTouchStart.slideIdx = pill ? Number(pill.getAttribute('data-slide')) : -1;
+
+  // Schedule long-press.
+  if (peekState.timer) clearTimeout(peekState.timer);
+  peekState.timer = setTimeout(() => {
+    peekState.timer = null;
+    if (matrixTouchStart.slideIdx >= 0 && !matrixTouchStart.moved) {
+      beginLongPress(matrixTouchStart.slideIdx);
+    }
+  }, LONG_PRESS_MS);
+}
+
+function onMatrixTouchMove(e) {
+  const touch = e.touches ? e.touches[0] : e;
+  if (!touch) return;
+  const dx = touch.clientX - matrixTouchStart.x;
+  const dy = touch.clientY - matrixTouchStart.y;
+
+  if (peekState.active) {
+    // Slide finger during peek — hover over new pills, haptic tick on change.
+    const pill = matrixPointToPillEl(touch.clientX, touch.clientY);
+    if (pill) {
+      const newIdx = Number(pill.getAttribute('data-slide'));
+      if (newIdx !== peekState.currentIndex) {
+        peekState.currentIndex = newIdx;
+        highlightScrubbedPill(newIdx);
+        positionPeek(newIdx);
+        if (navigator.vibrate) navigator.vibrate(4);
+      }
+    }
+    // Swallow scroll while peeking.
+    if (e.cancelable) e.preventDefault();
+    return;
+  }
+
+  // Pre-long-press: if finger moves more than 10px horizontally, cancel
+  // the long-press timer and switch to manual scrub mode instead.
+  if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+    matrixTouchStart.moved = true;
+    if (peekState.timer) {
+      clearTimeout(peekState.timer);
+      peekState.timer = null;
+    }
+  }
+
+  if (matrixTouchStart.moved && Math.abs(dx) > Math.abs(dy)) {
+    // Manual scrub — translate by the delta since last move event.
+    const lastX = matrixTouchStart._lastX ?? touch.clientX;
+    const delta = touch.clientX - lastX;
+    matrixTouchStart._lastX = touch.clientX;
+    matrixManualOffset += delta;
+    $matrixInner.classList.add('is-scrubbing');
+    $matrixInner.style.transform = `translateX(${computeCenteringOffset() + matrixManualOffset}px)`;
+    $matrixChevron.hidden = Math.abs(matrixManualOffset) < 16;
+  }
+}
+
+/** Read-only: re-compute centring offset for the current active pill. */
+function computeCenteringOffset() {
+  const activeIdx = isWorkoutMode ? currentIndex : -1;
+  const activePill = $matrixInner.querySelector(`.pill[data-slide="${activeIdx}"]`);
+  if (!activePill) return 0;
+  const col = activePill.parentElement;
+  const pillLeft = col.offsetLeft + activePill.offsetLeft;
+  const pillCentre = pillLeft + activePill.offsetWidth / 2;
+  const viewportWidth = $matrix.clientWidth || window.innerWidth || 375;
+  return viewportWidth / 2 - pillCentre;
+}
+
+function onMatrixTouchEnd() {
+  if (peekState.timer) {
+    clearTimeout(peekState.timer);
+    peekState.timer = null;
+  }
+  matrixTouchStart._lastX = undefined;
+  $matrixInner.classList.remove('is-scrubbing');
+
+  if (peekState.active) {
+    const sameAsStart = peekState.currentIndex === peekState.startedIndex;
+    endLongPress(!sameAsStart);
+    return;
+  }
+
+  // Manual scrub ended — schedule snap-back after 4s idle.
+  if (Math.abs(matrixManualOffset) > 0) {
+    if (matrixSnapBackTimer) clearTimeout(matrixSnapBackTimer);
+    matrixSnapBackTimer = setTimeout(() => {
+      matrixManualOffset = 0;
+      updateProgressMatrix();
+    }, MATRIX_AUTO_SNAP_MS);
+  }
+}
+
 function escapeHTML(str) {
   if (str === null || str === undefined || str === '') return '';
   return String(str)
@@ -340,6 +808,8 @@ function goTo(index) {
 
   currentIndex = index;
   updateUI();
+  // After a jump, recompute immediately so we don't wait 1s for the ticker.
+  updateEtaDisplay();
 
   // Auto-play the current slide's video (muted, looped). Safari's autoplay
   // policy may block this if there hasn't been a user gesture yet — swallow
@@ -412,8 +882,8 @@ function updateUI() {
   // Progress text
   $progress.textContent = `${currentIndex + 1} of ${total}`;
 
-  // Progress bar
-  $progressFill.style.width = `${((currentIndex + 1) / total) * 100}%`;
+  // Progress-pill matrix — active pill state + centring scroll
+  updateProgressMatrix();
 
   // Nav buttons
   $btnPrev.disabled = currentIndex === 0;
@@ -577,12 +1047,114 @@ function formatTime(seconds) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+// ------------------------------------------------------------
+// ETA (matrix right-end widget) — "7:42 left" + "~7:42 PM".
+// Remaining ticks down when the workout is running, holds steady when paused;
+// finish time = now() + remaining, so it drifts forward while paused — by
+// design. See the semantic table in the task brief.
+// ------------------------------------------------------------
+
+/**
+ * Sum of expected-durations for every slide strictly after the active one.
+ * Each slide in `slides[]` is already one pass of its exercise (circuits are
+ * unrolled upstream in unrollExercises), so we can sum per-slide without
+ * re-multiplying by cycles.
+ */
+function sumUpcomingDurations(startIndex) {
+  let sum = 0;
+  for (let i = startIndex; i < slides.length; i++) {
+    sum += calculateDuration(slides[i]);
+  }
+  return sum;
+}
+
+/**
+ * Workout seconds left from "right now" — the active slide's remaining
+ * portion plus the full duration of every slide after it.
+ *
+ * Pre-workout: shows total plan duration (stale finish-time-if-started-now).
+ * Prep phase: add the prep runway + full active-slide duration.
+ * Running / paused: use `remainingSeconds` (the 1s tick loop is authoritative).
+ */
+function calculateRemainingWorkoutSeconds() {
+  if (!slides.length) return 0;
+  if (!isWorkoutMode) {
+    // Not started yet — total plan time from the current slide forward.
+    return sumUpcomingDurations(currentIndex);
+  }
+  let active = 0;
+  if (isPrepPhase) {
+    active = prepRemainingSeconds + calculateDuration(slides[currentIndex]);
+  } else {
+    active = Math.max(0, remainingSeconds);
+  }
+  return active + sumUpcomingDurations(currentIndex + 1);
+}
+
+/**
+ * Format the finish wall-clock time using the device locale. Mirrors
+ * MaterialLocalizations.formatTimeOfDay on the Flutter side — 12h vs 24h is
+ * chosen automatically.
+ */
+function formatFinishTime(date) {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(date);
+  } catch (_err) {
+    // Extremely defensive fallback — Intl should always be present.
+    const h = date.getHours();
+    const m = date.getMinutes().toString().padStart(2, '0');
+    return `${h}:${m}`;
+  }
+}
+
+/**
+ * Render the ETA widget. Called on every workout-tick AND on an independent
+ * 1s wall-clock tick so the finish time drifts forward while paused.
+ */
+function updateEtaDisplay() {
+  if (!$etaBlock) return;
+  if (workoutCompleteFlag) {
+    // Set the "Done" markup once; subsequent ticks are no-ops until the flag
+    // flips (exitWorkout() rebuilds the whole matrix so refs are refreshed).
+    if (!$etaBlock.classList.contains('is-done')) {
+      $etaBlock.classList.add('is-done');
+      $etaBlock.innerHTML = '<div class="matrix-eta-done">Done</div>';
+    }
+    return;
+  }
+
+  const secs = calculateRemainingWorkoutSeconds();
+  const finishAt = new Date(Date.now() + secs * 1000);
+
+  if ($etaRemaining) $etaRemaining.textContent = formatTime(Math.max(0, secs));
+  if ($etaFinish) $etaFinish.textContent = `~${formatFinishTime(finishAt)}`;
+}
+
+// Mirrors the Flutter widget.workoutComplete flag for the ETA "Done" state.
+let workoutCompleteFlag = false;
+
+function startEtaClock() {
+  if (etaClockTimer) return;
+  etaClockTimer = setInterval(updateEtaDisplay, 1000);
+}
+
+function stopEtaClock() {
+  if (etaClockTimer) {
+    clearInterval(etaClockTimer);
+    etaClockTimer = null;
+  }
+}
+
 /**
  * Enter workout mode. Calling goTo(0) triggers the prep-or-rest flow for the
  * first slide via enterWorkoutPhaseForCurrent().
  */
 function startWorkout() {
   isWorkoutMode = true;
+  workoutCompleteFlag = false;
   workoutStartTime = Date.now();
 
   // Hide the start button
@@ -596,6 +1168,9 @@ function startWorkout() {
   } else {
     goTo(0);
   }
+  // Matrix needs an active-state redraw now that isWorkoutMode is true.
+  updateProgressMatrix();
+  updateEtaDisplay();
 }
 
 /**
@@ -638,6 +1213,8 @@ function startPrepPhase() {
 
   updateTimerDisplay();
   showTimerDisplay();
+  // ETA now reflects prep seconds + new slide's full duration + upcoming.
+  updateEtaDisplay();
 
   prepTimer = setInterval(onPrepTick, 1000);
 }
@@ -651,6 +1228,8 @@ function onPrepTick() {
     return;
   }
   updateTimerDisplay();
+  // Prep seconds are part of "remaining" — tick the ETA too.
+  updateEtaDisplay();
 }
 
 function finishPrepPhase() {
@@ -668,6 +1247,7 @@ function startTimer() {
   isTimerRunning = true;
   updateTimerDisplay();
   showTimerDisplay();
+  updateEtaDisplay();
 
   workoutTimer = setInterval(onTimerTick, 1000);
 }
@@ -693,6 +1273,7 @@ function onTimerTick() {
   if (remainingSeconds <= 0) {
     remainingSeconds = 0;
     updateTimerDisplay();
+    updateProgressMatrix();
     clearInterval(workoutTimer);
     workoutTimer = null;
     isTimerRunning = false;
@@ -703,6 +1284,9 @@ function onTimerTick() {
   }
 
   updateTimerDisplay();
+  // Matrix active-pill fill needs a per-second nudge too.
+  updateProgressMatrix();
+  updateEtaDisplay();
 }
 
 /**
@@ -773,6 +1357,9 @@ function pauseTimer() {
     currentVideo.pause();
   }
   updateTimerDisplay();
+  // ETA clock keeps running in the background — remaining stays static,
+  // finish-time drifts forward. Nudge once to reflect immediately.
+  updateEtaDisplay();
 }
 
 /**
@@ -790,6 +1377,7 @@ function resumeTimer() {
     });
   }
   updateTimerDisplay();
+  updateEtaDisplay();
 }
 
 /**
@@ -833,6 +1421,10 @@ function finishWorkout() {
   $workoutTotalTime.textContent = `Total time: ${formatTime(elapsedSeconds)}`;
 
   $workoutComplete.hidden = false;
+
+  // Flip the ETA to "Done" end-state.
+  workoutCompleteFlag = true;
+  updateEtaDisplay();
 }
 
 /**
@@ -852,6 +1444,17 @@ function exitWorkout() {
 
   // Show the start workout button again
   $startWorkoutBtn.hidden = false;
+
+  // Reset matrix state — active/completed classes drop back to idle.
+  updateProgressMatrix();
+
+  // Rebuild the matrix (which re-injects the ETA HTML replacing the "Done"
+  // innerHTML, if it was set) and reset the end-state flag so the readout
+  // shows the pre-workout stale total again.
+  workoutCompleteFlag = false;
+  buildProgressMatrix();
+  updateProgressMatrix();
+  updateEtaDisplay();
 }
 
 // ============================================================
@@ -932,6 +1535,36 @@ async function init() {
     // dispatches based on mode (prep / running / paused). It shows on all
     // slides in workout mode, including rest slides.
     $timerOverlay.addEventListener('click', handleTimerOverlayTap);
+
+    // Progress-pill matrix — touch handlers drive both long-press peek
+    // (finger held over a pill for >380ms) and manual scrub (horizontal drag).
+    if ($matrix) {
+      $matrix.addEventListener('touchstart', onMatrixTouchStart, { passive: false });
+      $matrix.addEventListener('touchmove', onMatrixTouchMove, { passive: false });
+      $matrix.addEventListener('touchend', onMatrixTouchEnd);
+      $matrix.addEventListener('touchcancel', onMatrixTouchEnd);
+      // Desktop / mouse: tap-to-jump when no touch events fire.
+      // Long-press-and-slide on mouse is a follow-up (mobile-first for MVP).
+      $matrix.addEventListener('click', (e) => {
+        if (peekState.active) return;
+        const pill = e.target.closest ? e.target.closest('.pill[data-slide]') : null;
+        if (!pill) return;
+        const idx = Number(pill.getAttribute('data-slide'));
+        if (Number.isFinite(idx) && idx !== currentIndex) jumpToSlide(idx);
+      });
+      // Re-choose size tier on viewport resize — rebuild is cheap.
+      window.addEventListener('resize', () => {
+        const prev = matrixSizeTier;
+        const cols = buildMatrixColumns();
+        const nextTier = chooseMatrixSizeTier(cols.length, window.innerWidth);
+        if (nextTier !== prev) {
+          buildProgressMatrix();
+          updateProgressMatrix();
+        } else {
+          updateProgressMatrix();
+        }
+      });
+    }
 
     // Try to autoplay the first slide's video on initial load. The fetchPlan
     // click that opened the URL should have unlocked autoplay on iOS Safari,
