@@ -833,21 +833,25 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         }
       },
       behavior: HitTestBehavior.translucent,
-      child: CustomScrollView(
+      // Plain Material ReorderableListView.builder — handles mixed-height
+      // children reliably. Swapped in after two sliver-based attempts
+      // produced viewport-height rows on device. reverse:true keeps the
+      // bottom-anchored feel (newest at the bottom).
+      child: ReorderableListView.builder(
         reverse: true,
-        slivers: [
-          SliverReorderableList(
-            itemCount: exercises.length,
-            onReorder: _onReorder,
-            itemBuilder: (context, visualIndex) {
-              final dataIndex = exercises.length - 1 - visualIndex;
-              return KeyedSubtree(
-                key: ValueKey('row_${exercises[dataIndex].id}'),
-                child: _buildRowWithContext(dataIndex, visualIndex),
-              );
-            },
-          ),
-        ],
+        padding: const EdgeInsets.only(bottom: 8),
+        itemCount: exercises.length,
+        onReorder: _onReorder,
+        // Custom drag via ReorderableDelayedDragStartListener inside
+        // _buildRowWithContext. Disable the default right-edge handles.
+        buildDefaultDragHandles: false,
+        itemBuilder: (context, visualIndex) {
+          final dataIndex = exercises.length - 1 - visualIndex;
+          return KeyedSubtree(
+            key: ValueKey('row_${exercises[dataIndex].id}'),
+            child: _buildRowWithContext(dataIndex, visualIndex),
+          );
+        },
       ),
     );
   }
@@ -861,17 +865,14 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   /// left gutter strip; they inherit the card's height via `top: 0`
   /// and `bottom: 0`.
   ///
-  /// Why not a Row with `Expanded`? Inside a `SliverReorderableList`
-  /// inside a `CustomScrollView(reverse: true)`, the sliver gives each
-  /// item unbounded vertical constraints. A `Row` with
-  /// `CrossAxisAlignment.start` in that environment still requires its
-  /// children to compute their own intrinsic height; the
-  /// `AnimatedContainer` + `Stack` inside `StudioExerciseCard` doesn't
-  /// participate in intrinsic-height cleanly, and the combined
-  /// `Row + Expanded + AnimatedContainer + Stack` chain propagates
-  /// unbounded constraints such that each row claims
-  /// multiple-viewports worth of vertical space. See commits `9bfc0f8`
-  /// and `89e4e2d` for earlier attempts that didn't hold.
+  /// Why not a `Row` with `Expanded`? Earlier `Row + Expanded +
+  /// AnimatedContainer + Stack` compositions were unstable inside the
+  /// sliver-based list that used to host these rows (rows claimed
+  /// multiple viewports of vertical space on device). The list has
+  /// since been swapped to a plain `ReorderableListView.builder`, but
+  /// the Stack-based rail is kept as a defensive measure — it doesn't
+  /// rely on intrinsic-height participation from the card subtree.
+  /// See commits `9bfc0f8` and `89e4e2d` for earlier attempts.
   ///
   /// With `Stack`, the non-positioned card supplies the row height
   /// directly; positioned gutter children inherit it.
@@ -899,8 +900,8 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     }
 
     // Card content (rest bar or exercise card). Always wrapped in a
-    // ReorderableDelayedDragStartListener so SliverReorderableList's
-    // drag-to-reorder still works.
+    // ReorderableDelayedDragStartListener so ReorderableListView's
+    // drag-to-reorder still works (buildDefaultDragHandles is off).
     final Widget cardContent = exercise.isRest
         ? _buildRestRow(dataIndex)
         : StudioExerciseCard(

@@ -27,10 +27,12 @@
 - **No licensed animation libraries** — All visual content is self-generated.
 - **On-device processing preferred** — No API costs, instant results, better privacy. Cloud AI is premium only.
 - **Offline-first architecture** — The entire capture → convert → edit → preview flow is 100% offline. Only Publish touches the network. Future: publish queue that batches uploads when connectivity is available.
-- **Non-blocking publish** — Publishing runs in the background. The bio never waits for uploads. Core UX principle.
+- **Non-blocking publish** — Publishing runs in the background. The practitioner never waits for uploads. Core UX principle.
 - **Line drawings de-identify** — POPIA-friendly by design. Client's face/body is abstracted away.
 - **Single accent colour** — Coral orange throughout. No teal or competing accents. (The rest period blue-grey is a distinct visual category, not an accent.)
-- **Social login only** — No username/password. Future: Google/Apple social login or magic links.
+- **Progressive auth** — Email + optional password, magic-link fallback. Google / Apple SDK code stays wired but UI-removed (see `docs/BACKLOG_GOOGLE_SIGNIN.md`).
+- **No modal confirmations** (R-01) — Destructive actions fire immediately with an undo SnackBar + 7-day soft-delete recycle bin. Never "Are you sure?".
+- **Practitioner, always** (R-06) — UI copy uses "practitioner". "Bio" / "physio" / "trainer" / "coach" are retired role nouns. Client-facing copy uses `{TrainerName}` with "your practitioner" as the fallback.
 
 ## Tech Stack (current)
 
@@ -55,9 +57,9 @@
 
 ## Key Domain Model
 
-- **Practice** — top-level tenant. Created automatically on first Google sign-in (either claims the Carl-sentinel or spins up a fresh personal practice). A trainer can belong to multiple practices; the publish-screen picker is where they choose which one pays.
-- **Practice member** — trainer-in-practice with a role (`owner` or `practitioner`). Owner can invite other trainers and buy credits. Practitioners consume credits to publish.
-- **Trainer** — an authenticated user (Supabase `auth.users` row, Google-backed). Creates and edits sessions.
+- **Practice** — top-level tenant. Created automatically on first sign-in (either claims the Carl-sentinel or spins up a fresh personal practice). A practitioner can belong to multiple practices; the publish-screen picker is where they choose which one pays.
+- **Practice member** — practitioner-in-practice with a role (`owner` or `practitioner`). Owner can invite other practitioners and buy credits. Practitioners consume credits to publish.
+- **Practitioner** — an authenticated user (Supabase `auth.users` row, email-backed). Creates and edits sessions. "Trainer" is the legacy column name in the DB (`trainer_id`) — UI copy is always "practitioner".
 - **Client** — receives plans via URL (no auth; URL is an unguessable UUID; data fetched via the `get_plan_full` RPC).
 - **Session** — a workout plan
   - `id`, `clientName`, `title`, `circuitCycles` (JSON map), `preferredRestIntervalSeconds`, `version`, `planUrl`, `lastPublishedAt`, `sentAt`, `deletedAt`, `practiceId`, `firstOpenedAt`, `lastPublishError`, `publishAttemptCount`
@@ -75,19 +77,27 @@
 ### Trainer App
 - **Session shell** — horizontal PageView with Studio (edit) and Camera (capture) modes. New Session → Camera first. Existing session → Studio. Swipe between modes via edge pull-tabs (coral pills with edit/camera icons).
 - **Camera mode** — full-screen shutter, short-press = photo, long-press = video. Per-second haptic ticks + pulsing red dot during recording. 30s auto-stop with double-tap haptic. Pinch-to-zoom + 0.5x/1x/2x/3x lens pills. Peek box at left edge shows last thumbnail + count. No retake — errors fix in Studio.
-- **Studio mode** — bottom-anchored list (newest at the bottom for one-handed reach). Expandable exercise cards with vertical-layout sliders (label above, slider full-width below). Thumbnail tap opens a full-screen media viewer. Top-bar import icon supports multi-select photos/videos. Circuits via link button; drag-to-detach. Rest periods as inline bars.
+- **Studio mode** — bottom-anchored list (newest at the bottom for one-handed reach). Redesigned v1.1 (commit `e12b2fd`) per `docs/design/project/components.md`:
+  - **Gutter Rail** — left-edge vertical rail, thumbnail + drag handle + ordinal. Circuit rounds nest under a Circuit Header.
+  - **Inline Action Tray** — expand-card reveals edit controls in place of a separate tap target; no header buttons (R-02 header purity).
+  - **Thumbnail Peek** — long-press on a thumbnail opens a peek sheet with delete / replace / treatment picker. Delete fires immediately with an undo SnackBar (R-01).
+  - **Circuit Control Sheet** — long-press the Circuit Header opens a sheet for round count, break circuit (immediate undo), insert rest.
+  - **Sliders** — vertical layout (label above, slider full-width below), pill-shaped.
+  - **Known layout bug** — plans that contain a circuit cause the list to stack to multi-viewport heights. Two fixes attempted on main (`9bfc0f8`, `326c6b8`) did not land. Nuclear third attempt active on branch `fix/studio-reorderable-listview` (swap `CustomScrollView + SliverReorderableList` for plain `ReorderableListView.builder`). **Unmerged as of 2026-04-18 checkpoint.**
 - **Native conversion pipeline** — iOS AVAssetReader/Writer + vImage/Accelerate. H.264/HEVC input. Two-zone rendering: body crisp via MediaPipe/Vision person segmentation, equipment dimmed to ~35% for context.
 - **Raw archive pipeline** — 720p H.264 compression of the raw capture saved to `{Documents}/archive/` (90-day retention). Cloud upload waits for auth-scoped storage.
 - **Video-length-as-one-rep** — when a video exercise has a captured `videoDurationMs`, estimated duration uses that per-rep instead of the hardcoded 3s default.
-- **Workout preview** — swipeable card deck with 15s prep countdown before every exercise, timer chip in bottom-right with three-mode tap behaviour (skip prep / pause / resume). Rest pages mirror the same chip. Swipe/arrow skips cancel the current timer cleanly.
+- **Workout preview** — swipeable card deck with 15s prep countdown before every exercise, timer chip in bottom-right with three-mode tap behaviour (skip prep / pause / resume). Rest pages mirror the same chip. Swipe/arrow skips cancel the current timer cleanly. Progress-pill matrix (see below) pending merge of `feat/progress-pills`.
 - **Share** — URL-only iOS share sheet so WhatsApp/Messages unfurl a clean link preview.
-- **Auth** — AuthGate wraps the app. No guest mode. Sign In screen with Google (live) and Apple (coming soon). First sign-in auto-claims the Carl-sentinel practice; subsequent sign-ins create a fresh personal practice.
+- **Auth** — AuthGate wraps the app. Progressive: email + optional password → `signInWithPassword`; empty password OR bad creds falls through to `signInWithOtp` (magic link). Google / Apple SDK code stays wired in `auth_service.dart` but UI is removed — see `docs/BACKLOG_GOOGLE_SIGNIN.md` for the nonce-mismatch post-mortem. Home screen shows a one-time "Set a password?" banner for magic-link-only users; dismissal tracked in `shared_preferences`. First sign-in auto-claims the Carl-sentinel practice; subsequent sign-ins create a fresh personal practice.
+- **Build-marker** — short git SHA baked at build time via `--dart-define=GIT_SHA=$(git rev-parse --short HEAD)`. Rendered at 35% opacity in the Pulse Mark footer on Home only. `install-sim.sh` / `install-device.sh` wire this automatically. Falls back to `"dev"`.
 - **Publish** — pre-flight file check → plan upsert → `consume_credit` RPC → media upload → exercises upsert → orphan cleanup → plan_issuances audit. Compensating refund ledger row on any post-consume failure.
 
 ### Client Web Player (session.homefit.studio)
 - Anonymous read via `get_plan_full` RPC. Never queries the plans/exercises tables directly.
 - Dark theme matching app.
-- Swipeable card deck with progress bar + nav chevrons + dot indicators (dots hide past 10 slides).
+- **Progress-pill matrix** (pending merge of `feat/progress-pills`) — replaces the linear progress bar. Pills stack vertically for circuit cycles (row 1 = plan-level flow; rows 2..N = circuit rounds beneath their circuit head). States: idle / active (pulse-glow border + fluid-fill timer as two separate channels) / completed (muted) / rest (blue-grey fill). Auto-scrolls to keep the active pill horizontally centred. Long-press-and-slide navigator. Three size tiers (spacious / medium / dense). ETA widget at right-end: `7:42 left` + `~7:42 PM` — when paused, `remaining` holds but `finish` drifts +1s/sec (wall clock). Mockup at `docs/design/mockups/progress-pills.html`.
+- Swipeable card deck with nav chevrons + dot indicators (dots hide past 10 slides).
 - Circuit unrolling (each round shown as separate slide). Indicator bar: "Circuit · Round 2 of 3 · Exercise 1 of 3".
 - Videos auto-play muted + looped on any active slide. Per-video play overlay only surfaces when the user explicitly pauses.
 - Rest slides consolidated: rest card body + the same bottom-right timer chip. No more duplicate centred overlay.
@@ -95,7 +105,7 @@
 - Timer chip is the sole pause/play control — three modes: prep / running / paused. Tap to skip prep or toggle pause.
 - Swipe / nav-chevron skips any slide including rest. Cancels current timer cleanly.
 - WhatsApp OG preview via Vercel Edge Middleware.
-- Service worker caches app shell + video media (with content-type validation). Cache name bumped on major changes.
+- Service worker caches app shell + video media (with content-type validation). Cache name bumped on major changes (current target on `feat/progress-pills`: `homefit-player-v11-pill-matrix`).
 - CSP + HSTS + Permissions-Policy headers.
 
 ### Web Portal (manage.homefit.studio — live on Vercel)
@@ -109,28 +119,38 @@
 
 ## Current Phase
 
-**Multi-tenant foundation is live.** Auth + RLS + credit deduction + audit all working end-to-end. First publish as a properly authenticated user happened 2026-04-17.
+**POV is passed. MVP is in flight.** Target: 2026-05-02 (14 days from 2026-04-18). Full plan in `docs/MVP_PLAN.md`. The first practitioner other than Carl is **Melissa** (biokineticist, high-influence SA network) — mid-Week-2 onboarding.
 
 **Milestones complete:**
 - **A** — Schema (practices, practice_members, credit_ledger, plan_issuances, plan.practice_id, plan.first_opened_at).
-- **B** — Google Sign-In + AuthGate + sentinel-claim. Apple button scaffolded, pending Apple Developer enrolment approval.
+- **B** — AuthGate + sentinel-claim. Auth model shifted 2026-04-18: email + optional password → magic-link fallback. Google parked (nonce mismatch — see `docs/BACKLOG_GOOGLE_SIGNIN.md`). Apple still scaffolded, waits on Apple Developer approval.
 - **C** — RLS lockdown scoped by practice membership. SECURITY DEFINER helpers `user_practice_ids()` / `user_is_practice_owner(pid)` avoid self-recursion.
 - **D1** — Credit deduction at publish via `consume_credit` RPC. Refund ledger rows on failure.
-- **D3** — Web portal deployed to Vercel at `manage.homefit.studio`. DNS + TLS live. Env vars + Supabase redirect allowlist configured.
-- **D4 sandbox** — PayFast checkout flow + ITN webhook deployed. Edge function `payfast-webhook` ACTIVE v1. Smoke test step 1/4 confirmed (`/credits` bundle list renders on production URL).
+- **D3** — Web portal deployed to Vercel at `manage.homefit.studio`. DNS + TLS live.
+- **D4 sandbox** — PayFast checkout flow + ITN webhook deployed.
+- **Brand system v1.1** (2026-04-18) — `docs/design/project/tokens.json` + `components.md` + `voice.md` locked. Design Rules R-01..R-08 binding.
+- **Studio redesign v1.1** (2026-04-18) — Gutter Rail + Inline Action Tray + Thumbnail Peek + Circuit Control Sheet components landed on main. Layout bug still pending (see below).
+- **Build-marker infrastructure** (2026-04-18) — short SHA baked via `--dart-define`, rendered in Pulse Mark footer, scripted in `install-sim.sh` / `install-device.sh`.
 
-**Milestones remaining:**
+**Milestones remaining (MVP blockers):**
+- **Studio layout bug** — plans with circuits stack to multi-viewport heights. Third fix attempt on `fix/studio-reorderable-listview` (plain `ReorderableListView.builder`). Pending device verification.
+- **Progress-pill matrix** — Flutter widget + web player version on `feat/progress-pills` awaiting merge. ETA widget completion running.
 - **D2** — Publish-screen practice picker UI (Flutter).
 - **D4 production** — Swap PayFast sandbox for real merchant credentials when Carl signs up.
-- **E** — First-run onboarding polish for the second bio.
-
-**Tomorrow's resume point (2026-04-18):**
-1. Finish PayFast sandbox smoke test at `https://manage.homefit.studio/credits` → Buy Starter → test card `4000 0000 0000 0002` → verify return to `/credits/return` → dashboard balance +10.
-2. If pass, sign off D4 sandbox and move to **D2** (Flutter practice picker in the publish flow).
+- **Three-treatment video model** — line drawing (default) / black-and-white / original colour. Per-client consent gate. Colour requires explicit consent. Treatment change past 24h consumes a credit. Schema migration needed (`clients` table, `exercises.media_treatment` enum, `clients.video_consent` jsonb) + private `raw-archive` bucket (service-role-only, 720p H.264, retained until practice deletion). Not yet implemented.
+- **Referral loop** (MVP Week 1) — opaque 6-8 char codes, `/join/{code}` capture, both-sided +10 credits on referee's first paid purchase.
+- **First-run onboarding polish + legal + support surface** (MVP Week 1-2).
 
 **Blocked on Carl:**
-- PayFast production merchant account (D4 prod).
-- Apple Developer Program approval (~24-48h, enrolled 2026-04-17).
+- PayFast production merchant account (D4 prod + referral reward trigger).
+- Apple Developer Program approval (~24-48h, enrolled 2026-04-17). Flipping `_appleEnabled = true` + re-adding the Apple button unblocks Apple sign-in.
+- Supabase dashboard: bump JWT expiry 30 → 90 days (Project Settings → Auth) for longer offline-session runway.
+- Legal: POPIA privacy page + terms-of-service copy review.
+
+**Deferred past MVP (explicitly):**
+- Android app — iOS only for MVP. Swift native pipeline stays the cornerstone.
+- AI style transfer (Stability AI, Kling O1, SayMotion) — still premium-tier, still parked.
+- Ongoing referral commission (rev-share on every purchase).
 
 ## Infrastructure Rules (learned the hard way)
 
@@ -146,7 +166,8 @@
 - **Stale file paths after reinstall:** Fixed by storing relative paths via `PathResolver` and resolving at read time.
 - **Flutter lifecycle quirk:** `window.rootViewController` may be nil in `didFinishLaunchingWithOptions` in Flutter 3.41.6. Use `self.registrar(forPlugin:)?.messenger()` instead.
 - **Share.share() on simulator:** Needs `sharePositionOrigin` or silently fails. Provided in the call.
-- **VPN interference:** NordVPN without split tunneling interferes with Xcode's device tunnel even over USB. Use quick toggle + `simctl install` / `xcrun simctl pbpaste` to avoid needing connected-debug for most things.
+- **VPN interference:** resolved 2026-04-18 — Carl confirms `install-device.sh` now runs with NordVPN on. `xcrun devicectl` + Claude API coexist fine. Keep the split-tunneling note in case it recurs after a NordVPN / iOS update.
+- **Google Sign-In nonce mismatch:** iOS `GoogleSignIn` 8.x auto-injects a nonce claim into the id_token; Flutter `google_sign_in` v6/v7 never exposes the raw nonce to Dart; Supabase `signInWithIdToken` rejects. Parked — MVP ships with email + password + magic link. See `docs/BACKLOG_GOOGLE_SIGNIN.md` for the full post-mortem and re-enablement options.
 - **Claude Code operations note:** Running agents in background (`run_in_background: true`) lets Claude respond while long builds run. Never use `flutter run` — it's interactive and spawns lldb processes that don't clean up. Use `flutter build ios --debug --simulator` + `xcrun simctl install` + `xcrun simctl launch` instead.
 
 ## Business Case (validated)
@@ -180,31 +201,44 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 ## Key Documents
 
 - `CLAUDE.md` — this file
-- `docs/POV_BRIEF.md` — Proof-of-value brief with vision and build plan
+- `docs/POV_BRIEF.md` — Proof-of-value brief with vision and build plan (historic; POV passed)
+- `docs/MVP_PLAN.md` — Active 14-day plan to 2026-05-02 (Melissa onboarding + referral loop + PayFast prod + polish)
 - `docs/MARKET_RESEARCH.md` — Competitive landscape + business case validation
 - `docs/ANIMATION_PIPELINE.md` — AI pipeline (parked) technical spec
 - `docs/BACKLOG.md` — Deferred work with rationale
+- `docs/BACKLOG_GOOGLE_SIGNIN.md` — Google Sign-In nonce-mismatch post-mortem + re-enablement paths
 - `docs/PENDING_DEVICE_TESTS.md` — Things landed on main that haven't been verified on Carl's iPhone yet
+- `docs/design/project/index.html` — Design system doc (browsable)
+- `docs/design/project/components.md` — Component inventory + Design Rules R-01..R-08
+- `docs/design/project/voice.md` — Voice + tone, practitioner vocabulary, error-message formula
+- `docs/design/project/tokens.json` — Canonical design tokens (colour / spacing / radius / motion / typography)
+- `docs/design/mockups/progress-pills.html` — Progress-pill matrix mockup
 - `supabase/schema.sql` — Canonical fresh-install schema (reference)
 - `supabase/schema_milestone_a.sql` — Practices, credits, audit schema
 - `supabase/schema_milestone_c.sql` — RLS lockdown + consume_credit
 - `supabase/schema_milestone_c_recursion_fix.sql` — SECURITY DEFINER helpers that fixed the policy recursion
 - `supabase/schema_milestone_d4.sql` — PayFast pending_payments table
 - `app/lib/theme.dart` — Brand theme tokens
-- `app/lib/widgets/powered_by_footer.dart` — Shared Pulse Mark footer
+- `app/lib/widgets/powered_by_footer.dart` — Shared Pulse Mark footer (+ build-SHA marker)
+- `app/lib/widgets/gutter_rail.dart` / `inline_action_tray.dart` / `thumbnail_peek.dart` / `circuit_control_sheet.dart` / `set_password_sheet.dart` / `undo_snackbar.dart` — v1.1 Studio components + auth upgrade + R-01 undo
 - `app/ios/Runner/VideoConverterChannel.swift` — Native video pipeline
 - `app/lib/screens/session_shell_screen.dart` — Capture/Studio mode shell
+- `app/lib/screens/sign_in_screen.dart` — Progressive email + password + magic-link gate
 - `app/lib/services/upload_service.dart` — Publish flow with credit consumption
-- `app/lib/services/auth_service.dart` — Sign-in + sentinel-claim logic
+- `app/lib/services/auth_service.dart` — Sign-in + sentinel-claim logic (Google/Apple wired but UI-removed)
+- `install-sim.sh` — Simulator reset + rebuild + relaunch with SHA marker
+- `install-device.sh` — Physical iPhone release build + install (runs with VPN on)
 - `web-portal/` — Next.js practice-manager + credits portal
 - `tools/filter-workbench/` — Python Streamlit tool for filter parameter tuning (blocked on cloud raw archive for real tuning)
 
 ## Development Guidelines
 
-- Favour speed and validation over perfection — this is pre-product
+- Favour speed and validation over perfection — MVP ship window is 2 weeks
 - Use sub-agents in background for heavy implementation work; stay available for conversation
-- Never use `flutter run` — use build + `simctl install` instead (see Infrastructure Rules)
-- Build the Flutter app with: `cd app && flutter build ios --debug --simulator`
+- Never use `flutter run` (R-08) — use build + `simctl install` instead
+- Simulator: `./install-sim.sh` (builds with SHA marker, uninstalls for a fresh Sign-In screen, relaunches on iPhone 16e)
+- Physical device: `./install-device.sh` (pulls main, release build, installs to iPhone CHM; runs with VPN on)
+- Manual build: `cd app && flutter build ios --debug --simulator --dart-define=GIT_SHA=$(git -C /Users/chm/dev/TrainMe rev-parse --short HEAD)`
 - Install with: `xcrun simctl install <device-id> <runner.app>`
 - Launch with: `xcrun simctl launch <device-id> com.raidme.raidme`
 - Web player auto-deploys via Vercel on `git push`

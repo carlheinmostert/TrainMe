@@ -6,6 +6,26 @@ Reference items by commit hash + feature name when reporting feedback.
 
 ---
 
+## 2026-04-18 end-of-session checkpoint
+
+**On device:** `feat/auth-progressive-upgrade` at build `e67669f` (SHA visible bottom-right of Pulse Mark footer on Home). Password + magic-link path **confirmed working** — nothing to re-verify there.
+
+**Parallel agents running at time of this checkpoint:**
+
+- `fix/studio-reorderable-listview` — Studio layout blow-out fix. Third attempt. Plain `ReorderableListView.builder` replacing the `CustomScrollView + SliverReorderableList` stack. Needs device verification next session — confirm that a plan with a circuit (e.g. 3 exercises linked + 2 rounds) renders without stacking to multi-viewport heights.
+- `feat/progress-pills` — ETA widget completion (`7:42 left` + `~7:42 PM`, wall-clock drift when paused). Flutter `app/lib/widgets/progress_pill_matrix.dart` + web player pill matrix already in place. SW cache bump to `homefit-player-v11-pill-matrix`.
+
+**Next-session priorities:**
+
+1. Verify `fix/studio-reorderable-listview` on device. If clean → merge to main, delete branch. If still broken → re-diagnose (don't repeat the two main-side attempts `9bfc0f8` / `326c6b8`).
+2. Verify `feat/progress-pills` + ETA on device. If clean → merge. Bumps SW cache → client web-player installs will force-refresh.
+3. Merge `feat/auth-progressive-upgrade` after a final device walk-through (Sign-In screen → password path → magic-link path → Home banner → SetPasswordSheet).
+4. Finish the PayFast sandbox smoke test (below) unless already done.
+
+**Unmerged branches as of checkpoint:** `feat/auth-progressive-upgrade`, `feat/progress-pills`, `fix/studio-reorderable-listview`. Also stale: `fix/studio-stack-rail-rewrite` (superseded; safe to delete).
+
+---
+
 ## Tomorrow's resume point (2026-04-18) — PayFast sandbox smoke test
 
 Portal is live at `https://manage.homefit.studio` (as of 2026-04-17 evening). Smoke step 1/4 passed — `/credits` renders the bundle list. **Remaining steps:**
