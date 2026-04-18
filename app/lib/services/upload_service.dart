@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 import '../config.dart';
@@ -270,6 +271,11 @@ class UploadService {
     // Tracks whether we've consumed credits so catch blocks can refund.
     bool creditConsumed = false;
 
+    // Tracks storage paths we've successfully uploaded so the catch block
+    // can clean them up on a partial-publish failure. Otherwise the retry
+    // path stacks orphaned objects in the `media` bucket every time.
+    final uploadedPaths = <String>[];
+
     try {
       // ----------------------------------------------------------------
       // Step 3: Consume credits atomically BEFORE any plan mutation.
@@ -392,6 +398,11 @@ class UploadService {
         await _supabase.storage
             .from(_bucket)
             .upload(storagePath, file, fileOptions: const FileOptions(upsert: true));
+        // Only record the path AFTER the upload succeeds — a throw in the
+        // upload call itself leaves the remote in whatever state the
+        // supabase SDK leaves it in, and we don't want to DELETE a path we
+        // never successfully created.
+        uploadedPaths.add(storagePath);
         mediaUrls[exercise.id] =
             _supabase.storage.from(_bucket).getPublicUrl(storagePath);
 
@@ -405,6 +416,7 @@ class UploadService {
                   thumbFile,
                   fileOptions: const FileOptions(upsert: true),
                 );
+            uploadedPaths.add(thumbStoragePath);
             thumbUrls[exercise.id] =
                 _supabase.storage.from(_bucket).getPublicUrl(thumbStoragePath);
           }
@@ -495,7 +507,22 @@ class UploadService {
         creditsCharged: creditsToCharge,
       );
     } catch (e) {
-      // Media may be orphaned in storage, exercises may be half-written.
+      // Clean up any storage objects we uploaded before the failure so a
+      // retry doesn't stack more orphans. Wrapped in its own try/catch —
+      // a cleanup failure must NOT mask the original error surfaced to
+      // the user via [PublishResult.networkFailed].
+      if (uploadedPaths.isNotEmpty) {
+        try {
+          await _supabase.storage.from(_bucket).remove(uploadedPaths);
+        } catch (cleanupErr) {
+          debugPrint(
+            'UploadService: orphan cleanup failed for ${uploadedPaths.length} '
+            'path(s) after publish failure — leaving objects in bucket: '
+            '$cleanupErr',
+          );
+        }
+      }
+
       // If we already consumed credits, compensate with a refund row so
       // the ledger stays balanced — otherwise the bio is charged for a
       // plan that never published.
