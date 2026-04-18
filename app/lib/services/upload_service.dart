@@ -163,40 +163,42 @@ class UploadService {
   /// Upload all converted assets for a session, create/update the plan
   /// record in the backend, and return the result.
   ///
-  /// Publish ordering (not a true transaction, but close). Reordered in the
-  /// wake of Milestone C so the plan row exists BEFORE any storage upload —
-  /// the `media` bucket RLS policy checks `plans.id` for membership, so a
-  /// brand-new plan could not upload media until its row was written.
+  /// Publish ordering (not a true transaction, but close):
   ///
   ///   1. Pre-flight — verify every non-rest exercise has an existing local
   ///      file. If anything is missing, return [PublishResult.preflightFailed]
   ///      without touching Supabase.
   ///   2. Credit balance pre-check — read the practice balance and abort with
   ///      [PublishResult.insufficientCredits] before any network I/O heavier
-  ///      than a single RPC. This is best-effort; step 3 is the race-safe
+  ///      than a single RPC. This is best-effort; step 3b is the race-safe
   ///      source of truth.
-  ///   3. Atomically consume credits via `consume_credit` RPC. If this
-  ///      returns `{ok: false}` the publish aborts — the fn is race-safe and
-  ///      its answer is the truth even if the pre-check said otherwise.
-  ///      Runs FIRST so a failure in any later step triggers the existing
-  ///      refund path and leaves the ledger balanced.
+  ///   3a. Ensure the plan row exists (no version bump yet) so the FK from
+  ///      `credit_ledger.plan_id` to `plans.id` is satisfied on first-ever
+  ///      publish. Re-publishes hit this as an idempotent upsert that does
+  ///      NOT touch the version — that stays pinned to `session.version`.
+  ///   3b. Atomically consume credits via `consume_credit` RPC. If this
+  ///      returns `{ok: false}` the publish aborts — the fn is race-safe
+  ///      and its answer is the truth even if the pre-check said otherwise.
+  ///      Runs BEFORE the version bump so a failure in any later step
+  ///      triggers the existing refund path and leaves the ledger balanced.
+  ///      A non-insufficient_credits failure (network, auth, etc.) raises
+  ///      with `creditConsumed=false`, so a retry sees the same un-bumped
+  ///      version and computes an identical `newVersion` — no double-bump.
   ///   4. Upsert the plan row with the bumped version. Required BEFORE the
   ///      media upload so the storage RLS policy (which joins against
   ///      `plans` via the first folder segment of the object name) passes.
-  ///      On a brand-new plan this is the row's first appearance; on a
-  ///      re-publish it's an update.
   ///   5. Upload media + thumbnails to the `media` bucket. The plan row now
   ///      exists, so the RLS check in the `Media upload` policy succeeds.
+  ///      On failure, orphaned uploaded paths are cleaned up inside the
+  ///      catch block so retries don't stack bucket garbage.
   ///   6. Upsert new exercise rows. FK to plans is already satisfied.
   ///   7. Delete stale exercise rows that are no longer in the plan.
   ///   8. Write the `plan_issuances` audit row (best-effort; swallowed).
   ///
-  /// If any step AFTER [consume_credit] fails (plan upsert, media upload,
-  /// exercise upsert, delete-orphans), the catch block inserts a
-  /// compensating refund row into `credit_ledger` so the ledger stays
-  /// balanced. Orphan storage objects from a partial step-5 are tolerated
-  /// for now — a retry will succeed because the plan row already exists,
-  /// and the orphan-cleanup backlog item covers stale bucket entries.
+  /// If any step AFTER `consume_credit` (3b) succeeds fails (plan upsert,
+  /// media upload, exercise upsert, delete-orphans), the catch block
+  /// inserts a compensating refund row into `credit_ledger` via the
+  /// `refund_credit` RPC so the ledger stays balanced.
   ///
   /// Precondition: all exercises should have [ConversionStatus.done]. The
   /// caller should check [Session.allConversionsComplete] first.
@@ -259,21 +261,38 @@ class UploadService {
 
     try {
       // ----------------------------------------------------------------
-      // Step 3: Upsert the plan row FIRST. Two reasons it has to come
-      // before consume_credit:
-      //   (a) `credit_ledger.plan_id` has a FK to `plans.id`. The
-      //       consume_credit RPC inserts a ledger row tied to this plan,
-      //       so the plan row must exist first.
-      //   (b) The `Media upload` RLS policy on the `media` bucket checks
-      //       that the first folder segment of the object name
-      //       (session.id) matches an existing row in `plans` owned by
-      //       the trainer's practice. Without this row the storage
-      //       insert in Step 5 is rejected.
-      // On a brand-new plan this is the row's first appearance; on a
-      // re-publish it's an update. Web-player reads are atomic via the
-      // `get_plan_full` RPC, so the brief window where the plan version
-      // is new but media URLs are still old is fine.
+      // Step 3: Consume credits atomically BEFORE any plan mutation.
+      //
+      // Ordering rationale (aligned with the method docstring, 2026-04-18):
+      // the prior ordering upserted `plans` (bumping `version`) first and
+      // only called `consume_credit` afterward. If the RPC failed for any
+      // reason other than `insufficient_credits` (network blip, RLS edge
+      // case, transient DB error) the version was bumped server-side even
+      // though no credits were taken. `creditConsumed` stayed false so the
+      // refund compensator was (correctly) skipped, but a retry would then
+      // re-upsert with `newVersion = session.version + 1` AGAIN, double-
+      // bumping the version relative to what the user sees locally.
+      //
+      // New order: consume first. If the RPC raises, no plan state has
+      // changed on Supabase and a retry computes the same `newVersion`
+      // again — idempotent from the client's perspective.
+      //
+      // FK caveat: `credit_ledger.plan_id` has a FK to `plans.id`
+      // (ON DELETE SET NULL, but the INSERT still requires the referenced
+      // row to exist). On a re-publish the plan row already exists, so
+      // the FK is satisfied. On a brand-new plan the FK would fail — so
+      // we pre-insert a minimal plan row first with the CURRENT version
+      // (not the bumped one). That row carries the practice_id the RLS
+      // policies need, satisfies the FK, and does NOT claim a version
+      // bump the client hasn't earned yet. The version bump happens in
+      // Step 4 after consume_credit succeeds.
       // ----------------------------------------------------------------
+
+      // Step 3a: ensure a plan row exists so consume_credit's FK is
+      // satisfied on first-ever publish. On re-publish this is a no-op
+      // `ON CONFLICT DO NOTHING` (implemented as an upsert that omits
+      // every mutable column — PostgREST writes back the same values on
+      // conflict). The version stays at `session.version` here.
       await _supabase.from('plans').upsert({
         'id': session.id,
         'client_name': session.clientName,
@@ -282,22 +301,17 @@ class UploadService {
         'circuit_cycles': session.circuitCycles,
         'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
         'exercise_count': nonRestCount,
-        'version': newVersion,
+        // IMPORTANT: do NOT bump version here — only after consume_credit.
+        'version': session.version,
         'created_at': session.createdAt.toIso8601String(),
-        'sent_at': DateTime.now().toIso8601String(),
         'practice_id': practiceId,
       });
 
-      // ----------------------------------------------------------------
-      // Step 4: Consume credits atomically AFTER the plan row exists.
-      // The Postgres fn locks the practice balance, appends a ledger row
-      // tied to this plan, and validates the balance in one transaction.
-      // If it returns `{ok: false}` the publish aborts with the plan row
-      // already upserted — that's fine, next attempt finds it and
-      // continues idempotently. Any failure in the subsequent steps is
-      // caught below and triggers a compensating refund ledger row so
-      // the bio is not charged for a failed publish.
-      // ----------------------------------------------------------------
+      // Step 3b: atomic credit consumption. Source of truth for whether
+      // the publish can proceed. If this returns `{ok: false}` the plan
+      // row we just ensured above stays as-is (no version bump, no
+      // `sent_at` update) — the plan is still at its previous published
+      // state. If the RPC raises, same deal.
       final consumeResult = await _supabase.rpc(
         'consume_credit',
         params: {
@@ -329,6 +343,25 @@ class UploadService {
         );
       }
       creditConsumed = true;
+
+      // ----------------------------------------------------------------
+      // Step 4: Now that credits are consumed, bump the plan version and
+      // stamp sent_at. This is the only place `newVersion` is written;
+      // any later failure (media upload, exercise upsert) triggers the
+      // refund compensator below.
+      // ----------------------------------------------------------------
+      await _supabase.from('plans').upsert({
+        'id': session.id,
+        'client_name': session.clientName,
+        'title': session.displayTitle,
+        'circuit_cycles': session.circuitCycles,
+        'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
+        'exercise_count': nonRestCount,
+        'version': newVersion,
+        'created_at': session.createdAt.toIso8601String(),
+        'sent_at': DateTime.now().toIso8601String(),
+        'practice_id': practiceId,
+      });
 
       // ----------------------------------------------------------------
       // Step 5: Upload media files. The plan row now exists, so the
