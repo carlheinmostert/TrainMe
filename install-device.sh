@@ -28,8 +28,14 @@ echo "▸ Building Flutter app for physical device in RELEASE mode (first run �
 # ("Cannot create a FlutterEngine instance in debug mode without Flutter
 #  tooling or Xcode"). Release strips debug symbols, compiles AOT, and
 # produces a binary the device can launch from the home screen on its own.
+#
+# Passing the current short git SHA via --dart-define bakes it into
+# AppConfig.buildSha, which the Pulse Mark footer renders as a tiny
+# muted label in the bottom-right. Confirms at a glance which commit
+# is on-device after a rebuild.
 cd /Users/chm/dev/TrainMe/app
-LC_ALL=en_US.UTF-8 flutter build ios --release
+GIT_SHA=$(git -C /Users/chm/dev/TrainMe rev-parse --short HEAD)
+LC_ALL=en_US.UTF-8 flutter build ios --release --dart-define=GIT_SHA="$GIT_SHA"
 
 echo "▸ Installing to iPhone CHM..."
 xcrun devicectl device install app --device "$DEVICE" "$APP_PATH"

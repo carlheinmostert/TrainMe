@@ -7,6 +7,14 @@ class AppConfig {
   static const String supabaseUrl = 'https://yrwcofhovrcydootivjx.supabase.co';
   static const String supabaseAnonKey = 'sb_publishable_cwhfavfji552BN8X0uPIpA_pwWQ-gw3';
 
+  /// Short git SHA baked at build time via
+  /// `flutter build ios ... --dart-define=GIT_SHA=$(git rev-parse --short HEAD)`.
+  /// Surfaced in the bottom-right of the Pulse Mark footer so we can confirm
+  /// at a glance which commit is running on device after a rebuild.
+  /// Defaults to `dev` when not passed.
+  static const String buildSha =
+      String.fromEnvironment('GIT_SHA', defaultValue: 'dev');
+
   /// Base URL for shared plan links (web player)
   /// TODO: Update when domain is registered
   static const String webPlayerBaseUrl = 'https://session.homefit.studio';
