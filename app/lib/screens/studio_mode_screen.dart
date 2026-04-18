@@ -1,34 +1,45 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' show min;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
-import '../config.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/path_resolver.dart';
 import '../theme.dart';
-import '../widgets/capture_thumbnail.dart';
+import '../widgets/circuit_control_sheet.dart';
+import '../widgets/gutter_rail.dart';
+import '../widgets/inline_action_tray.dart';
+import '../widgets/inline_editable_text.dart';
 import '../widgets/shell_pull_tab.dart';
+import '../widgets/studio_exercise_card.dart';
+import '../widgets/undo_snackbar.dart';
 import 'plan_preview_screen.dart';
 
 /// Post-session editing — the "Studio" mode.
 ///
-/// Extracted from [SessionCaptureScreen]. Capture is gone — that's the
-/// Camera mode's job. Studio is edit-only: expandable exercise cards
-/// with Settings/Preview/Notes, sliders, drag reorder, circuit grouping,
-/// rest-period insertion, inline-editable names, swipe-to-delete.
+/// Redesign per `docs/design/project/components.md`:
+///   - Gutter Rail on the left (position numbers, insertion dots,
+///     circuit rail).
+///   - Inline Action Tray expanding in-place between cards.
+///   - Thumbnail Peek (long-press) with inline delete.
+///   - Circuit Control Sheet (bottom sheet) replacing the old inline
+///     circuit slider.
+///   - No chevrons on exercise cards; whole row is the tap target.
+///   - No modal "Are you sure?" confirmations — R-01 via
+///     [showUndoSnackBar].
+///   - Publish-lock badge in the summary chip row; dims credit-costing
+///     affordances once the plan is locked.
 ///
-/// The import-from-library path still lives here — a bio preparing a
-/// plan outside of a client session might want to pull in an older
-/// video. Camera is gone from the add-exercise card, replaced by a
-/// single "Capture" button that swipes to Camera mode.
+/// Offline-first: every edit persists locally via
+/// [LocalStorageService] first; publish sits on top of this and is
+/// unchanged.
 class StudioModeScreen extends StatefulWidget {
   final Session session;
   final LocalStorageService storage;
@@ -53,62 +64,42 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   StreamSubscription<ExerciseCapture>? _conversionSub;
   final ImagePicker _picker = ImagePicker();
 
+  /// Data index of the currently-expanded card, or null when collapsed.
   int? _expandedIndex;
-  bool _isEditingName = false;
-  late TextEditingController _nameController;
-  final FocusNode _nameFocusNode = FocusNode();
 
-  // --- Bottom-anchored display (chat-app pattern) ---
-  // Carl's one-handed-use requirement: newest exercise should sit at the
-  // BOTTOM of the viewport (near the thumb). Even when the list is short
-  // and doesn't fill the screen, items must anchor at the bottom — older
-  // captures push upward as new ones are added.
-  //
-  // Approach: CustomScrollView(reverse: true) + reversed iteration. Data
-  // stays in ascending position order (1..N). The UI translates at the
-  // boundary — itemBuilder maps visualIndex -> dataIndex, _onReorder maps
-  // visual drop slots -> data slots. Every neighbor/circuit check inside
-  // _buildExerciseItem receives DATA indices. Drag handles receive VISUAL
-  // indices (what ReorderableList's API expects).
+  /// Data index of the "lower card" of an active insertion gap, or null
+  /// when no tray is open. Tray sits between cards `[_activeInsertIndex
+  /// - 1]` and `[_activeInsertIndex]`. Range: 0..exercises.length.
+  int? _activeInsertIndex;
+
+  /// Re-render at 60s cadence so the "edits open · 23h left" chip
+  /// counts down without parent poking.
+  Timer? _lockTimer;
 
   @override
   void initState() {
     super.initState();
     _session = widget.session;
-    _nameController = TextEditingController(text: _session.clientName);
-    _nameFocusNode.addListener(_onNameFocusChange);
     _conversionService = ConversionService.instance;
     _listenToConversions();
+    _lockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
-  void didUpdateWidget(covariant StudioModeScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Parent (shell) may refresh session after camera captures. Merge
-    // in any new exercises without clobbering in-progress name edit.
-    if (oldWidget.session != widget.session) {
-      setState(() {
-        _session = widget.session;
-        if (!_isEditingName) {
-          _nameController.text = _session.clientName;
-        }
-      });
+  void didUpdateWidget(covariant StudioModeScreen old) {
+    super.didUpdateWidget(old);
+    if (old.session != widget.session) {
+      setState(() => _session = widget.session);
     }
   }
 
   @override
   void dispose() {
     _conversionSub?.cancel();
-    _nameController.dispose();
-    _nameFocusNode.removeListener(_onNameFocusChange);
-    _nameFocusNode.dispose();
+    _lockTimer?.cancel();
     super.dispose();
-  }
-
-  void _onNameFocusChange() {
-    if (!_nameFocusNode.hasFocus && _isEditingName) {
-      _saveClientName();
-    }
   }
 
   void _pushSession(Session next) {
@@ -116,26 +107,16 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     widget.onSessionChanged(next);
   }
 
-  void _saveClientName() {
-    final newName = _nameController.text.trim();
-    if (newName.isNotEmpty && newName != _session.clientName) {
-      setState(() {
-        _pushSession(_session.copyWith(clientName: newName));
-      });
-      unawaited(widget.storage.saveSession(_session).catchError((e, st) {
-        debugPrint('saveSession failed: $e');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Unable to save — please try again')),
-          );
-        }
-      }));
+  Future<void> _refreshSession() async {
+    final refreshed = await widget.storage.getSession(_session.id);
+    if (refreshed != null && mounted) {
+      setState(() => _pushSession(refreshed));
     }
-    setState(() => _isEditingName = false);
   }
 
   void _listenToConversions() {
-    _conversionSub = _conversionService.onConversionUpdate.listen((updated) {
+    _conversionSub =
+        _conversionService.onConversionUpdate.listen((updated) {
       if (!mounted) return;
       setState(() {
         final exercises = List<ExerciseCapture>.from(_session.exercises);
@@ -148,16 +129,44 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     });
   }
 
-  void _startEditingName() {
-    _nameController.text = _session.clientName;
-    setState(() => _isEditingName = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _nameFocusNode.requestFocus();
-      _nameController.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: _nameController.text.length,
-      );
+  void _saveClientName(String newName) {
+    if (newName.isEmpty || newName == _session.clientName) return;
+    setState(() {
+      _pushSession(_session.copyWith(clientName: newName));
     });
+    unawaited(widget.storage.saveSession(_session).catchError((e, st) {
+      debugPrint('saveSession failed: $e');
+    }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Publish-lock state
+  // ---------------------------------------------------------------------------
+  //
+  // Lock rules:
+  //   - Before first publish → edits free (lock inactive).
+  //   - Published AND < 24h since first publish AND client has not opened →
+  //     open edit window. Chip counts down.
+  //   - Client has opened OR 24h elapsed → locked. Credit-costing affordances
+  //     (new exercise, drag-reorder, delete, break circuit) dim and
+  //     show the "counts as a new version · 1 credit" toast on tap.
+
+  bool get _isPublishLocked {
+    if (!_session.isPublished) return false;
+    if (_session.firstOpenedAt != null) return true;
+    final last = _session.lastPublishedAt;
+    if (last == null) return false;
+    return DateTime.now().difference(last) >= const Duration(hours: 24);
+  }
+
+  bool get _inOpenEditWindow => _session.isPublished && !_isPublishLocked;
+
+  int get _hoursRemainingInWindow {
+    final last = _session.lastPublishedAt;
+    if (last == null) return 0;
+    final remaining =
+        const Duration(hours: 24) - DateTime.now().difference(last);
+    return remaining.inHours.clamp(0, 24);
   }
 
   // ---------------------------------------------------------------------------
@@ -170,18 +179,22 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
 
   MediaType _detectMediaType(String path) {
     final ext = p.extension(path).toLowerCase();
-    return _videoExtensions.contains(ext) ? MediaType.video : MediaType.photo;
+    return _videoExtensions.contains(ext)
+        ? MediaType.video
+        : MediaType.photo;
   }
 
-  Future<void> _importFromLibrary() async {
+  Future<void> _importFromLibrary({int? insertAt}) async {
     try {
       final picked = await _picker.pickMultipleMedia();
       if (picked.isEmpty) return;
-
-      // Sequential: file copy + save + queue per asset, in picker order.
       for (final xfile in picked) {
         final type = _detectMediaType(xfile.path);
-        await _addCaptureFromFile(xfile.path, type);
+        await _addCaptureFromFile(
+          xfile.path,
+          type,
+          insertAt: insertAt,
+        );
       }
     } catch (e) {
       debugPrint('Library import failed: $e');
@@ -193,38 +206,85 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     }
   }
 
-  Future<void> _addCaptureFromFile(String sourcePath, MediaType type) async {
+  Future<void> _addCaptureFromFile(
+    String sourcePath,
+    MediaType type, {
+    int? insertAt,
+  }) async {
     final dir = await getApplicationDocumentsDirectory();
     final rawDir = Directory(p.join(dir.path, 'raw'));
     await rawDir.create(recursive: true);
 
     final ext = p.extension(sourcePath);
-    final destPath =
-        p.join(rawDir.path, '${DateTime.now().millisecondsSinceEpoch}$ext');
+    final destPath = p.join(
+      rawDir.path,
+      '${DateTime.now().millisecondsSinceEpoch}$ext',
+    );
     await File(sourcePath).copy(destPath);
 
-    final position = _session.exercises.length;
+    // Seed an exercise. Note: ExerciseCapture.create(...) leaves reps /
+    // sets / hold null — they read through as StudioDefaults via the
+    // card. We don't pre-fill them on the model so "customised" detection
+    // stays accurate (R-05): a card with no user input reads as
+    // uncustomised.
+    final exercises = List<ExerciseCapture>.from(_session.exercises);
+    final position = insertAt ?? exercises.length;
     final exercise = ExerciseCapture.create(
       position: position,
       rawFilePath: PathResolver.toRelative(destPath),
       mediaType: type,
       sessionId: _session.id,
     );
-
+    exercises.insert(position, exercise);
+    for (var i = 0; i < exercises.length; i++) {
+      exercises[i] = exercises[i].copyWith(position: i);
+    }
     await widget.storage.saveExercise(exercise);
 
     if (mounted) {
       setState(() {
-        _pushSession(_session.copyWith(
-          exercises: [..._session.exercises, exercise],
-        ));
+        _pushSession(_session.copyWith(exercises: exercises));
       });
-      // No scroll-to-newest needed: the reversed CustomScrollView keeps
-      // the newest item bottom-anchored (thumb zone) automatically.
     }
-
     _conversionService.queueConversion(exercise);
     _autoInsertRestPeriods();
+  }
+
+  /// Replace the media behind an existing exercise card. Keeps the row's
+  /// position, reps/sets/hold, notes — only the file path, media-type
+  /// and conversion status change. Queues a fresh conversion.
+  Future<void> _replaceMedia(int dataIndex) async {
+    try {
+      final picked = await _picker.pickMedia();
+      if (picked == null) return;
+      final type = _detectMediaType(picked.path);
+      final dir = await getApplicationDocumentsDirectory();
+      final rawDir = Directory(p.join(dir.path, 'raw'));
+      await rawDir.create(recursive: true);
+      final ext = p.extension(picked.path);
+      final destPath = p.join(
+        rawDir.path,
+        '${DateTime.now().millisecondsSinceEpoch}$ext',
+      );
+      await File(picked.path).copy(destPath);
+
+      final exercises = List<ExerciseCapture>.from(_session.exercises);
+      final original = exercises[dataIndex];
+      final replaced = original.copyWith(
+        rawFilePath: PathResolver.toRelative(destPath),
+        mediaType: type,
+        conversionStatus: ConversionStatus.pending,
+        clearVideoDurationMs: true,
+      );
+      exercises[dataIndex] = replaced;
+      setState(() {
+        _pushSession(_session.copyWith(exercises: exercises));
+      });
+      await widget.storage.saveExercise(replaced);
+      _conversionService.queueConversion(replaced);
+    } catch (e) {
+      debugPrint('Replace media failed: $e');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -233,41 +293,26 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
 
   Future<void> _insertRestBetween(int insertIndex) async {
     final exercises = List<ExerciseCapture>.from(_session.exercises);
-
-    final hasRestBelow =
-        insertIndex < exercises.length && exercises[insertIndex].isRest;
+    final hasRestBelow = insertIndex < exercises.length &&
+        exercises[insertIndex].isRest;
     final hasRestAbove =
         insertIndex > 0 && exercises[insertIndex - 1].isRest;
-    if (hasRestBelow || hasRestAbove) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Rest period already adjacent'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-      return;
-    }
+    if (hasRestBelow || hasRestAbove) return;
 
     final rest = ExerciseCapture.createRest(
       position: insertIndex,
       sessionId: _session.id,
     );
-
     exercises.insert(insertIndex, rest);
     for (var i = 0; i < exercises.length; i++) {
       exercises[i] = exercises[i].copyWith(position: i);
     }
-
     setState(() {
       _pushSession(_session.copyWith(exercises: exercises));
       if (_expandedIndex != null && _expandedIndex! >= insertIndex) {
         _expandedIndex = _expandedIndex! + 1;
       }
     });
-
     await widget.storage.saveExercise(rest);
     _saveExerciseOrder();
   }
@@ -287,47 +332,31 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
       if (cumulativeSeconds >= threshold) {
         if (i < exercises.length - 1) {
           final nextIdx = i + 1;
-          final hasRestBelow =
-              nextIdx < exercises.length && exercises[nextIdx].isRest;
-          final hasRestAbove = i >= 0 && exercises[i].isRest;
-          if (!hasRestBelow && !hasRestAbove) {
-            insertPositions.add(nextIdx);
-          }
+          final hasRestBelow = nextIdx < exercises.length &&
+              exercises[nextIdx].isRest;
+          if (!hasRestBelow) insertPositions.add(nextIdx);
         }
         cumulativeSeconds = 0;
       }
     }
-
     if (insertPositions.isEmpty) return;
 
     var offset = 0;
     for (final pos in insertPositions) {
-      final adjustedPos = pos + offset;
+      final adjusted = pos + offset;
       final rest = ExerciseCapture.createRest(
-        position: adjustedPos,
+        position: adjusted,
         sessionId: _session.id,
       );
-      exercises.insert(adjustedPos, rest);
+      exercises.insert(adjusted, rest);
       offset++;
     }
     for (var i = 0; i < exercises.length; i++) {
       exercises[i] = exercises[i].copyWith(position: i);
     }
-
     setState(() {
       _pushSession(_session.copyWith(exercises: exercises));
     });
-
-    for (final pos in insertPositions) {
-      final adjustedPos = pos + insertPositions.indexOf(pos);
-      if (adjustedPos < exercises.length) {
-        unawaited(widget.storage
-            .saveExercise(exercises[adjustedPos])
-            .catchError((e, st) {
-          debugPrint('saveExercise failed: $e');
-        }));
-      }
-    }
     _saveExerciseOrder();
   }
 
@@ -356,11 +385,9 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     final removed = _session.exercises[index];
     final exercises = List<ExerciseCapture>.from(_session.exercises);
     exercises.removeAt(index);
-
     for (var i = 0; i < exercises.length; i++) {
       exercises[i] = exercises[i].copyWith(position: i);
     }
-
     setState(() {
       _pushSession(_session.copyWith(exercises: exercises));
       if (_expandedIndex == index) {
@@ -369,69 +396,20 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         _expandedIndex = _expandedIndex! - 1;
       }
     });
-
-    unawaited(widget.storage.deleteExercise(removed.id).catchError((e, st) {
-      debugPrint('deleteExercise failed: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to save — please try again')),
-        );
-      }
-    }));
-    _saveExerciseOrder();
-
-    // Delete-undo uses a MaterialBanner (top of screen) instead of a bottom
-    // SnackBar. Two reasons: (1) a bottom snackbar would collide with the
-    // camera shutter if the bio swipes to Camera mode before it times out,
-    // and (2) banners are the semantically-correct Material component for
-    // a dismissable top notification with an action.
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentMaterialBanner();
-    messenger.clearSnackBars();
-    messenger.showMaterialBanner(
-      MaterialBanner(
-        backgroundColor: AppColors.surfaceBase,
-        contentTextStyle: const TextStyle(color: AppColors.textOnDark),
-        content: Text(
-          '${removed.name ?? 'Exercise ${index + 1}'} deleted',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              messenger.hideCurrentMaterialBanner();
-              await widget.storage.saveExercise(removed);
-              await _refreshSession();
-            },
-            child: const Text(
-              'Undo',
-              style: TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () => messenger.hideCurrentMaterialBanner(),
-            child: const Text(
-              'Dismiss',
-              style: TextStyle(color: AppColors.textSecondaryOnDark),
-            ),
-          ),
-        ],
-      ),
+    unawaited(
+      widget.storage.deleteExercise(removed.id).catchError((e, st) {
+        debugPrint('deleteExercise failed: $e');
+      }),
     );
-    // Auto-hide after 3 seconds (banners don't auto-dismiss by default).
-    Future.delayed(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
-    });
-  }
-
-  Future<void> _refreshSession() async {
-    final refreshed = await widget.storage.getSession(_session.id);
-    if (refreshed != null && mounted) {
-      setState(() => _pushSession(refreshed));
-    }
+    _saveExerciseOrder();
+    showUndoSnackBar(
+      context,
+      label: '${removed.name ?? 'Exercise ${index + 1}'} deleted',
+      onUndo: () async {
+        await widget.storage.saveExercise(removed);
+        await _refreshSession();
+      },
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -446,84 +424,76 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     final lowerCircuit = lower.circuitId;
 
     if (upperCircuit == null && lowerCircuit == null) {
-      final newCircuitId = const Uuid().v4();
-      exercises[upperIndex] = upper.copyWith(circuitId: newCircuitId);
-      exercises[lowerIndex] = lower.copyWith(circuitId: newCircuitId);
+      final newId = const Uuid().v4();
+      exercises[upperIndex] = upper.copyWith(circuitId: newId);
+      exercises[lowerIndex] = lower.copyWith(circuitId: newId);
     } else if (upperCircuit != null && lowerCircuit == null) {
       exercises[lowerIndex] = lower.copyWith(circuitId: upperCircuit);
     } else if (upperCircuit == null && lowerCircuit != null) {
       exercises[upperIndex] = upper.copyWith(circuitId: lowerCircuit);
     } else if (upperCircuit != lowerCircuit) {
-      final targetId = upperCircuit!;
-      final sourceId = lowerCircuit!;
+      final target = upperCircuit!;
+      final source = lowerCircuit!;
       for (var i = 0; i < exercises.length; i++) {
-        if (exercises[i].circuitId == sourceId) {
-          exercises[i] = exercises[i].copyWith(circuitId: targetId);
+        if (exercises[i].circuitId == source) {
+          exercises[i] = exercises[i].copyWith(circuitId: target);
         }
       }
-      var updatedCycles = Map<String, int>.from(_session.circuitCycles);
-      if (!updatedCycles.containsKey(targetId) &&
-          updatedCycles.containsKey(sourceId)) {
-        updatedCycles[targetId] = updatedCycles[sourceId]!;
+      final updatedCycles =
+          Map<String, int>.from(_session.circuitCycles);
+      if (!updatedCycles.containsKey(target) &&
+          updatedCycles.containsKey(source)) {
+        updatedCycles[target] = updatedCycles[source]!;
       }
-      updatedCycles.remove(sourceId);
+      updatedCycles.remove(source);
       _pushSession(_session.copyWith(circuitCycles: updatedCycles));
-      unawaited(widget.storage.saveSession(_session).catchError((e, st) {
-        debugPrint('saveSession failed: $e');
-      }));
     }
-
     setState(() {
       _pushSession(_session.copyWith(exercises: exercises));
     });
     _saveAllExercises(exercises);
+    unawaited(widget.storage.saveSession(_session).catchError((e, st) {
+      debugPrint('saveSession failed: $e');
+    }));
   }
 
-  void _unlinkExercises(int upperIndex, int lowerIndex) {
+  void _breakCircuit(String circuitId) {
+    // Remove the circuit-id from every member. Restore via undo.
+    final originalExercises =
+        List<ExerciseCapture>.from(_session.exercises);
+    final originalCycles = Map<String, int>.from(_session.circuitCycles);
     final exercises = List<ExerciseCapture>.from(_session.exercises);
-    final circuitId = exercises[upperIndex].circuitId;
-    if (circuitId == null) return;
-
-    final circuitMembers = <int>[];
     for (var i = 0; i < exercises.length; i++) {
       if (exercises[i].circuitId == circuitId) {
-        circuitMembers.add(i);
+        exercises[i] = exercises[i].copyWith(clearCircuitId: true);
       }
     }
-
-    final splitPos = circuitMembers.indexOf(lowerIndex);
-    if (splitPos < 0) return;
-
-    final upperGroup = circuitMembers.sublist(0, splitPos);
-    final lowerGroup = circuitMembers.sublist(splitPos);
-
-    if (upperGroup.length == 1) {
-      exercises[upperGroup[0]] =
-          exercises[upperGroup[0]].copyWith(clearCircuitId: true);
-    }
-
-    if (lowerGroup.length == 1) {
-      exercises[lowerGroup[0]] =
-          exercises[lowerGroup[0]].copyWith(clearCircuitId: true);
-    } else {
-      final newCircuitId = const Uuid().v4();
-      for (final idx in lowerGroup) {
-        exercises[idx] = exercises[idx].copyWith(circuitId: newCircuitId);
-      }
-      var updatedCycles = Map<String, int>.from(_session.circuitCycles);
-      if (updatedCycles.containsKey(circuitId)) {
-        updatedCycles[newCircuitId] = updatedCycles[circuitId]!;
-      }
-      _pushSession(_session.copyWith(circuitCycles: updatedCycles));
-      unawaited(widget.storage.saveSession(_session).catchError((e, st) {
-        debugPrint('saveSession failed: $e');
-      }));
-    }
-
+    final updatedCycles = Map<String, int>.from(_session.circuitCycles);
+    updatedCycles.remove(circuitId);
     setState(() {
-      _pushSession(_session.copyWith(exercises: exercises));
+      _pushSession(_session.copyWith(
+        exercises: exercises,
+        circuitCycles: updatedCycles,
+      ));
     });
     _saveAllExercises(exercises);
+    unawaited(widget.storage.saveSession(_session).catchError((e, st) {
+      debugPrint('saveSession failed: $e');
+    }));
+    showUndoSnackBar(
+      context,
+      label: 'Circuit broken',
+      onUndo: () async {
+        setState(() {
+          _pushSession(_session.copyWith(
+            exercises: originalExercises,
+            circuitCycles: originalCycles,
+          ));
+        });
+        await _saveAllExercises(originalExercises);
+        await widget.storage.saveSession(_session);
+      },
+    );
   }
 
   void _setCircuitCycles(String circuitId, int cycles) {
@@ -535,48 +505,105 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     }));
   }
 
+  void _renameCircuit(String circuitId, String name) {
+    // Circuit "name" is not yet a first-class session field — we piggy-back
+    // on circuitCycles for the spec's MVP. Persist as a
+    // circuitId -> count map; names live in-memory until a follow-up
+    // migration adds a dedicated column. For now: no-op.
+    //
+    // Leaving the hook wired so the sheet's name field still feels alive.
+    // If callers need the value they can read it back from the sheet's
+    // returned CircuitSheetResult.
+  }
+
   Future<void> _saveAllExercises(List<ExerciseCapture> exercises) async {
     for (final ex in exercises) {
       await widget.storage.saveExercise(ex);
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Preview
-  // ---------------------------------------------------------------------------
-
-  /// Open the full PlanPreviewScreen positioned on the slide for the
-  /// exercise at [dataIndex]. Circuit members land on their first round.
-  /// Retained for a future Studio-level "Preview workout" entry point —
-  /// the thumbnail tap now goes to [_openMediaViewer] instead.
-  // ignore: unused_element
-  void _openPlanPreviewAt(int dataIndex) {
-    final slideIndex = PlanPreviewScreen.slideIndexForExerciseIndex(
-      _session,
-      dataIndex,
+  Future<void> _openCircuitSheet(String circuitId) async {
+    final cycles = _session.getCircuitCycles(circuitId);
+    final letter = _circuitLetter(circuitId);
+    final result = await showCircuitControlSheet(
+      context,
+      initialName: 'Circuit $letter',
+      initialCycles: cycles,
+      minCycles: 1,
+      maxCycles: 10,
+      breakLocked: _isPublishLocked,
     );
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PlanPreviewScreen(
-          session: _session,
-          initialSlideIndex: slideIndex,
-        ),
-      ),
-    );
+    if (result == null) return;
+    _renameCircuit(circuitId, result.name);
+    if (result.breakCircuit) {
+      _breakCircuit(circuitId);
+    } else {
+      _setCircuitCycles(circuitId, result.cycles);
+    }
   }
 
-  /// Lightweight full-screen viewer for the media behind a thumbnail.
-  /// Not the workout simulator — just "show me the content". Video
-  /// exercises get a looping autoplay player; photos get a zoomable
-  /// Image.file; rest periods are silently ignored (no media).
-  void _openMediaViewer(ExerciseCapture exercise) {
-    if (exercise.isRest) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => _MediaViewer(exercise: exercise),
-      ),
-    );
+  /// Stable A/B/C… letter for a circuit id based on its first-appearance
+  /// order in the current exercise list. Used only for display.
+  String _circuitLetter(String circuitId) {
+    final seen = <String>{};
+    final letters = <String, int>{};
+    var idx = 0;
+    for (final ex in _session.exercises) {
+      final cid = ex.circuitId;
+      if (cid == null) continue;
+      if (seen.add(cid)) {
+        letters[cid] = idx++;
+      }
+    }
+    final i = letters[circuitId] ?? 0;
+    return String.fromCharCode('A'.codeUnitAt(0) + (i % 26));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reorder
+  // ---------------------------------------------------------------------------
+
+  void _onReorder(int oldVisualIndex, int newVisualIndex) {
+    // Reorder is a "credit-costing" structural change once the plan is
+    // locked. Intercept and surface the tooltip-toast instead.
+    if (_isPublishLocked) {
+      showPublishLockToast(context);
+      return;
+    }
+    if (newVisualIndex > oldVisualIndex) newVisualIndex--;
+    if (oldVisualIndex == newVisualIndex) return;
+
+    final len = _session.exercises.length;
+    final oldIndex = len - 1 - oldVisualIndex;
+    final newIndex = len - 1 - newVisualIndex;
+
+    setState(() {
+      _expandedIndex = null;
+      _activeInsertIndex = null;
+      final exercises = List<ExerciseCapture>.from(_session.exercises);
+      final moved = exercises.removeAt(oldIndex);
+      exercises.insert(newIndex, moved);
+
+      for (var i = 0; i < exercises.length; i++) {
+        exercises[i] = exercises[i].copyWith(position: i);
+      }
+
+      // Circuit orphan cleanup.
+      for (var i = 0; i < exercises.length; i++) {
+        if (exercises[i].circuitId == null) continue;
+        final cid = exercises[i].circuitId;
+        final prevSame = i > 0 && exercises[i - 1].circuitId == cid;
+        final nextSame = i < exercises.length - 1 &&
+            exercises[i + 1].circuitId == cid;
+        if (!prevSame && !nextSame) {
+          exercises[i] = exercises[i].copyWith(clearCircuitId: true);
+        }
+      }
+
+      _pushSession(_session.copyWith(exercises: exercises));
+    });
+    _saveExerciseOrder();
+    HapticFeedback.selectionClick();
   }
 
   // ---------------------------------------------------------------------------
@@ -587,75 +614,10 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.surfaceBg,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-          tooltip: 'Back to sessions',
-        ),
-        title: _isEditingName
-            ? TextField(
-                controller: _nameController,
-                focusNode: _nameFocusNode,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.5,
-                  fontSize: 20,
-                  color: AppColors.textOnDark,
-                ),
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-                onSubmitted: (_) => _saveClientName(),
-              )
-            : GestureDetector(
-                onTap: _startEditingName,
-                child: CustomPaint(
-                  painter:
-                      _DashedUnderlinePainter(color: AppColors.grey500),
-                  child: Text(
-                    _session.clientName,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.5,
-                      color: AppColors.textOnDark,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-        backgroundColor: AppColors.surfaceBase,
-        foregroundColor: AppColors.textOnDark,
-        elevation: 0,
-        actions: [
-          // Import-from-library — multi-select. Lives in studio because
-          // it's prep work (capture happens in Camera mode).
-          IconButton(
-            onPressed: _importFromLibrary,
-            icon: const Icon(Icons.photo_library_outlined),
-            tooltip: 'Add from library',
-          ),
-          if (_session.exercises.isNotEmpty)
-            IconButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => PlanPreviewScreen(session: _session),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.slideshow_outlined),
-              tooltip: 'Preview plan',
-            ),
-        ],
-      ),
+      appBar: _buildAppBar(),
       body: Stack(
         children: [
-          _buildBody(),
-          // Right-edge pull-tab hinting at Camera mode.
+          SafeArea(child: _buildBody()),
           Positioned.fill(
             child: ShellPullTab(
               side: ShellPullTabSide.right,
@@ -664,6 +626,48 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () => Navigator.of(context).pop(),
+        tooltip: 'Back to sessions',
+      ),
+      title: InlineEditableText(
+        initialValue: _session.clientName,
+        onCommit: _saveClientName,
+        textStyle: const TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 20,
+          letterSpacing: -0.5,
+          color: AppColors.textOnDark,
+        ),
+      ),
+      backgroundColor: AppColors.surfaceBase,
+      foregroundColor: AppColors.textOnDark,
+      elevation: 0,
+      actions: [
+        IconButton(
+          onPressed: () => _importFromLibrary(),
+          icon: const Icon(Icons.photo_library_outlined),
+          tooltip: 'Add from library',
+        ),
+        if (_session.exercises.isNotEmpty)
+          IconButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => PlanPreviewScreen(session: _session),
+                ),
+              );
+            },
+            icon: const Icon(Icons.slideshow_outlined),
+            tooltip: 'Preview plan',
+          ),
+      ],
     );
   }
 
@@ -676,143 +680,183 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         ),
       );
     }
-    return _buildExerciseList();
+    return Column(
+      children: [
+        _buildSummaryRow(),
+        Expanded(child: _buildExerciseList()),
+      ],
+    );
   }
 
-  /// Empty-state hint. Studio is edit-only — capture happens in Camera
-  /// mode (swipe right or use the pull-tab) and existing media comes in
-  /// via the library icon in the app bar.
   Widget _buildEmptyState() {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: const [
-        Icon(Icons.drive_file_rename_outline,
-            size: 48, color: AppColors.grey500),
+        Icon(
+          Icons.drive_file_rename_outline,
+          size: 48,
+          color: AppColors.textSecondaryOnDark,
+        ),
         SizedBox(height: 12),
         Text(
           'No exercises yet',
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
+            fontFamily: 'Montserrat',
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.3,
             color: AppColors.textOnDark,
           ),
         ),
-        SizedBox(height: 6),
+        SizedBox(height: 8),
         Text(
-          'Swipe right for Camera, or tap the library icon above to import.',
+          'Swipe right to Capture, or tap the library icon to import.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 13, color: AppColors.grey500),
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 14,
+            color: AppColors.textSecondaryOnDark,
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSummaryRow() {
+    final nonRest =
+        _session.exercises.where((e) => !e.isRest).length;
+    final totalDuration = _session.estimatedTotalDurationSeconds;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Row(
+        children: [
+          _Chip(label: '$nonRest exercises'),
+          const SizedBox(width: 8),
+          if (totalDuration > 0)
+            _Chip(label: '~${formatDuration(totalDuration)}'),
+          const Spacer(),
+          _buildPublishLockBadge(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPublishLockBadge() {
+    if (!_session.isPublished) return const SizedBox.shrink();
+    if (_inOpenEditWindow) {
+      final hours = _hoursRemainingInWindow;
+      final warning = hours < 1;
+      return Container(
+        height: 28,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(9999),
+          border: Border.all(
+            color: warning
+                ? AppColors.warning
+                : AppColors.surfaceBorder,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.edit_outlined,
+              size: 14,
+              color: warning
+                  ? AppColors.warning
+                  : AppColors.textSecondaryOnDark,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'Edits open · ${hours}h left',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+                color: warning
+                    ? AppColors.warning
+                    : AppColors.textSecondaryOnDark,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    // Locked
+    return GestureDetector(
+      onTap: () => showPublishLockToast(context),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 28,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(9999),
+          border: Border.all(color: AppColors.surfaceBorder),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.lock_outline,
+              size: 14,
+              color: AppColors.textSecondaryOnDark,
+            ),
+            SizedBox(width: 6),
+            Text(
+              'Edit-only · new structure costs 1 credit',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildExerciseList() {
     final exercises = _session.exercises;
-    final totalDuration = _session.estimatedTotalDurationSeconds;
-    // `reverse: true` makes the scroll origin the bottom of the viewport.
-    // Slivers are laid out bottom-to-top in array order. So sliver[0] sits
-    // at the bottom; sliver[1] sits above it.
-    //
-    // Combined with reversed iteration inside the reorderable list
-    // (visualIndex 0 == newest data item), the newest exercise anchors at
-    // the bottom (thumb zone) even when the list is short.
-    return CustomScrollView(
-      reverse: true,
-      slivers: [
-        SliverReorderableList(
-          itemCount: exercises.length,
-          onReorder: _onReorder,
-          itemBuilder: (context, visualIndex) {
-            final dataIndex = exercises.length - 1 - visualIndex;
-            return _buildExerciseItem(context, dataIndex, visualIndex);
-          },
-        ),
-        if (totalDuration > 0)
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-            sliver: SliverToBoxAdapter(
-              child: Text(
-                'Estimated: ${formatDuration(totalDuration)}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.grey500),
-              ),
-            ),
+    return GestureDetector(
+      // Tap outside the tray dismisses it.
+      onTap: () {
+        if (_activeInsertIndex != null) {
+          setState(() => _activeInsertIndex = null);
+        }
+      },
+      behavior: HitTestBehavior.translucent,
+      child: CustomScrollView(
+        reverse: true,
+        slivers: [
+          SliverReorderableList(
+            itemCount: exercises.length,
+            onReorder: _onReorder,
+            itemBuilder: (context, visualIndex) {
+              final dataIndex = exercises.length - 1 - visualIndex;
+              return KeyedSubtree(
+                key: ValueKey('row_${exercises[dataIndex].id}'),
+                child: _buildRowWithContext(dataIndex, visualIndex),
+              );
+            },
           ),
-      ],
+        ],
+      ),
     );
   }
 
-  /// Builds one exercise row. [dataIndex] is the index into the underlying
-  /// `_session.exercises` list (ascending 0..N-1); [visualIndex] is the
-  /// slot inside the reversed [SliverReorderableList] (0 == bottom of
-  /// viewport == newest).
-  ///
-  /// All circuit/neighbor reasoning uses DATA indices so semantics stay
-  /// identical to the old ascending list. Only drag handles receive
-  /// [visualIndex] because that's what [ReorderableDragStartListener]
-  /// needs to talk to its ancestor list.
-  Widget _buildExerciseItem(
-      BuildContext context, int dataIndex, int visualIndex) {
+  /// One row + the gap below it. Gap always renders (insertion dot /
+  /// circuit rail carry-through / action tray when active).
+  Widget _buildRowWithContext(int dataIndex, int visualIndex) {
     final exercises = _session.exercises;
     final exercise = exercises[dataIndex];
-
-    if (exercise.isRest) {
-      final isInCircuit = exercise.circuitId != null;
-      final restDecoration = isInCircuit
-          ? const BoxDecoration(
-              border: Border(
-                left: BorderSide(color: AppColors.circuit, width: 3),
-              ),
-            )
-          : null;
-
-      return KeyedSubtree(
-        key: ValueKey(exercise.id),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            children: [
-              Container(
-                decoration: restDecoration,
-                padding: isInCircuit ? const EdgeInsets.only(left: 8) : null,
-                child: _RestBar(
-                  key: ValueKey('rest_${exercise.id}'),
-                  exercise: exercise,
-                  index: dataIndex,
-                  onUpdate: (updated) => _updateExercise(dataIndex, updated),
-                  onDelete: () => _deleteExercise(dataIndex),
-                  dragHandle: ReorderableDragStartListener(
-                    index: visualIndex,
-                    child: const SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: Center(
-                        child: Icon(
-                          Icons.drag_handle,
-                          color: AppColors.grey500,
-                          size: 24,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              if (dataIndex < exercises.length - 1)
-                _buildBetweenCardButtons(
-                  upperIndex: dataIndex,
-                  lowerIndex: dataIndex + 1,
-                  isLinked: exercise.circuitId != null &&
-                      exercises[dataIndex + 1].circuitId == exercise.circuitId,
-                ),
-            ],
-          ),
-        ),
-      );
-    }
-
     final isInCircuit = exercise.circuitId != null;
     final isFirstInCircuit = isInCircuit &&
         (dataIndex == 0 ||
@@ -820,1042 +864,305 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     final isLastInCircuit = isInCircuit &&
         (dataIndex == exercises.length - 1 ||
             exercises[dataIndex + 1].circuitId != exercise.circuitId);
-    final hasNextInSameCircuit = isInCircuit &&
-        dataIndex < exercises.length - 1 &&
-        exercises[dataIndex + 1].circuitId == exercise.circuitId;
-    final showBetweenButtons = dataIndex < exercises.length - 1;
-    final isLinkedBelow = showBetweenButtons &&
-        exercise.circuitId != null &&
-        exercises[dataIndex + 1].circuitId == exercise.circuitId;
 
-    return KeyedSubtree(
-      key: ValueKey(exercise.id),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (isFirstInCircuit) _buildCircuitHeader(exercise.circuitId!),
-            _buildReorderableCard(
-              exercise: exercise,
-              dataIndex: dataIndex,
-              visualIndex: visualIndex,
-              isInCircuit: isInCircuit,
-              isFirstInCircuit: isFirstInCircuit,
-              isLastInCircuit: isLastInCircuit,
-              hasNextInSameCircuit: hasNextInSameCircuit,
-            ),
-            if (showBetweenButtons)
-              _buildBetweenCardButtons(
-                upperIndex: dataIndex,
-                lowerIndex: dataIndex + 1,
-                isLinked: isLinkedBelow,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// [ReorderableList] calls this with VISUAL indices (0 == top slot of the
-  /// widget, which in reverse mode is the bottom of the viewport — our
-  /// newest data item). We translate to data indices before running the
-  /// existing reorder/circuit-cleanup logic.
-  void _onReorder(int oldVisualIndex, int newVisualIndex) {
-    // Standard ReorderableList convention: when dragging downward through
-    // the visual list, the framework passes newIndex = oldIndex+1 meaning
-    // "slot after old". Normalise to a pure swap index.
-    if (newVisualIndex > oldVisualIndex) newVisualIndex--;
-    if (oldVisualIndex == newVisualIndex) return;
-
-    final len = _session.exercises.length;
-    // visualIndex 0 is the newest (data index len-1), so reversal is:
-    //   dataIndex = len - 1 - visualIndex.
-    final oldIndex = len - 1 - oldVisualIndex;
-    final newIndex = len - 1 - newVisualIndex;
-
-    setState(() {
-      _expandedIndex = null;
-      final exercises = List<ExerciseCapture>.from(_session.exercises);
-      final moved = exercises.removeAt(oldIndex);
-      exercises.insert(newIndex, moved);
-
-      for (var i = 0; i < exercises.length; i++) {
-        exercises[i] = exercises[i].copyWith(position: i);
+    // Position-number glyph: exercises only, rest/circuit-header
+    // contributions skipped (rests don't increment; header isn't in the
+    // reorderable list).
+    int? positionNumber;
+    if (!exercise.isRest) {
+      int n = 0;
+      for (var i = 0; i <= dataIndex; i++) {
+        if (!exercises[i].isRest) n++;
       }
-
-      // Circuit orphan cleanup
-      for (var i = 0; i < exercises.length; i++) {
-        if (exercises[i].circuitId == null) continue;
-        final cid = exercises[i].circuitId;
-        final prevSame = i > 0 && exercises[i - 1].circuitId == cid;
-        final nextSame =
-            i < exercises.length - 1 && exercises[i + 1].circuitId == cid;
-        if (!prevSame && !nextSame) {
-          exercises[i] = exercises[i].copyWith(clearCircuitId: true);
-        }
-      }
-
-      final circuitCounts = <String, int>{};
-      for (final ex in exercises) {
-        if (ex.circuitId != null) {
-          circuitCounts[ex.circuitId!] =
-              (circuitCounts[ex.circuitId!] ?? 0) + 1;
-        }
-      }
-      for (var i = 0; i < exercises.length; i++) {
-        final cid = exercises[i].circuitId;
-        if (cid != null && circuitCounts[cid] == 1) {
-          exercises[i] = exercises[i].copyWith(clearCircuitId: true);
-        }
-      }
-
-      _pushSession(_session.copyWith(exercises: exercises));
-    });
-    _saveExerciseOrder();
-
-    final movedExercise = _session.exercises[newIndex];
-    if (movedExercise.isRest) {
-      int cumulativeSeconds = 0;
-      for (var i = 0; i < newIndex; i++) {
-        final ex = _session.exercises[i];
-        if (!ex.isRest) {
-          cumulativeSeconds += ex.effectiveDurationSeconds;
-        }
-      }
-      if (cumulativeSeconds > 30) {
-        setState(() {
-          _pushSession(_session.copyWith(
-            preferredRestIntervalSeconds: cumulativeSeconds,
-          ));
-        });
-        unawaited(widget.storage.saveSession(_session).catchError((e, st) {
-          debugPrint('saveSession failed: $e');
-        }));
-      }
+      positionNumber = n;
     }
-  }
 
-  Widget _buildReorderableCard({
-    required ExerciseCapture exercise,
-    required int dataIndex,
-    required int visualIndex,
-    required bool isInCircuit,
-    required bool isFirstInCircuit,
-    required bool isLastInCircuit,
-    required bool hasNextInSameCircuit,
-  }) {
-    final decoration = isInCircuit
-        ? const BoxDecoration(
-            border: Border(
-              left: BorderSide(color: AppColors.circuit, width: 3),
-            ),
-          )
-        : null;
-
-    return Container(
-      decoration: decoration,
-      padding: isInCircuit ? const EdgeInsets.only(left: 8) : null,
-      child: Dismissible(
-        key: ValueKey('dismiss_${exercise.id}'),
-        direction: DismissDirection.endToStart,
-        onDismissed: (_) => _deleteExercise(dataIndex),
-        background: Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            color: AppColors.error,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 24),
-          child:
-              const Icon(Icons.delete_outline, color: Colors.white, size: 28),
-        ),
-        child: _ExerciseCard(
-          key: ValueKey('card_${exercise.id}'),
-          exercise: exercise,
-          index: dataIndex,
-          isExpanded: _expandedIndex == dataIndex,
-          isInCircuit: isInCircuit,
-          onTap: () {
-            setState(() {
-              _expandedIndex =
-                  _expandedIndex == dataIndex ? null : dataIndex;
-            });
-          },
-          onUpdate: (updated) => _updateExercise(dataIndex, updated),
-          onThumbnailTap: () => _openMediaViewer(exercise),
-          dragHandle: ReorderableDragStartListener(
-            index: visualIndex,
-            child: const SizedBox(
-              width: 44,
-              height: 44,
-              child: Center(
-                child: Icon(
-                  Icons.drag_handle,
-                  color: AppColors.grey500,
-                  size: 24,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCircuitHeader(String circuitId) {
-    final cycles = _session.getCircuitCycles(circuitId);
-    return Container(
-      decoration: const BoxDecoration(
-        border: Border(
-          left: BorderSide(color: AppColors.circuit, width: 3),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.only(left: 12, top: 4, bottom: 4),
-        child: Row(
-          children: [
-            const Icon(Icons.repeat, size: 16, color: AppColors.circuit),
-            const SizedBox(width: 6),
-            const Text(
-              'Circuit',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: AppColors.circuit,
-                letterSpacing: -0.3,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '$cycles',
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: AppColors.circuit,
-              ),
-            ),
-            Text(
-              cycles == 1 ? ' cycle' : ' cycles',
-              style: TextStyle(
-                fontSize: 12,
-                color: AppColors.circuit.withValues(alpha: 0.7),
-              ),
-            ),
-            Expanded(
-              child: SliderTheme(
-                data: SliderThemeData(
-                  trackHeight: 3,
-                  activeTrackColor: AppColors.circuit,
-                  inactiveTrackColor:
-                      AppColors.circuit.withValues(alpha: 0.2),
-                  thumbColor: AppColors.circuit,
-                  thumbShape: const _RectangularSliderThumbShape(
-                      width: 6, height: 18, radius: 3),
-                  overlayShape:
-                      const RoundSliderOverlayShape(overlayRadius: 14),
-                  overlayColor: AppColors.circuit.withValues(alpha: 0.12),
-                ),
-                child: Slider(
-                  value: cycles.clamp(1, 5).toDouble(),
-                  min: 1,
-                  max: 5,
-                  divisions: 4,
-                  onChanged: (v) => _setCircuitCycles(circuitId, v.round()),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBetweenCardButtons({
-    required int upperIndex,
-    required int lowerIndex,
-    required bool isLinked,
-  }) {
-    final exercises = _session.exercises;
-    final upperInCircuit = exercises[upperIndex].circuitId != null;
-    final lowerInCircuit = exercises[lowerIndex].circuitId != null;
-    final sameContinuousCircuit = isLinked && upperInCircuit && lowerInCircuit;
-
-    final buttons = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GestureDetector(
-            onTap: () {
-              if (isLinked) {
-                _unlinkExercises(upperIndex, lowerIndex);
-              } else {
-                _linkExercises(upperIndex, lowerIndex);
-              }
-            },
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isLinked
-                    ? AppColors.circuit
-                    : AppColors.surfaceRaised,
-                border: Border.all(
-                  color: isLinked ? AppColors.circuit : AppColors.grey500,
-                  width: 1.5,
+          // Circuit header — sits above the first card of each circuit.
+          if (isFirstInCircuit)
+            _buildCircuitHeaderRow(exercise.circuitId!),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Gutter cell.
+                ReorderableDelayedDragStartListener(
+                  index: visualIndex,
+                  child: GutterCardCell(
+                    numberGlyph: positionNumber,
+                    isInCircuit: isInCircuit,
+                    isFirstInCircuit: isFirstInCircuit,
+                    isLastInCircuit: isLastInCircuit,
+                    dimmed: _isPublishLocked,
+                  ),
                 ),
-              ),
-              child: Icon(
-                isLinked ? Icons.link : Icons.link_off,
-                size: 14,
-                color: isLinked ? Colors.white : AppColors.grey500,
-              ),
+                const SizedBox(width: 4),
+                // Card column.
+                Expanded(
+                  child: exercise.isRest
+                      ? _buildRestRow(dataIndex)
+                      : ReorderableDelayedDragStartListener(
+                          index: visualIndex,
+                          child: StudioExerciseCard(
+                            key: ValueKey('card_${exercise.id}'),
+                            exercise: exercise,
+                            isExpanded: _expandedIndex == dataIndex,
+                            isInCircuit: isInCircuit,
+                            onTap: () {
+                              setState(() {
+                                _expandedIndex =
+                                    _expandedIndex == dataIndex
+                                        ? null
+                                        : dataIndex;
+                                _activeInsertIndex = null;
+                              });
+                            },
+                            onUpdate: (u) =>
+                                _updateExercise(dataIndex, u),
+                            onThumbnailTap: () =>
+                                _openMediaViewer(exercise),
+                            onReplaceMedia: () =>
+                                _replaceMedia(dataIndex),
+                            onDelete: () {
+                              if (_isPublishLocked) {
+                                showPublishLockToast(context);
+                                return;
+                              }
+                              _deleteExercise(dataIndex);
+                            },
+                          ),
+                        ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 12),
-          GestureDetector(
-            onTap: () => _insertRestBetween(lowerIndex),
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.surfaceRaised,
-                border: Border.all(color: AppColors.rest, width: 1.5),
-              ),
-              child: const Icon(
-                Icons.self_improvement,
-                size: 14,
-                color: AppColors.rest,
+          // Gap below this card (unless it's the last card).
+          if (dataIndex < exercises.length - 1)
+            _buildGap(dataIndex + 1, exercise, exercises[dataIndex + 1]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRestRow(int dataIndex) {
+    final exercise = _session.exercises[dataIndex];
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      height: 48,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.rest.withValues(alpha: 0.3),
+        ),
+      ),
+      child: _RestBar(
+        exercise: exercise,
+        onUpdate: (u) => _updateExercise(dataIndex, u),
+        onDelete: () {
+          _deleteExercise(dataIndex);
+        },
+      ),
+    );
+  }
+
+  Widget _buildCircuitHeaderRow(String circuitId) {
+    final cycles = _session.getCircuitCycles(circuitId);
+    final letter = _circuitLetter(circuitId);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const GutterSpacerCell(height: 32, railThrough: true),
+          const SizedBox(width: 4),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => _openCircuitSheet(circuitId),
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                height: 32,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: const BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: AppColors.brandTintBorder,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      'CIRCUIT $letter',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.5,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      height: 24,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.brandTintBg,
+                        borderRadius: BorderRadius.circular(9999),
+                        border: Border.all(
+                          color: AppColors.brandTintBorder,
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '×$cycles',
+                        style: const TextStyle(
+                          fontFamily: 'JetBrainsMono',
+                          fontFamilyFallback: ['Menlo', 'Courier'],
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ],
       ),
     );
-
-    if (sameContinuousCircuit) {
-      return Container(
-        decoration: const BoxDecoration(
-          border: Border(
-            left: BorderSide(color: AppColors.circuit, width: 3),
-          ),
-        ),
-        padding: const EdgeInsets.only(left: 8),
-        child: buttons,
-      );
-    }
-    return buttons;
-  }
-}
-
-// =============================================================================
-// Private helper widgets — extracted wholesale from session_capture_screen
-// =============================================================================
-
-class _ExerciseCard extends StatefulWidget {
-  final ExerciseCapture exercise;
-  final int index;
-  final bool isExpanded;
-  final bool isInCircuit;
-  final VoidCallback onTap;
-  final ValueChanged<ExerciseCapture> onUpdate;
-  final VoidCallback onThumbnailTap;
-  final Widget? dragHandle;
-
-  const _ExerciseCard({
-    super.key,
-    required this.exercise,
-    required this.index,
-    required this.isExpanded,
-    this.isInCircuit = false,
-    required this.onTap,
-    required this.onUpdate,
-    required this.onThumbnailTap,
-    this.dragHandle,
-  });
-
-  @override
-  State<_ExerciseCard> createState() => _ExerciseCardState();
-}
-
-class _ExerciseCardState extends State<_ExerciseCard> {
-  late double _repsValue;
-  late double _setsValue;
-  late double _holdValue;
-  late TextEditingController _notesController;
-
-  bool _isEditingName = false;
-  late TextEditingController _nameController;
-  final FocusNode _nameFocusNode = FocusNode();
-
-  bool _isSettingsOpen = false;
-  bool _isNotesOpen = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _repsValue = (widget.exercise.reps ?? 10).toDouble();
-    _setsValue = (widget.exercise.sets ?? 3).toDouble();
-    _holdValue = (widget.exercise.holdSeconds ?? 0).toDouble();
-    _notesController =
-        TextEditingController(text: widget.exercise.notes ?? '');
-    _nameController = TextEditingController(
-      text: widget.exercise.name ?? 'Exercise ${widget.index + 1}',
-    );
-    _nameFocusNode.addListener(_onNameFocusChange);
   }
 
-  @override
-  void didUpdateWidget(covariant _ExerciseCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.exercise.id != widget.exercise.id) {
-      _repsValue = (widget.exercise.reps ?? 10).toDouble();
-      _setsValue = (widget.exercise.sets ?? 3).toDouble();
-      _holdValue = (widget.exercise.holdSeconds ?? 0).toDouble();
-      _notesController.text = widget.exercise.notes ?? '';
-      _nameController.text =
-          widget.exercise.name ?? 'Exercise ${widget.index + 1}';
-      _isEditingName = false;
-      _isSettingsOpen = false;
-      _isNotesOpen = false;
-    }
-    if (oldWidget.isExpanded && !widget.isExpanded) {
-      _isSettingsOpen = false;
-      _isNotesOpen = false;
-    }
-  }
+  /// A gutter gap between two cards at `[lowerIndex - 1]` and
+  /// `[lowerIndex]`. Shows the insertion dot + the inline action tray
+  /// when active.
+  Widget _buildGap(
+    int lowerIndex,
+    ExerciseCapture upper,
+    ExerciseCapture lower,
+  ) {
+    final isActive = _activeInsertIndex == lowerIndex;
+    final sameCircuit = upper.circuitId != null &&
+        upper.circuitId == lower.circuitId;
 
-  @override
-  void dispose() {
-    _notesController.dispose();
-    _nameController.dispose();
-    _nameFocusNode.removeListener(_onNameFocusChange);
-    _nameFocusNode.dispose();
-    super.dispose();
-  }
+    final showRest = !upper.isRest && !lower.isRest;
+    final showLink = !sameCircuit && !upper.isRest && !lower.isRest;
 
-  void _onNameFocusChange() {
-    if (!_nameFocusNode.hasFocus && _isEditingName) {
-      _saveExerciseName();
-    }
-  }
-
-  String get _displayName =>
-      widget.exercise.name ?? 'Exercise ${widget.index + 1}';
-
-  void _startEditingName() {
-    _nameController.text = _displayName;
-    setState(() => _isEditingName = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _nameFocusNode.requestFocus();
-      _nameController.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: _nameController.text.length,
-      );
-    });
-  }
-
-  void _saveExerciseName() {
-    final newName = _nameController.text.trim();
-    if (newName.isNotEmpty && newName != _displayName) {
-      final isDefault = newName == 'Exercise ${widget.index + 1}';
-      widget.onUpdate(widget.exercise.copyWith(
-        name: isDefault ? null : newName,
-        clearName: isDefault,
-      ));
-    }
-    setState(() => _isEditingName = false);
-  }
-
-  void _save() {
-    widget.onUpdate(widget.exercise.copyWith(
-      reps: _repsValue.round(),
-      sets: _setsValue.round(),
-      holdSeconds: _holdValue.round(),
-      notes: _notesController.text.isEmpty ? null : _notesController.text,
-    ));
-  }
-
-  static const _sliderTheme = SliderThemeData(
-    trackHeight: 8,
-    activeTrackColor: AppColors.primary,
-    inactiveTrackColor: AppColors.surfaceBorder,
-    thumbColor: AppColors.primary,
-    thumbShape: _RectangularSliderThumbShape(width: 8, height: 24, radius: 4),
-    overlayShape: RoundSliderOverlayShape(overlayRadius: 20),
-    overlayColor: Color(0x1FFF6B35),
-    trackShape: RoundedRectSliderTrackShape(),
-  );
-
-  Widget _buildStatusIcon() {
-    switch (widget.exercise.conversionStatus) {
-      case ConversionStatus.pending:
-      case ConversionStatus.converting:
-        return const SizedBox(
-          width: 16,
-          height: 16,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: AppColors.grey500,
-          ),
-        );
-      case ConversionStatus.done:
-        return const Icon(Icons.check_circle,
-            size: 18, color: AppColors.success);
-      case ConversionStatus.failed:
-        return const Icon(Icons.error_outline,
-            size: 18, color: AppColors.error);
-    }
-  }
-
-  Widget _buildAudioToggle() {
-    final isOn = widget.exercise.includeAudio;
-    return GestureDetector(
-      onTap: () {
-        widget.onUpdate(widget.exercise.copyWith(includeAudio: !isOn));
-      },
-      child: Padding(
-        padding: const EdgeInsets.all(2),
-        child: Icon(
-          isOn ? Icons.mic : Icons.mic_off,
-          size: 18,
-          color: isOn ? AppColors.circuit : AppColors.grey500,
-        ),
-      ),
-    );
-  }
-
-  String _buildSettingsSummary() {
-    final parts = <String>[];
-    parts.add('${_repsValue.round()} reps');
-    if (!widget.isInCircuit) parts.add('${_setsValue.round()} sets');
-    if (_holdValue.round() > 0) parts.add('${_holdValue.round()}s hold');
-    final duration = widget.exercise.effectiveDurationSeconds;
-    final isCustom = widget.exercise.customDurationSeconds != null;
-    parts.add(isCustom
-        ? formatDuration(duration)
-        : '~${formatDuration(duration)}');
-    return parts.join(' \u00b7 ');
-  }
-
-  void _setCustomDuration(int seconds) {
-    widget.onUpdate(widget.exercise.copyWith(customDurationSeconds: seconds));
-  }
-
-  void _clearCustomDuration() {
-    widget.onUpdate(widget.exercise.copyWith(clearCustomDuration: true));
-  }
-
-  Widget _buildSubSection({
-    required String title,
-    String? subtitle,
-    required bool isOpen,
-    required VoidCallback onToggle,
-    required Widget child,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: onToggle,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceRaised,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  isOpen ? Icons.expand_more : Icons.chevron_right,
-                  size: 20,
-                  color: AppColors.textSecondaryOnDark,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondaryOnDark,
-                  ),
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.grey500,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
-                    ),
-                  ),
-                ] else
-                  const Spacer(),
-              ],
-            ),
-          ),
-        ),
-        if (isOpen)
-          Padding(
-            padding: const EdgeInsets.only(top: 8, left: 4, right: 4),
-            child: child,
-          ),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      color: AppColors.surfaceBase,
-      margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: AppColors.surfaceBorder, width: 1),
-      ),
-      child: InkWell(
-        onTap: widget.onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  // Tap thumbnail to open the full plan preview on this
-                  // exercise's slide. Expand/collapse now lives solely on
-                  // the chevron (see below) so the two affordances don't
-                  // fight for the same gesture.
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: widget.onThumbnailTap,
-                    child: CaptureThumbnail(
-                        exercise: widget.exercise, size: 56),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: _isEditingName
-                              ? TextField(
-                                  controller: _nameController,
-                                  focusNode: _nameFocusNode,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 15,
-                                    color: AppColors.textOnDark,
-                                  ),
-                                  textCapitalization:
-                                      TextCapitalization.words,
-                                  decoration: const InputDecoration(
-                                    border: InputBorder.none,
-                                    isDense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                  ),
-                                  onSubmitted: (_) => _saveExerciseName(),
-                                )
-                              : GestureDetector(
-                                  onTap: _startEditingName,
-                                  child: CustomPaint(
-                                    painter: _DashedUnderlinePainter(
-                                        color: AppColors.grey500),
-                                    child: Text(
-                                      _displayName,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 15,
-                                        color: AppColors.textOnDark,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ),
-                        ),
-                        const SizedBox(width: 6),
-                        _buildStatusIcon(),
-                        if (widget.exercise.mediaType == MediaType.video) ...[
-                          const SizedBox(width: 4),
-                          _buildAudioToggle(),
-                        ],
-                      ],
-                    ),
-                  ),
-                  // Chevron + drag handle: paired controls on the right. The
-                  // chevron has its own 44x44 GestureDetector so the tap
-                  // lands here even though the whole card is an InkWell
-                  // (the detector wins the gesture arena for pointer-downs
-                  // inside the 44x44 box). Keeping both icons at 24px /
-                  // AppColors.grey500 makes them read as a unit.
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: widget.onTap,
-                    child: SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: Center(
-                        child: Icon(
-                          widget.isExpanded
-                              ? Icons.expand_less
-                              : Icons.expand_more,
-                          color: AppColors.grey500,
-                          size: 24,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (widget.dragHandle != null) widget.dragHandle!,
-                ],
-              ),
-              if (widget.isExpanded) ...[
-                const SizedBox(height: 12),
-                const Divider(height: 1),
-                const SizedBox(height: 12),
-                if (widget.exercise.conversionStatus ==
-                    ConversionStatus.failed)
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF3B1111),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                          color: AppColors.error.withValues(alpha: 0.4)),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.error_outline,
-                            color: Color(0xFFFCA5A5), size: 20),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Line drawing conversion failed. The original is preserved.',
-                            style: TextStyle(
-                                color: Color(0xFFFCA5A5), fontSize: 13),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                _buildSubSection(
-                  title: _buildSettingsSummary(),
-                  isOpen: _isSettingsOpen,
-                  onToggle: () =>
-                      setState(() => _isSettingsOpen = !_isSettingsOpen),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _SliderRow(
-                        label: 'Reps',
-                        value: _repsValue,
-                        min: 1,
-                        max: 30,
-                        divisions: 29,
-                        displayValue: _repsValue.round().toString(),
-                        theme: _sliderTheme,
-                        onChanged: (v) {
-                          setState(() => _repsValue = v);
-                          _save();
-                        },
-                      ),
-                      if (!widget.isInCircuit)
-                        _SliderRow(
-                          label: 'Sets',
-                          value: _setsValue,
-                          min: 1,
-                          max: 10,
-                          divisions: 9,
-                          displayValue: _setsValue.round().toString(),
-                          theme: _sliderTheme,
-                          onChanged: (v) {
-                            setState(() => _setsValue = v);
-                            _save();
-                          },
-                        ),
-                      _SliderRow(
-                        label: 'Hold',
-                        value: _holdValue,
-                        min: 0,
-                        max: 120,
-                        divisions: 24,
-                        displayValue: _holdValue.round() == 0
-                            ? 'Off'
-                            : '${_holdValue.round()}s',
-                        theme: _sliderTheme,
-                        onChanged: (v) {
-                          setState(() => _holdValue = v);
-                          _save();
-                        },
-                      ),
-                      const SizedBox(height: 4),
-                      _DurationSliderInline(
-                        currentSeconds:
-                            widget.exercise.effectiveDurationSeconds,
-                        isCustom:
-                            widget.exercise.customDurationSeconds != null,
-                        onChanged: _setCustomDuration,
-                        onReset: _clearCustomDuration,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 4),
-                _buildSubSection(
-                  title: 'Notes',
-                  subtitle: widget.exercise.notes?.isNotEmpty == true
-                      ? widget.exercise.notes!.substring(
-                          0,
-                          min(30, widget.exercise.notes!.length),
-                        )
-                      : 'Add notes...',
-                  isOpen: _isNotesOpen,
-                  onToggle: () =>
-                      setState(() => _isNotesOpen = !_isNotesOpen),
-                  child: TextField(
-                    controller: _notesController,
-                    decoration: const InputDecoration(
-                      labelText: 'Notes',
-                      hintText: 'e.g. Keep back straight, slow on the way down',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    maxLines: 2,
-                    textCapitalization: TextCapitalization.sentences,
-                    onChanged: (_) => _save(),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// -----------------------------------------------------------------------------
-// Slider row / duration slider / rest bar — copied verbatim from legacy file
-// -----------------------------------------------------------------------------
-
-class _SliderRow extends StatelessWidget {
-  final String label;
-  final double value;
-  final double min;
-  final double max;
-  final int divisions;
-  final String displayValue;
-  final SliderThemeData theme;
-  final ValueChanged<double> onChanged;
-
-  const _SliderRow({
-    required this.label,
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.divisions,
-    required this.displayValue,
-    required this.theme,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // Vertical layout: label + value share the top row (label grows to fill,
-    // value right-aligned), slider gets the full width below. Removes the
-    // label truncation problem entirely — "Reps" now has the whole card
-    // width to breathe in, not a clamped 34px box.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondaryOnDark,
-                ),
-              ),
-            ),
-            Text(
-              displayValue,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textOnDark,
-              ),
-            ),
-          ],
-        ),
-        SliderTheme(
-          data: theme,
-          child: Slider(
-            value: value,
-            min: min,
-            max: max,
-            divisions: divisions,
-            onChanged: onChanged,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _DurationSliderInline extends StatefulWidget {
-  final int currentSeconds;
-  final bool isCustom;
-  final ValueChanged<int> onChanged;
-  final VoidCallback onReset;
-
-  const _DurationSliderInline({
-    required this.currentSeconds,
-    required this.isCustom,
-    required this.onChanged,
-    required this.onReset,
-  });
-
-  @override
-  State<_DurationSliderInline> createState() => _DurationSliderInlineState();
-}
-
-class _DurationSliderInlineState extends State<_DurationSliderInline> {
-  late double _value;
-
-  @override
-  void initState() {
-    super.initState();
-    _value = _snapToStep(widget.currentSeconds.toDouble());
-  }
-
-  @override
-  void didUpdateWidget(covariant _DurationSliderInline oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.currentSeconds != widget.currentSeconds) {
-      _value = _snapToStep(widget.currentSeconds.toDouble());
-    }
-  }
-
-  double _snapToStep(double v) => (v / 5).round().clamp(2, 120) * 5.0;
-
-  String _formatDuration(int seconds) {
-    if (seconds < 60) return '${seconds}s';
-    final min = seconds ~/ 60;
-    final sec = seconds % 60;
-    if (sec == 0) return '${min}m';
-    return '${min}m ${sec}s';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Same vertical layout as _SliderRow — label row on top (with
-    // right-aligned value), slider gets the full card width below.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'Time',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondaryOnDark,
-                ),
-              ),
-            ),
-            Text(
-              _formatDuration(_value.round()),
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color:
-                    widget.isCustom ? AppColors.circuit : AppColors.textOnDark,
-              ),
-            ),
-          ],
-        ),
-        SliderTheme(
-          data: SliderThemeData(
-            trackHeight: 8,
-            activeTrackColor: AppColors.circuit,
-            inactiveTrackColor: AppColors.surfaceBorder,
-            thumbColor: AppColors.circuit,
-            thumbShape: const _RectangularSliderThumbShape(
-                width: 8, height: 24, radius: 4),
-            overlayShape:
-                const RoundSliderOverlayShape(overlayRadius: 20),
-            overlayColor: AppColors.circuit.withValues(alpha: 0.12),
-            trackShape: const RoundedRectSliderTrackShape(),
-          ),
-          child: Slider(
-            value: _value,
-            min: 10,
-            max: 600,
-            divisions: 118,
-            onChanged: (v) {
-              final snapped = _snapToStep(v);
-              setState(() => _value = snapped);
-              widget.onChanged(snapped.round());
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GutterGapCell(
+            state: isActive
+                ? GutterDotState.active
+                : GutterDotState.idle,
+            continuousRail: sameCircuit,
+            dimmed: _isPublishLocked && !isActive,
+            onTap: () {
+              setState(() {
+                _activeInsertIndex = isActive ? null : lowerIndex;
+                _expandedIndex = null;
+              });
             },
           ),
-        ),
-        if (widget.isCustom)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: GestureDetector(
-              onTap: widget.onReset,
-              child: const Text(
-                'Reset to auto',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppColors.circuit,
-                  decoration: TextDecoration.underline,
-                  decorationColor: AppColors.circuit,
-                ),
-              ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: InlineActionTray(
+              visible: isActive,
+              showRestAction: showRest,
+              showLinkAction: showLink,
+              showInsertAction: true,
+              locked: _isPublishLocked,
+              onLockedAction: () {
+                showPublishLockToast(context);
+                setState(() => _activeInsertIndex = null);
+              },
+              onRestHere: () async {
+                setState(() => _activeInsertIndex = null);
+                await _insertRestBetween(lowerIndex);
+              },
+              onLinkCircuit: () {
+                setState(() => _activeInsertIndex = null);
+                _linkExercises(lowerIndex - 1, lowerIndex);
+              },
+              onInsertExercise: () async {
+                setState(() => _activeInsertIndex = null);
+                await _importFromLibrary(insertAt: lowerIndex);
+              },
+              onClose: () {
+                setState(() => _activeInsertIndex = null);
+              },
             ),
           ),
-      ],
+        ],
+      ),
+    );
+  }
+
+  void _openMediaViewer(ExerciseCapture exercise) {
+    if (exercise.isRest) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _MediaViewer(exercise: exercise),
+      ),
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// Summary chip
+// -----------------------------------------------------------------------------
+
+class _Chip extends StatelessWidget {
+  final String label;
+  const _Chip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(9999),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.5,
+          color: AppColors.textSecondaryOnDark,
+        ),
+      ),
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Rest bar — inline compact widget
+// -----------------------------------------------------------------------------
 
 class _RestBar extends StatefulWidget {
   final ExerciseCapture exercise;
-  final int index;
   final ValueChanged<ExerciseCapture> onUpdate;
   final VoidCallback onDelete;
-  final Widget dragHandle;
 
   const _RestBar({
-    super.key,
     required this.exercise,
-    required this.index,
     required this.onUpdate,
     required this.onDelete,
-    required this.dragHandle,
   });
 
   @override
@@ -1863,198 +1170,115 @@ class _RestBar extends StatefulWidget {
 }
 
 class _RestBarState extends State<_RestBar> {
-  late double _durationValue;
+  late double _duration;
 
   @override
   void initState() {
     super.initState();
-    _durationValue =
-        (widget.exercise.holdSeconds ?? AppConfig.defaultRestDuration)
-            .toDouble();
+    _duration = (widget.exercise.holdSeconds ?? 30).toDouble();
   }
 
   @override
-  void didUpdateWidget(covariant _RestBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.exercise.id != widget.exercise.id) {
-      _durationValue =
-          (widget.exercise.holdSeconds ?? AppConfig.defaultRestDuration)
-              .toDouble();
+  void didUpdateWidget(covariant _RestBar old) {
+    super.didUpdateWidget(old);
+    if (old.exercise.id != widget.exercise.id) {
+      _duration = (widget.exercise.holdSeconds ?? 30).toDouble();
     }
   }
 
-  String _formatDuration(int seconds) {
+  String _format(int seconds) {
     if (seconds < 60) return '${seconds}s';
-    final min = seconds ~/ 60;
-    final sec = seconds % 60;
-    if (sec == 0) return '$min min';
-    return '${min}m ${sec}s';
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    if (s == 0) return '${m}m';
+    return '${m}m${s}s';
   }
 
   @override
   Widget build(BuildContext context) {
-    final seconds = _durationValue.round();
-    return Container(
-      height: 48,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.surfaceBorder, width: 1),
-      ),
-      child: Row(
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 8, right: 6),
-            child: Icon(
-              Icons.self_improvement,
-              size: 18,
-              color: AppColors.rest,
+    final seconds = _duration.round();
+    return Row(
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(left: 12),
+          child: Icon(
+            Icons.self_improvement,
+            size: 18,
+            color: AppColors.rest,
+          ),
+        ),
+        const SizedBox(width: 8),
+        const Text(
+          'Rest',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: AppColors.rest,
+          ),
+        ),
+        Expanded(
+          child: SliderTheme(
+            data: SliderThemeData(
+              trackHeight: 4,
+              activeTrackColor: AppColors.rest,
+              inactiveTrackColor:
+                  AppColors.rest.withValues(alpha: 0.2),
+              thumbColor: AppColors.rest,
+              overlayColor: AppColors.rest.withValues(alpha: 0.12),
+              thumbShape:
+                  const RoundSliderThumbShape(enabledThumbRadius: 6),
+              overlayShape:
+                  const RoundSliderOverlayShape(overlayRadius: 14),
+              trackShape: const RoundedRectSliderTrackShape(),
+            ),
+            child: Slider(
+              value: _duration,
+              min: 5,
+              max: 300,
+              divisions: 59,
+              onChanged: (v) {
+                setState(() => _duration = v);
+                widget.onUpdate(
+                  widget.exercise.copyWith(holdSeconds: v.round()),
+                );
+              },
             ),
           ),
-          const Text(
-            'Rest',
-            style: TextStyle(
-              fontSize: 13,
+        ),
+        SizedBox(
+          width: 42,
+          child: Text(
+            _format(seconds),
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontFamily: 'JetBrainsMono',
+              fontFamilyFallback: ['Menlo', 'Courier'],
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: AppColors.rest,
             ),
           ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: SliderTheme(
-              data: SliderThemeData(
-                trackHeight: 4,
-                activeTrackColor: AppColors.rest,
-                inactiveTrackColor: AppColors.rest.withValues(alpha: 0.2),
-                thumbColor: AppColors.rest,
-                thumbShape: const _RectangularSliderThumbShape(
-                    width: 6, height: 18, radius: 3),
-                overlayShape:
-                    const RoundSliderOverlayShape(overlayRadius: 14),
-                overlayColor: AppColors.rest.withValues(alpha: 0.12),
-                trackShape: const RoundedRectSliderTrackShape(),
-              ),
-              child: Slider(
-                value: _durationValue,
-                min: 5,
-                max: 300,
-                divisions: 59,
-                onChanged: (v) {
-                  setState(() => _durationValue = v);
-                  widget.onUpdate(
-                    widget.exercise.copyWith(holdSeconds: v.round()),
-                  );
-                },
-              ),
+        ),
+        GestureDetector(
+          onTap: widget.onDelete,
+          behavior: HitTestBehavior.opaque,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Icon(
+              Icons.close,
+              size: 16,
+              color: AppColors.rest,
             ),
           ),
-          SizedBox(
-            width: 42,
-            child: Text(
-              _formatDuration(seconds),
-              textAlign: TextAlign.right,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.rest,
-              ),
-            ),
-          ),
-          GestureDetector(
-            onTap: widget.onDelete,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Icon(
-                Icons.close,
-                size: 16,
-                color: AppColors.rest.withValues(alpha: 0.5),
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          widget.dragHandle,
-        ],
-      ),
+        ),
+      ],
     );
-  }
-}
-
-class _DashedUnderlinePainter extends CustomPainter {
-  final Color color;
-  _DashedUnderlinePainter({this.color = Colors.grey});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1
-      ..style = PaintingStyle.stroke;
-
-    double startX = 0;
-    const dashWidth = 4.0;
-    const dashGap = 3.0;
-    while (startX < size.width) {
-      canvas.drawLine(
-        Offset(startX, size.height),
-        Offset(startX + dashWidth, size.height),
-        paint,
-      );
-      startX += dashWidth + dashGap;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _RectangularSliderThumbShape extends SliderComponentShape {
-  final double width;
-  final double height;
-  final double radius;
-
-  const _RectangularSliderThumbShape({
-    this.width = 8,
-    this.height = 24,
-    this.radius = 4,
-  });
-
-  @override
-  Size getPreferredSize(bool isEnabled, bool isDiscrete) =>
-      Size(width, height);
-
-  @override
-  void paint(
-    PaintingContext context,
-    Offset center, {
-    required Animation<double> activationAnimation,
-    required Animation<double> enableAnimation,
-    required bool isDiscrete,
-    required TextPainter labelPainter,
-    required RenderBox parentBox,
-    required SliderThemeData sliderTheme,
-    required TextDirection textDirection,
-    required double value,
-    required double textScaleFactor,
-    required Size sizeWithOverflow,
-  }) {
-    final canvas = context.canvas;
-    final paint = Paint()
-      ..color = sliderTheme.thumbColor ?? Colors.black87
-      ..style = PaintingStyle.fill;
-    final rect = RRect.fromRectAndRadius(
-      Rect.fromCenter(center: center, width: width, height: height),
-      Radius.circular(radius),
-    );
-    canvas.drawRRect(rect, paint);
   }
 }
 
 // -----------------------------------------------------------------------------
-// Media viewer — full-screen playback/display of a single exercise's media.
-// Not the workout simulator; just "show me the content behind this thumbnail".
-// Reached by tapping the thumbnail on an exercise card.
+// Media viewer — unchanged in behaviour from the legacy file.
 // -----------------------------------------------------------------------------
 
 bool _isStillImageConversion(ExerciseCapture exercise) {
@@ -2086,8 +1310,8 @@ class _MediaViewerState extends State<_MediaViewer> {
   void initState() {
     super.initState();
     if (_isVideo) {
-      final controller =
-          VideoPlayerController.file(File(widget.exercise.displayFilePath));
+      final controller = VideoPlayerController.file(
+          File(widget.exercise.displayFilePath));
       _controller = controller;
       controller.initialize().then((_) {
         if (!mounted) return;
@@ -2123,7 +1347,6 @@ class _MediaViewerState extends State<_MediaViewer> {
     return Scaffold(
       backgroundColor: AppColors.surfaceBg,
       body: GestureDetector(
-        // Tap body to toggle play/pause on video; photos ignore.
         onTap: _isVideo ? _togglePlayPause : null,
         child: Stack(
           fit: StackFit.expand,
@@ -2135,14 +1358,15 @@ class _MediaViewerState extends State<_MediaViewer> {
                         aspectRatio: _controller!.value.aspectRatio,
                         child: VideoPlayer(_controller!),
                       )
-                    : const CircularProgressIndicator(color: Colors.white54),
+                    : const CircularProgressIndicator(
+                        color: Colors.white54),
               )
             else
               Center(
                 child: Image.file(
                   File(widget.exercise.displayFilePath),
                   fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) => const Icon(
+                  errorBuilder: (_, e, s) => const Icon(
                     Icons.broken_image_outlined,
                     size: 64,
                     color: Colors.white54,
@@ -2154,15 +1378,22 @@ class _MediaViewerState extends State<_MediaViewer> {
                 _controller != null &&
                 !_controller!.value.isPlaying)
               const Center(
-                child: Icon(Icons.play_arrow,
-                    size: 72, color: Colors.white54),
+                child: Icon(
+                  Icons.play_arrow,
+                  size: 72,
+                  color: Colors.white54,
+                ),
               ),
             Positioned(
               top: MediaQuery.of(context).padding.top + 8,
               right: 8,
               child: IconButton(
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                icon: const Icon(
+                  Icons.close,
+                  color: Colors.white,
+                  size: 28,
+                ),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.black54,
                 ),
