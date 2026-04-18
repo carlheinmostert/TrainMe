@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 import 'package:supabase_flutter/supabase_flutter.dart' as supa show Session;
 
 import '../config.dart';
+import 'api_client.dart';
 
 /// Thin wrapper around [supabase.auth] that centralises sign-in, sign-out,
 /// and the practice-membership bootstrap logic.
@@ -54,7 +55,13 @@ class AuthService {
   AuthService._();
   static final AuthService instance = AuthService._();
 
-  SupabaseClient get _supabase => Supabase.instance.client;
+  /// Data-access seam. Every Supabase call in this service routes through
+  /// [ApiClient] so the allowed surface is enumerated in one place
+  /// (see `docs/DATA_ACCESS_LAYER.md`). The native OAuth flows
+  /// (Google / Apple) hand their provider-specific id_tokens to
+  /// [ApiClient.signInWithIdToken]; there is no longer a need for a
+  /// `SupabaseClient` reference in this file.
+  ApiClient get _api => ApiClient.instance;
 
   /// Lazy singleton for the Google Sign-In SDK. v6's API is an instance
   /// pattern — one `GoogleSignIn` instance per app lifetime.
@@ -76,16 +83,15 @@ class AuthService {
   /// Current session snapshot. Null when the user isn't signed in.
   /// Persists across app restarts via Supabase's default secure storage
   /// (Keychain on iOS) — no extra wiring needed.
-  supa.Session? get currentSession => _supabase.auth.currentSession;
+  supa.Session? get currentSession => _api.currentSession;
 
   /// Convenience — the authenticated user's uuid, or null.
-  String? get currentUserId => _supabase.auth.currentUser?.id;
+  String? get currentUserId => _api.currentUserId;
 
   /// Broadcasts every auth-state change. The AuthGate listens here.
   /// Emits the full [supa.Session] (nullable) so subscribers can tell
   /// signed-in from signed-out without an extra lookup.
-  Stream<supa.Session?> get authStateChanges =>
-      _supabase.auth.onAuthStateChange.map((event) => event.session);
+  Stream<supa.Session?> get authStateChanges => _api.authStateChanges;
 
   /// Send a one-time magic link to the given email.
   ///
@@ -110,7 +116,7 @@ class AuthService {
     if (normalized.isEmpty || !normalized.contains('@')) {
       throw const AuthException('Enter a valid email address.');
     }
-    await _supabase.auth.signInWithOtp(
+    await _api.sendMagicLink(
       email: normalized,
       emailRedirectTo: AppConfig.oauthRedirectUrl,
       shouldCreateUser: true,
@@ -155,7 +161,7 @@ class AuthService {
       throw Exception('Google sign-in did not return an idToken');
     }
 
-    await _supabase.auth.signInWithIdToken(
+    await _api.signInWithIdToken(
       provider: OAuthProvider.google,
       idToken: idToken,
       accessToken: accessToken,
@@ -184,7 +190,7 @@ class AuthService {
     if (idToken == null) {
       throw Exception('Apple sign-in did not return an identityToken');
     }
-    await _supabase.auth.signInWithIdToken(
+    await _api.signInWithIdToken(
       provider: OAuthProvider.apple,
       idToken: idToken,
     );
@@ -202,7 +208,7 @@ class AuthService {
       // can throw. Harmless — ignore.
       debugPrint('AuthService.signOut: GoogleSignIn.signOut swallowed: $e');
     }
-    await _supabase.auth.signOut();
+    await _api.signOut();
     currentPracticeId.value = null;
     bootstrapError.value = null;
   }
@@ -241,16 +247,15 @@ class AuthService {
   /// offer a Retry affordance. We still debugPrint the failure; the
   /// ValueNotifier is additive, not a replacement.
   Future<void> ensurePracticeMembership() async {
-    final user = _supabase.auth.currentUser;
-    if (user == null) return;
+    final userId = _api.currentUserId;
+    if (userId == null) return;
 
     try {
-      final result = await _supabase.rpc('bootstrap_practice_for_user');
-      final practiceId = result is String ? result : result?.toString();
+      final practiceId = await _api.bootstrapPracticeForUser();
       currentPracticeId.value = practiceId;
       bootstrapError.value = null;
       debugPrint(
-        'AuthService: bootstrap returned practice $practiceId for ${user.id}',
+        'AuthService: bootstrap returned practice $practiceId for $userId',
       );
     } catch (e, stack) {
       // Best-effort — never block the UI on a membership bootstrap failure,

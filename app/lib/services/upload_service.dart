@@ -1,10 +1,10 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
-import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 import '../config.dart';
 import '../models/session.dart';
 import '../models/exercise_capture.dart';
+import 'api_client.dart';
 import 'auth_service.dart';
 import 'local_storage_service.dart';
 
@@ -135,10 +135,12 @@ class PublishResult {
 /// (line drawing) files are uploaded — raw footage stays on device.
 class UploadService {
   final LocalStorageService _storage;
-  final _supabase = Supabase.instance.client;
 
-  /// Storage bucket name for exercise media assets.
-  static const _bucket = 'media';
+  /// Every Supabase call in this service routes through the shared
+  /// [ApiClient]. See `docs/DATA_ACCESS_LAYER.md` — direct
+  /// `Supabase.instance.client.*` calls are no longer permitted from
+  /// this file.
+  ApiClient get _api => ApiClient.instance;
 
   UploadService({required LocalStorageService storage}) : _storage = storage;
 
@@ -147,20 +149,8 @@ class UploadService {
   /// (network hiccup, RLS rejection, function missing) so the caller can
   /// decide whether to soft-fail or abort. We prefer null to zero here so a
   /// transient error doesn't get mistaken for "you're out of credits".
-  Future<int?> _getPracticeBalance(String practiceId) async {
-    try {
-      final result = await _supabase.rpc(
-        'practice_credit_balance',
-        params: {'p_practice_id': practiceId},
-      );
-      if (result is int) return result;
-      if (result is num) return result.toInt();
-      if (result is String) return int.tryParse(result);
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
+  Future<int?> _getPracticeBalance(String practiceId) =>
+      _api.practiceCreditBalance(practiceId: practiceId);
 
   /// Upload all converted assets for a session, create/update the plan
   /// record in the backend, and return the result.
@@ -208,11 +198,10 @@ class UploadService {
     // Milestone B: the AuthGate guarantees a signed-in user at this point,
     // so any null here is a bug we want surfaced loudly (not papered over
     // with a sentinel uuid that would silently pollute audit rows).
-    final currentUser = _supabase.auth.currentUser;
-    if (currentUser == null) {
+    final trainerId = _api.currentUserId;
+    if (trainerId == null) {
       throw StateError('Not signed in');
     }
-    final trainerId = currentUser.id;
 
     // Never fall back to the Carl-sentinel practice here — a malformed local
     // session with practiceId == null must NOT silently charge Carl's tenant.
@@ -330,7 +319,7 @@ class UploadService {
       // `ON CONFLICT DO NOTHING` (implemented as an upsert that omits
       // every mutable column — PostgREST writes back the same values on
       // conflict). The version stays at `session.version` here.
-      await _supabase.from('plans').upsert({
+      await _api.upsertPlan({
         'id': session.id,
         'client_name': session.clientName,
         'title': session.displayTitle,
@@ -349,18 +338,11 @@ class UploadService {
       // row we just ensured above stays as-is (no version bump, no
       // `sent_at` update) — the plan is still at its previous published
       // state. If the RPC raises, same deal.
-      final consumeResult = await _supabase.rpc(
-        'consume_credit',
-        params: {
-          'p_practice_id': practiceId,
-          'p_plan_id': session.id,
-          'p_credits': creditsToCharge,
-        },
+      final consumeMap = await _api.consumeCredit(
+        practiceId: practiceId,
+        planId: session.id,
+        credits: creditsToCharge,
       );
-
-      final consumeMap = consumeResult is Map
-          ? Map<String, dynamic>.from(consumeResult)
-          : const <String, dynamic>{};
       final ok = consumeMap['ok'] == true;
       if (!ok) {
         final reportedBalance = consumeMap['balance'];
@@ -387,7 +369,7 @@ class UploadService {
       // any later failure (media upload, exercise upsert) triggers the
       // refund compensator below.
       // ----------------------------------------------------------------
-      await _supabase.from('plans').upsert({
+      await _api.upsertPlan({
         'id': session.id,
         'client_name': session.clientName,
         'title': session.displayTitle,
@@ -415,30 +397,23 @@ class UploadService {
         final file = File(filePath);
         final ext = p.extension(filePath);
         final storagePath = '${session.id}/${exercise.id}$ext';
-        await _supabase.storage
-            .from(_bucket)
-            .upload(storagePath, file, fileOptions: const FileOptions(upsert: true));
+        await _api.uploadMedia(path: storagePath, file: file);
         // Only record the path AFTER the upload succeeds — a throw in the
         // upload call itself leaves the remote in whatever state the
         // supabase SDK leaves it in, and we don't want to DELETE a path we
         // never successfully created.
         uploadedPaths.add(storagePath);
-        mediaUrls[exercise.id] =
-            _supabase.storage.from(_bucket).getPublicUrl(storagePath);
+        mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
 
         final thumbPath = exercise.absoluteThumbnailPath;
         if (thumbPath != null) {
           final thumbFile = File(thumbPath);
           if (await thumbFile.exists()) {
             final thumbStoragePath = '${session.id}/${exercise.id}_thumb.jpg';
-            await _supabase.storage.from(_bucket).upload(
-                  thumbStoragePath,
-                  thumbFile,
-                  fileOptions: const FileOptions(upsert: true),
-                );
+            await _api.uploadMedia(path: thumbStoragePath, file: thumbFile);
             uploadedPaths.add(thumbStoragePath);
             thumbUrls[exercise.id] =
-                _supabase.storage.from(_bucket).getPublicUrl(thumbStoragePath);
+                _api.publicMediaUrl(path: thumbStoragePath);
           }
         }
       }
@@ -466,10 +441,8 @@ class UploadService {
               })
           .toList();
 
-      if (exerciseRows.isNotEmpty) {
-        // Upsert so a re-publish of an unchanged exercise set doesn't PK-collide.
-        await _supabase.from('exercises').upsert(exerciseRows);
-      }
+      // Upsert so a re-publish of an unchanged exercise set doesn't PK-collide.
+      await _api.upsertExercises(exerciseRows);
 
       // ----------------------------------------------------------------
       // Step 7: Delete OLD exercise rows for this plan that are not in
@@ -477,13 +450,7 @@ class UploadService {
       // everything.
       // ----------------------------------------------------------------
       final newIds = exerciseRows.map((r) => r['id'] as String).toList();
-      var deleteQuery =
-          _supabase.from('exercises').delete().eq('plan_id', session.id);
-      if (newIds.isNotEmpty) {
-        // Postgrest .not('id', 'in', [...]) serializes to not.in.(id1,id2,...)
-        deleteQuery = deleteQuery.not('id', 'in', newIds);
-      }
-      await deleteQuery;
+      await _api.deleteStaleExercises(planId: session.id, keepIds: newIds);
 
       // ----------------------------------------------------------------
       // Step 8: append an audit row to `plan_issuances`. Records who
@@ -494,7 +461,7 @@ class UploadService {
       // is consistent and the bio must not be blocked by an audit hiccup.
       // ----------------------------------------------------------------
       try {
-        await _supabase.from('plan_issuances').insert({
+        await _api.insertPlanIssuance({
           'plan_id': session.id,
           'practice_id': practiceId,
           'trainer_id': trainerId,
@@ -533,7 +500,7 @@ class UploadService {
       // the user via [PublishResult.networkFailed].
       if (uploadedPaths.isNotEmpty) {
         try {
-          await _supabase.storage.from(_bucket).remove(uploadedPaths);
+          await _api.removeMedia(paths: uploadedPaths);
         } catch (cleanupErr) {
           debugPrint(
             'UploadService: orphan cleanup failed for ${uploadedPaths.length} '
@@ -575,14 +542,10 @@ class UploadService {
     required String planId,
     required int credits,
   }) async {
-    try {
-      await _supabase.rpc(
-        'refund_credit',
-        params: {'p_plan_id': planId},
-      );
-    } catch (_) {
-      // Best-effort — see docstring above.
-    }
+    // [ApiClient.refundCredit] already swallows RPC errors — best-effort
+    // semantics are preserved; see docstring above for the ledger
+    // reconciliation contract.
+    await _api.refundCredit(planId: planId);
   }
 
   // ---------------------------------------------------------------------
