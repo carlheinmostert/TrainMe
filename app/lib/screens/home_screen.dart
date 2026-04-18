@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -37,6 +39,11 @@ class _HomeScreenState extends State<HomeScreen> {
   /// that's fine, the UI just shows no error affordance.
   final Map<String, String> _publishErrors = {};
 
+  /// Truncated error string when [_loadSessions] fails to read from SQLite.
+  /// When non-null, [build] swaps the session list for an error card with a
+  /// "Try again" button that calls [_loadSessions] again.
+  String? _loadError;
+
   @override
   void initState() {
     super.initState();
@@ -45,27 +52,54 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadSessions() async {
-    final sessions = await widget.storage.getActiveSessions();
-    // Fetch publish errors in parallel — skipped silently if schema v11 is
-    // not yet applied.
-    final errorEntries = await Future.wait(
-      sessions.map((s) async {
-        final err = await _uploadService.getLastPublishError(s.id);
-        return MapEntry(s.id, err);
-      }),
-    );
-    if (!mounted) return;
-    setState(() {
-      _sessions = sessions;
-      _publishErrors
-        ..clear()
-        ..addEntries(
-          errorEntries.where((e) => e.value != null).map(
-                (e) => MapEntry(e.key, e.value!),
-              ),
-        );
-      _loading = false;
-    });
+    // Clear any previous error on entry so the "Try again" button can
+    // surface the spinner again instead of flashing the error card until
+    // setState lands.
+    if (_loadError != null || !_loading) {
+      setState(() {
+        _loadError = null;
+        _loading = true;
+      });
+    }
+
+    try {
+      final sessions = await widget.storage.getActiveSessions();
+      // Fetch publish errors in parallel — skipped silently if schema v11 is
+      // not yet applied.
+      final errorEntries = await Future.wait(
+        sessions.map((s) async {
+          final err = await _uploadService.getLastPublishError(s.id);
+          return MapEntry(s.id, err);
+        }),
+      );
+      if (!mounted) return;
+      setState(() {
+        _sessions = sessions;
+        _publishErrors
+          ..clear()
+          ..addEntries(
+            errorEntries.where((e) => e.value != null).map(
+                  (e) => MapEntry(e.key, e.value!),
+                ),
+          );
+        _loading = false;
+        _loadError = null;
+      });
+    } catch (e) {
+      // SQLite open / migration / corruption can leave the user on an
+      // indefinite spinner. Surface the error with a retry affordance
+      // instead. Truncate to 200 chars so the error card doesn't explode
+      // to multi-viewport height on a noisy stack trace.
+      final text = e.toString();
+      final truncated = text.substring(0, min(200, text.length));
+      if (!mounted) return;
+      setState(() {
+        _sessions = [];
+        _publishErrors.clear();
+        _loading = false;
+        _loadError = truncated;
+      });
+    }
   }
 
   /// Toggle: true = new SessionShellScreen flow, false = legacy
@@ -279,7 +313,94 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : _buildBody(),
+            : (_loadError != null
+                ? _buildLoadErrorCard(_loadError!)
+                : _buildBody()),
+      ),
+    );
+  }
+
+  /// Coral-tinted error card shown when [_loadSessions] fails (typically
+  /// SQLite open / migration / corruption). Match the brand's existing
+  /// banner / card treatment — dark surface, coral accent, one button.
+  Widget _buildLoadErrorCard(String error) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 480),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceBase,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.surfaceBorder, width: 1),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    color: AppColors.primary,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Couldn't load your sessions.",
+                          style: TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textOnDark,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          error,
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            color: AppColors.textSecondaryOnDark,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton(
+                  onPressed: _loadSessions,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                    textStyle: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  child: const Text('Try again'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
