@@ -34,28 +34,7 @@
 				<string>com.raidme.raidme</string>
 			</array>
 		</dict>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>CFBundleURLName</key>
-			<string>Google Sign-In</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<!-- Reversed iOS OAuth client ID. Mirror of GIDClientID below; the
-				     Google Sign-In SDK uses this URL scheme to hand the auth
-				     response back to the app without bouncing through Safari.
-				     Update in lockstep with GIDClientID if the client ever rotates. -->
-				<string>com.googleusercontent.apps.846780406660-lv8l6a83hlm7npvo5fj16m3n91evceih</string>
-			</array>
-		</dict>
 	</array>
-	<!-- iOS OAuth client ID from Google Cloud Console (same id listed in
-	     Supabase's Google provider "Authorized Client IDs"). The Google
-	     Sign-In iOS plugin reads this at runtime — no need to also pass
-	     clientId in Dart. If this rotates, update the reversed form in
-	     CFBundleURLSchemes above to match. -->
-	<key>GIDClientID</key>
-	<string>846780406660-lv8l6a83hlm7npvo5fj16m3n91evceih.apps.googleusercontent.com</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
