@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 48" width="260" height="48" role="img" aria-label="homefit.studio horizontal lockup">
+  
+  <g transform="translate(0, 6)">
+    <path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2" fill="none" stroke="#FF6B35" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+  </g>
+  
+  <text x="66" y="32" font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="700" fill="#F0F0F5" letter-spacing="-0.5">homefit<tspan font-weight="400" fill="#9CA3AF">.studio</tspan></text>
+</svg>

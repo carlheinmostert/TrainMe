@@ -1,0 +1,1326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>homefit.studio — Design System</title>
+<link rel="icon" type="image/svg+xml" href="logos/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* homefit.studio design system — applied tokens */
+
+:root {
+  /* Brand */
+  --c-brand: #FF6B35;
+  --c-brand-dark: #E85A24;
+  --c-brand-light: #FF8F5E;
+  --c-brand-surface: #FFF3ED;
+  --c-brand-tint-bg: rgba(255,107,53,0.12);
+  --c-brand-tint-border: rgba(255,107,53,0.30);
+
+  /* Surface (dark) */
+  --c-bg: #0F1117;
+  --c-base: #1A1D27;
+  --c-raised: #242733;
+  --c-border: #2E3140;
+
+  /* Ink (dark) */
+  --c-ink: #F0F0F5;
+  --c-ink-2: #9CA3AF;      /* secondary — reconciled */
+  --c-ink-3: #6B7280;      /* muted */
+  --c-ink-4: #4B5563;      /* disabled */
+  --c-on-brand: #FFFFFF;
+
+  /* Semantic */
+  --c-success: #22C55E;
+  --c-warning: #F59E0B;
+  --c-error:   #EF4444;
+  --c-rest:    #64748B;
+
+  /* Radii */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-full: 9999px;
+
+  /* Spacing */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+
+  /* Shadows */
+  --sh-focus: 0 0 0 3px rgba(255,107,53,0.30);
+
+  /* Motion */
+  --t-fast: 150ms;
+  --t-normal: 250ms;
+  --t-slow: 400ms;
+  --e-standard: cubic-bezier(0.2, 0, 0, 1);
+  --e-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Type */
+  --f-display: 'Montserrat', system-ui, sans-serif;
+  --f-body: 'Inter', system-ui, sans-serif;
+  --f-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Tweakable (EDITMODE merged in) */
+  --display-weight: 800;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--c-bg);
+  color: var(--c-ink);
+  font-family: var(--f-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a { color: var(--c-brand); text-decoration: none; }
+a:hover { color: var(--c-brand-light); }
+
+h1, h2, h3, h4 { font-family: var(--f-display); font-weight: var(--display-weight); margin: 0; letter-spacing: -0.03em; }
+h1 { font-size: 57px; line-height: 1.05; letter-spacing: -0.045em; }
+h2 { font-size: 36px; line-height: 1.15; letter-spacing: -0.02em; font-weight: 700; }
+h3 { font-size: 24px; line-height: 1.3; letter-spacing: -0.01em; font-weight: 700; }
+h4 { font-size: 16px; line-height: 1.4; font-weight: 600; font-family: var(--f-body); }
+
+p { margin: 0 0 var(--s-4) 0; }
+
+code, .mono { font-family: var(--f-mono); font-size: 13px; }
+.tag-label { font-family: var(--f-body); font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--c-ink-2); }
+
+/* Layout */
+.shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--s-16) var(--s-8) var(--s-16);
+}
+.section { padding: var(--s-16) 0; border-top: 1px solid var(--c-border); }
+.section:first-of-type { border-top: 0; }
+.section-head { margin-bottom: var(--s-8); display: flex; align-items: baseline; gap: var(--s-4); flex-wrap: wrap; }
+.section-head .num { font-family: var(--f-mono); font-size: 12px; color: var(--c-ink-3); padding-top: 8px; }
+.section-head h2 { flex: 0 0 auto; }
+.section-head .lede { flex: 1 1 300px; color: var(--c-ink-2); font-size: 16px; max-width: 540px; }
+
+/* Cards & grids */
+.card { background: var(--c-raised); border: 1px solid var(--c-border); border-radius: var(--r-lg); padding: var(--s-5); }
+.card-outlined { background: transparent; border: 1px solid var(--c-border); border-radius: var(--r-lg); padding: var(--s-5); }
+.card-ghost { background: var(--c-base); border-radius: var(--r-lg); padding: var(--s-5); }
+
+.grid { display: grid; gap: var(--s-3); }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-5 { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 820px) {
+  .grid-3, .grid-4, .grid-5 { grid-template-columns: repeat(2, 1fr); }
+  .shell { padding: var(--s-8) var(--s-5); }
+  h1 { font-size: 40px; }
+}
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: var(--s-2); justify-content: center;
+  height: 40px; padding: 0 var(--s-4); border-radius: var(--r-md);
+  font: 600 14px/1 var(--f-body); letter-spacing: 0.1px;
+  border: 1px solid transparent; cursor: pointer;
+  transition: background var(--t-fast) var(--e-standard), border-color var(--t-fast) var(--e-standard), color var(--t-fast) var(--e-standard);
+}
+.btn:focus-visible { outline: none; box-shadow: var(--sh-focus); }
+.btn-primary { background: var(--c-brand); color: var(--c-on-brand); }
+.btn-primary:hover { background: var(--c-brand-light); }
+.btn-secondary { background: transparent; border-color: var(--c-border); color: var(--c-ink); }
+.btn-secondary:hover { border-color: var(--c-brand); color: var(--c-brand); }
+.btn-tertiary { background: transparent; color: var(--c-brand); }
+.btn-tertiary:hover { background: var(--c-brand-tint-bg); }
+.btn-destructive { background: var(--c-error); color: var(--c-on-brand); }
+.btn-sm { height: 32px; padding: 0 var(--s-3); font-size: 12px; }
+.btn-lg { height: 48px; padding: 0 var(--s-5); font-size: 14px; }
+.btn[disabled], .btn.is-disabled { background: var(--c-raised); color: var(--c-ink-4); border-color: transparent; cursor: not-allowed; }
+
+/* Chip */
+.chip { display: inline-flex; align-items: center; gap: var(--s-2); height: 28px; padding: 0 var(--s-3); border-radius: var(--r-full); font: 600 12px/1 var(--f-body); letter-spacing: 0.5px; text-transform: uppercase; border: 1px solid transparent; }
+.chip-neutral { background: var(--c-raised); color: var(--c-ink-2); }
+.chip-brand { background: var(--c-brand-tint-bg); border-color: var(--c-brand-tint-border); color: var(--c-brand-light); }
+.chip-success { background: rgba(34,197,94,0.12); color: var(--c-success); }
+.chip-warning { background: rgba(245,158,11,0.12); color: var(--c-warning); }
+.chip-error { background: rgba(239,68,68,0.12); color: var(--c-error); }
+.chip-rest { background: rgba(100,116,139,0.15); color: var(--c-rest); }
+
+/* Swatch */
+.swatch { border-radius: var(--r-md); border: 1px solid var(--c-border); overflow: hidden; display: flex; flex-direction: column; }
+.swatch-top { height: 88px; }
+.swatch-meta { padding: var(--s-3); background: var(--c-raised); border-top: 1px solid var(--c-border); }
+.swatch-name { font: 600 13px/1.3 var(--f-body); color: var(--c-ink); margin-bottom: 2px; }
+.swatch-hex { font: 400 11px/1 var(--f-mono); color: var(--c-ink-2); }
+.swatch-note { font: 400 11px/1.4 var(--f-body); color: var(--c-ink-3); margin-top: 6px; }
+
+/* Focus ring */
+input:focus-visible, button:focus-visible { outline: none; }
+
+/* Type specimen rows */
+.type-row { display: grid; grid-template-columns: 120px 1fr 220px; gap: var(--s-5); align-items: baseline; padding: var(--s-4) 0; border-top: 1px solid var(--c-border); }
+.type-row:first-child { border-top: 0; }
+.type-row .name { font: 600 12px/1.4 var(--f-mono); color: var(--c-ink-2); }
+.type-row .spec { font: 400 11px/1.4 var(--f-mono); color: var(--c-ink-3); text-align: right; }
+
+/* Decision card */
+.decision { border: 1px solid var(--c-border); border-radius: var(--r-lg); overflow: hidden; background: var(--c-base); }
+.decision-head { padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--c-border); display: flex; align-items: center; gap: var(--s-3); justify-content: space-between; }
+.decision-head .id { font: 600 11px/1 var(--f-mono); color: var(--c-ink-3); letter-spacing: 0.5px; }
+.decision-head .title { font: 700 16px/1.4 var(--f-body); color: var(--c-ink); flex: 1; margin: 0 var(--s-3); }
+.decision-head .status { font: 600 11px/1 var(--f-body); text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 10px; border-radius: var(--r-full); }
+.decision-head .status.proposed { background: var(--c-brand-tint-bg); border: 1px solid var(--c-brand-tint-border); color: var(--c-brand-light); }
+.decision-body { display: grid; grid-template-columns: 1fr 1fr; }
+.decision-opt { padding: var(--s-4) var(--s-5); border-right: 1px solid var(--c-border); }
+.decision-opt:last-child { border-right: 0; }
+.decision-opt.winner { background: linear-gradient(180deg, rgba(255,107,53,0.06), transparent); border-left: 3px solid var(--c-brand); }
+.decision-opt.loser { opacity: 0.65; }
+.decision-opt .label { font: 600 11px/1 var(--f-mono); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: var(--s-2); }
+.decision-opt .label.winner-label { color: var(--c-brand); }
+.decision-opt .label.loser-label { color: var(--c-ink-3); }
+.decision-opt .value { font: 700 16px/1.4 var(--f-body); color: var(--c-ink); margin-bottom: var(--s-2); }
+.decision-opt .rationale { font: 400 13px/1.55 var(--f-body); color: var(--c-ink-2); margin: 0; }
+@media (max-width: 720px) {
+  .decision-body { grid-template-columns: 1fr; }
+  .decision-opt { border-right: 0; border-bottom: 1px solid var(--c-border); }
+  .decision-opt:last-child { border-bottom: 0; }
+}
+
+/* Nav */
+.topnav { position: sticky; top: 0; background: rgba(15,17,23,0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--c-border); z-index: 100; }
+.topnav-inner { max-width: 1200px; margin: 0 auto; padding: var(--s-3) var(--s-8); display: flex; align-items: center; gap: var(--s-6); }
+.topnav svg { flex: 0 0 auto; }
+.topnav .wordmark { font: 700 18px/1 var(--f-body); letter-spacing: -0.3px; color: var(--c-ink); margin-right: auto; }
+.topnav .wordmark .dim { font-weight: 400; color: var(--c-ink-2); }
+.topnav a.nav-link { font: 600 13px/1 var(--f-body); color: var(--c-ink-2); }
+.topnav a.nav-link:hover { color: var(--c-ink); }
+@media (max-width: 820px) { .topnav-inner { padding: var(--s-3) var(--s-5); gap: var(--s-3); } .topnav a.nav-link { display: none; } }
+
+/* Pulse animation */
+@keyframes pulse-mark {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  45% { opacity: 0.55; transform: scale(0.96); }
+  55% { opacity: 1; transform: scale(1.02); }
+}
+.pulse-mark path { animation: pulse-mark 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite; transform-origin: center; }
+
+/* Skeleton sweep */
+@keyframes skeleton-sweep {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton { background: linear-gradient(90deg, var(--c-raised) 0%, var(--c-border) 50%, var(--c-raised) 100%); background-size: 200% 100%; animation: skeleton-sweep 1.4s linear infinite; border-radius: var(--r-md); }
+
+/* Device frame */
+.phone { width: 280px; height: 572px; background: #000; border-radius: 36px; padding: 10px; position: relative; box-shadow: 0 0 0 1px #222, inset 0 0 0 1px #333; flex: 0 0 auto; }
+.phone-screen { width: 100%; height: 100%; background: var(--c-bg); border-radius: 28px; overflow: hidden; position: relative; }
+.phone-notch { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: 100px; height: 22px; background: #000; border-radius: var(--r-full); z-index: 2; }
+.phone-statusbar { padding: var(--s-4) var(--s-4) var(--s-2); display: flex; justify-content: space-between; align-items: center; font: 600 12px/1 var(--f-body); }
+.phone-statusbar .time { padding-left: 4px; }
+.phone-statusbar .right { display: flex; gap: 4px; align-items: center; color: var(--c-ink); }
+
+/* Applied scenes wrapper */
+.scene-label { font: 600 11px/1 var(--f-mono); letter-spacing: 0.5px; text-transform: uppercase; color: var(--c-ink-3); margin-bottom: var(--s-3); }
+
+/* Tweaks panel */
+.tweaks {
+  position: fixed; bottom: var(--s-4); right: var(--s-4); z-index: 2000;
+  width: 320px; background: var(--c-raised); border: 1px solid var(--c-border); border-radius: var(--r-lg);
+  transform: translateY(calc(100% + 20px)); opacity: 0; pointer-events: none;
+  transition: transform var(--t-slow) var(--e-emphasized), opacity var(--t-slow) var(--e-emphasized);
+  font-size: 13px;
+}
+.tweaks.is-open { transform: translateY(0); opacity: 1; pointer-events: auto; }
+.tweaks-head { padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--c-border); display: flex; align-items: center; justify-content: space-between; }
+.tweaks-head h4 { font: 700 13px/1 var(--f-body); letter-spacing: 0.5px; text-transform: uppercase; }
+.tweaks-head button { background: transparent; border: 0; color: var(--c-ink-2); cursor: pointer; font-size: 20px; line-height: 1; }
+.tweaks-body { padding: var(--s-4); display: flex; flex-direction: column; gap: var(--s-4); max-height: 420px; overflow-y: auto; }
+.tweak-group label { font: 600 11px/1.4 var(--f-body); letter-spacing: 0.5px; text-transform: uppercase; color: var(--c-ink-2); display: block; margin-bottom: var(--s-2); }
+.tweak-options { display: flex; gap: 6px; flex-wrap: wrap; }
+.tweak-pill { flex: 1 1 auto; min-width: 0; padding: 8px 10px; border-radius: var(--r-md); border: 1px solid var(--c-border); background: var(--c-base); color: var(--c-ink-2); font: 600 11px/1 var(--f-body); cursor: pointer; text-align: center; white-space: nowrap; }
+.tweak-pill.is-active { background: var(--c-brand-tint-bg); border-color: var(--c-brand-tint-border); color: var(--c-brand-light); }
+
+/* Shadow posture variants */
+[data-shadow="subtle"] .card, [data-shadow="subtle"] .card-raised-sample { box-shadow: 0 1px 3px rgba(0,0,0,0.35), 0 4px 12px rgba(0,0,0,0.25); }
+[data-shadow="glow"] .btn-primary { box-shadow: 0 4px 16px rgba(255,107,53,0.35); }
+
+/* Density variants */
+[data-density="compact"] .card, [data-density="compact"] .card-outlined, [data-density="compact"] .card-ghost { padding: var(--s-3); }
+[data-density="roomy"] .card, [data-density="roomy"] .card-outlined, [data-density="roomy"] .card-ghost { padding: var(--s-6); }
+
+/* Misc */
+.row { display: flex; gap: var(--s-3); align-items: center; flex-wrap: wrap; }
+.col { display: flex; flex-direction: column; gap: var(--s-3); }
+.muted { color: var(--c-ink-2); }
+.dim { color: var(--c-ink-3); }
+.hr { height: 1px; background: var(--c-border); margin: var(--s-4) 0; border: 0; }
+
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <svg class="pulse-mark" viewBox="0 0 52 36" width="32" height="22" aria-hidden="true">
+      <path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2"
+            fill="none" stroke="#FF6B35" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span class="wordmark">homefit<span class="dim">.studio</span></span>
+    <a href="#tokens" class="nav-link">Tokens</a>
+    <a href="#decisions" class="nav-link">Decisions</a>
+    <a href="#components" class="nav-link">Components</a>
+    <a href="#applied" class="nav-link">Applied</a>
+    <a href="#handoff" class="nav-link">Hand-off</a>
+  </div>
+</nav>
+
+<main class="shell">
+
+<!-- ====== HERO ====== -->
+<header style="padding-bottom: var(--s-16);">
+  <div class="tag-label" style="margin-bottom: var(--s-4);">Design System · v1.0 · 2026-04-18</div>
+  <h1 style="max-width: 900px; margin-bottom: var(--s-5);">One system, three&nbsp;surfaces. No&nbsp;drift.</h1>
+  <p style="max-width: 620px; font-size: 18px; color: var(--c-ink-2); margin-bottom: var(--s-6);">
+    Formalization, not rebrand. Coral stays, Pulse Mark stays, dark-first stays. This doc pins every token as code so Flutter, web player, and web portal stop diverging.
+  </p>
+  <div class="row">
+    <a href="#decisions" class="btn btn-primary">See decisions</a>
+    <a href="tokens.json" class="btn btn-secondary">tokens.json ↗</a>
+    <a href="components.md" class="btn btn-tertiary">components.md ↗</a>
+  </div>
+
+  <div style="margin-top: var(--s-16); display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-4);">
+    <div class="card-outlined">
+      <div class="tag-label">Drifts resolved</div>
+      <div style="font-family: var(--f-display); font-size: 40px; font-weight: 800; margin-top: 4px; color: var(--c-brand);">10</div>
+      <div class="dim" style="font-size: 12px;">from the hit list</div>
+    </div>
+    <div class="card-outlined">
+      <div class="tag-label">Components spec'd</div>
+      <div style="font-family: var(--f-display); font-size: 40px; font-weight: 800; margin-top: 4px; color: var(--c-brand);">18</div>
+      <div class="dim" style="font-size: 12px;">+ 5 brand-specific</div>
+    </div>
+    <div class="card-outlined">
+      <div class="tag-label">Codebases</div>
+      <div style="font-family: var(--f-display); font-size: 40px; font-weight: 800; margin-top: 4px; color: var(--c-brand);">3</div>
+      <div class="dim" style="font-size: 12px;">Flutter · player · portal</div>
+    </div>
+    <div class="card-outlined">
+      <div class="tag-label">New brand colours</div>
+      <div style="font-family: var(--f-display); font-size: 40px; font-weight: 800; margin-top: 4px; color: var(--c-brand);">0</div>
+      <div class="dim" style="font-size: 12px;">coral is still the only one</div>
+    </div>
+  </div>
+</header>
+
+<!-- ====== 01 TOKENS ====== -->
+<section class="section" id="tokens">
+  <div class="section-head">
+    <span class="num">01</span>
+    <h2>Tokens</h2>
+    <p class="lede">The single source of truth. Every colour, size, and timing below maps to a named token in <code>tokens.json</code>. Your three codebases translate from this, never to it.</p>
+  </div>
+
+  <!-- Brand -->
+  <h3 style="margin-bottom: var(--s-4);">Brand</h3>
+  <div class="grid grid-5" style="margin-bottom: var(--s-10);">
+    <div class="swatch"><div class="swatch-top" style="background:#FF6B35;"></div><div class="swatch-meta"><div class="swatch-name">brand.default</div><div class="swatch-hex">#FF6B35</div><div class="swatch-note">Coral. The only accent.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#E85A24;"></div><div class="swatch-meta"><div class="swatch-name">brand.dark</div><div class="swatch-hex">#E85A24</div><div class="swatch-note">Pressed state.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#FF8F5E;"></div><div class="swatch-meta"><div class="swatch-name">brand.light</div><div class="swatch-hex">#FF8F5E</div><div class="swatch-note">Hover lift.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:rgba(255,107,53,0.12); border-bottom: 1px solid rgba(255,107,53,0.30);"></div><div class="swatch-meta"><div class="swatch-name">brand.tint-bg</div><div class="swatch-hex">rgba(…,0.12)</div><div class="swatch-note">Chip fills, subtle bg.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#FFF3ED;"></div><div class="swatch-meta"><div class="swatch-name">brand.surface</div><div class="swatch-hex">#FFF3ED</div><div class="swatch-note">Light mode only.</div></div></div>
+  </div>
+
+  <!-- Surface dark -->
+  <h3 style="margin-bottom: var(--s-4);">Surface <span class="dim" style="font-size: 14px; font-weight: 400;">· dark</span></h3>
+  <div class="grid grid-4" style="margin-bottom: var(--s-10);">
+    <div class="swatch"><div class="swatch-top" style="background:#0F1117;"></div><div class="swatch-meta"><div class="swatch-name">surface.dark.bg</div><div class="swatch-hex">#0F1117</div><div class="swatch-note">Root background.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#1A1D27;"></div><div class="swatch-meta"><div class="swatch-name">surface.dark.base</div><div class="swatch-hex">#1A1D27</div><div class="swatch-note">Elevation 1 — cards, sheets.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#242733;"></div><div class="swatch-meta"><div class="swatch-name">surface.dark.raised</div><div class="swatch-hex">#242733</div><div class="swatch-note">Elevation 2 — popovers, modals.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#2E3140;"></div><div class="swatch-meta"><div class="swatch-name">surface.dark.border</div><div class="swatch-hex">#2E3140</div><div class="swatch-note">1px hairline. Replaces shadow.</div></div></div>
+  </div>
+
+  <!-- Ink dark -->
+  <h3 style="margin-bottom: var(--s-4);">Ink <span class="dim" style="font-size: 14px; font-weight: 400;">· dark</span></h3>
+  <div class="grid grid-4" style="margin-bottom: var(--s-10);">
+    <div class="swatch"><div class="swatch-top" style="background:#F0F0F5;"></div><div class="swatch-meta"><div class="swatch-name">ink.dark.primary</div><div class="swatch-hex">#F0F0F5</div><div class="swatch-note">Body copy, headlines.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#9CA3AF;"></div><div class="swatch-meta"><div class="swatch-name">ink.dark.secondary</div><div class="swatch-hex">#9CA3AF</div><div class="swatch-note">Labels, meta. <b style="color:var(--c-brand-light)">Reconciled.</b></div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#6B7280;"></div><div class="swatch-meta"><div class="swatch-name">ink.dark.muted</div><div class="swatch-hex">#6B7280</div><div class="swatch-note">Placeholders, helpers.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#4B5563;"></div><div class="swatch-meta"><div class="swatch-name">ink.dark.disabled</div><div class="swatch-hex">#4B5563</div><div class="swatch-note">Disabled labels.</div></div></div>
+  </div>
+
+  <!-- Semantic -->
+  <h3 style="margin-bottom: var(--s-4);">Semantic</h3>
+  <div class="grid grid-4" style="margin-bottom: var(--s-10);">
+    <div class="swatch"><div class="swatch-top" style="background:#22C55E;"></div><div class="swatch-meta"><div class="swatch-name">semantic.success</div><div class="swatch-hex">#22C55E</div><div class="swatch-note">Published, completion.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#F59E0B;"></div><div class="swatch-meta"><div class="swatch-name">semantic.warning</div><div class="swatch-hex">#F59E0B</div><div class="swatch-note">Low credits, expiring.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#EF4444;"></div><div class="swatch-meta"><div class="swatch-name">semantic.error</div><div class="swatch-hex">#EF4444</div><div class="swatch-note">Validation, auth.</div></div></div>
+    <div class="swatch"><div class="swatch-top" style="background:#64748B;"></div><div class="swatch-meta"><div class="swatch-name">semantic.rest</div><div class="swatch-hex">#64748B</div><div class="swatch-note">Rest periods. Not an accent.</div></div></div>
+  </div>
+
+  <!-- Type -->
+  <h3 style="margin-bottom: var(--s-4);">Typography <span class="dim" style="font-size: 14px; font-weight: 400;">· Montserrat display · Inter body</span></h3>
+  <div class="card-outlined" style="margin-bottom: var(--s-10); padding: 0 var(--s-5);">
+    <div class="type-row"><span class="name">display.lg</span><span style="font-family: var(--f-display); font-weight: var(--display-weight); font-size: 57px; line-height: 1.05; letter-spacing: -1.5px;">Capture once.</span><span class="spec">Montserrat 57 / 800 / -1.5</span></div>
+    <div class="type-row"><span class="name">display.md</span><span style="font-family: var(--f-display); font-weight: 700; font-size: 45px; line-height: 1.1; letter-spacing: -0.5px;">Share anywhere.</span><span class="spec">Montserrat 45 / 700 / -0.5</span></div>
+    <div class="type-row"><span class="name">headline.lg</span><span style="font-family: var(--f-display); font-weight: 700; font-size: 32px; letter-spacing: -0.5px;">Your plan from Carl</span><span class="spec">Montserrat 32 / 700 / -0.5</span></div>
+    <div class="type-row"><span class="name">headline.sm</span><span style="font-family: var(--f-display); font-weight: 600; font-size: 24px; letter-spacing: -0.2px;">4 exercises · 22 min</span><span class="spec">Montserrat 24 / 600 / -0.2</span></div>
+    <div class="type-row"><span class="name">title.lg</span><span style="font-family: var(--f-display); font-weight: 700; font-size: 20px; letter-spacing: -0.3px;">Goblet squat</span><span class="spec">Montserrat 20 / 700 / -0.3</span></div>
+    <div class="type-row"><span class="name">title.md</span><span style="font-family: var(--f-body); font-weight: 600; font-size: 16px;">Goblet squat</span><span class="spec">Inter 16 / 600</span></div>
+    <div class="type-row"><span class="name">body.lg</span><span style="font-family: var(--f-body); font-weight: 400; font-size: 16px; line-height: 1.5;">Watch the demo, then try it. Take breaks when you need them.</span><span class="spec">Inter 16 / 400</span></div>
+    <div class="type-row"><span class="name">body.md</span><span style="font-family: var(--f-body); font-weight: 400; font-size: 14px;">If something hurts, stop and message your bio.</span><span class="spec">Inter 14 / 400</span></div>
+    <div class="type-row"><span class="name">label.md</span><span style="font-family: var(--f-body); font-weight: 600; font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase;">3 sets · 10 reps</span><span class="spec">Inter 12 / 600 / 0.5</span></div>
+  </div>
+
+  <!-- Spacing -->
+  <h3 style="margin-bottom: var(--s-4);">Spacing <span class="dim" style="font-size: 14px; font-weight: 400;">· 4/8/12/16/20/24/32/40/48/64</span></h3>
+  <div class="card-outlined" style="margin-bottom: var(--s-10);">
+    <div class="col">
+      <div class="row"><span class="mono" style="width: 48px; color: var(--c-ink-2);">s-1</span><div style="height: 14px; width: 4px; background: var(--c-brand);"></div><span class="dim mono">4px</span></div>
+      <div class="row"><span class="mono" style="width: 48px; color: var(--c-ink-2);">s-2</span><div style="height: 14px; width: 8px; background: var(--c-brand);"></div><span class="dim mono">8px</span></div>
+      <div class="row"><span class="mono" style="width: 48px; color: var(--c-ink-2);">s-3</span><div style="height: 14px; width: 12px; background: var(--c-brand);"></div><span class="dim mono">12px</span></div>
+      <div class="row"><span class="mono" style="width: 48px; color: var(--c-ink-2);">s-4</span><div style="height: 14px; width: 16px; background: var(--c-brand);"></div><span class="dim mono">16px</span></div>
+      <div class="row"><span class="mono" style="width: 48px; color: var(--c-ink-2);">s-5</span><div style="height: 14px; width: 20px; background: var(--c-brand);"></div><span class="dim mono">20px</span></div>
+      <div class="row"><span class="mono" style="width: 48px; color: var(--c-ink-2);">s-6</span><div style="height: 14px; width: 24px; background: var(--c-brand);"></div><span class="dim mono">24px</span></div>
+      <div class="row"><span class="mono" style="width: 48px; color: var(--c-ink-2);">s-8</span><div style="height: 14px; width: 32px; background: var(--c-brand);"></div><span class="dim mono">32px</span></div>
+      <div class="row"><span class="mono" style="width: 48px; color: var(--c-ink-2);">s-10</span><div style="height: 14px; width: 40px; background: var(--c-brand);"></div><span class="dim mono">40px</span></div>
+      <div class="row"><span class="mono" style="width: 48px; color: var(--c-ink-2);">s-12</span><div style="height: 14px; width: 48px; background: var(--c-brand);"></div><span class="dim mono">48px</span></div>
+      <div class="row"><span class="mono" style="width: 48px; color: var(--c-ink-2);">s-16</span><div style="height: 14px; width: 64px; background: var(--c-brand);"></div><span class="dim mono">64px</span></div>
+    </div>
+  </div>
+
+  <!-- Radii -->
+  <h3 style="margin-bottom: var(--s-4);">Radii</h3>
+  <div class="grid grid-5" style="margin-bottom: var(--s-10);">
+    <div class="card-outlined" style="text-align:center;"><div style="height: 56px; background: var(--c-raised); border-radius: 8px; margin-bottom: var(--s-3);"></div><div class="mono dim">radius.sm · 8</div></div>
+    <div class="card-outlined" style="text-align:center;"><div style="height: 56px; background: var(--c-raised); border-radius: 12px; margin-bottom: var(--s-3);"></div><div class="mono dim">radius.md · 12</div></div>
+    <div class="card-outlined" style="text-align:center;"><div style="height: 56px; background: var(--c-raised); border-radius: 16px; margin-bottom: var(--s-3);"></div><div class="mono dim">radius.lg · 16</div></div>
+    <div class="card-outlined" style="text-align:center;"><div style="height: 56px; background: var(--c-raised); border-radius: 20px; margin-bottom: var(--s-3);"></div><div class="mono dim">radius.xl · 20</div></div>
+    <div class="card-outlined" style="text-align:center;"><div style="height: 56px; background: var(--c-raised); border-radius: 9999px; margin-bottom: var(--s-3);"></div><div class="mono dim">radius.full</div></div>
+  </div>
+
+  <!-- Motion -->
+  <h3 style="margin-bottom: var(--s-4);">Motion</h3>
+  <div class="grid grid-3">
+    <div class="card"><div class="tag-label">duration.fast</div><div style="font-family: var(--f-mono); font-size: 22px; color: var(--c-brand); margin-top: 4px;">150ms</div><p class="dim" style="font-size: 12px; margin: var(--s-2) 0 0;">Micro-states: hover, focus.</p></div>
+    <div class="card"><div class="tag-label">duration.normal</div><div style="font-family: var(--f-mono); font-size: 22px; color: var(--c-brand); margin-top: 4px;">250ms</div><p class="dim" style="font-size: 12px; margin: var(--s-2) 0 0;">Component transitions.</p></div>
+    <div class="card"><div class="tag-label">duration.slow</div><div style="font-family: var(--f-mono); font-size: 22px; color: var(--c-brand); margin-top: 4px;">400ms</div><p class="dim" style="font-size: 12px; margin: var(--s-2) 0 0;">Entrances, toasts, modals.</p></div>
+  </div>
+</section>
+
+<!-- ====== 02 DECISIONS ====== -->
+<section class="section" id="decisions">
+  <div class="section-head">
+    <span class="num">02</span>
+    <h2>Drift decisions</h2>
+    <p class="lede">Ten things were slightly different across the three codebases. Here's what wins, what loses, and why. One coral left-edge means the proposed canonical choice. Sign off on these before the first commit.</p>
+  </div>
+
+  <div class="col" style="gap: var(--s-5);">
+
+    <!-- D1 -->
+    <div class="decision">
+      <div class="decision-head"><span class="id">D-01</span><span class="title">"Secondary text on dark" — two different greys were calling themselves the same thing</span><span class="status proposed">Proposed</span></div>
+      <div class="decision-body">
+        <div class="decision-opt winner">
+          <div class="label winner-label">✓ Canonical</div>
+          <div class="value"><span style="color:#9CA3AF;">#9CA3AF</span> &nbsp; <span class="dim mono" style="font-size: 12px;">ink.dark.secondary</span></div>
+          <p class="rationale">Flutter + web portal already use this. Contrast on <code>#0F1117</code> is 5.84:1 — passes WCAG AA for body text. Web player's <code>#6B7280</code> gets retired as a "secondary" and lives on as <code>ink.dark.muted</code> for placeholders and helpers — so nothing is lost.</p>
+        </div>
+        <div class="decision-opt loser">
+          <div class="label loser-label">Retired</div>
+          <div class="value"><span style="color:#6B7280;">#6B7280</span> &nbsp; <span class="dim mono" style="font-size: 12px;">→ ink.dark.muted</span></div>
+          <p class="rationale">Contrast 3.56:1 on <code>#0F1117</code> — AA-large only. Fine as a third tier (tertiary / muted), but too dim to carry "secondary text" like timestamps and meta rows.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- D2 -->
+    <div class="decision">
+      <div class="decision-head"><span class="id">D-02</span><span class="title">Dark-surface naming — literal vs semantic</span><span class="status proposed">Proposed</span></div>
+      <div class="decision-body">
+        <div class="decision-opt winner">
+          <div class="label winner-label">✓ Canonical</div>
+          <div class="value"><code>surface.bg / base / raised / border</code></div>
+          <p class="rationale">Semantic naming mirrors cleanly to light mode (just swap <code>surface.dark.*</code> → <code>surface.light.*</code>). The portal already uses <code>.base</code>/<code>.raised</code>; Flutter's literal <code>darkSurfaceVariant</code> stops making sense the moment a light theme exists.</p>
+        </div>
+        <div class="decision-opt loser">
+          <div class="label loser-label">Retired</div>
+          <div class="value"><code>darkBg / darkSurface / darkSurfaceVariant</code></div>
+          <p class="rationale">Fine for a dark-only world. Becomes awkward the moment we ship the light mirror (D-08). Rename in <code>AppColors</code> is a mechanical find-replace, ~20 references.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- D3 -->
+    <div class="decision">
+      <div class="decision-head"><span class="id">D-03</span><span class="title">Semantic colour names — full words vs abbreviations</span><span class="status proposed">Proposed</span></div>
+      <div class="decision-body">
+        <div class="decision-opt winner">
+          <div class="label winner-label">✓ Canonical</div>
+          <div class="value"><code>success / warning / error / rest</code></div>
+          <p class="rationale">Matches Flutter + web player (2 of 3), matches Tailwind convention, matches every a11y reader you'll ever grep. Portal's <code>ok/warn/err</code> was cute but ambiguous — <code>warn</code> also means "console.warn", <code>err</code> also means a generic error object.</p>
+        </div>
+        <div class="decision-opt loser">
+          <div class="label loser-label">Retired</div>
+          <div class="value"><code>ok / warn / err</code></div>
+          <p class="rationale">Portal-only abbreviation. Rename in <code>tailwind.config.ts</code> is one file.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- D4 -->
+    <div class="decision">
+      <div class="decision-head"><span class="id">D-04</span><span class="title">Motion tokens — do they exist at all?</span><span class="status proposed">Proposed</span></div>
+      <div class="decision-body">
+        <div class="decision-opt winner">
+          <div class="label winner-label">✓ Canonical</div>
+          <div class="value">150ms fast · 250ms normal · 400ms slow · 1.4s pulse</div>
+          <p class="rationale">Web player already had them; now they exist as named tokens everywhere. Flutter gets <code>Duration</code> constants in <code>app/lib/theme/motion.dart</code>; portal gets Tailwind <code>transitionDuration</code> extensions. Easing is Material-standard + emphasized for entrances.</p>
+        </div>
+        <div class="decision-opt loser">
+          <div class="label loser-label">Previously</div>
+          <div class="value">Ad-hoc / framework defaults</div>
+          <p class="rationale">Three different feels for the same interaction (e.g. a card hover). Worst on Flutter, which falls through to Material's defaults — often snappier than the web surfaces.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- D5 -->
+    <div class="decision">
+      <div class="decision-head"><span class="id">D-05</span><span class="title">Spacing scale</span><span class="status proposed">Proposed</span></div>
+      <div class="decision-body">
+        <div class="decision-opt winner">
+          <div class="label winner-label">✓ Canonical</div>
+          <div class="value">4 / 8 / 12 / 16 / 20 / 24 / 32 / 40 / 48 / 64</div>
+          <p class="rationale">Matches the de-facto Flutter ladder you already use — zero refactors on the mobile side. Indices <code>s-1</code> through <code>s-16</code> (skipping 7/9/11/13/14/15) to stay numerically honest: the number is always the pixel count in quarter-px units.</p>
+        </div>
+        <div class="decision-opt loser">
+          <div class="label loser-label">Considered</div>
+          <div class="value">4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 (strict 8pt)</div>
+          <p class="rationale">Cleaner ladder, but drops 20/40 which Flutter uses ~40 times. Would force visible spacing changes on every existing screen. Not worth the churn for an MVP.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- D6 -->
+    <div class="decision">
+      <div class="decision-head"><span class="id">D-06</span><span class="title">Component state library — empty / loading / error / success / disabled</span><span class="status proposed">Proposed</span></div>
+      <div class="decision-body">
+        <div class="decision-opt winner">
+          <div class="label winner-label">✓ Canonical</div>
+          <div class="value">Single structure, one spec each</div>
+          <p class="rationale">See components.md. Empty = icon · title · body · CTA. Loading = skeleton (lists) / Pulse Mark (full page) / inline spinner (buttons), picked by expected duration. Error mirrors Empty with a semantic.error icon. Disabled bans opacity 0.5 in favour of explicit token swap.</p>
+        </div>
+        <div class="decision-opt loser">
+          <div class="label loser-label">Retired</div>
+          <div class="value">Every screen inventing its own</div>
+          <p class="rationale">The biggest existing gap. Eight different "Plan not found" designs across the web player alone.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- D7 -->
+    <div class="decision">
+      <div class="decision-head"><span class="id">D-07</span><span class="title">Shadow posture — brand element or noise?</span><span class="status proposed">Proposed (per your pick)</span></div>
+      <div class="decision-body">
+        <div class="decision-opt winner">
+          <div class="label winner-label">✓ Canonical</div>
+          <div class="value">Flat everywhere — borders carry separation</div>
+          <p class="rationale">Kills the drift in one stroke: Flutter was already flat, web surfaces drop the <code>--shadow-card</code> tokens. Modern, a11y-friendly (shadows are invisible at high contrast), and one fewer thing for clients on mid-range Android to render. Only shadow that survives: <code>shadow.focus-ring</code> for keyboard focus.</p>
+        </div>
+        <div class="decision-opt loser">
+          <div class="label loser-label">Retired</div>
+          <div class="value">Subtle shadows on web / flat on Flutter</div>
+          <p class="rationale">The cross-platform inconsistency that kicked off this whole exercise. Resolved by picking flat, not by porting BoxShadows into Flutter.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- D8 -->
+    <div class="decision">
+      <div class="decision-head"><span class="id">D-08</span><span class="title">The dead Flutter light theme</span><span class="status proposed">Proposed (per your pick)</span></div>
+      <div class="decision-body">
+        <div class="decision-opt winner">
+          <div class="label winner-label">✓ Canonical</div>
+          <div class="value">Formalize — define as mirror system, don't ship</div>
+          <p class="rationale">Light tokens exist in tokens.json as <code>surface.light.*</code> / <code>ink.light.*</code>, mirrored 1:1 from dark. <code>theme.dart</code>'s light theme stays alive but guarded behind a feature flag (<code>kEnableLightTheme = false</code>). You get future-proof without shipping a half-baked second theme that clients might accidentally see.</p>
+        </div>
+        <div class="decision-opt loser">
+          <div class="label loser-label">Rejected</div>
+          <div class="value">Delete light theme entirely</div>
+          <p class="rationale">Honest, but loses the investment. Healthcare practices sometimes request light mode for printed handouts — having the tokens ready is cheap.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- D9 -->
+    <div class="decision">
+      <div class="decision-head"><span class="id">D-09</span><span class="title">Typography scale on web</span><span class="status proposed">Proposed</span></div>
+      <div class="decision-body">
+        <div class="decision-opt winner">
+          <div class="label winner-label">✓ Canonical</div>
+          <div class="value">Inherit Flutter's 15-step scale verbatim on web</div>
+          <p class="rationale">Same named tokens across all three surfaces (<code>display.lg</code> through <code>label.sm</code>). Web player gets CSS custom properties; portal gets a Tailwind <code>fontSize</code> extension. Inline font sizes are banned in new code.</p>
+        </div>
+        <div class="decision-opt loser">
+          <div class="label loser-label">Retired</div>
+          <div class="value">Inline sizes + Tailwind defaults</div>
+          <p class="rationale">Today's state. Leads to client-visible typographic drift (e.g. "3 sets" in Inter 13px on web, 12px/600 on mobile).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- D10 -->
+    <div class="decision">
+      <div class="decision-head"><span class="id">D-10</span><span class="title">Tint / alpha-overlay tokens</span><span class="status proposed">Proposed</span></div>
+      <div class="decision-body">
+        <div class="decision-opt winner">
+          <div class="label winner-label">✓ Canonical</div>
+          <div class="value"><code>brand.tint-bg</code> (12%) + <code>brand.tint-border</code> (30%)</div>
+          <p class="rationale">Explicit tokens, not computed alpha. Flutter's <code>withValues(alpha: 0.12)</code> looks different from CSS <code>rgba(…, 0.12)</code> in edge cases (sRGB vs P3 on iOS 17+). Pinning them as named tokens removes that class of bug.</p>
+        </div>
+        <div class="decision-opt loser">
+          <div class="label loser-label">Retired</div>
+          <div class="value">Computed alpha at the call site</div>
+          <p class="rationale">Works 95% of the time. The 5% is designers noticing coral looks slightly more saturated on iPhones — because it is.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ====== 03 PULSE MARK ====== -->
+<section class="section" id="logo">
+  <div class="section-head">
+    <span class="num">03</span>
+    <h2>Pulse Mark</h2>
+    <p class="lede">ECG trace meets rooftop. Single stroke, no fill — works at any size, any background. Same canonical path across all five lockups.</p>
+  </div>
+
+  <div class="grid grid-3" style="gap: var(--s-4);">
+
+    <div class="card" style="display: flex; flex-direction: column; gap: var(--s-4);">
+      <div style="height: 140px; display: flex; align-items: center; justify-content: center; background: var(--c-bg); border-radius: var(--r-md); border: 1px solid var(--c-border);">
+        <svg class="pulse-mark" viewBox="0 0 52 36" width="130" height="90" aria-hidden="true">
+          <path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2"
+                fill="none" stroke="#FF6B35" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="tag-label">Mark (animated)</div>
+        <div class="mono dim" style="font-size: 11px; margin-top: 4px;">logos/mark.svg · 52×36 viewBox</div>
+      </div>
+    </div>
+
+    <div class="card" style="display: flex; flex-direction: column; gap: var(--s-4);">
+      <div style="height: 140px; display: flex; align-items: center; justify-content: center; background: var(--c-bg); border-radius: var(--r-md); border: 1px solid var(--c-border);">
+        <svg viewBox="0 0 260 48" width="240" height="44" aria-hidden="true">
+          <g transform="translate(0, 6)"><path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2" fill="none" stroke="#FF6B35" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+          <text x="66" y="32" font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="700" fill="#F0F0F5" letter-spacing="-0.5">homefit<tspan font-weight="400" fill="#9CA3AF">.studio</tspan></text>
+        </svg>
+      </div>
+      <div>
+        <div class="tag-label">Horizontal lockup</div>
+        <div class="mono dim" style="font-size: 11px; margin-top: 4px;">logos/lockup-horizontal.svg</div>
+      </div>
+    </div>
+
+    <div class="card" style="display: flex; flex-direction: column; gap: var(--s-4);">
+      <div style="height: 140px; display: flex; align-items: center; justify-content: center; background: var(--c-bg); border-radius: var(--r-md); border: 1px solid var(--c-border);">
+        <svg viewBox="0 0 200 120" width="140" height="84" aria-hidden="true">
+          <g transform="translate(74, 20)"><path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2" fill="none" stroke="#FF6B35" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+          <text x="100" y="92" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="700" fill="#F0F0F5" letter-spacing="-0.4">homefit<tspan font-weight="400" fill="#9CA3AF">.studio</tspan></text>
+        </svg>
+      </div>
+      <div>
+        <div class="tag-label">Stacked lockup</div>
+        <div class="mono dim" style="font-size: 11px; margin-top: 4px;">logos/lockup-stacked.svg · avatar-friendly</div>
+      </div>
+    </div>
+
+    <div class="card" style="display: flex; flex-direction: column; gap: var(--s-4);">
+      <div style="height: 140px; display: flex; align-items: center; justify-content: center; background: var(--c-bg); border-radius: var(--r-md); border: 1px solid var(--c-border);">
+        <svg viewBox="0 0 200 36" width="220" height="40" aria-hidden="true">
+          <text x="0" y="26" font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="700" fill="#F0F0F5" letter-spacing="-0.5">homefit<tspan font-weight="400" fill="#9CA3AF">.studio</tspan></text>
+        </svg>
+      </div>
+      <div>
+        <div class="tag-label">Wordmark</div>
+        <div class="mono dim" style="font-size: 11px; margin-top: 4px;">logos/wordmark.svg · text contexts</div>
+      </div>
+    </div>
+
+    <div class="card" style="display: flex; flex-direction: column; gap: var(--s-4);">
+      <div style="height: 140px; display: flex; align-items: center; justify-content: center; background: #FAFAF7; border-radius: var(--r-md); border: 1px solid var(--c-border);">
+        <svg style="filter: drop-shadow(0 0 0 transparent);" viewBox="0 0 52 36" width="130" height="90" aria-hidden="true">
+          <path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2"
+                fill="none" stroke="#E85A24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="tag-label">Light-background variant</div>
+        <div class="mono dim" style="font-size: 11px; margin-top: 4px;">Uses brand.dark (#E85A24) for AA contrast on light.</div>
+      </div>
+    </div>
+
+    <div class="card" style="display: flex; flex-direction: column; gap: var(--s-4);">
+      <div style="height: 140px; display: flex; align-items: center; justify-content: center; background: var(--c-bg); border-radius: var(--r-md); border: 1px solid var(--c-border); position: relative;">
+        <div style="position: absolute; inset: 10px; border: 1px dashed var(--c-brand-tint-border); border-radius: var(--r-sm);"></div>
+        <svg viewBox="0 0 52 36" width="100" height="70" aria-hidden="true">
+          <path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2" fill="none" stroke="#FF6B35" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <div class="tag-label">Clear-space rule</div>
+        <div class="mono dim" style="font-size: 11px; margin-top: 4px;">Padding = height of the roof peak (≈ 22% of mark height).</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="card-outlined" style="margin-top: var(--s-5);">
+    <h4 style="margin-bottom: var(--s-3);">Rules</h4>
+    <div class="col" style="gap: var(--s-2); font-size: 14px; color: var(--c-ink-2);">
+      <div>• <b style="color: var(--c-ink);">Minimum size:</b> 24px tall on-screen, 8mm in print. Below that, stroke clarity drops.</div>
+      <div>• <b style="color: var(--c-ink);">Clear space:</b> padding equal to the roof peak height on all sides. Nothing crosses into that zone.</div>
+      <div>• <b style="color: var(--c-ink);">Colour:</b> coral (<code>brand.default</code>) on dark. <code>brand.dark</code> on light. Mono (<code>currentColor</code>) for single-ink print.</div>
+      <div>• <b style="color: var(--c-ink);">Don't:</b> recolour in gradient, fill the shape, add a frame, stretch non-uniformly, or rotate. Ever.</div>
+      <div>• <b style="color: var(--c-ink);">Animation:</b> heartbeat pulse at 1.4s (~43bpm, calm). Reserved for loading states — not for idle or nav.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ====== 04 COMPONENTS ====== -->
+<section class="section" id="components">
+  <div class="section-head">
+    <span class="num">04</span>
+    <h2>Components</h2>
+    <p class="lede">The primitives, shown here with the new tokens applied. Full state matrices (hover / focus / active / disabled / error) live in <a href="components.md">components.md</a>.</p>
+  </div>
+
+  <!-- Buttons -->
+  <h3 style="margin-bottom: var(--s-4);">Buttons</h3>
+  <div class="card" style="margin-bottom: var(--s-8);">
+    <div class="row" style="gap: var(--s-3); margin-bottom: var(--s-4);">
+      <button class="btn btn-primary">Publish plan</button>
+      <button class="btn btn-secondary">Save draft</button>
+      <button class="btn btn-tertiary">Cancel</button>
+      <button class="btn btn-destructive">Delete plan</button>
+      <button class="btn btn-primary" disabled>Publish (no credits)</button>
+    </div>
+    <div class="row" style="gap: var(--s-3);">
+      <button class="btn btn-primary btn-sm">Share</button>
+      <button class="btn btn-primary">Share</button>
+      <button class="btn btn-primary btn-lg">Share</button>
+    </div>
+  </div>
+
+  <!-- Chips -->
+  <h3 style="margin-bottom: var(--s-4);">Chips &amp; status</h3>
+  <div class="card" style="margin-bottom: var(--s-8);">
+    <div class="row" style="gap: var(--s-3);">
+      <span class="chip chip-neutral">4 exercises</span>
+      <span class="chip chip-brand">Published</span>
+      <span class="chip chip-success">✓ Credits added</span>
+      <span class="chip chip-warning">Low credits</span>
+      <span class="chip chip-error">Expired</span>
+      <span class="chip chip-rest">Rest · 30s</span>
+    </div>
+  </div>
+
+  <!-- Timer chip -->
+  <h3 style="margin-bottom: var(--s-4);">Timer chip <span class="dim" style="font-size: 14px; font-weight: 400;">· 3 states</span></h3>
+  <div class="card" style="margin-bottom: var(--s-8);">
+    <div class="row" style="gap: var(--s-4);">
+      <div style="display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 16px; border-radius: 9999px; background: var(--c-brand-tint-bg); border: 1px solid var(--c-brand-tint-border); color: var(--c-brand-light); font: 600 14px/1 var(--f-mono);">● PREP 0:03</div>
+      <div style="display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 16px; border-radius: 9999px; background: var(--c-brand); color: var(--c-on-brand); font: 600 14px/1 var(--f-mono);">▶ RUNNING 0:42</div>
+      <div style="display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 16px; border-radius: 9999px; background: var(--c-raised); border: 1px solid var(--c-border); color: var(--c-ink-2); font: 600 14px/1 var(--f-mono);">❚❚ PAUSED 0:42</div>
+    </div>
+  </div>
+
+  <!-- Text input -->
+  <h3 style="margin-bottom: var(--s-4);">Text input</h3>
+  <div class="card" style="margin-bottom: var(--s-8);">
+    <div class="grid grid-3">
+      <div>
+        <div class="tag-label" style="margin-bottom: 6px;">Default</div>
+        <input style="width: 100%; height: 40px; padding: 0 12px; border-radius: var(--r-md); background: var(--c-base); border: 1px solid var(--c-border); color: var(--c-ink); font: 400 14px/1 var(--f-body);" placeholder="3 sets × 10 reps">
+      </div>
+      <div>
+        <div class="tag-label" style="margin-bottom: 6px;">Focus</div>
+        <input style="width: 100%; height: 40px; padding: 0 12px; border-radius: var(--r-md); background: var(--c-base); border: 1px solid var(--c-brand); color: var(--c-ink); box-shadow: var(--sh-focus); font: 400 14px/1 var(--f-body);" value="3 sets × 10 reps">
+      </div>
+      <div>
+        <div class="tag-label" style="margin-bottom: 6px;">Error</div>
+        <input style="width: 100%; height: 40px; padding: 0 12px; border-radius: var(--r-md); background: var(--c-base); border: 1px solid var(--c-error); color: var(--c-ink); font: 400 14px/1 var(--f-body);" value="abc">
+        <div style="font: 400 12px/1.4 var(--f-body); color: var(--c-error); margin-top: 6px;">Reps must be a number.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Empty / Loading / Error -->
+  <h3 style="margin-bottom: var(--s-4);">Empty · Loading · Error</h3>
+  <div class="grid grid-3">
+    <div class="card-outlined" style="text-align: center; padding: var(--s-8) var(--s-5);">
+      <div style="font-size: 36px; margin-bottom: var(--s-4); color: var(--c-ink-3);">◌</div>
+      <div style="font: 700 18px/1.35 var(--f-display); margin-bottom: var(--s-2);">No sessions yet</div>
+      <p style="color: var(--c-ink-2); font-size: 14px;">Start a session to capture your first exercise.</p>
+      <button class="btn btn-primary" style="margin-top: var(--s-3);">New session</button>
+    </div>
+
+    <div class="card-outlined" style="padding: var(--s-5);">
+      <div class="skeleton" style="height: 18px; width: 60%; margin-bottom: var(--s-3);"></div>
+      <div class="skeleton" style="height: 96px; margin-bottom: var(--s-3);"></div>
+      <div class="skeleton" style="height: 14px; width: 80%; margin-bottom: var(--s-2);"></div>
+      <div class="skeleton" style="height: 14px; width: 45%;"></div>
+    </div>
+
+    <div class="card-outlined" style="text-align: center; padding: var(--s-8) var(--s-5); border-color: rgba(239,68,68,0.3);">
+      <div style="font-size: 36px; margin-bottom: var(--s-4); color: var(--c-error);">!</div>
+      <div style="font: 700 18px/1.35 var(--f-display); margin-bottom: var(--s-2);">Plan not found</div>
+      <p style="color: var(--c-ink-2); font-size: 14px;">The link may have expired. Check with your bio for a new one.</p>
+      <div class="row" style="justify-content: center; margin-top: var(--s-3);">
+        <button class="btn btn-secondary btn-sm">Reload</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====== 05 APPLIED ====== -->
+<section class="section" id="applied">
+  <div class="section-head">
+    <span class="num">05</span>
+    <h2>Applied</h2>
+    <p class="lede">Four surfaces mocked with the reconciled system. Line-drawing thumbnails are hatched placeholders — swap for real captures in the Figma asset import.</p>
+  </div>
+
+  <!-- Scene 1 + 2: Flutter Studio + Workout Preview -->
+  <div class="scene-label">Flutter · Studio mode &nbsp;·&nbsp; Workout preview (timer running)</div>
+  <div class="row" style="gap: var(--s-5); align-items: flex-start; margin-bottom: var(--s-12);">
+
+    <!-- STUDIO PHONE -->
+    <div class="phone">
+      <div class="phone-notch"></div>
+      <div class="phone-screen">
+        <div class="phone-statusbar"><span class="time">9:41</span><div class="right"><span>●●●●</span><span>📶</span><span>100%</span></div></div>
+        <div style="padding: 0 var(--s-4) var(--s-3);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--s-3);">
+            <div style="font: 700 22px/1.15 var(--f-display); letter-spacing: -0.3px;">Melissa, Tues</div>
+            <div style="display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 9999px; background: var(--c-raised); border: 1px solid var(--c-border); font: 600 12px/1 var(--f-mono); color: var(--c-ink-2);">42 <span style="opacity:.7;">credits</span></div>
+          </div>
+          <div class="row" style="gap: 6px; margin-bottom: var(--s-3);">
+            <span class="chip chip-brand" style="height: 22px; font-size: 10px;">Studio</span>
+            <span class="chip chip-neutral" style="height: 22px; font-size: 10px;">4 exercises</span>
+            <span class="chip chip-neutral" style="height: 22px; font-size: 10px;">22 min</span>
+          </div>
+        </div>
+
+        <!-- Circuit header -->
+        <div style="padding: 0 var(--s-4);">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 2px solid var(--c-brand-tint-border);">
+            <div style="font: 600 10px/1 var(--f-body); letter-spacing: 0.5px; text-transform: uppercase; color: var(--c-brand);">Circuit · A</div>
+            <div style="font: 600 10px/1 var(--f-body); color: var(--c-ink-2);">Round 1 of 3</div>
+          </div>
+        </div>
+
+        <!-- Exercise cards -->
+        <div style="padding: var(--s-3) var(--s-4); display: flex; flex-direction: column; gap: var(--s-3);">
+
+          <div style="background: var(--c-raised); border: 1px solid var(--c-border); border-radius: var(--r-lg); padding: 10px; display: flex; gap: 10px; align-items: center;">
+            <div style="flex: 0 0 64px; height: 64px; border-radius: var(--r-md); background: var(--c-bg); background-image: repeating-linear-gradient(45deg, transparent 0 4px, rgba(255,255,255,0.04) 4px 5px); display: flex; align-items: center; justify-content: center; color: var(--c-ink-3); font: 600 9px/1 var(--f-mono);">SQUAT</div>
+            <div style="flex: 1 1 0; min-width: 0;">
+              <div style="font: 700 14px/1.3 var(--f-display);">Goblet squat</div>
+              <div style="font: 600 10px/1 var(--f-body); letter-spacing: 0.5px; text-transform: uppercase; color: var(--c-ink-2); margin-top: 4px;">3 × 10 &nbsp;·&nbsp; rest 30s</div>
+            </div>
+            <div style="color: var(--c-ink-3); font-size: 18px;">⋮</div>
+          </div>
+
+          <!-- Expanded -->
+          <div style="background: var(--c-raised); border: 1px solid var(--c-brand); border-radius: var(--r-lg); padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <div style="flex: 0 0 64px; height: 64px; border-radius: var(--r-md); background: var(--c-bg); background-image: repeating-linear-gradient(45deg, transparent 0 4px, rgba(255,255,255,0.04) 4px 5px); display: flex; align-items: center; justify-content: center; color: var(--c-ink-3); font: 600 9px/1 var(--f-mono);">ROW</div>
+              <div style="flex: 1 1 0; min-width: 0;">
+                <div style="font: 700 14px/1.3 var(--f-display);">Bent-over row</div>
+                <div style="font: 600 10px/1 var(--f-body); letter-spacing: 0.5px; text-transform: uppercase; color: var(--c-ink-2); margin-top: 4px;">3 × 12 &nbsp;·&nbsp; hold 2s</div>
+              </div>
+              <div style="color: var(--c-brand); font-size: 18px;">⌃</div>
+            </div>
+            <div style="font: 400 11px/1.45 var(--f-body); color: var(--c-ink-2);">Keep spine long. Pull elbows to ribs, not shoulders.</div>
+          </div>
+
+          <!-- Rest card -->
+          <div style="background: transparent; border: 1px solid rgba(100,116,139,0.30); border-radius: var(--r-lg); padding: 10px; display: flex; align-items: center; gap: 10px;">
+            <div style="flex: 0 0 40px; height: 40px; border-radius: 9999px; background: rgba(100,116,139,0.15); display: flex; align-items: center; justify-content: center; color: var(--c-rest); font-size: 14px;">❚❚</div>
+            <div style="flex: 1 1 0;">
+              <div style="font: 700 14px/1.2 var(--f-display); color: var(--c-rest);">Rest</div>
+              <div style="font: 600 10px/1 var(--f-body); letter-spacing: 0.5px; text-transform: uppercase; color: var(--c-ink-2); margin-top: 4px;">1:30 between rounds</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Bottom nav -->
+        <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 54px; background: var(--c-base); border-top: 1px solid var(--c-border); display: grid; grid-template-columns: repeat(3, 1fr); align-items: center;">
+          <div style="text-align: center; color: var(--c-ink-3); font: 600 10px/1.3 var(--f-body);"><div style="font-size: 16px; margin-bottom: 2px;">⌂</div>Home</div>
+          <div style="text-align: center; color: var(--c-brand); font: 600 10px/1.3 var(--f-body);"><div style="font-size: 16px; margin-bottom: 2px;">●</div>Capture</div>
+          <div style="text-align: center; color: var(--c-ink-3); font: 600 10px/1.3 var(--f-body);"><div style="font-size: 16px; margin-bottom: 2px;">◫</div>Studio</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WORKOUT PREVIEW PHONE -->
+    <div class="phone">
+      <div class="phone-notch"></div>
+      <div class="phone-screen">
+        <div class="phone-statusbar"><span class="time">9:42</span><div class="right"><span>●●●●</span><span>📶</span><span>100%</span></div></div>
+
+        <div style="padding: var(--s-3) var(--s-4) 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="color: var(--c-ink-2); font: 600 10px/1 var(--f-body); letter-spacing: 0.5px; text-transform: uppercase;">Exercise 2 of 4</div>
+            <div style="color: var(--c-ink-3); font-size: 18px;">×</div>
+          </div>
+          <!-- Progress -->
+          <div style="height: 3px; background: var(--c-border); border-radius: 9999px; overflow: hidden; margin-bottom: var(--s-4);">
+            <div style="width: 42%; height: 100%; background: var(--c-brand);"></div>
+          </div>
+        </div>
+
+        <!-- Video placeholder -->
+        <div style="margin: 0 var(--s-4); height: 240px; border-radius: var(--r-lg); background: var(--c-base); background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(255,255,255,0.03) 6px 7px); display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;">
+          <!-- Simple stick-figure placeholder suggestion via text -->
+          <div style="color: var(--c-ink-3); font: 600 11px/1.4 var(--f-mono); text-align: center;">
+            LINE-DRAWING DEMO<br>
+            <span style="color: var(--c-ink-4); font-weight: 400;">bent-over row · loops</span>
+          </div>
+        </div>
+
+        <!-- Title + meta -->
+        <div style="padding: var(--s-4);">
+          <div style="font: 700 22px/1.2 var(--f-display); letter-spacing: -0.3px; margin-bottom: 6px;">Bent-over row</div>
+          <div class="row" style="gap: 6px; margin-bottom: var(--s-3);">
+            <span class="chip chip-neutral" style="height: 22px; font-size: 10px;">3 × 12</span>
+            <span class="chip chip-neutral" style="height: 22px; font-size: 10px;">Hold 2s</span>
+          </div>
+          <p style="font: 400 12px/1.55 var(--f-body); color: var(--c-ink-2); margin: 0;">Keep spine long. Pull elbows to ribs, not shoulders.</p>
+        </div>
+
+        <!-- Timer chip (running) -->
+        <div style="position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);">
+          <div style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 18px; border-radius: 9999px; background: var(--c-brand); color: var(--c-on-brand); font: 600 15px/1 var(--f-mono);">
+            <span style="width: 8px; height: 8px; border-radius: 9999px; background: var(--c-on-brand);"></span>
+            0:42
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div style="position: absolute; bottom: var(--s-3); left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 0 var(--s-5);">
+          <div style="width: 40px; height: 40px; border-radius: 9999px; background: var(--c-raised); border: 1px solid var(--c-border); display: flex; align-items: center; justify-content: center; color: var(--c-ink); font-size: 14px;">◄</div>
+          <div style="width: 52px; height: 52px; border-radius: 9999px; background: var(--c-raised); border: 1px solid var(--c-border); display: flex; align-items: center; justify-content: center; color: var(--c-ink); font-size: 16px;">❚❚</div>
+          <div style="width: 40px; height: 40px; border-radius: 9999px; background: var(--c-raised); border: 1px solid var(--c-border); display: flex; align-items: center; justify-content: center; color: var(--c-ink); font-size: 14px;">►</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Caption -->
+    <div style="flex: 1 1 260px; min-width: 260px; padding-top: var(--s-4);">
+      <div class="tag-label" style="margin-bottom: var(--s-2);">Notes</div>
+      <ul style="padding-left: 18px; margin: 0; color: var(--c-ink-2); font-size: 13px; line-height: 1.6;">
+        <li>Circuit header uses 2px coral tint-border bottom — distinguishable but not loud.</li>
+        <li>Expanded exercise card swaps neutral border for full coral — active affordance without shadow.</li>
+        <li>Rest card uses <code>semantic.rest @ 30%</code> border — different vocabulary from brand.</li>
+        <li>Timer chip floats above content at <code>z.overlay</code>, 80px from bottom to clear the controls.</li>
+        <li>Line-drawing thumbnail placeholders are 45° cross-hatch — don't use photos (POPIA).</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Web portal -->
+  <div class="scene-label">Web portal · manage.homefit.studio · Dashboard</div>
+  <div style="border: 1px solid var(--c-border); border-radius: var(--r-lg); overflow: hidden; margin-bottom: var(--s-12); background: var(--c-bg);">
+    <!-- Browser chrome -->
+    <div style="height: 36px; background: var(--c-base); border-bottom: 1px solid var(--c-border); display: flex; align-items: center; padding: 0 var(--s-3); gap: 6px;">
+      <div style="width: 12px; height: 12px; border-radius: 9999px; background: #FF5F57;"></div>
+      <div style="width: 12px; height: 12px; border-radius: 9999px; background: #FEBC2E;"></div>
+      <div style="width: 12px; height: 12px; border-radius: 9999px; background: #28C840;"></div>
+      <div style="flex: 1; text-align: center; font: 400 11px/1 var(--f-mono); color: var(--c-ink-3);">manage.homefit.studio</div>
+    </div>
+    <!-- Portal topnav -->
+    <div style="height: 56px; background: var(--c-base); border-bottom: 1px solid var(--c-border); display: flex; align-items: center; padding: 0 var(--s-6); gap: var(--s-6);">
+      <svg viewBox="0 0 260 48" width="180" height="28" aria-hidden="true">
+        <g transform="translate(0, 6)"><path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2" fill="none" stroke="#FF6B35" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+        <text x="66" y="32" font-family="Inter" font-size="20" font-weight="700" fill="#F0F0F5" letter-spacing="-0.3">homefit<tspan font-weight="400" fill="#9CA3AF">.studio</tspan></text>
+      </svg>
+      <div style="flex: 1; display: flex; gap: var(--s-5);">
+        <a href="#" style="font: 600 13px/1 var(--f-body); color: var(--c-ink);">Dashboard</a>
+        <a href="#" style="font: 600 13px/1 var(--f-body); color: var(--c-ink-2);">Credits</a>
+        <a href="#" style="font: 600 13px/1 var(--f-body); color: var(--c-ink-2);">Members</a>
+        <a href="#" style="font: 600 13px/1 var(--f-body); color: var(--c-ink-2);">Audit</a>
+      </div>
+      <div style="display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px; border-radius: 9999px; background: var(--c-raised); border: 1px solid var(--c-border); font: 600 14px/1 var(--f-mono); color: var(--c-ink);">42 <span style="font-size: 11px; color: var(--c-ink-2); font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;">credits</span></div>
+      <div style="width: 32px; height: 32px; border-radius: 9999px; background: var(--c-brand-tint-bg); border: 1px solid var(--c-brand-tint-border); color: var(--c-brand-light); font: 700 13px/32px var(--f-body); text-align: center;">MP</div>
+    </div>
+
+    <!-- Portal content -->
+    <div style="padding: var(--s-8) var(--s-6);">
+      <div style="font: 600 11px/1 var(--f-body); letter-spacing: 0.5px; text-transform: uppercase; color: var(--c-ink-2); margin-bottom: var(--s-2);">Melissa's Biokinetics</div>
+      <h3 style="font: 700 36px/1.15 var(--f-display); letter-spacing: -0.5px; margin-bottom: var(--s-6);">Good morning, Melissa.</h3>
+
+      <div class="grid grid-4" style="margin-bottom: var(--s-8);">
+        <div class="card">
+          <div class="tag-label">Credit balance</div>
+          <div style="font: 700 36px/1 var(--f-display); margin-top: 8px;">42</div>
+          <div style="font: 400 12px/1.4 var(--f-body); color: var(--c-ink-2); margin-top: 6px;">≈ 14 plans at average use</div>
+        </div>
+        <div class="card">
+          <div class="tag-label">Plans this month</div>
+          <div style="font: 700 36px/1 var(--f-display); margin-top: 8px;">28</div>
+          <div style="font: 400 12px/1.4 var(--f-body); color: var(--c-success); margin-top: 6px;">▲ 38% vs March</div>
+        </div>
+        <div class="card">
+          <div class="tag-label">Active clients</div>
+          <div style="font: 700 36px/1 var(--f-display); margin-top: 8px;">19</div>
+          <div style="font: 400 12px/1.4 var(--f-body); color: var(--c-ink-2); margin-top: 6px;">3 new this week</div>
+        </div>
+        <div class="card" style="border-color: var(--c-brand-tint-border); background: linear-gradient(180deg, rgba(255,107,53,0.08), transparent);">
+          <div class="tag-label" style="color: var(--c-brand-light);">Top up</div>
+          <div style="font: 700 22px/1.2 var(--f-display); margin-top: 8px; margin-bottom: 10px;">Running low at current pace</div>
+          <button class="btn btn-primary btn-sm" style="width: 100%;">Buy 100 credits · R 450</button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-5);">
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--s-4);">
+            <h4 style="font: 700 16px/1.3 var(--f-display);">Recent plans</h4>
+            <a href="#" style="font: 600 12px/1 var(--f-body); color: var(--c-brand);">View all →</a>
+          </div>
+          <div class="col" style="gap: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: var(--s-3) 0; border-bottom: 1px solid var(--c-border);">
+              <div>
+                <div style="font: 600 14px/1.4 var(--f-body);">Sarah N. — lower back</div>
+                <div style="font: 400 12px/1.4 var(--f-body); color: var(--c-ink-2);">6 exercises · published 2h ago</div>
+              </div>
+              <span class="chip chip-success" style="height: 22px; font-size: 10px;">Viewed</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: var(--s-3) 0; border-bottom: 1px solid var(--c-border);">
+              <div>
+                <div style="font: 600 14px/1.4 var(--f-body);">Pieter V. — post-op knee</div>
+                <div style="font: 400 12px/1.4 var(--f-body); color: var(--c-ink-2);">4 exercises · published yesterday</div>
+              </div>
+              <span class="chip chip-brand" style="height: 22px; font-size: 10px;">Sent</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: var(--s-3) 0;">
+              <div>
+                <div style="font: 600 14px/1.4 var(--f-body);">Lungile K. — glute activation</div>
+                <div style="font: 400 12px/1.4 var(--f-body); color: var(--c-ink-2);">5 exercises · 3 days ago</div>
+              </div>
+              <span class="chip chip-success" style="height: 22px; font-size: 10px;">Viewed</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--s-4);">
+            <h4 style="font: 700 16px/1.3 var(--f-display);">Audit log</h4>
+            <a href="#" style="font: 600 12px/1 var(--f-body); color: var(--c-brand);">Export →</a>
+          </div>
+          <div class="col" style="gap: var(--s-3);">
+            <div style="display: flex; gap: var(--s-3); align-items: baseline; font-size: 12px;">
+              <span class="mono" style="color: var(--c-ink-3); flex: 0 0 66px;">09:41</span>
+              <div><span style="color: var(--c-ink);">Plan </span><span class="mono" style="color: var(--c-brand);">P-AX42</span><span style="color: var(--c-ink-2);"> published · 1 credit</span></div>
+            </div>
+            <div style="display: flex; gap: var(--s-3); align-items: baseline; font-size: 12px;">
+              <span class="mono" style="color: var(--c-ink-3); flex: 0 0 66px;">08:22</span>
+              <div><span style="color: var(--c-ink);">Member </span><span style="color: var(--c-ink-2);">Thandi R. invited</span></div>
+            </div>
+            <div style="display: flex; gap: var(--s-3); align-items: baseline; font-size: 12px;">
+              <span class="mono" style="color: var(--c-ink-3); flex: 0 0 66px;">Yest</span>
+              <div><span style="color: var(--c-ink);">Top-up </span><span style="color: var(--c-success);">+100 credits</span><span style="color: var(--c-ink-2);"> · R 450.00</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WhatsApp-style share -->
+  <div class="scene-label">Share surface · Generic chat bubble with plan link preview</div>
+  <div style="background: #0b1114; border: 1px solid var(--c-border); border-radius: var(--r-lg); padding: var(--s-6); display: flex; flex-direction: column; gap: var(--s-3); max-width: 480px;">
+    <div style="align-self: flex-end; max-width: 80%; background: #1f3a2b; color: #dcf8c6; padding: 10px 12px; border-radius: 14px 14px 2px 14px; font: 400 14px/1.4 var(--f-body);">
+      Hi Sarah,<br>Here's your plan from today's session:<br>
+      <div style="margin-top: 8px; background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden;">
+        <!-- OG preview -->
+        <div style="background: var(--c-bg); padding: var(--s-3) var(--s-4) var(--s-3); border-bottom: 1px solid var(--c-border);">
+          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+            <svg viewBox="0 0 52 36" width="20" height="14" aria-hidden="true"><path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2" fill="none" stroke="#FF6B35" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span style="font: 700 11px/1 var(--f-body); color: var(--c-ink);">homefit<span style="color:var(--c-ink-2); font-weight:400;">.studio</span></span>
+          </div>
+          <div style="font: 700 15px/1.2 var(--f-display); color: var(--c-ink); margin-bottom: 4px;">Your plan from Melissa</div>
+          <div style="font: 400 11px/1.4 var(--f-body); color: var(--c-ink-2);">4 exercises · 22 min · tap to view</div>
+        </div>
+        <div style="font: 400 10px/1 var(--f-mono); color: var(--c-ink-3); padding: 6px 12px;">session.homefit.studio/p/ax42</div>
+      </div>
+      session.homefit.studio/p/ax42<br>
+      4 exercises · 22 min<br>
+      — Melissa
+      <div style="text-align: right; font: 400 10px/1 var(--f-body); color: rgba(220,248,198,0.6); margin-top: 4px;">09:41 ✓✓</div>
+    </div>
+    <div style="text-align: center; font: 400 11px/1.4 var(--f-mono); color: var(--c-ink-3);">Generic chat-bubble mock · drop your OG 1200×630 card here</div>
+  </div>
+</section>
+
+<!-- ====== 06 VOICE ====== -->
+<section class="section" id="voice">
+  <div class="section-head">
+    <span class="num">06</span>
+    <h2>Voice</h2>
+    <p class="lede">Three knobs: <b>Confident</b>, never hedging. <b>Warm</b>, never cute. <b>Precise</b>, never clinical. South African English. Full guide in <a href="voice.md">voice.md</a>.</p>
+  </div>
+
+  <div class="grid grid-2" style="gap: var(--s-5);">
+
+    <div class="card">
+      <div class="tag-label" style="color: var(--c-success);">Do</div>
+      <div class="col" style="gap: var(--s-3); margin-top: var(--s-3);">
+        <div style="padding: var(--s-3); background: rgba(34,197,94,0.06); border-left: 3px solid var(--c-success); border-radius: var(--r-sm);"><span style="font: 600 13px/1.5 var(--f-body);">"Couldn't load this plan. Check your connection and try again."</span></div>
+        <div style="padding: var(--s-3); background: rgba(34,197,94,0.06); border-left: 3px solid var(--c-success); border-radius: var(--r-sm);"><span style="font: 600 13px/1.5 var(--f-body);">"Not enough credits. Top up to publish this plan."</span></div>
+        <div style="padding: var(--s-3); background: rgba(34,197,94,0.06); border-left: 3px solid var(--c-success); border-radius: var(--r-sm);"><span style="font: 600 13px/1.5 var(--f-body);">"If something hurts, stop and message your bio."</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tag-label" style="color: var(--c-error);">Don't</div>
+      <div class="col" style="gap: var(--s-3); margin-top: var(--s-3);">
+        <div style="padding: var(--s-3); background: rgba(239,68,68,0.05); border-left: 3px solid var(--c-error); border-radius: var(--r-sm);"><span style="font: 400 13px/1.5 var(--f-body); text-decoration: line-through; color: var(--c-ink-2);">"Oops! Something went wrong 😔"</span></div>
+        <div style="padding: var(--s-3); background: rgba(239,68,68,0.05); border-left: 3px solid var(--c-error); border-radius: var(--r-sm);"><span style="font: 400 13px/1.5 var(--f-body); text-decoration: line-through; color: var(--c-ink-2);">"Hooray! Your plan is live 🎉"</span></div>
+        <div style="padding: var(--s-3); background: rgba(239,68,68,0.05); border-left: 3px solid var(--c-error); border-radius: var(--r-sm);"><span style="font: 400 13px/1.5 var(--f-body); text-decoration: line-through; color: var(--c-ink-2);">"Contact your healthcare provider about your condition."</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="grid grid-3" style="margin-top: var(--s-5); gap: var(--s-5);">
+    <div class="card-outlined">
+      <div class="tag-label">Vocabulary</div>
+      <div style="margin-top: var(--s-3); font: 400 13px/1.7 var(--f-body); color: var(--c-ink-2);">
+        <b style="color:var(--c-ink);">exercise</b>, not workout<br>
+        <b style="color:var(--c-ink);">plan</b>, not program<br>
+        <b style="color:var(--c-ink);">credits</b>, not tokens<br>
+        <b style="color:var(--c-ink);">bio / practitioner</b>, not coach<br>
+        <b style="color:var(--c-ink);">colour / favourite</b>, not -or<br>
+      </div>
+    </div>
+    <div class="card-outlined">
+      <div class="tag-label">POPIA-safe</div>
+      <div style="margin-top: var(--s-3); font: 400 13px/1.55 var(--f-body); color: var(--c-ink-2);">
+        Describe the activity, never claim the outcome. "Do the exercise" is fine; "fix your back" is not. Line drawings mean we never show a real client — don't break that advantage with photos.
+      </div>
+    </div>
+    <div class="card-outlined">
+      <div class="tag-label">Share message</div>
+      <pre style="margin-top: var(--s-3); font: 400 12px/1.55 var(--f-mono); color: var(--c-ink); background: var(--c-bg); padding: var(--s-3); border-radius: var(--r-sm); border: 1px solid var(--c-border); overflow: auto; white-space: pre-wrap; margin-bottom: 0;">Hi {ClientName},
+
+Here's your plan from today's session:
+{PlanURL}
+
+{ExerciseCount} exercises · {TotalDuration} min
+Open the link to see the demos.
+
+— {TrainerName}</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ====== 07 HAND-OFF ====== -->
+<section class="section" id="handoff">
+  <div class="section-head">
+    <span class="num">07</span>
+    <h2>Hand-off</h2>
+    <p class="lede">Everything this session produced, ready for each codebase. One commit per surface.</p>
+  </div>
+
+  <div class="grid grid-3">
+    <a href="tokens.json" class="card" style="text-decoration: none; color: inherit; display: block;">
+      <div class="tag-label">Source of truth</div>
+      <div style="font: 700 20px/1.2 var(--f-display); margin-top: var(--s-2); margin-bottom: var(--s-2);">tokens.json</div>
+      <p style="font: 400 13px/1.5 var(--f-body); color: var(--c-ink-2); margin: 0;">Every colour, type size, spacing step, radius, motion duration. Generate <code>theme.dart</code>, <code>:root</code> vars, and <code>tailwind.config.ts</code> from this one file.</p>
+    </a>
+    <a href="components.md" class="card" style="text-decoration: none; color: inherit; display: block;">
+      <div class="tag-label">Reference</div>
+      <div style="font: 700 20px/1.2 var(--f-display); margin-top: var(--s-2); margin-bottom: var(--s-2);">components.md</div>
+      <p style="font: 400 13px/1.5 var(--f-body); color: var(--c-ink-2); margin: 0;">18 primitives + 5 brand-specific. Each with state matrix, size variants, and token references by name.</p>
+    </a>
+    <a href="voice.md" class="card" style="text-decoration: none; color: inherit; display: block;">
+      <div class="tag-label">Guide</div>
+      <div style="font: 700 20px/1.2 var(--f-display); margin-top: var(--s-2); margin-bottom: var(--s-2);">voice.md</div>
+      <p style="font: 400 13px/1.5 var(--f-body); color: var(--c-ink-2); margin: 0;">One page. Do / don't, vocabulary, per-surface tone, WhatsApp template, POPIA-safe copy.</p>
+    </a>
+  </div>
+
+  <div class="card-outlined" style="margin-top: var(--s-6);">
+    <div class="tag-label">Logo pack</div>
+    <div class="row" style="gap: var(--s-4); margin-top: var(--s-3);">
+      <a href="logos/mark.svg" class="mono" style="font-size: 12px;">logos/mark.svg</a>
+      <a href="logos/mark-mono.svg" class="mono" style="font-size: 12px;">logos/mark-mono.svg</a>
+      <a href="logos/lockup-horizontal.svg" class="mono" style="font-size: 12px;">logos/lockup-horizontal.svg</a>
+      <a href="logos/lockup-stacked.svg" class="mono" style="font-size: 12px;">logos/lockup-stacked.svg</a>
+      <a href="logos/wordmark.svg" class="mono" style="font-size: 12px;">logos/wordmark.svg</a>
+      <a href="logos/favicon.svg" class="mono" style="font-size: 12px;">logos/favicon.svg</a>
+    </div>
+  </div>
+
+  <div style="margin-top: var(--s-12); padding: var(--s-6); border: 1px dashed var(--c-border); border-radius: var(--r-lg); text-align: center;">
+    <div style="font: 600 11px/1 var(--f-body); letter-spacing: 0.5px; text-transform: uppercase; color: var(--c-ink-3); margin-bottom: var(--s-3);">Tip</div>
+    <div style="font: 400 14px/1.55 var(--f-body); color: var(--c-ink-2); max-width: 520px; margin: 0 auto;">
+      Toggle <b style="color: var(--c-ink);">Tweaks</b> in the toolbar to stress-test the system — flip shadow posture, swap the secondary grey, nudge Montserrat weight, or stand the three coral values up against each other as primary.
+    </div>
+  </div>
+</section>
+
+<footer style="padding: var(--s-8) 0 var(--s-12); text-align: center; color: var(--c-ink-3); font-size: 12px;">
+  homefit.studio · Design System v1.0 · Cape Town · April 2026
+</footer>
+
+</main>
+
+<!-- ====== TWEAKS PANEL ====== -->
+<aside class="tweaks" id="tweaks" aria-hidden="true">
+  <div class="tweaks-head">
+    <h4>Tweaks</h4>
+    <button id="tweaks-close" aria-label="Close tweaks">×</button>
+  </div>
+  <div class="tweaks-body">
+
+    <div class="tweak-group">
+      <label>Shadow posture</label>
+      <div class="tweak-options" data-group="shadow">
+        <button class="tweak-pill is-active" data-val="flat">Flat</button>
+        <button class="tweak-pill" data-val="subtle">Subtle</button>
+        <button class="tweak-pill" data-val="glow">Glow only</button>
+      </div>
+    </div>
+
+    <div class="tweak-group">
+      <label>Spacing density</label>
+      <div class="tweak-options" data-group="density">
+        <button class="tweak-pill" data-val="compact">Compact</button>
+        <button class="tweak-pill is-active" data-val="default">Default</button>
+        <button class="tweak-pill" data-val="roomy">Roomy</button>
+      </div>
+    </div>
+
+    <div class="tweak-group">
+      <label>Secondary grey</label>
+      <div class="tweak-options" data-group="secondaryGrey">
+        <button class="tweak-pill is-active" data-val="#9CA3AF">#9CA3AF · winner</button>
+        <button class="tweak-pill" data-val="#6B7280">#6B7280 · retired</button>
+      </div>
+    </div>
+
+    <div class="tweak-group">
+      <label>Primary coral</label>
+      <div class="tweak-options" data-group="primaryHex">
+        <button class="tweak-pill is-active" data-val="#FF6B35">#FF6B35</button>
+        <button class="tweak-pill" data-val="#E85A24">#E85A24</button>
+        <button class="tweak-pill" data-val="#FF8F5E">#FF8F5E</button>
+      </div>
+    </div>
+
+    <div class="tweak-group">
+      <label>Display weight</label>
+      <div class="tweak-options" data-group="displayWeight">
+        <button class="tweak-pill" data-val="600">600</button>
+        <button class="tweak-pill" data-val="700">700</button>
+        <button class="tweak-pill is-active" data-val="800">800</button>
+      </div>
+    </div>
+
+  </div>
+</aside>
+
+<script>
+(function(){
+  const defaults = /*EDITMODE-BEGIN*/{
+    "shadow": "flat",
+    "density": "default",
+    "secondaryGrey": "#9CA3AF",
+    "primaryHex": "#FF6B35",
+    "displayWeight": "800"
+  }/*EDITMODE-END*/;
+
+  const state = Object.assign({}, defaults);
+
+  function apply() {
+    document.body.dataset.shadow = state.shadow;
+    document.body.dataset.density = state.density;
+    document.documentElement.style.setProperty('--c-ink-2', state.secondaryGrey);
+    document.documentElement.style.setProperty('--c-brand', state.primaryHex);
+    document.documentElement.style.setProperty('--display-weight', state.displayWeight);
+  }
+
+  function syncPills() {
+    document.querySelectorAll('.tweak-options').forEach(group => {
+      const key = group.dataset.group;
+      group.querySelectorAll('.tweak-pill').forEach(pill => {
+        pill.classList.toggle('is-active', String(pill.dataset.val) === String(state[key]));
+      });
+    });
+  }
+
+  // Click pills
+  document.querySelectorAll('.tweak-options').forEach(group => {
+    group.addEventListener('click', e => {
+      const pill = e.target.closest('.tweak-pill');
+      if (!pill) return;
+      const key = group.dataset.group;
+      state[key] = pill.dataset.val;
+      apply();
+      syncPills();
+      try {
+        window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [key]: pill.dataset.val } }, '*');
+      } catch(err) {}
+    });
+  });
+
+  // Tweaks open/close via parent protocol
+  const panel = document.getElementById('tweaks');
+  const closeBtn = document.getElementById('tweaks-close');
+  closeBtn.addEventListener('click', () => {
+    panel.classList.remove('is-open');
+    try { window.parent.postMessage({ type: '__edit_mode_closed' }, '*'); } catch(err) {}
+  });
+
+  window.addEventListener('message', e => {
+    const d = e.data || {};
+    if (d.type === '__activate_edit_mode') { panel.classList.add('is-open'); panel.setAttribute('aria-hidden', 'false'); }
+    if (d.type === '__deactivate_edit_mode') { panel.classList.remove('is-open'); panel.setAttribute('aria-hidden', 'true'); }
+  });
+
+  apply();
+  syncPills();
+
+  try { window.parent.postMessage({ type: '__edit_mode_available' }, '*'); } catch(err) {}
+})();
+</script>
+
+</body>
+</html>
