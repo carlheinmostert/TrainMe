@@ -71,7 +71,7 @@ class GutterCardCell extends StatelessWidget {
       width: kGutterVisibleWidth,
       height: height,
       child: CustomPaint(
-        painter: _GutterCardPainter(
+        painter: GutterCardPainter(
           isInCircuit: isInCircuit,
           isFirstInCircuit: isFirstInCircuit,
           isLastInCircuit: isLastInCircuit,
@@ -87,7 +87,7 @@ class GutterCardCell extends StatelessWidget {
                     onBrand: isInCircuit,
                     dimmed: dimmed,
                   )
-                : _NumberGlyph(
+                : GutterNumberGlyph(
                     key: ValueKey('num_$numberGlyph'),
                     value: numberGlyph,
                     onBrand: isInCircuit,
@@ -100,11 +100,14 @@ class GutterCardCell extends StatelessWidget {
   }
 }
 
-class _NumberGlyph extends StatelessWidget {
+/// Position-number glyph. Rendered inside the gutter. Public for use
+/// by the Stack-based row layout, where the glyph sits inside its own
+/// `Positioned` child rather than the [GutterCardCell] wrapper.
+class GutterNumberGlyph extends StatelessWidget {
   final int? value;
   final bool onBrand;
   final bool dimmed;
-  const _NumberGlyph({super.key, this.value, this.onBrand = false, this.dimmed = false});
+  const GutterNumberGlyph({super.key, this.value, this.onBrand = false, this.dimmed = false});
 
   @override
   Widget build(BuildContext context) {
@@ -150,12 +153,18 @@ class _DragHandleGlyph extends StatelessWidget {
   }
 }
 
-class _GutterCardPainter extends CustomPainter {
+/// Painter for the card-sized gutter slice — draws the circuit rail
+/// segment for a card. Public so the Stack-based row layout in
+/// `studio_mode_screen.dart` can paint the rail directly into a
+/// `Positioned.fill` child instead of going through [GutterCardCell]
+/// (which bakes in its own height and loses the "inherit card height"
+/// property we need to avoid the sliver blow-out).
+class GutterCardPainter extends CustomPainter {
   final bool isInCircuit;
   final bool isFirstInCircuit;
   final bool isLastInCircuit;
 
-  _GutterCardPainter({
+  GutterCardPainter({
     required this.isInCircuit,
     required this.isFirstInCircuit,
     required this.isLastInCircuit,
@@ -199,7 +208,7 @@ class _GutterCardPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _GutterCardPainter old) =>
+  bool shouldRepaint(covariant GutterCardPainter old) =>
       old.isInCircuit != isInCircuit ||
       old.isFirstInCircuit != isFirstInCircuit ||
       old.isLastInCircuit != isLastInCircuit;
@@ -245,7 +254,7 @@ class GutterGapCell extends StatelessWidget {
           height: 20,
           width: kGutterHitWidth,
           child: CustomPaint(
-            painter: _GutterGapPainter(
+            painter: GutterGapPainter(
               state: state,
               continuousRail: continuousRail,
               dimmed: dimmed,
@@ -257,12 +266,18 @@ class GutterGapCell extends StatelessWidget {
   }
 }
 
-class _GutterGapPainter extends CustomPainter {
+/// Painter for the gap between two cards — the insertion dot (idle /
+/// focused / active) or the continuous circuit rail. Public for the
+/// same reason as [GutterCardPainter]: the Stack-based row in
+/// `studio_mode_screen.dart` needs to paint the gap rail/dot into a
+/// `Positioned.fill` whose height is determined by the gap's card
+/// column (tray / placeholder).
+class GutterGapPainter extends CustomPainter {
   final GutterDotState state;
   final bool continuousRail;
   final bool dimmed;
 
-  _GutterGapPainter({
+  GutterGapPainter({
     required this.state,
     required this.continuousRail,
     required this.dimmed,
@@ -317,7 +332,7 @@ class _GutterGapPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _GutterGapPainter old) =>
+  bool shouldRepaint(covariant GutterGapPainter old) =>
       old.state != state ||
       old.continuousRail != continuousRail ||
       old.dimmed != dimmed;
@@ -336,7 +351,7 @@ class GutterSpacerCell extends StatelessWidget {
       width: kGutterVisibleWidth,
       height: height,
       child: CustomPaint(
-        painter: _GutterCardPainter(
+        painter: GutterCardPainter(
           isInCircuit: railThrough,
           isFirstInCircuit: false,
           isLastInCircuit: false,
