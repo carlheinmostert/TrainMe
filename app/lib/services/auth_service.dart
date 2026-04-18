@@ -87,6 +87,52 @@ class AuthService {
   Stream<supa.Session?> get authStateChanges =>
       _supabase.auth.onAuthStateChange.map((event) => event.session);
 
+  /// Sign in with email + password.
+  ///
+  /// Fast-return path for users who previously set a password via
+  /// [setPassword]. Magic-link remains the signup / fallback surface — the
+  /// sign-in screen calls [sendMagicLink] whenever the password field is
+  /// empty or this method throws.
+  ///
+  /// Throws [AuthException] / [AuthApiException] on bad credentials,
+  /// rate-limit, etc. Callers map to friendly copy.
+  ///
+  /// Email is normalised to `trim().toLowerCase()` — same as magic-link —
+  /// so a password account works whether the user types their email in
+  /// caps or not.
+  Future<void> signInWithPassword(String email, String password) async {
+    final normalized = email.trim().toLowerCase();
+    if (normalized.isEmpty || !normalized.contains('@')) {
+      throw const AuthException('Enter a valid email address.');
+    }
+    if (password.isEmpty) {
+      throw const AuthException('Enter your password.');
+    }
+    await _supabase.auth.signInWithPassword(
+      email: normalized,
+      password: password,
+    );
+  }
+
+  /// Set (or change) the password on the currently authenticated user.
+  ///
+  /// Requires an active session — call this only from a post-sign-in
+  /// context (e.g. the one-time "Set a password?" prompt on Home). The
+  /// next time the user signs in, [signInWithPassword] with this password
+  /// will succeed.
+  ///
+  /// Supabase doesn't expose whether a user has a password set (security),
+  /// so we don't persist a server-side flag here — the sign-in-screen just
+  /// tries password first and falls back to magic link on failure. The UI
+  /// tracks "user has been prompted / dismissed" locally via
+  /// shared_preferences.
+  Future<void> setPassword(String password) async {
+    if (password.isEmpty) {
+      throw const AuthException('Enter a password.');
+    }
+    await _supabase.auth.updateUser(UserAttributes(password: password));
+  }
+
   /// Send a one-time magic link to the given email.
   ///
   /// Supabase emails a URL of the form
@@ -119,13 +165,14 @@ class AuthService {
 
   /// Start Google sign-in using the native iOS SDK (google_sign_in v6).
   ///
-  /// **Parked behind a `Coming soon` badge on the sign-in screen** as of
-  /// 2026-04-17 — the iOS GoogleSignIn 8.x SDK injects a nonce claim that
-  /// Supabase's `signInWithIdToken` rejects (see
-  /// `docs/BACKLOG_GOOGLE_SIGNIN.md` for the full post-mortem). This method
-  /// is kept wired up so re-enablement is a one-line UI flip
-  /// (`_googleEnabled = true` in `sign_in_screen.dart`) once upstream
-  /// fixes land.
+  /// **Parked behind UI-removal; see `docs/BACKLOG_GOOGLE_SIGNIN.md`.**
+  /// As of the progressive-auth upgrade (2026-04-17) the sign-in screen
+  /// surfaces only email + password + magic-link. The Google button is
+  /// gone from the UI entirely — not hidden behind a "coming soon" badge,
+  /// fully removed. This method is kept wired up (and callable via
+  /// `AuthService.instance.signInWithGoogle()`) so re-enablement is a
+  /// button-add-back operation once the upstream SDK nonce-mismatch fix
+  /// lands and Carl decides Google is worth the surface.
   ///
   /// Flow:
   ///   1. Present the system Google account picker via [GoogleSignIn.signIn].
@@ -162,12 +209,14 @@ class AuthService {
     );
   }
 
-  /// Start Apple sign-in using the native iOS SDK. Wired but INTENTIONALLY
-  /// NOT CALLED from the UI until Carl's Apple Developer enrolment is
-  /// approved and the Sign in with Apple capability is configured in the
-  /// Supabase dashboard. The SignInScreen's Apple button is disabled with
-  /// a "coming soon" badge; once Apple is ready, flip `_appleEnabled` in
-  /// `sign_in_screen.dart` to true and this method becomes live.
+  /// Start Apple sign-in using the native iOS SDK.
+  ///
+  /// **Parked behind UI-removal; see `docs/BACKLOG_GOOGLE_SIGNIN.md`.**
+  /// Wired but INTENTIONALLY NOT CALLED from the UI until Carl's Apple
+  /// Developer enrolment is approved and the Sign in with Apple capability
+  /// is configured in the Supabase dashboard. The sign-in screen no longer
+  /// surfaces an Apple button at all — re-enablement means re-adding the
+  /// button, not flipping a flag.
   ///
   /// Apple's SDK returns an `identityToken` (JWT) that Supabase verifies
   /// against the Services ID configured as the OAuth client on the Apple

@@ -2,23 +2,30 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show AuthApiException, AuthException;
 
 import '../services/auth_service.dart';
 import '../theme.dart';
 
 /// Full-screen sign-in landing. Rendered by the AuthGate when the user has
-/// no Supabase session. Once sign-in completes (magic-link deep-link fires,
-/// Supabase SDK consumes the token, session lands) the AuthGate swaps this
-/// out for the HomeScreen automatically.
+/// no Supabase session. Once sign-in completes (either a password login or
+/// the magic-link deep-link fires) the AuthGate swaps this out for the
+/// HomeScreen automatically.
 ///
-/// POV auth strategy: email magic-link is the PRIMARY sign-in. Google is
-/// temporarily parked behind a "coming soon" badge because the iOS
-/// GoogleSignIn 8.x SDK injects a nonce that `signInWithIdToken` rejects
-/// (see `docs/BACKLOG_GOOGLE_SIGNIN.md`). The native path stays wired in
-/// `AuthService` so re-enablement is a one-line flip of [_googleEnabled]
-/// once upstream fixes land. Apple remains scaffolded and disabled until
-/// Carl's Apple Developer enrolment is approved.
+/// Progressive-auth strategy:
+///
+///   - Email + password is the fast-return path. If the user already has
+///     a password set (via [AuthService.setPassword] on Home), typing both
+///     fields and tapping Sign in signs them in immediately.
+///   - If they leave the password blank, Sign in falls through to a magic
+///     link on the email field (signup-or-signin in one API call).
+///   - If they type a password and it's wrong, we show an inline error
+///     plus a "Forgot password? Get a magic link." link that triggers the
+///     same OTP flow.
+///   - Google + Apple are NOT surfaced here. Their `AuthService` paths
+///     remain wired for future re-enablement — see
+///     `docs/BACKLOG_GOOGLE_SIGNIN.md`.
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
 
@@ -27,45 +34,58 @@ class SignInScreen extends StatefulWidget {
 }
 
 class _SignInScreenState extends State<SignInScreen> {
-  /// Flip to `true` once Google Sign-In + Supabase `signInWithIdToken` are
-  /// happy with each other again (post the SDK nonce-mismatch fix tracked
-  /// in `docs/BACKLOG_GOOGLE_SIGNIN.md`).
-  static const bool _googleEnabled = false;
-
-  /// Flip to `true` once Apple Developer enrolment is approved and Sign in
-  /// with Apple is wired up in the Supabase dashboard.
-  static const bool _appleEnabled = false;
-
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
   final FocusNode _emailFocus = FocusNode();
+  final FocusNode _passwordFocus = FocusNode();
 
-  /// UI state machine for the magic-link form:
-  ///   - [_MagicLinkState.form] — email input visible, awaiting send
-  ///   - [_MagicLinkState.sending] — request in flight
-  ///   - [_MagicLinkState.sent] — confirmation panel, inbox copy
-  _MagicLinkState _state = _MagicLinkState.form;
+  /// UI state machine:
+  ///   - [_SignInState.form]      — inputs visible, primary CTA idle
+  ///   - [_SignInState.submitting] — network call in flight
+  ///   - [_SignInState.sent]       — magic-link confirmation panel
+  _SignInState _state = _SignInState.form;
+
+  /// The email we sent the magic link to (displayed in the confirmation
+  /// panel).
   String? _sentToEmail;
+
+  /// Inline error shown beneath the password field. Null when clean.
   String? _errorText;
 
-  /// Prevents double-taps on the Google button while its handler runs
-  /// (kept even though the button is currently disabled, so re-enablement
-  /// stays a one-line flip).
-  bool _googleSigningIn = false;
+  /// Whether we should show the "Forgot password? Get a magic link." link.
+  /// Surfaced only after the first bad-credentials attempt so first-time
+  /// signup users don't see it.
+  bool _showForgotLink = false;
+
+  /// Password field visibility toggle.
+  bool _passwordObscured = true;
 
   @override
   void dispose() {
     _emailController.dispose();
+    _passwordController.dispose();
     _emailFocus.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
-  // ── Magic link ──────────────────────────────────────────────────────────
+  // ── Primary submit ──────────────────────────────────────────────────────
 
-  Future<void> _sendMagicLink() async {
-    if (_state == _MagicLinkState.sending) return;
+  /// Handle the Sign in CTA.
+  ///
+  /// Routing:
+  ///   - Password empty → send magic link.
+  ///   - Password filled → try password first; on failure fall back to
+  ///     a clear error + "Forgot password?" link (magic-link is a tap
+  ///     away, not an automatic cascade — auto-cascading would mask typos
+  ///     and train users to ignore their password).
+  Future<void> _onSignInPressed() async {
+    if (_state == _SignInState.submitting) return;
     unawaited(HapticFeedback.selectionClick());
 
     final email = _emailController.text.trim().toLowerCase();
+    final password = _passwordController.text;
+
     if (email.isEmpty || !email.contains('@')) {
       setState(() {
         _errorText = "We don't recognise that email address.";
@@ -73,38 +93,104 @@ class _SignInScreenState extends State<SignInScreen> {
       return;
     }
 
+    if (password.isEmpty) {
+      await _sendMagicLink(email);
+      return;
+    }
+
     setState(() {
-      _state = _MagicLinkState.sending;
+      _state = _SignInState.submitting;
       _errorText = null;
     });
 
+    try {
+      await AuthService.instance.signInWithPassword(email, password);
+      // Success — AuthGate swaps us out once the session lands. Keep the
+      // button in the submitting state until then so the screen doesn't
+      // flash back to idle for a frame.
+      if (!mounted) return;
+      unawaited(HapticFeedback.mediumImpact());
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _state = _SignInState.form;
+        _errorText = _friendlyAuthError(e);
+        _showForgotLink = _isBadCredentials(e);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _state = _SignInState.form;
+        _errorText = "Couldn't sign you in.";
+        _showForgotLink = true;
+      });
+    }
+  }
+
+  /// Send the magic link to the given email and advance to the "sent"
+  /// confirmation panel.
+  Future<void> _sendMagicLink(String email) async {
+    setState(() {
+      _state = _SignInState.submitting;
+      _errorText = null;
+    });
     try {
       await AuthService.instance.sendMagicLink(email);
       if (!mounted) return;
       unawaited(HapticFeedback.mediumImpact());
       setState(() {
-        _state = _MagicLinkState.sent;
+        _state = _SignInState.sent;
         _sentToEmail = email;
       });
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() {
-        _state = _MagicLinkState.form;
+        _state = _SignInState.form;
         _errorText = _friendlyAuthError(e);
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _state = _MagicLinkState.form;
+        _state = _SignInState.form;
         _errorText = "Couldn't send link. Try again.";
       });
     }
   }
 
-  /// Map Supabase AuthException messages onto short, on-voice copy.
-  /// Supabase's own strings are serviceable but technical; this keeps the
-  /// surface consistent with voice.md (what happened · what to do).
+  /// Secondary inline link: "Send me a magic link instead".
+  Future<void> _onMagicLinkInsteadPressed() async {
+    if (_state == _SignInState.submitting) return;
+    final email = _emailController.text.trim().toLowerCase();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() {
+        _errorText = "We don't recognise that email address.";
+      });
+      _emailFocus.requestFocus();
+      return;
+    }
+    await _sendMagicLink(email);
+  }
+
+  /// Is this AuthException a "wrong password" signal? Used to decide
+  /// whether to show the "Forgot password?" link.
+  bool _isBadCredentials(AuthException e) {
+    if (e is AuthApiException) {
+      final code = e.code?.toLowerCase() ?? '';
+      if (code.contains('invalid_credentials')) return true;
+      if (code.contains('invalid_grant')) return true;
+    }
+    final msg = e.message.toLowerCase();
+    if (msg.contains('invalid login credentials')) return true;
+    if (msg.contains('invalid password')) return true;
+    return false;
+  }
+
+  /// Map Supabase AuthException messages onto short, on-voice copy per
+  /// voice.md's error-message formula (what happened · what to do).
   String _friendlyAuthError(AuthException e) {
+    if (_isBadCredentials(e)) {
+      return "Couldn't sign you in.";
+    }
     final msg = e.message.toLowerCase();
     if (msg.contains('rate') || msg.contains('too many')) {
       return 'Too many requests. Wait a moment and try again.';
@@ -112,35 +198,23 @@ class _SignInScreenState extends State<SignInScreen> {
     if (msg.contains('invalid') && msg.contains('email')) {
       return "We don't recognise that email address.";
     }
-    return "Couldn't send link. Try again.";
+    if (msg.contains('email not confirmed')) {
+      return 'Check your inbox to confirm this email first.';
+    }
+    return "Couldn't sign you in.";
   }
 
   void _resetForm() {
     setState(() {
-      _state = _MagicLinkState.form;
+      _state = _SignInState.form;
       _errorText = null;
       _sentToEmail = null;
+      _showForgotLink = false;
+      _passwordController.clear();
     });
-    // Slight delay so the form is mounted before we steal focus.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _emailFocus.requestFocus();
     });
-  }
-
-  // ── Google (parked) ─────────────────────────────────────────────────────
-
-  Future<void> _signInWithGoogle() async {
-    if (_googleSigningIn) return;
-    setState(() => _googleSigningIn = true);
-    try {
-      await AuthService.instance.signInWithGoogle();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Sign-in failed: $e')),
-      );
-      setState(() => _googleSigningIn = false);
-    }
   }
 
   // ── Build ───────────────────────────────────────────────────────────────
@@ -171,7 +245,7 @@ class _SignInScreenState extends State<SignInScreen> {
                           duration: const Duration(milliseconds: 200),
                           switchInCurve: Curves.easeOut,
                           switchOutCurve: Curves.easeIn,
-                          child: _state == _MagicLinkState.sent
+                          child: _state == _SignInState.sent
                               ? _buildSentPanel()
                               : _buildFormPanel(),
                         ),
@@ -200,12 +274,12 @@ class _SignInScreenState extends State<SignInScreen> {
   }
 
   Widget _buildFormPanel() {
-    final sending = _state == _MagicLinkState.sending;
+    final submitting = _state == _SignInState.submitting;
     return Column(
       key: const ValueKey('form'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Label above input
+        // Email label + field
         const Padding(
           padding: EdgeInsets.only(left: 4, bottom: 8),
           child: Text(
@@ -222,12 +296,12 @@ class _SignInScreenState extends State<SignInScreen> {
         TextField(
           controller: _emailController,
           focusNode: _emailFocus,
-          enabled: !sending,
+          enabled: !submitting,
           keyboardType: TextInputType.emailAddress,
-          textInputAction: TextInputAction.go,
+          textInputAction: TextInputAction.next,
           autocorrect: false,
           enableSuggestions: false,
-          autofillHints: const [AutofillHints.email],
+          autofillHints: const [AutofillHints.email, AutofillHints.username],
           style: const TextStyle(
             fontFamily: 'Inter',
             fontSize: 15,
@@ -236,48 +310,75 @@ class _SignInScreenState extends State<SignInScreen> {
           cursorColor: AppColors.primary,
           onChanged: (_) {
             if (_errorText != null) {
-              setState(() => _errorText = null);
+              setState(() {
+                _errorText = null;
+                _showForgotLink = false;
+              });
             }
           },
-          onSubmitted: (_) => _sendMagicLink(),
-          decoration: InputDecoration(
-            hintText: 'name@example.com',
-            hintStyle: const TextStyle(
+          onSubmitted: (_) => _passwordFocus.requestFocus(),
+          decoration: _fieldDecoration(
+            hint: 'name@example.com',
+            hasError: false,
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Password label + field
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'Password',
+            style: TextStyle(
               fontFamily: 'Inter',
-              fontSize: 15,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
               color: AppColors.textSecondaryOnDark,
             ),
-            filled: true,
-            fillColor: AppColors.surfaceBase,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 14,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-              borderSide:
-                  const BorderSide(color: AppColors.surfaceBorder),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-              borderSide: BorderSide(
-                color: _errorText != null
-                    ? AppColors.error
-                    : AppColors.surfaceBorder,
+          ),
+        ),
+        TextField(
+          controller: _passwordController,
+          focusNode: _passwordFocus,
+          enabled: !submitting,
+          obscureText: _passwordObscured,
+          textInputAction: TextInputAction.go,
+          autocorrect: false,
+          enableSuggestions: false,
+          autofillHints: const [AutofillHints.password],
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 15,
+            color: AppColors.textOnDark,
+          ),
+          cursorColor: AppColors.primary,
+          onChanged: (_) {
+            if (_errorText != null) {
+              setState(() {
+                _errorText = null;
+                _showForgotLink = false;
+              });
+            }
+          },
+          onSubmitted: (_) => _onSignInPressed(),
+          decoration: _fieldDecoration(
+            hint: 'Optional — leave blank for a magic link',
+            hasError: _errorText != null,
+            suffix: IconButton(
+              onPressed: submitting
+                  ? null
+                  : () => setState(
+                        () => _passwordObscured = !_passwordObscured,
+                      ),
+              splashRadius: 20,
+              icon: Icon(
+                _passwordObscured
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+                size: 20,
+                color: AppColors.textSecondaryOnDark,
               ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-              borderSide: BorderSide(
-                color: _errorText != null
-                    ? AppColors.error
-                    : AppColors.primary,
-                width: 2,
-              ),
-            ),
-            errorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-              borderSide: const BorderSide(color: AppColors.error, width: 2),
+              tooltip: _passwordObscured ? 'Show password' : 'Hide password',
             ),
           ),
         ),
@@ -293,39 +394,108 @@ class _SignInScreenState extends State<SignInScreen> {
               ),
             ),
           ),
-        const SizedBox(height: 16),
-        _PrimaryButton(
-          label: 'Send magic link',
-          onTap: sending ? null : _sendMagicLink,
-          loading: sending,
-        ),
-        const SizedBox(height: 24),
-        const _OrDivider(),
+        if (_showForgotLink) ...[
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: submitting ? null : _onMagicLinkInsteadPressed,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 4,
+                  vertical: 4,
+                ),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text(
+                'Forgot password? Get a magic link.',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 20),
-        // Google — parked behind "Coming soon"
-        _SignInButton(
-          label: 'Continue with Google',
-          icon: _googleIcon(),
-          onTap:
-              _googleEnabled && !_googleSigningIn ? _signInWithGoogle : null,
-          loading: _googleSigningIn,
-          primary: false,
-          comingSoon: !_googleEnabled,
+        _PrimaryButton(
+          label: 'Sign in',
+          onTap: submitting ? null : _onSignInPressed,
+          loading: submitting,
         ),
         const SizedBox(height: 12),
-        // Apple — scaffolded, disabled
-        _SignInButton(
-          label: 'Continue with Apple',
-          icon: const Icon(
-            Icons.apple,
-            color: AppColors.textSecondaryOnDark,
-            size: 22,
+        // Secondary inline link — always visible, always a one-tap magic
+        // link. Lives below the primary so the fast-return path (password)
+        // is the obvious first choice.
+        Center(
+          child: TextButton(
+            onPressed: submitting ? null : _onMagicLinkInsteadPressed,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.textSecondaryOnDark,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
+              ),
+            ),
+            child: const Text(
+              'Send me a magic link instead',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
-          onTap: _appleEnabled ? () {} : null,
-          primary: false,
-          comingSoon: !_appleEnabled,
         ),
       ],
+    );
+  }
+
+  /// Shared [InputDecoration] factory for both fields. Keeps the look
+  /// aligned with the Text Input spec in `docs/design/project/components.md`.
+  InputDecoration _fieldDecoration({
+    required String hint,
+    required bool hasError,
+    Widget? suffix,
+  }) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: const TextStyle(
+        fontFamily: 'Inter',
+        fontSize: 15,
+        color: AppColors.textSecondaryOnDark,
+      ),
+      filled: true,
+      fillColor: AppColors.surfaceBase,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 14,
+      ),
+      suffixIcon: suffix,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        borderSide: const BorderSide(color: AppColors.surfaceBorder),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        borderSide: BorderSide(
+          color: hasError ? AppColors.error : AppColors.surfaceBorder,
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        borderSide: BorderSide(
+          color: hasError ? AppColors.error : AppColors.primary,
+          width: 2,
+        ),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        borderSide: const BorderSide(color: AppColors.error, width: 2),
+      ),
     );
   }
 
@@ -412,34 +582,10 @@ class _SignInScreenState extends State<SignInScreen> {
       ],
     );
   }
-
-  /// Tiny multi-colour Google "G" — a plain text/icon placeholder so we
-  /// don't pull in a new asset package just for the sign-in button.
-  Widget _googleIcon() {
-    return Container(
-      width: 22,
-      height: 22,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: const Text(
-        'G',
-        style: TextStyle(
-          fontFamily: 'Montserrat',
-          fontSize: 14,
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF4285F4), // Google blue
-          height: 1.1,
-        ),
-      ),
-    );
-  }
 }
 
-/// Local enum for the magic-link form's state machine.
-enum _MagicLinkState { form, sending, sent }
+/// Local enum for the sign-in form's state machine.
+enum _SignInState { form, submitting, sent }
 
 /// Top wordmark + subtitle. Pulled into its own widget so the AnimatedSwitcher
 /// below doesn't re-animate the header when the form swaps out.
@@ -481,8 +627,7 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// Coral-filled primary CTA — bigger and bolder than the secondary provider
-/// buttons to anchor the magic-link path as the primary action.
+/// Coral-filled primary CTA — anchors Sign in as the primary action.
 class _PrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
@@ -536,146 +681,6 @@ class _PrimaryButton extends StatelessWidget {
   }
 }
 
-/// "or continue with" divider between the email form and social providers.
-class _OrDivider extends StatelessWidget {
-  const _OrDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Expanded(
-          child: Divider(
-            color: AppColors.surfaceBorder,
-            thickness: 1,
-            height: 1,
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            'or continue with',
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.3,
-              color: AppColors.textSecondaryOnDark,
-            ),
-          ),
-        ),
-        const Expanded(
-          child: Divider(
-            color: AppColors.surfaceBorder,
-            thickness: 1,
-            height: 1,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Secondary provider button. `comingSoon` stamps a small pill badge.
-class _SignInButton extends StatelessWidget {
-  final String label;
-  final Widget icon;
-  final VoidCallback? onTap;
-  final bool loading;
-  final bool primary;
-  final bool comingSoon;
-
-  const _SignInButton({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-    this.loading = false,
-    this.primary = false,
-    this.comingSoon = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onTap != null && !loading;
-    final bg = primary
-        ? (enabled ? AppColors.primary : AppColors.primary.withValues(alpha: 0.4))
-        : AppColors.surfaceRaised;
-    final fg = primary
-        ? Colors.white
-        : (enabled ? AppColors.textOnDark : AppColors.textSecondaryOnDark);
-    final border = primary
-        ? null
-        : Border.all(color: AppColors.surfaceBorder);
-
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.6,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-          onTap: onTap,
-          child: Container(
-            height: 52,
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-              border: border,
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                SizedBox(width: 22, height: 22, child: Center(child: icon)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: fg,
-                    ),
-                  ),
-                ),
-                if (loading)
-                  const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation(Colors.white),
-                    ),
-                  )
-                else if (comingSoon)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceBorder,
-                      borderRadius: BorderRadius.circular(100),
-                    ),
-                    child: const Text(
-                      'Coming soon',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondaryOnDark,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Pulse Mark — heartbeat line tracing a house roof silhouette.
 /// Duplicated from `powered_by_footer.dart` because that file's painter is
 /// private. Kept verbatim to stay in visual lock-step.
@@ -708,4 +713,3 @@ class _PulseMarkPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
-
