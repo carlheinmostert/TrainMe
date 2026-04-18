@@ -87,7 +87,45 @@ class AuthService {
   Stream<supa.Session?> get authStateChanges =>
       _supabase.auth.onAuthStateChange.map((event) => event.session);
 
+  /// Send a one-time magic link to the given email.
+  ///
+  /// Supabase emails a URL of the form
+  /// `com.raidme.raidme://login-callback?token=XXX&type=magiclink` which,
+  /// when tapped on this device, deep-links into the app and completes
+  /// the session via the Supabase SDK's built-in URL handler
+  /// (`onAuthStateChange` fires → AuthGate routes to Home).
+  ///
+  /// Signup and signin collapse into one call: if the email doesn't yet
+  /// have an account Supabase creates it and sends the link; if it does,
+  /// Supabase sends the link for passwordless sign-in.
+  ///
+  /// Throws [AuthException] on rate-limit or invalid email. Callers
+  /// validate format before calling, so a thrown [AuthException] from
+  /// here is almost always Supabase-side (rate-limit / SMTP outage).
+  ///
+  /// Email is normalised to `trim().toLowerCase()` so case-inconsistent
+  /// typing doesn't create duplicate auth users downstream.
+  Future<void> sendMagicLink(String email) async {
+    final normalized = email.trim().toLowerCase();
+    if (normalized.isEmpty || !normalized.contains('@')) {
+      throw const AuthException('Enter a valid email address.');
+    }
+    await _supabase.auth.signInWithOtp(
+      email: normalized,
+      emailRedirectTo: AppConfig.oauthRedirectUrl,
+      shouldCreateUser: true,
+    );
+  }
+
   /// Start Google sign-in using the native iOS SDK (google_sign_in v6).
+  ///
+  /// **Parked behind a `Coming soon` badge on the sign-in screen** as of
+  /// 2026-04-17 — the iOS GoogleSignIn 8.x SDK injects a nonce claim that
+  /// Supabase's `signInWithIdToken` rejects (see
+  /// `docs/BACKLOG_GOOGLE_SIGNIN.md` for the full post-mortem). This method
+  /// is kept wired up so re-enablement is a one-line UI flip
+  /// (`_googleEnabled = true` in `sign_in_screen.dart`) once upstream
+  /// fixes land.
   ///
   /// Flow:
   ///   1. Present the system Google account picker via [GoogleSignIn.signIn].

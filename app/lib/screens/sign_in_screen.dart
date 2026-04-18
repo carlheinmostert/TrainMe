@@ -1,16 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 
 import '../services/auth_service.dart';
 import '../theme.dart';
 
 /// Full-screen sign-in landing. Rendered by the AuthGate when the user has
-/// no Supabase session. Once sign-in completes (via OAuth deep-link) the
-/// AuthGate swaps this out for the HomeScreen automatically.
+/// no Supabase session. Once sign-in completes (magic-link deep-link fires,
+/// Supabase SDK consumes the token, session lands) the AuthGate swaps this
+/// out for the HomeScreen automatically.
 ///
-/// POV auth strategy: social-only. Google is live; Apple is scaffolded but
-/// disabled with a "coming soon" badge until Carl finishes the Apple
-/// Developer enrolment (Services ID + capability in the Supabase dashboard).
-/// Flip [_appleEnabled] to true once that's ready.
+/// POV auth strategy: email magic-link is the PRIMARY sign-in. Google is
+/// temporarily parked behind a "coming soon" badge because the iOS
+/// GoogleSignIn 8.x SDK injects a nonce that `signInWithIdToken` rejects
+/// (see `docs/BACKLOG_GOOGLE_SIGNIN.md`). The native path stays wired in
+/// `AuthService` so re-enablement is a one-line flip of [_googleEnabled]
+/// once upstream fixes land. Apple remains scaffolded and disabled until
+/// Carl's Apple Developer enrolment is approved.
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
 
@@ -19,120 +27,389 @@ class SignInScreen extends StatefulWidget {
 }
 
 class _SignInScreenState extends State<SignInScreen> {
-  /// Toggle this to `true` once Apple Developer enrolment is approved and
-  /// Sign in with Apple is wired up in the Supabase dashboard. The button
-  /// stays visible either way — we want users to see it's coming — but is
-  /// functionally disabled while false.
+  /// Flip to `true` once Google Sign-In + Supabase `signInWithIdToken` are
+  /// happy with each other again (post the SDK nonce-mismatch fix tracked
+  /// in `docs/BACKLOG_GOOGLE_SIGNIN.md`).
+  static const bool _googleEnabled = false;
+
+  /// Flip to `true` once Apple Developer enrolment is approved and Sign in
+  /// with Apple is wired up in the Supabase dashboard.
   static const bool _appleEnabled = false;
 
-  bool _signingIn = false;
+  final TextEditingController _emailController = TextEditingController();
+  final FocusNode _emailFocus = FocusNode();
+
+  /// UI state machine for the magic-link form:
+  ///   - [_MagicLinkState.form] — email input visible, awaiting send
+  ///   - [_MagicLinkState.sending] — request in flight
+  ///   - [_MagicLinkState.sent] — confirmation panel, inbox copy
+  _MagicLinkState _state = _MagicLinkState.form;
+  String? _sentToEmail;
+  String? _errorText;
+
+  /// Prevents double-taps on the Google button while its handler runs
+  /// (kept even though the button is currently disabled, so re-enablement
+  /// stays a one-line flip).
+  bool _googleSigningIn = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _emailFocus.dispose();
+    super.dispose();
+  }
+
+  // ── Magic link ──────────────────────────────────────────────────────────
+
+  Future<void> _sendMagicLink() async {
+    if (_state == _MagicLinkState.sending) return;
+    unawaited(HapticFeedback.selectionClick());
+
+    final email = _emailController.text.trim().toLowerCase();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() {
+        _errorText = "We don't recognise that email address.";
+      });
+      return;
+    }
+
+    setState(() {
+      _state = _MagicLinkState.sending;
+      _errorText = null;
+    });
+
+    try {
+      await AuthService.instance.sendMagicLink(email);
+      if (!mounted) return;
+      unawaited(HapticFeedback.mediumImpact());
+      setState(() {
+        _state = _MagicLinkState.sent;
+        _sentToEmail = email;
+      });
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _state = _MagicLinkState.form;
+        _errorText = _friendlyAuthError(e);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _state = _MagicLinkState.form;
+        _errorText = "Couldn't send link. Try again.";
+      });
+    }
+  }
+
+  /// Map Supabase AuthException messages onto short, on-voice copy.
+  /// Supabase's own strings are serviceable but technical; this keeps the
+  /// surface consistent with voice.md (what happened · what to do).
+  String _friendlyAuthError(AuthException e) {
+    final msg = e.message.toLowerCase();
+    if (msg.contains('rate') || msg.contains('too many')) {
+      return 'Too many requests. Wait a moment and try again.';
+    }
+    if (msg.contains('invalid') && msg.contains('email')) {
+      return "We don't recognise that email address.";
+    }
+    return "Couldn't send link. Try again.";
+  }
+
+  void _resetForm() {
+    setState(() {
+      _state = _MagicLinkState.form;
+      _errorText = null;
+      _sentToEmail = null;
+    });
+    // Slight delay so the form is mounted before we steal focus.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _emailFocus.requestFocus();
+    });
+  }
+
+  // ── Google (parked) ─────────────────────────────────────────────────────
 
   Future<void> _signInWithGoogle() async {
-    if (_signingIn) return;
-    setState(() => _signingIn = true);
+    if (_googleSigningIn) return;
+    setState(() => _googleSigningIn = true);
     try {
       await AuthService.instance.signInWithGoogle();
-      // The OAuth flow handoff is asynchronous: we return here before the
-      // user has actually completed sign-in in the browser. The auth state
-      // listener on AuthGate handles the post-callback navigation.
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Sign-in failed: $e')),
       );
-      setState(() => _signingIn = false);
+      setState(() => _googleSigningIn = false);
     }
   }
+
+  // ── Build ───────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.surfaceBg,
+      resizeToAvoidBottomInset: true,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            children: [
-              const Spacer(flex: 2),
-
-              // Pulse Mark logo
-              SizedBox(
-                width: 96,
-                height: 64,
-                child: CustomPaint(
-                  painter: _PulseMarkPainter(color: AppColors.primary),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Wordmark
-              const Text(
-                'homefit.studio',
-                style: TextStyle(
-                  fontFamily: 'Montserrat',
-                  fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.5,
-                  color: AppColors.textOnDark,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Subtitle
-              const Text(
-                'Sign in to get started',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 15,
-                  fontWeight: FontWeight.w400,
-                  color: AppColors.textSecondaryOnDark,
-                ),
-              ),
-
-              const Spacer(flex: 3),
-
-              // Primary: Continue with Google
-              _SignInButton(
-                label: 'Continue with Google',
-                icon: _googleIcon(),
-                onTap: _signingIn ? null : _signInWithGoogle,
-                loading: _signingIn,
-                primary: true,
-              ),
-              const SizedBox(height: 12),
-
-              // Secondary: Continue with Apple (disabled)
-              _SignInButton(
-                label: 'Continue with Apple',
-                icon: const Icon(
-                  Icons.apple,
-                  color: AppColors.textSecondaryOnDark,
-                  size: 22,
-                ),
-                onTap: _appleEnabled ? () {} : null,
-                primary: false,
-                comingSoon: !_appleEnabled,
-              ),
-
-              const Spacer(flex: 2),
-
-              // Subtle footer — tiny reassurance, no clutter.
-              const Padding(
-                padding: EdgeInsets.only(bottom: 16),
-                child: Text(
-                  'Secure sign-in via Supabase',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    color: AppColors.textSecondaryOnDark,
-                    letterSpacing: 0.3,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              keyboardDismissBehavior:
+                  ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: ConstrainedBox(
+                constraints:
+                    BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 48),
+                      _Header(),
+                      const SizedBox(height: 40),
+                      Expanded(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 200),
+                          switchInCurve: Curves.easeOut,
+                          switchOutCurve: Curves.easeIn,
+                          child: _state == _MagicLinkState.sent
+                              ? _buildSentPanel()
+                              : _buildFormPanel(),
+                        ),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.only(top: 16, bottom: 16),
+                        child: Text(
+                          'Secure sign-in via Supabase',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            color: AppColors.textSecondaryOnDark,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
+    );
+  }
+
+  Widget _buildFormPanel() {
+    final sending = _state == _MagicLinkState.sending;
+    return Column(
+      key: const ValueKey('form'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Label above input
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'Your email',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+              color: AppColors.textSecondaryOnDark,
+            ),
+          ),
+        ),
+        TextField(
+          controller: _emailController,
+          focusNode: _emailFocus,
+          enabled: !sending,
+          keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.go,
+          autocorrect: false,
+          enableSuggestions: false,
+          autofillHints: const [AutofillHints.email],
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 15,
+            color: AppColors.textOnDark,
+          ),
+          cursorColor: AppColors.primary,
+          onChanged: (_) {
+            if (_errorText != null) {
+              setState(() => _errorText = null);
+            }
+          },
+          onSubmitted: (_) => _sendMagicLink(),
+          decoration: InputDecoration(
+            hintText: 'name@example.com',
+            hintStyle: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 15,
+              color: AppColors.textSecondaryOnDark,
+            ),
+            filled: true,
+            fillColor: AppColors.surfaceBase,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              borderSide:
+                  const BorderSide(color: AppColors.surfaceBorder),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              borderSide: BorderSide(
+                color: _errorText != null
+                    ? AppColors.error
+                    : AppColors.surfaceBorder,
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              borderSide: BorderSide(
+                color: _errorText != null
+                    ? AppColors.error
+                    : AppColors.primary,
+                width: 2,
+              ),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              borderSide: const BorderSide(color: AppColors.error, width: 2),
+            ),
+          ),
+        ),
+        if (_errorText != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8, left: 4),
+            child: Text(
+              _errorText!,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: AppColors.error,
+              ),
+            ),
+          ),
+        const SizedBox(height: 16),
+        _PrimaryButton(
+          label: 'Send magic link',
+          onTap: sending ? null : _sendMagicLink,
+          loading: sending,
+        ),
+        const SizedBox(height: 24),
+        const _OrDivider(),
+        const SizedBox(height: 20),
+        // Google — parked behind "Coming soon"
+        _SignInButton(
+          label: 'Continue with Google',
+          icon: _googleIcon(),
+          onTap:
+              _googleEnabled && !_googleSigningIn ? _signInWithGoogle : null,
+          loading: _googleSigningIn,
+          primary: false,
+          comingSoon: !_googleEnabled,
+        ),
+        const SizedBox(height: 12),
+        // Apple — scaffolded, disabled
+        _SignInButton(
+          label: 'Continue with Apple',
+          icon: const Icon(
+            Icons.apple,
+            color: AppColors.textSecondaryOnDark,
+            size: 22,
+          ),
+          onTap: _appleEnabled ? () {} : null,
+          primary: false,
+          comingSoon: !_appleEnabled,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSentPanel() {
+    final email = _sentToEmail ?? '';
+    return Column(
+      key: const ValueKey('sent'),
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          width: 72,
+          height: 72,
+          decoration: const BoxDecoration(
+            color: AppColors.brandTintBg,
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: const Icon(
+            Icons.mark_email_read_outlined,
+            color: AppColors.primary,
+            size: 32,
+          ),
+        ),
+        const SizedBox(height: 20),
+        const Text(
+          'Check your inbox',
+          style: TextStyle(
+            fontFamily: 'Montserrat',
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.3,
+            color: AppColors.textOnDark,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: RichText(
+            textAlign: TextAlign.center,
+            text: TextSpan(
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                color: AppColors.textSecondaryOnDark,
+                height: 1.5,
+              ),
+              children: [
+                const TextSpan(text: 'We sent a sign-in link to '),
+                TextSpan(
+                  text: email,
+                  style: const TextStyle(
+                    color: AppColors.textOnDark,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const TextSpan(
+                  text: '. Open it on this device to continue.',
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        TextButton(
+          onPressed: _resetForm,
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.primary,
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 10,
+            ),
+          ),
+          child: const Text(
+            'Use a different email',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primary,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -161,8 +438,145 @@ class _SignInScreenState extends State<SignInScreen> {
   }
 }
 
-/// Internal stacked-button used twice on the sign-in screen. Primary (coral)
-/// and secondary (outlined) variants. `comingSoon` stamps a small pill badge.
+/// Local enum for the magic-link form's state machine.
+enum _MagicLinkState { form, sending, sent }
+
+/// Top wordmark + subtitle. Pulled into its own widget so the AnimatedSwitcher
+/// below doesn't re-animate the header when the form swaps out.
+class _Header extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          width: 96,
+          height: 64,
+          child: CustomPaint(
+            painter: _PulseMarkPainter(color: AppColors.primary),
+          ),
+        ),
+        const SizedBox(height: 24),
+        const Text(
+          'homefit.studio',
+          style: TextStyle(
+            fontFamily: 'Montserrat',
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.5,
+            color: AppColors.textOnDark,
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Sign in to get started',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 15,
+            fontWeight: FontWeight.w400,
+            color: AppColors.textSecondaryOnDark,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Coral-filled primary CTA — bigger and bolder than the secondary provider
+/// buttons to anchor the magic-link path as the primary action.
+class _PrimaryButton extends StatelessWidget {
+  final String label;
+  final VoidCallback? onTap;
+  final bool loading;
+
+  const _PrimaryButton({
+    required this.label,
+    required this.onTap,
+    this.loading = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null && !loading;
+    final bg = enabled
+        ? AppColors.primary
+        : AppColors.primary.withValues(alpha: 0.4);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        onTap: enabled ? onTap : null,
+        child: Container(
+          height: 52,
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+          ),
+          alignment: Alignment.center,
+          child: loading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation(Colors.white),
+                  ),
+                )
+              : Text(
+                  label,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "or continue with" divider between the email form and social providers.
+class _OrDivider extends StatelessWidget {
+  const _OrDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Expanded(
+          child: Divider(
+            color: AppColors.surfaceBorder,
+            thickness: 1,
+            height: 1,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            'or continue with',
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.3,
+              color: AppColors.textSecondaryOnDark,
+            ),
+          ),
+        ),
+        const Expanded(
+          child: Divider(
+            color: AppColors.surfaceBorder,
+            thickness: 1,
+            height: 1,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Secondary provider button. `comingSoon` stamps a small pill badge.
 class _SignInButton extends StatelessWidget {
   final String label;
   final Widget icon;
@@ -294,3 +708,4 @@ class _PulseMarkPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+
