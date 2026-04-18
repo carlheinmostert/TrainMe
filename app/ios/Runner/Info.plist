@@ -34,7 +34,29 @@
 				<string>com.raidme.raidme</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>Google Sign-In</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- TODO(Carl): replace PLACEHOLDER with the REVERSED_CLIENT_ID from
+				     GoogleService-Info.plist (iOS OAuth client). Format is
+				     com.googleusercontent.apps.<numeric-id>-<suffix>. The native
+				     Google Sign-In SDK uses this URL scheme to hand the auth
+				     response back to the app without bouncing through Safari. -->
+				<string>com.googleusercontent.apps.PLACEHOLDER</string>
+			</array>
+		</dict>
 	</array>
+	<!-- TODO(Carl): replace PLACEHOLDER with the iOS OAuth client ID from
+	     Google Cloud Console (same id used to populate Supabase's "Authorized
+	     Client IDs" list). Full form is <numeric>-<suffix>.apps.googleusercontent.com.
+	     The Google Sign-In iOS plugin reads this at runtime — no need to also
+	     pass clientId in Dart. -->
+	<key>GIDClientID</key>
+	<string>PLACEHOLDER.apps.googleusercontent.com</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

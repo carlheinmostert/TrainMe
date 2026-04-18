@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 import 'package:supabase_flutter/supabase_flutter.dart' as supa show Session;
 
@@ -8,12 +10,39 @@ import '../config.dart';
 /// and the practice-membership bootstrap logic.
 ///
 /// Design goals:
-///   - Single source of truth for the OAuth redirect URL and provider set.
+///   - Single source of truth for the provider set.
 ///   - The AuthGate watches [authStateChanges] so UI updates automatically.
 ///   - Membership bootstrap ([ensurePracticeMembership]) runs on every
 ///     signed-in event but is idempotent and best-effort: a failure here
 ///     must never brick the app. Worst case the bio signs in with no
 ///     membership and publishing will surface a clear error later.
+///
+/// ## Why native SDKs, not browser OAuth?
+///
+/// The prior `supabase.auth.signInWithOAuth(...)` path bounced the user
+/// through an in-app or external browser to complete the Google / Apple
+/// flow. That produced three distinct failure modes in testing:
+///
+///   1. `LaunchMode.externalApplication` → Safari shows the iOS 17+
+///      "Open in app?" prompt, users decline, the deep-link never fires.
+///   2. `LaunchMode.inAppWebView` / `ASWebAuthenticationSession` → Google
+///      detects the isolated browser session as "insecure" and serves a
+///      blank `accounts.google.com` page on first-time use.
+///   3. `LaunchMode.inAppBrowserView` / SFSafariViewController → same
+///      blank-page behaviour on real devices (SFSafariViewController
+///      inherits cookies from Safari, but still presents as a non-standard
+///      browser context to Google's fingerprinter in some cases).
+///
+/// The native SDKs sidestep the browser entirely. `GoogleSignIn.authenticate`
+/// presents iOS's own account-picker sheet (shares the system Google account
+/// if one is configured, otherwise a webview embedded in Google's own SDK).
+/// `SignInWithApple.getAppleIDCredential` uses Apple's first-party UI.
+///
+/// Both SDKs return a signed ID token that Supabase verifies server-side
+/// against its "Authorized Client IDs" list via [SupabaseAuth.signInWithIdToken].
+/// The resulting Supabase session is identical to what the OAuth flow would
+/// have produced — `onAuthStateChange` fires, [authStateChanges] emits, and
+/// the rest of the app (AuthGate, practice-claim, etc.) is untouched.
 ///
 /// Milestone B POV assumption: the FIRST user to sign in claims the
 /// pre-seeded sentinel practice (1000 credits) as its owner. Subsequent
@@ -26,6 +55,12 @@ class AuthService {
   static final AuthService instance = AuthService._();
 
   SupabaseClient get _supabase => Supabase.instance.client;
+
+  /// One-shot guard for [GoogleSignIn.initialize]. The v7 API requires
+  /// `initialize()` to complete exactly once before any other call; we
+  /// lazy-init on the first sign-in attempt and cache the future so
+  /// concurrent taps don't double-init.
+  Future<void>? _googleInitFuture;
 
   /// Current session snapshot. Null when the user isn't signed in.
   /// Persists across app restarts via Supabase's default secure storage
@@ -41,59 +76,89 @@ class AuthService {
   Stream<supa.Session?> get authStateChanges =>
       _supabase.auth.onAuthStateChange.map((event) => event.session);
 
-  /// Start Google OAuth. The actual sign-in completes asynchronously:
-  /// the Supabase SDK opens the system browser, the user authenticates,
-  /// Google redirects to the Supabase callback URL, and Supabase then
-  /// redirects to [AppConfig.oauthRedirectUrl] which deep-links back
-  /// into the app. The SDK's internal `app_links` listener picks that
-  /// up and flips [authStateChanges].
+  /// Kick off (once) the platform-side initialisation required by
+  /// `google_sign_in` 7.x. The iOS plugin picks up the client ID from
+  /// the `GIDClientID` key in `Info.plist`, so we don't pass it here.
+  Future<void> _ensureGoogleInitialised() {
+    return _googleInitFuture ??= GoogleSignIn.instance.initialize();
+  }
+
+  /// Start Google sign-in using the native iOS SDK.
   ///
-  /// Throws if the browser can't be opened. The AuthGate surface should
-  /// catch and show a friendly error.
+  /// Flow:
+  ///   1. Present the system Google account picker via
+  ///      [GoogleSignIn.authenticate]. This either silently picks up a
+  ///      system-level Google account or shows Google's native chooser.
+  ///   2. Grab the ID token (a JWT signed by Google).
+  ///   3. Hand it to Supabase via [SupabaseAuth.signInWithIdToken]. Supabase
+  ///      verifies the JWT against its configured Google OAuth client IDs
+  ///      (both the web and iOS client IDs must be in the provider's
+  ///      "Authorized Client IDs" list in the Supabase dashboard).
+  ///
+  /// The v7 `authenticate()` call returns the ID token only. An access token
+  /// must be requested separately via `authorizationClient` if needed — we
+  /// don't call Google APIs directly, so we skip that and pass only the
+  /// idToken to Supabase.
+  ///
+  /// Throws if the SDK fails. Cancellation surfaces as a
+  /// [GoogleSignInException] with code `canceled`; callers should catch and
+  /// treat as a no-op (user changed their mind).
   Future<void> signInWithGoogle() async {
-    await _supabase.auth.signInWithOAuth(
-      OAuthProvider.google,
-      redirectTo: AppConfig.oauthRedirectUrl,
-      // inAppBrowserView → SFSafariViewController on iOS. The
-      // Goldilocks launch mode for Google OAuth:
-      //   • Shares Safari cookies (active Google session just works)
-      //   • Follows custom-scheme redirects back to the app without the
-      //     iOS 17+ "Open in app?" prompt that full Safari now shows
-      //   • Doesn't trip Google's browser-fingerprint block the way
-      //     ASWebAuthenticationSession does (white page on accounts.
-      //     google.com on first-time use from a real device)
-      //   • Stays in-app, no context switch
-      authScreenLaunchMode: LaunchMode.inAppBrowserView,
+    await _ensureGoogleInitialised();
+
+    final GoogleSignInAccount account =
+        await GoogleSignIn.instance.authenticate();
+    final idToken = account.authentication.idToken;
+    if (idToken == null) {
+      throw Exception('Google sign-in did not return an idToken');
+    }
+
+    await _supabase.auth.signInWithIdToken(
+      provider: OAuthProvider.google,
+      idToken: idToken,
     );
   }
 
-  /// Start Apple OAuth. Wired but INTENTIONALLY NOT CALLED from the UI
-  /// until Carl's Apple Developer enrolment is approved and the Services
-  /// ID + Sign in with Apple capability are configured in the Supabase
-  /// dashboard. The SignInScreen's Apple button is disabled with a
-  /// "coming soon" badge; once Apple is ready, flip `_appleEnabled` in
+  /// Start Apple sign-in using the native iOS SDK. Wired but INTENTIONALLY
+  /// NOT CALLED from the UI until Carl's Apple Developer enrolment is
+  /// approved and the Sign in with Apple capability is configured in the
+  /// Supabase dashboard. The SignInScreen's Apple button is disabled with
+  /// a "coming soon" badge; once Apple is ready, flip `_appleEnabled` in
   /// `sign_in_screen.dart` to true and this method becomes live.
+  ///
+  /// Apple's SDK returns an `identityToken` (JWT) that Supabase verifies
+  /// against the Services ID configured as the OAuth client on the Apple
+  /// side. No access token is surfaced to the client.
   // ignore: unused_element
   Future<void> signInWithApple() async {
-    await _supabase.auth.signInWithOAuth(
-      OAuthProvider.apple,
-      redirectTo: AppConfig.oauthRedirectUrl,
-      // inAppBrowserView → SFSafariViewController on iOS. The
-      // Goldilocks launch mode for Google OAuth:
-      //   • Shares Safari cookies (active Google session just works)
-      //   • Follows custom-scheme redirects back to the app without the
-      //     iOS 17+ "Open in app?" prompt that full Safari now shows
-      //   • Doesn't trip Google's browser-fingerprint block the way
-      //     ASWebAuthenticationSession does (white page on accounts.
-      //     google.com on first-time use from a real device)
-      //   • Stays in-app, no context switch
-      authScreenLaunchMode: LaunchMode.inAppBrowserView,
+    final credential = await SignInWithApple.getAppleIDCredential(
+      scopes: [
+        AppleIDAuthorizationScopes.email,
+        AppleIDAuthorizationScopes.fullName,
+      ],
+    );
+    final idToken = credential.identityToken;
+    if (idToken == null) {
+      throw Exception('Apple sign-in did not return an identityToken');
+    }
+    await _supabase.auth.signInWithIdToken(
+      provider: OAuthProvider.apple,
+      idToken: idToken,
     );
   }
 
   /// End the current session. Clears the secure-storage token so the
-  /// next app launch will land on the SignInScreen.
+  /// next app launch will land on the SignInScreen. Also signs out of
+  /// the native Google SDK so the next sign-in shows the account picker
+  /// fresh (without this, the SDK would silently re-sign the same user).
   Future<void> signOut() async {
+    try {
+      await GoogleSignIn.instance.signOut();
+    } catch (e) {
+      // If the SDK wasn't initialised yet (user never signed in with
+      // Google this session) signOut can throw — harmless, ignore.
+      debugPrint('AuthService.signOut: GoogleSignIn.signOut swallowed: $e');
+    }
     await _supabase.auth.signOut();
   }
 

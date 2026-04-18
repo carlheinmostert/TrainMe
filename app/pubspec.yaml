@@ -32,6 +32,14 @@ dependencies:
   # Supabase (for Send flow — Phase 3)
   supabase_flutter: ^2.9.0
 
+  # Native sign-in SDKs (iOS-only for MVP). Supabase accepts the native
+  # idToken via signInWithIdToken, bypassing the browser-based OAuth flow
+  # that proved fragile on iOS 17+ (ASWebAuthenticationSession friction,
+  # SFSafariViewController blank pages, externalApplication "Open in app?"
+  # prompts).
+  google_sign_in: ^7.2.0
+  sign_in_with_apple: ^7.0.1
+
   # UI
   google_fonts: ^6.1.0
   share_plus: ^10.1.4
