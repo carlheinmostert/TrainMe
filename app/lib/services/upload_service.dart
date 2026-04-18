@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 import '../config.dart';
 import '../models/session.dart';
 import '../models/exercise_capture.dart';
+import 'auth_service.dart';
 import 'local_storage_service.dart';
 
 // TODO: move to background URLSession for true non-blocking publish.
@@ -215,16 +216,35 @@ class UploadService {
 
     // Never fall back to the Carl-sentinel practice here — a malformed local
     // session with practiceId == null must NOT silently charge Carl's tenant.
-    // RLS catches it at the DB, but the client has no business picking a
-    // tenant on the user's behalf. Surface the bug loudly so the publish
-    // banner shows it and the bootstrap retry flow can fix it.
+    // But we DO allow a fallback to AuthService.currentPracticeId, which was
+    // populated by the SECURITY DEFINER `bootstrap_practice_for_user` RPC and
+    // is therefore the server's view of THIS user's own practice (safe). This
+    // lets us publish sessions that were drafted locally before the publish
+    // flow started tagging sessions with a practice_id. If neither the session
+    // nor the auth service knows the practice, surface the bug loudly so the
+    // HomeScreen banner shows it and the bootstrap retry can fix it.
+    final String practiceId;
     final sessionPracticeId = session.practiceId;
-    if (sessionPracticeId == null) {
-      const msg = 'Cannot publish: session has no practiceId';
-      await _recordFailure(session, msg);
-      throw StateError(msg);
+    if (sessionPracticeId != null) {
+      practiceId = sessionPracticeId;
+    } else {
+      final fallback = AuthService.instance.currentPracticeId.value;
+      if (fallback == null) {
+        const msg =
+            'Cannot publish: no practice found. Tap Retry on the setup banner.';
+        await _recordFailure(session, msg);
+        throw StateError(msg);
+      }
+      practiceId = fallback;
+      // Backfill locally so future publishes skip this fallback path and the
+      // UI stops treating the session as orphaned.
+      final backfilled = session.copyWith(practiceId: fallback);
+      try {
+        await _storage.saveSession(backfilled);
+      } catch (e) {
+        debugPrint('uploadPlan: failed to backfill practiceId locally: $e');
+      }
     }
-    final practiceId = sessionPracticeId;
     final nonRestCount = session.exercises.where((e) => !e.isRest).length;
     final creditsToCharge = creditCostFor(nonRestCount);
 

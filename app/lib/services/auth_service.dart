@@ -203,6 +203,8 @@ class AuthService {
       debugPrint('AuthService.signOut: GoogleSignIn.signOut swallowed: $e');
     }
     await _supabase.auth.signOut();
+    currentPracticeId.value = null;
+    bootstrapError.value = null;
   }
 
   /// Notifier for the last bootstrap-membership error, or null on success.
@@ -213,6 +215,18 @@ class AuthService {
   /// membership and no way to publish, with nothing on screen explaining
   /// why).
   final ValueNotifier<String?> bootstrapError = ValueNotifier<String?>(null);
+
+  /// The signed-in user's primary practice id, as returned by the most
+  /// recent successful [ensurePracticeMembership] call.
+  ///
+  /// Populated by the `bootstrap_practice_for_user` SECURITY DEFINER RPC,
+  /// so this is always the server's view of the user's own practice (not
+  /// a client-picked tenant). Safe to use as a fallback when a locally
+  /// created Session has no practiceId of its own — e.g. sessions created
+  /// before the practice_id wiring landed, or future flows where the
+  /// session is drafted offline.
+  final ValueNotifier<String?> currentPracticeId =
+      ValueNotifier<String?>(null);
 
   /// Ensure the signed-in user is a member of at least one practice.
   ///
@@ -233,6 +247,7 @@ class AuthService {
     try {
       final result = await _supabase.rpc('bootstrap_practice_for_user');
       final practiceId = result is String ? result : result?.toString();
+      currentPracticeId.value = practiceId;
       bootstrapError.value = null;
       debugPrint(
         'AuthService: bootstrap returned practice $practiceId for ${user.id}',
