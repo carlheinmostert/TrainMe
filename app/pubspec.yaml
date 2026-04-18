@@ -28,6 +28,11 @@ dependencies:
   sqflite: ^2.4.2
   path_provider: ^2.1.5
   path: ^1.9.1
+  # Lightweight key/value store for UI dismissal flags (e.g. post-sign-in
+  # "set a password?" prompt). Already transitively depended on by
+  # supabase_flutter; promoted to a direct dep because we import it in
+  # lib/screens/home_screen.dart.
+  shared_preferences: ^2.3.2
 
   # Supabase (for Send flow — Phase 3)
   supabase_flutter: ^2.9.0

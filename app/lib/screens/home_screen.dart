@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/auth_service.dart';
@@ -8,6 +11,7 @@ import '../services/local_storage_service.dart';
 import '../services/upload_service.dart';
 import '../theme.dart';
 import '../widgets/powered_by_footer.dart';
+import '../widgets/set_password_sheet.dart';
 import 'session_capture_screen.dart'; // retained as fallback, see _useShell below
 import 'session_shell_screen.dart';
 
@@ -37,11 +41,83 @@ class _HomeScreenState extends State<HomeScreen> {
   /// that's fine, the UI just shows no error affordance.
   final Map<String, String> _publishErrors = {};
 
+  /// Whether to show the "Faster sign-in next time — set a password." banner
+  /// above the session list. Toggled off once the user either dismisses or
+  /// saves; the decision is persisted in [SharedPreferences] keyed by
+  /// [_prefsKeyForSetPasswordPrompt] so it never reappears for that user.
+  bool _showSetPasswordPrompt = false;
+
+  /// Keyed by user id — false-negatives (showing the prompt to a user who
+  /// already has a password) are harmless, they can simply dismiss or
+  /// overwrite. Supabase doesn't expose a "has_password" flag for security
+  /// reasons, so local state is the cheapest workable marker.
+  static String _prefsKeyForSetPasswordPrompt(String userId) =>
+      'setPasswordPrompt.handled.$userId';
+
   @override
   void initState() {
     super.initState();
     _uploadService = UploadService(storage: widget.storage);
     _loadSessions();
+    _maybeShowSetPasswordPrompt();
+  }
+
+  /// Check whether the current user has already handled (dismissed or
+  /// completed) the set-password prompt. If not, surface the inline
+  /// banner above the session list.
+  Future<void> _maybeShowSetPasswordPrompt() async {
+    final userId = AuthService.instance.currentUserId;
+    if (userId == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final handled =
+          prefs.getBool(_prefsKeyForSetPasswordPrompt(userId)) ?? false;
+      if (!mounted) return;
+      if (!handled) {
+        setState(() => _showSetPasswordPrompt = true);
+      }
+    } catch (_) {
+      // Best-effort — never block Home on a prefs read.
+    }
+  }
+
+  /// Persist the "handled" flag for this user so the banner never reappears.
+  Future<void> _markSetPasswordPromptHandled() async {
+    final userId = AuthService.instance.currentUserId;
+    if (userId == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKeyForSetPasswordPrompt(userId), true);
+    } catch (_) {
+      // Best-effort — if prefs fails, the worst that happens is the banner
+      // reappears next launch. User can dismiss again.
+    }
+  }
+
+  /// Open the SetPasswordSheet and, regardless of outcome (save OR cancel),
+  /// hide the banner and mark it handled. Save → SnackBar confirmation.
+  Future<void> _onSetPasswordTapped() async {
+    unawaited(HapticFeedback.selectionClick());
+    final saved = await SetPasswordSheet.show(context);
+    if (!mounted) return;
+    setState(() => _showSetPasswordPrompt = false);
+    await _markSetPasswordPromptHandled();
+    if (!mounted) return;
+    if (saved) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password saved. Use it next time you sign in.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  /// "Not now" — hide the banner for good.
+  Future<void> _onSetPasswordDismissed() async {
+    unawaited(HapticFeedback.selectionClick());
+    setState(() => _showSetPasswordPrompt = false);
+    await _markSetPasswordPromptHandled();
   }
 
   Future<void> _loadSessions() async {
@@ -320,6 +396,19 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
 
         const SizedBox(height: 8),
+
+        // One-time progressive-auth nudge. Shown above the session list
+        // until the user either saves a password or dismisses ("Not now").
+        // Flag is persisted in shared_preferences per user id, so this
+        // never reappears on the same device for the same account.
+        if (_showSetPasswordPrompt)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: _SetPasswordBanner(
+              onSetPassword: _onSetPasswordTapped,
+              onDismiss: _onSetPasswordDismissed,
+            ),
+          ),
 
         // Recent sessions header (kept as a minimal top anchor).
         if (_sessions.isNotEmpty)
@@ -805,4 +894,110 @@ class _HomeScreenState extends State<HomeScreen> {
     return false;
   }
 
+}
+
+/// Inline banner above the session list that invites the user to set a
+/// password for faster sign-in next time. Shown once per user per device,
+/// then dismissed for good once the user either saves a password or taps
+/// "Not now". Styled as an outlined card (matching `card.outlined` in the
+/// design system) to sit quietly without stealing focus from the session
+/// list and New Session CTA.
+class _SetPasswordBanner extends StatelessWidget {
+  final VoidCallback onSetPassword;
+  final VoidCallback onDismiss;
+
+  const _SetPasswordBanner({
+    required this.onSetPassword,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceBase,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.surfaceBorder),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: const BoxDecoration(
+              color: AppColors.brandTintBg,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: const Icon(
+              Icons.lock_outline,
+              color: AppColors.primary,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Faster sign-in next time — set a password.',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textOnDark,
+                height: 1.3,
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          TextButton(
+            onPressed: onDismiss,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.textSecondaryOnDark,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 6,
+              ),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              'Not now',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 2),
+          FilledButton(
+            onPressed: onSetPassword,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
+              ),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              ),
+            ),
+            child: const Text(
+              'Set password',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
