@@ -212,7 +212,18 @@ class UploadService {
     }
     final trainerId = currentUser.id;
 
-    final practiceId = session.practiceId ?? AppConfig.sentinelPracticeId;
+    // Never fall back to the Carl-sentinel practice here — a malformed local
+    // session with practiceId == null must NOT silently charge Carl's tenant.
+    // RLS catches it at the DB, but the client has no business picking a
+    // tenant on the user's behalf. Surface the bug loudly so the publish
+    // banner shows it and the bootstrap retry flow can fix it.
+    final sessionPracticeId = session.practiceId;
+    if (sessionPracticeId == null) {
+      const msg = 'Cannot publish: session has no practiceId';
+      await _recordFailure(session, msg);
+      throw StateError(msg);
+    }
+    final practiceId = sessionPracticeId;
     final nonRestCount = session.exercises.where((e) => !e.isRest).length;
     final creditsToCharge = creditCostFor(nonRestCount);
 
