@@ -54,7 +54,12 @@ class AuthService {
     await _supabase.auth.signInWithOAuth(
       OAuthProvider.google,
       redirectTo: AppConfig.oauthRedirectUrl,
-      authScreenLaunchMode: LaunchMode.externalApplication,
+      // platformDefault → ASWebAuthenticationSession on iOS. Apple's
+      // dedicated OAuth handler follows custom-scheme redirects back to
+      // the app without the iOS 17+ "Open in app?" prompt that full
+      // Safari now always shows. Also shares Safari cookies, so
+      // subsequent Google sign-ins don't re-prompt for credentials.
+      authScreenLaunchMode: LaunchMode.platformDefault,
     );
   }
 
@@ -69,7 +74,12 @@ class AuthService {
     await _supabase.auth.signInWithOAuth(
       OAuthProvider.apple,
       redirectTo: AppConfig.oauthRedirectUrl,
-      authScreenLaunchMode: LaunchMode.externalApplication,
+      // platformDefault → ASWebAuthenticationSession on iOS. Apple's
+      // dedicated OAuth handler follows custom-scheme redirects back to
+      // the app without the iOS 17+ "Open in app?" prompt that full
+      // Safari now always shows. Also shares Safari cookies, so
+      // subsequent Google sign-ins don't re-prompt for credentials.
+      authScreenLaunchMode: LaunchMode.platformDefault,
     );
   }
 
