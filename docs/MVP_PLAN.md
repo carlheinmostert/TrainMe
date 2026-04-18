@@ -2,7 +2,7 @@
 
 **Created:** 2026-04-18
 **Target date:** 2026-05-02 (14 days)
-**Status:** Active
+**Status:** Active — end-of-day-1 checkpoint 2026-04-18
 
 ## Framing
 
@@ -64,23 +64,43 @@ Running alongside Weeks 1 & 2, not a standalone item. Every screen touched gets 
 
 ### Week 1 (2026-04-18 → 2026-04-24) — Melissa-ready infrastructure
 
+**End-of-day-1 (2026-04-18) — shipped ahead of the Week-1 plan:**
+
+- [x] **Brand design system v1.1** — tokens.json + components.md (Gutter Rail, Inline Action Tray, Thumbnail Peek, Circuit Control Sheet) + voice.md (practitioner vocabulary) + Design Rules R-01..R-08. Commit `0bfb252`.
+- [x] **Studio redesign components** — Gutter Rail, Inline Action Tray, Thumbnail Peek, Circuit Control Sheet. Commit `e12b2fd`. (Layout blow-out bug is the live blocker — see below.)
+- [x] **Auth pivot to email + password + magic-link** — `feat/auth-progressive-upgrade`, confirmed working on device. Google parked, Apple still scaffolded. Merge pending final walk-through.
+- [x] **Build-marker infrastructure** — short SHA in Pulse Mark footer via `--dart-define`. `install-sim.sh` + `install-device.sh` wire automatically. Commit `808addb`.
+- [x] **VPN constraint resolved** — device installs work with VPN on. No handoff dance needed.
+
+**Week-1 work items:**
+
 1. **Finish D4 sandbox smoke test** (Carl, 5 min) — complete the remaining 3 steps of yesterday's PayFast sandbox checkout to sign off D4 sandbox.
 2. **D4 production PayFast cutover** — blocked on Carl's merchant account. When unblocked: flip `PAYFAST_SANDBOX=false`, swap merchant ID + key in Vercel + Supabase secrets.
-3. **D2 — Flutter practice picker** — publish-screen dropdown with practices the trainer belongs to, credit balance per practice, cost of the current plan, clear "which practice pays" UX.
-4. **Referral schema + RPC + web-portal UI**:
+3. **Studio layout bug fix** — BLOCKING. Plans with circuits blow the list to multi-viewport heights. Two fixes attempted on main (`9bfc0f8` `MainAxisSize.min`, `326c6b8` Stack-rail rewrite) didn't land. Third attempt on `fix/studio-reorderable-listview` swaps `CustomScrollView + SliverReorderableList` for plain `ReorderableListView.builder`. Needs device verification → merge.
+4. **Progress-pill matrix + ETA widget** — `feat/progress-pills`. Flutter widget + web player port + ETA (`7:42 left` + `~7:42 PM`, wall-clock drift when paused) pending. Merge after ETA follow-up agent lands.
+5. **D2 — Flutter practice picker** — publish-screen dropdown with practices the practitioner belongs to, credit balance per practice, cost of the current plan, clear "which practice pays" UX.
+6. **Three-treatment video model — schema + UI**:
+   - Schema: `clients` table, `exercises.media_treatment` enum (`line | bw | colour`), `clients.video_consent` jsonb per-exercise consent map.
+   - Per-client consent gate in first-plan flow; sticky per client. Colour requires explicit consent.
+   - Per-exercise picker in Studio (three-tab segment control on expanded card).
+   - Treatment change past 24h = credit-consuming edit.
+   - Private `raw-archive` bucket (service-role-only, 720p H.264 match local archive, retention until practice deletion).
+   - Raw video upload wired into the publish flow async.
+7. **Referral schema + RPC + web-portal UI**:
    - `referral_codes` table (practice_id → opaque code, uniqueness enforced)
    - `practice_referrals` table (referrer_practice → referee_practice, status, reward metadata)
    - `generate_referral_code(practice_id)` SECURITY DEFINER RPC
    - `claim_referral_code(code)` called at signup time (stores pending referral on the new practice)
    - `/dashboard` card: code + shareable link + copy button + stats
    - `/join/{code}` public route that sets a signed cookie and redirects to signup
-5. **First-run onboarding polish** — post-signup flow:
+8. **First-run onboarding polish** — post-signup flow:
    - Create practice with auto-generated name (editable)
    - 5 welcome credits visible with "credits explained" tooltip
    - Explicit "invite a colleague and you both get 10 credits" CTA
    - Link to first publish tutorial (can be a simple modal, not video)
-6. **POPIA privacy + terms of service page** — `/legal/privacy` + `/legal/terms`. Linked from portal footer, web player footer, sign-up gate. Carl reviews text before ship.
-7. **Support surface** — `support@homefit.studio` (or similar) that routes to Carl. Linked in portal footer, Flutter app "Help" screen, web player error states. At minimum: forwards to Carl's email.
+9. **POPIA privacy + terms of service page** — `/legal/privacy` + `/legal/terms`. Linked from portal footer, web player footer, sign-up gate. Carl reviews text before ship.
+10. **Support surface** — `support@homefit.studio` (or similar) that routes to Carl. Linked in portal footer, Flutter app "Help" screen, web player error states. At minimum: forwards to Carl's email.
+11. **Supabase JWT expiry bump** (Carl, 1 min) — Project Settings → Auth → 30 → 90 days for longer offline-session runway.
 
 ### Week 2 (2026-04-25 → 2026-05-02) — growth loop + trust
 
