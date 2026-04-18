@@ -162,19 +162,34 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      return;
-    }
+    final controller = _cameraController;
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
+      // Nothing to do if there's no controller to tear down.
+      if (controller == null) return;
+
+      // Cancel the per-second tick before any async work so we don't
+      // emit a stray haptic/state change after the app is hidden.
       if (_recordingTickTimer != null) {
         debugPrint('recording tick timer cancelled (lifecycle paused)');
       }
       _recordingTickTimer?.cancel();
       _recordingTickTimer = null;
-      if (_isRecording) {
+
+      // Salvage: if the controller is mid-recording when the system
+      // snatches the camera away (phone call, Control Centre swipe),
+      // stop cleanly first. stopVideoRecording() writes the MOOV atom
+      // so the clip is playable; skipping it would truncate the file
+      // to an un-demuxable stream. Run the stop + dispose on a
+      // fire-and-forget future so we don't block the lifecycle
+      // callback, but still guard the controller from double-dispose
+      // via the local `controller` ref.
+      final wasRecording =
+          _isRecording || controller.value.isRecordingVideo;
+      if (wasRecording) {
         _wasRecordingOnBackground = true;
       }
+
       setState(() {
         _isRecording = false;
         _longPressActive = false;
@@ -182,11 +197,17 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         _stopInFlight = false;
         _recordingSeconds = 0;
         _isCameraInitialized = false;
+        _cameraController = null;
       });
-      _cameraController?.dispose();
-      _cameraController = null;
+
+      unawaited(_teardownController(controller, salvageRecording: wasRecording));
     } else if (state == AppLifecycleState.resumed) {
-      _initCamera();
+      // Re-initialise if the controller was torn down (or never came up
+      // cleanly). _initCamera() has its own guard against double-init.
+      if (_cameraController == null ||
+          !(_cameraController?.value.isInitialized ?? false)) {
+        _initCamera();
+      }
       if (_wasRecordingOnBackground && mounted) {
         _wasRecordingOnBackground = false;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -196,11 +217,66 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
   }
 
+  /// Tear down a camera controller that was active when the app went to
+  /// background. If [salvageRecording] is true, attempts to stop the
+  /// in-flight video recording first so the partial clip is playable
+  /// (MOOV atom written by AVFoundation) and can still be persisted as
+  /// an exercise.
+  ///
+  /// All failures are swallowed — the priority is disposing the
+  /// controller cleanly so iOS releases the camera. A lost recording is
+  /// a worse outcome than a silent save failure (we'll still dispose
+  /// cleanly), so we try to salvage but never let an exception block
+  /// the dispose path.
+  Future<void> _teardownController(
+    CameraController controller, {
+    required bool salvageRecording,
+  }) async {
+    if (salvageRecording) {
+      try {
+        if (controller.value.isRecordingVideo) {
+          final xFile = await controller.stopVideoRecording();
+          // Persist the salvaged clip as a capture — same path the
+          // normal stop-recording flow uses. Non-blocking w.r.t. the
+          // dispose below.
+          try {
+            final exercise =
+                await _persistCapture(xFile.path, MediaType.video);
+            if (exercise != null && mounted) {
+              _onCaptureLanded(exercise);
+            }
+          } catch (e) {
+            debugPrint('Lifecycle-salvaged clip persist failed: $e');
+          }
+        }
+      } catch (e) {
+        // iOS sometimes raises "Recording is not in progress" if the
+        // system already stopped us before this fires. Log and move
+        // on — the file may or may not exist on disk; dispose is what
+        // matters next.
+        debugPrint('Lifecycle stopVideoRecording failed: $e');
+      }
+    }
+    try {
+      await controller.dispose();
+    } catch (e) {
+      debugPrint('Lifecycle controller.dispose failed: $e');
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Camera lifecycle
   // ---------------------------------------------------------------------------
 
   Future<void> _initCamera() async {
+    // Double-init guard — defends against lifecycle resume firing while a
+    // previous _initCamera() is still in flight, or a stale re-entry from
+    // didChangeAppLifecycleState. If a controller is already initialised
+    // we've nothing to do.
+    if (_cameraController != null &&
+        _cameraController!.value.isInitialized) {
+      return;
+    }
     try {
       _cameras = await availableCameras();
     } catch (e) {
