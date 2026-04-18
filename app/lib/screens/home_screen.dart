@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import '../services/auth_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/upload_service.dart';
 import '../theme.dart';
@@ -297,7 +298,28 @@ class _HomeScreenState extends State<HomeScreen> {
     //   translated dataIndex so semantics are unchanged.
     return Column(
       children: [
-        const SizedBox(height: 16),
+        // Minimal top bar — just the account affordance. No AppBar widget,
+        // since the brand-design session is about to reshape this screen
+        // and we don't want to bake in a title / chrome that's about to
+        // change. The icon sits flush right so the full-screen session
+        // list still feels airy.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: IconButton(
+              onPressed: _openAccountSheet,
+              icon: const Icon(
+                Icons.account_circle_outlined,
+                color: AppColors.textOnDark,
+                size: 26,
+              ),
+              tooltip: 'Account',
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 8),
 
         // Recent sessions header (kept as a minimal top anchor).
         if (_sessions.isNotEmpty)
@@ -363,6 +385,157 @@ class _HomeScreenState extends State<HomeScreen> {
         const PoweredByFooter(),
       ],
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Account / sign-out
+  // ---------------------------------------------------------------------------
+
+  /// Open a bottom sheet with account actions. Currently just a "Sign out"
+  /// row; expands naturally when we add practice-switcher, profile, etc.
+  /// Keeping it as a sheet (not a new screen) avoids committing to chrome
+  /// that's about to be reshaped by the brand-design session.
+  Future<void> _openAccountSheet() async {
+    HapticFeedback.selectionClick();
+    final user = AuthService.instance.currentSession?.user;
+    final email = user?.email;
+
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.darkSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Drag handle affordance.
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkBorder,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                if (email != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+                    child: Text(
+                      email,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: AppColors.textSecondaryOnDark,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+                FilledButton.icon(
+                  onPressed: () async {
+                    Navigator.of(sheetCtx).pop();
+                    await _confirmAndSignOut();
+                  },
+                  icon: const Icon(Icons.logout, size: 20),
+                  label: const Text('Sign out'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    ),
+                    textStyle: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Confirm and sign out. The AuthGate listens to Supabase auth state and
+  /// swaps the tree back to SignInScreen once the session is cleared — no
+  /// manual Navigator push needed here.
+  Future<void> _confirmAndSignOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: AppColors.darkSurface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        ),
+        title: const Text(
+          'Sign out of homefit.studio?',
+          style: TextStyle(
+            fontFamily: 'Montserrat',
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textOnDark,
+          ),
+        ),
+        content: const Text(
+          "You'll need to sign in again to see your sessions.",
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 14,
+            color: AppColors.textSecondaryOnDark,
+            height: 1.4,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: AppColors.textSecondaryOnDark),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await AuthService.instance.signOut();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Sign out failed: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+    // No navigation here — AuthGate observes the session change and swaps
+    // to SignInScreen automatically. Any in-memory state on this screen is
+    // discarded when the HomeScreen widget is disposed.
   }
 
   Widget _buildEmptyState() {
