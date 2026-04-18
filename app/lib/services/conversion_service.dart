@@ -92,6 +92,26 @@ class ConversionService extends ChangeNotifier {
     _processQueue();
   }
 
+  /// Re-queue a previously-failed (or stuck) capture by resetting its
+  /// status to `pending` and pushing it back on the FIFO queue.
+  ///
+  /// Used by the Home screen's "N failed" pill so the practitioner can
+  /// retry a botched conversion without leaving the session list. Rest
+  /// periods are still skipped.
+  Future<void> retry(ExerciseCapture exercise) async {
+    if (exercise.isRest) return;
+    final reset = exercise.copyWith(
+      conversionStatus: ConversionStatus.pending,
+    );
+    await _storage.saveExercise(reset);
+    if (!_updateController.isClosed) {
+      _updateController.add(reset);
+    }
+    notifyListeners();
+    _queue.add(reset);
+    _processQueue();
+  }
+
   /// On app restart, reload any unfinished conversions and re-queue them.
   Future<void> restoreQueue() async {
     final unconverted = await _storage.getUnconvertedExercises();

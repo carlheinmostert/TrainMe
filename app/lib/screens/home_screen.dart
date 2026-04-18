@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/auth_service.dart';
+import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/upload_service.dart';
 import '../theme.dart';
@@ -710,6 +712,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final lastError = _publishErrors[session.id];
     final hasPublishError = lastError != null && !isPublishing;
 
+    // Failed-conversion count. Publish stays silently disabled while any
+    // exercise has a failed conversion (existing rule, not changed here —
+    // the pill is purely informational + retry).
+    final failedConversions = session.exercises
+        .where((e) => e.conversionStatus == ConversionStatus.failed)
+        .toList(growable: false);
+    final hasFailedConversions = failedConversions.isNotEmpty;
+
     return Dismissible(
       key: ValueKey(session.id),
       direction: DismissDirection.endToStart,
@@ -773,6 +783,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         style: const TextStyle(color: AppColors.textSecondaryOnDark, fontSize: 13),
                       ),
+                      if (hasFailedConversions) ...[
+                        const SizedBox(height: 6),
+                        _buildFailedConversionsPill(
+                          session,
+                          failedConversions,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -910,6 +927,99 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  /// Coral-tinted pill showing "N failed" on a session card when one or
+  /// more exercises have `conversionStatus == failed`. Tapping re-queues
+  /// every failed exercise via `ConversionService.retry` and shows a
+  /// coral-styled SnackBar confirming the retry count.
+  ///
+  /// Purely informational + retry — publish-button disabled logic is NOT
+  /// changed by this affordance.
+  Widget _buildFailedConversionsPill(
+    Session session,
+    List<ExerciseCapture> failed,
+  ) {
+    final count = failed.length;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Material(
+        color: AppColors.primary.withValues(alpha: 0.14),
+        shape: const StadiumBorder(),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: () => _retryFailedConversions(failed),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 10, vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.refresh_rounded,
+                  size: 14,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '$count failed',
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Re-queue each failed exercise for conversion and confirm with a
+  /// coral-styled SnackBar. Non-blocking — the conversion service
+  /// processes them in the background.
+  Future<void> _retryFailedConversions(
+      List<ExerciseCapture> failed) async {
+    HapticFeedback.selectionClick();
+    for (final ex in failed) {
+      // Fire-and-forget; retry() saves the pending row + pushes onto the
+      // FIFO queue, so ordering is preserved.
+      unawaited(ConversionService.instance.retry(ex));
+    }
+    if (!mounted) return;
+    final count = failed.length;
+    final plural = count == 1 ? 'exercise' : 'exercises';
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'Retrying $count $plural',
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              color: AppColors.textOnDark,
+            ),
+          ),
+          backgroundColor: AppColors.surfaceRaised,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: AppColors.surfaceBorder),
+          ),
+        ),
+      );
+    // Reload shortly after so status transitions from failed → pending →
+    // converting appear without requiring a manual refresh. The
+    // ConversionService mutates rows directly; we just poll.
+    unawaited(Future<void>.delayed(const Duration(milliseconds: 400))
+        .then((_) {
+      if (mounted) _loadSessions();
+    }));
   }
 
   /// Check whether a session has changes since last publish.
