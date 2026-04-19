@@ -12,6 +12,7 @@ import '../services/local_storage_service.dart';
 import '../services/upload_service.dart';
 import '../theme.dart';
 import '../widgets/powered_by_footer.dart';
+import 'clients_screen.dart';
 import 'session_capture_screen.dart'; // retained as fallback, see _useShell below
 import 'session_shell_screen.dart';
 
@@ -608,6 +609,36 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ],
+                // "Your clients" entry — placed above the Sign out action so
+                // it reads as a utility (not a destination you enter to
+                // leave). Opens the Clients screen which lists every
+                // practice client + their treatment consent state.
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(sheetCtx).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const ClientsScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.people_outline, size: 20),
+                  label: const Text('Your clients'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textOnDark,
+                    side: const BorderSide(color: AppColors.surfaceBorder),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    ),
+                    textStyle: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
                 FilledButton.icon(
                   onPressed: () async {
                     Navigator.of(sheetCtx).pop();
