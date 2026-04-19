@@ -492,3 +492,11 @@ No shadows on any surface except the focus-ring token. Separation uses `surface.
 ### R-08 · Flutter: no `flutter run`
 
 Always build + install + launch. `flutter run` spawns debug processes that don't clean up cleanly. See infrastructure notes.
+
+### R-09 · Default to obvious. No behavioural inference.
+
+UI affordances default to their most obvious form — breathing glow on tappable dots, full labels on buttons, visible hit targets. We never dim, hide, or quiet an affordance based on inferred user skill, use count, or time-in-app.
+
+Customisation belongs in Settings, as explicit pro-user toggles (e.g. "reduce motion", "hide insertion-dot pulse"). The system must not decide on its own that a user has "graduated" — that's paternalistic and penalises newcomers returning after a break.
+
+Rationale: Melissa and her peers will use this intermittently, often after weeks off. A UI that has quietly toned itself down since last visit feels broken. Obvious-by-default is forgiving; user-controlled toning-down is respectful.

@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>homefit.studio — logo explorations</title>
+<style>
+  :root {
+    --bg:         #0F1117;
+    --raised:     #171923;
+    --border:     rgba(255,255,255,0.08);
+    --text:       #F4F5F8;
+    --text-mute:  #A0A3AE;
+    --coral:      #FF6B35;
+    --coral-15:   rgba(255,107,53,0.15);
+    --sage:       #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header.page {
+    padding: 48px 40px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  header.page h1 {
+    font-family: 'Montserrat', 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 28px;
+    letter-spacing: -0.5px;
+    margin: 0 0 8px;
+  }
+  header.page p {
+    color: var(--text-mute);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0;
+    max-width: 780px;
+  }
+  header.page code {
+    background: var(--raised);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--coral);
+  }
+  main {
+    padding: 32px 40px 80px;
+    max-width: 1400px;
+  }
+  section.candidate {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 40px;
+    padding: 32px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+  }
+  section.candidate:last-of-type {
+    border-bottom: none;
+  }
+  .meta h2 {
+    font-family: 'Montserrat', 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: -0.3px;
+    margin: 0 0 8px;
+  }
+  .meta .plan {
+    color: var(--coral);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    margin: 0 0 16px;
+    line-height: 1.4;
+  }
+  .meta .rationale {
+    color: var(--text-mute);
+    font-size: 14px;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .sizes {
+    display: flex;
+    align-items: flex-end;
+    gap: 48px;
+    flex-wrap: wrap;
+  }
+  .size-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .size-cell .logo-slot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .size-cell .label {
+    font-family: 'JetBrains Mono', 'Menlo', monospace;
+    font-size: 10px;
+    color: var(--text-mute);
+    letter-spacing: 0.4px;
+  }
+  /* Comparison strips */
+  .strip {
+    margin-top: 24px;
+    padding: 32px 40px;
+    border-top: 1px solid var(--border);
+  }
+  .strip h3 {
+    font-family: 'Montserrat', 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text-mute);
+    margin: 0 0 20px;
+  }
+  .strip .row {
+    display: flex;
+    align-items: center;
+    gap: 48px;
+    flex-wrap: wrap;
+  }
+  .strip .cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .strip .cell .name {
+    font-size: 11px;
+    color: var(--text-mute);
+    letter-spacing: 0.3px;
+  }
+  .favicon-strip .row {
+    gap: 56px;
+  }
+  svg { display: block; }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <h1>homefit.studio — logo explorations</h1>
+  <p>
+    Every candidate is a valid training-plan rendering. The grammar is the one
+    <code>progress_pill_matrix.dart</code> draws: coral pills, 8px gap, 3px rails,
+    15%-alpha circuit band, 6px band inset, rounded corners. If the progress-pill
+    matrix couldn't produce it for a real plan, it isn't in this document.
+  </p>
+</header>
+
+<main>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- CANDIDATE 1 — The Bookend                                             -->
+<!-- Plan: standalone · [circuit 2ex × 2 cycles] · standalone              -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="candidate">
+  <div class="meta">
+    <h2>1. The Bookend</h2>
+    <p class="plan">1 standalone · 2-ex circuit × 2 rounds · 1 standalone</p>
+    <p class="rationale">
+      Carl's original idea. The two bookend pills frame a circuit block and give
+      the mark a readable "start → work → finish" arc. Symmetric, 4 columns wide.
+      Risk: gets narrow at small sizes — the circuit grid is only 2×2.
+    </p>
+  </div>
+  <div class="sizes" id="row-bookend"></div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- CANDIDATE 2 — The Block                                               -->
+<!-- Plan: [circuit 2ex × 3 cycles]                                        -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="candidate">
+  <div class="meta">
+    <h2>2. The Block</h2>
+    <p class="plan">one 2-ex circuit × 3 rounds</p>
+    <p class="rationale">
+      A 2-wide, 3-tall grid inside a single circuit band. No standalones
+      competing for attention. Reads as a brand tile. The band fully encloses
+      the mark, so the coral tint does structural work, not decoration.
+    </p>
+  </div>
+  <div class="sizes" id="row-block"></div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- CANDIDATE 3 — The Cube                                                -->
+<!-- Plan: [circuit 3ex × 3 cycles]                                        -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="candidate">
+  <div class="meta">
+    <h2>3. The Cube</h2>
+    <p class="plan">one 3-ex circuit × 3 rounds</p>
+    <p class="rationale">
+      The most iconic shape — a perfect 3×3 grid. Square silhouette holds up
+      at favicon size. No rail stubs (no standalones). The coral band + 9 pills
+      is the cleanest expression of "a plan is a grid".
+    </p>
+  </div>
+  <div class="sizes" id="row-cube"></div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- CANDIDATE 4 — The Pyramid                                             -->
+<!-- Plan: standalone · [circuit 3ex × 2 cycles] · standalone              -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="candidate">
+  <div class="meta">
+    <h2>4. The Pyramid</h2>
+    <p class="plan">1 standalone · 3-ex circuit × 2 rounds · 1 standalone</p>
+    <p class="rationale">
+      Wide middle, narrow ends. The bookends flank a 3×2 circuit core.
+      Horizontal emphasis — works well in a wordmark lockup beside
+      "homefit.studio". 5 columns wide, so it's the most demanding at tiny sizes.
+    </p>
+  </div>
+  <div class="sizes" id="row-pyramid"></div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- CANDIDATE 5 — The Stacked                                             -->
+<!-- Plan: standalone · [circuit 2ex × 4 cycles] · standalone              -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="candidate">
+  <div class="meta">
+    <h2>5. The Stacked</h2>
+    <p class="plan">1 standalone · 2-ex circuit × 4 rounds · 1 standalone</p>
+    <p class="rationale">
+      Tall circuit band between two bookends. Vertical emphasis — feels like
+      a tower, or repetition. The 4-round height gives the coral band real
+      body, so the brand colour gets more surface area than in the Bookend.
+    </p>
+  </div>
+  <div class="sizes" id="row-stacked"></div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- CANDIDATE 6 — The Chain                                               -->
+<!-- Plan: [circuit 3ex × 2 cycles]                                        -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="candidate">
+  <div class="meta">
+    <h2>6. The Chain</h2>
+    <p class="plan">one 3-ex circuit × 2 rounds</p>
+    <p class="rationale">
+      A 3-wide, 2-tall grid. Landscape orientation, horizontal body. Six pills
+      in one band — the simplest "work in progress" read. Good as a flat app
+      icon; less good as a favicon because it's wider than it is tall.
+    </p>
+  </div>
+  <div class="sizes" id="row-chain"></div>
+</section>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- CANDIDATE 7 — The Full Session                                         -->
+<!-- Plan: [circuit 2ex × 2 cycles] · standalone · rest                     -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<section class="candidate">
+  <div class="meta">
+    <h2>7. The Full Session</h2>
+    <p class="plan">2-ex circuit × 2 rounds · 1 standalone · rest</p>
+    <p class="rationale">
+      Carl's full-sequence idea: 1-2, 1-2, then one, then rest. Reads
+      left-to-right as an actual training plan — circuit body, a finisher,
+      and a breath. Sage rest pill closes the sequence with the "a break
+      is coming" signal.
+    </p>
+  </div>
+  <div class="sizes" id="row-fullsession"></div>
+</section>
+
+</main>
+
+<!-- Comparison strip -->
+<section class="strip">
+  <h3>All six at 48px — side-by-side comparison</h3>
+  <div class="row" id="strip-48"></div>
+</section>
+
+<!-- Favicon test -->
+<section class="strip favicon-strip">
+  <h3>Favicon test — all six at 16px</h3>
+  <div class="row" id="strip-16"></div>
+</section>
+
+<!-- Medium strip -->
+<section class="strip">
+  <h3>All six at 96px</h3>
+  <div class="row" id="strip-96"></div>
+</section>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   Rendering engine — replicates progress_pill_matrix.dart geometry in SVG.
+
+   A plan is described declaratively as a list of column groups:
+     { kind: 'standalone' }  – 1 row, 1 col, no band
+     { kind: 'circuit', cols: N, rows: M }  – N cols, M rows, band wraps them
+
+   The engine computes a target viewBox that fits the entire plan, scales a
+   pill-size baseline so the logo hits the requested pixel size, and emits SVG
+   using the exact same math as the Flutter widget:
+
+     stride    = pillWidth + gap
+     rowStride = pillHeight + gap
+     band left  = startCol * stride - bandInset
+     band right = endCol   * stride - gap + bandInset
+     band top   = 0
+     band height = rows * rowStride - gap + bandInset * 2
+
+   Rail stubs (entry/exit) follow gutter_rail.dart:
+     - Entry stub enters the FIRST circuit column from the LEFT at row-1 mid-y.
+     - Exit stub leaves the LAST circuit column to the RIGHT at row-last mid-y.
+   For a logo, we only draw these stubs when the circuit is flanked by
+   standalones on that side — the rail "hands off" between standalone and
+   circuit at their shared edge.
+   ───────────────────────────────────────────────────────────────────────── */
+
+// Base sizing (matches app's "spacious" tier, scaled into viewBox units).
+// We draw in viewBox units; a post-scale stretches the whole SVG.
+const CORAL   = '#FF6B35';
+const CORAL15 = 'rgba(255,107,53,0.15)';
+const RAISED  = '#171923';
+const SAGE    = '#86EFAC';  // Rest-pill fill — the "a break is coming" colour.
+const BORDER  = 'rgba(255,255,255,0.18)';
+
+// Geometry constants in SVG-unit-land. The pill proportions are proportional
+// to the Flutter widget: width:height ≈ 28:22 (spacious spec).
+const PILL_W   = 28;
+const PILL_H   = 22;
+const GAP      = 8;
+const BAND_INS = 6;
+const RADIUS   = 6;        // pill corner radius; AppTheme.radiusMd ≈ 8 but at
+                           //   the spacious-tier pill size (22h) this reads
+                           //   closer to 6 visually.
+const BAND_R   = 8;
+const RAIL_W   = 3;
+const STUB_LEN = GAP + BAND_INS;   // how far the rail reaches out of the band
+
+// Plan definitions — each logo is just a list of column groups.
+const PLANS = {
+  bookend: [
+    { kind: 'standalone' },
+    { kind: 'circuit', cols: 2, rows: 2 },
+    { kind: 'standalone' },
+    { kind: 'rest' },
+  ],
+  block: [
+    { kind: 'circuit', cols: 2, rows: 3 },
+    { kind: 'rest' },
+  ],
+  cube: [
+    { kind: 'circuit', cols: 3, rows: 3 },
+    { kind: 'rest' },
+  ],
+  pyramid: [
+    { kind: 'standalone' },
+    { kind: 'circuit', cols: 3, rows: 2 },
+    { kind: 'standalone' },
+    { kind: 'rest' },
+  ],
+  stacked: [
+    { kind: 'standalone' },
+    { kind: 'circuit', cols: 2, rows: 4 },
+    { kind: 'standalone' },
+    { kind: 'rest' },
+  ],
+  chain: [
+    { kind: 'circuit', cols: 3, rows: 2 },
+    { kind: 'rest' },
+  ],
+  // Carl's full-session prototype: "1-2, 1-2, then one, then rest".
+  // Reads left-to-right as a real training sequence.
+  fullsession: [
+    { kind: 'circuit', cols: 2, rows: 2 },
+    { kind: 'standalone' },
+    { kind: 'rest' },
+  ],
+};
+
+/** Flatten a plan into columns with absolute column indices. */
+function flatten(plan) {
+  const cols = [];          // { isCircuit, row0, rows, bandId|null }
+  const bands = [];         // { startCol, endCol, rows }
+  let colIdx = 0;
+  let bandId = 0;
+  for (const grp of plan) {
+    if (grp.kind === 'standalone' || grp.kind === 'rest') {
+      cols.push({
+        isCircuit: false,
+        isRest: grp.kind === 'rest',
+        rows: 1,
+        bandId: null,
+        colIdx,
+      });
+      colIdx++;
+    } else {
+      const start = colIdx;
+      for (let c = 0; c < grp.cols; c++) {
+        cols.push({
+          isCircuit: true,
+          isRest: false,
+          rows: grp.rows,
+          bandId,
+          colIdx,
+        });
+        colIdx++;
+      }
+      bands.push({ startCol: start, endCol: start + grp.cols, rows: grp.rows });
+      bandId++;
+    }
+  }
+  return { cols, bands };
+}
+
+/**
+ * Render the given plan into an SVG string sized to targetPx × targetPx-ish.
+ * The viewBox is chosen to exactly contain the plan plus a breath of padding.
+ * The output SVG scales to `renderPx` on its longest dimension so all sizes
+ * share a common baseline.
+ */
+function renderPlan(planKey, renderPx) {
+  const plan = PLANS[planKey];
+  const { cols, bands } = flatten(plan);
+
+  // Max rows across the plan — height of the tallest column (circuit rows
+  // typically dominate).
+  const maxRows = cols.reduce((a, c) => Math.max(a, c.rows), 1);
+
+  const stride    = PILL_W + GAP;
+  const rowStride = PILL_H + GAP;
+
+  // Outer content bounds — accounts for the band inset poking above/below
+  // the first/last row, and the entry/exit rail stubs poking left/right past
+  // the first/last band.
+  //
+  // Track width = cols.length * stride - GAP (same formula as _MatrixTrack).
+  const trackW = cols.length * stride - GAP;
+
+  // Rail stubs extend the content box horizontally when a circuit is
+  // flanked by standalones. We compute the extent both sides need.
+  let leftExt  = 0;
+  let rightExt = 0;
+  for (const band of bands) {
+    const leftBandEdge  = band.startCol * stride - BAND_INS;
+    const rightBandEdge = band.endCol   * stride - GAP + BAND_INS;
+
+    // Is there a standalone to the LEFT of this band's first column?
+    const hasLeftStandalone  = band.startCol > 0 && !cols[band.startCol - 1].isCircuit;
+    const hasRightStandalone = band.endCol < cols.length && !cols[band.endCol].isCircuit;
+
+    if (hasLeftStandalone) {
+      // Stub enters the band from the LEFT at row-1 mid-y. Reaches back to the
+      // trailing edge of the standalone pill to its left.
+      const standaloneRight = (band.startCol - 1) * stride + PILL_W;
+      leftExt = Math.max(leftExt, leftBandEdge - standaloneRight);
+    }
+    if (hasRightStandalone) {
+      const standaloneLeft = band.endCol * stride;
+      rightExt = Math.max(rightExt, standaloneLeft - rightBandEdge);
+    }
+  }
+
+  // ViewBox dimensions.
+  const contentLeft = 0;
+  const contentTop  = 0;
+  const contentW    = trackW;
+  const contentH    = maxRows * rowStride - GAP + BAND_INS * 2;
+
+  // Add a tiny padding so pills/bands don't clip against the edge.
+  const PAD = 4;
+  const vbX = contentLeft - PAD;
+  const vbY = contentTop - PAD;
+  const vbW = contentW + PAD * 2;
+  const vbH = contentH + PAD * 2;
+
+  // Scale to render size — longest dimension hits renderPx.
+  const aspect = vbW / vbH;
+  let outW, outH;
+  if (aspect >= 1) {
+    outW = renderPx;
+    outH = renderPx / aspect;
+  } else {
+    outH = renderPx;
+    outW = renderPx * aspect;
+  }
+
+  // Circuit band rects.
+  const bandEls = bands.map(band => {
+    const x = band.startCol * stride - BAND_INS;
+    const y = BAND_INS;
+    const w = (band.endCol - band.startCol) * stride - GAP + BAND_INS * 2;
+    const h = band.rows * rowStride - GAP + BAND_INS * 2;
+    // Band y-center corresponds to pills top-inset plus band sizing
+    // We draw from y=0 so pills inside line up at BAND_INS.
+    return `<rect x="${x}" y="${0}" width="${w}" height="${h}" rx="${BAND_R}" ry="${BAND_R}" fill="${CORAL15}"/>`;
+  }).join('');
+
+  // Rail stubs — drawn AFTER band (so they sit over the band edge) but
+  // BEFORE pills (pills should be on top).
+  const railEls = [];
+  for (const band of bands) {
+    const bandTopY    = 0;
+    const firstRowMidY = BAND_INS + PILL_H / 2;
+    const lastRowMidY  = BAND_INS + (band.rows - 1) * rowStride + PILL_H / 2;
+
+    const bandLeftX  = band.startCol * stride - BAND_INS;
+    const bandRightX = band.endCol   * stride - GAP + BAND_INS;
+
+    const hasLeftStandalone  = band.startCol > 0 && !cols[band.startCol - 1].isCircuit;
+    const hasRightStandalone = band.endCol < cols.length && !cols[band.endCol].isCircuit;
+
+    if (hasLeftStandalone) {
+      // Entry stub: horizontal coral line from the pill-right of the
+      // preceding standalone INTO the band's left edge at first-row mid-y.
+      const startX = (band.startCol - 1) * stride + PILL_W;
+      railEls.push(
+        `<rect x="${startX}" y="${firstRowMidY - RAIL_W / 2}" width="${bandLeftX - startX}" height="${RAIL_W}" fill="${CORAL}" opacity="0.85"/>`
+      );
+    }
+    if (hasRightStandalone) {
+      // Exit stub: horizontal coral line from the band's right edge OUT to
+      // the pill-left of the following standalone at last-row mid-y.
+      const endX = band.endCol * stride;
+      railEls.push(
+        `<rect x="${bandRightX}" y="${lastRowMidY - RAIL_W / 2}" width="${endX - bandRightX}" height="${RAIL_W}" fill="${CORAL}" opacity="0.85"/>`
+      );
+    }
+  }
+
+  // Pills.
+  const pillEls = [];
+  for (const col of cols) {
+    for (let r = 0; r < col.rows; r++) {
+      const x = col.colIdx * stride;
+      const y = r * rowStride + BAND_INS;
+      pillEls.push(
+        `<rect x="${x}" y="${y}" width="${PILL_W}" height="${PILL_H}" rx="${RADIUS}" ry="${RADIUS}" fill="${col.isRest ? SAGE : CORAL}"/>`
+      );
+    }
+  }
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg"
+         width="${outW}" height="${outH}"
+         viewBox="${vbX} ${vbY} ${vbW} ${vbH}"
+         shape-rendering="geometricPrecision">
+      ${bandEls}
+      ${railEls.join('')}
+      ${pillEls.join('')}
+    </svg>
+  `;
+}
+
+/** Render a logo at 4 pixel sizes into a given container. */
+function renderCandidateRow(planKey, containerId) {
+  const sizes = [24, 48, 96, 192];
+  const root = document.getElementById(containerId);
+  if (!root) return;
+  root.innerHTML = sizes.map(px => `
+    <div class="size-cell">
+      <div class="logo-slot" style="width:${px}px; height:${px}px;">
+        ${renderPlan(planKey, px)}
+      </div>
+      <div class="label">${px}px</div>
+    </div>
+  `).join('');
+}
+
+renderCandidateRow('bookend',     'row-bookend');
+renderCandidateRow('block',       'row-block');
+renderCandidateRow('cube',        'row-cube');
+renderCandidateRow('pyramid',     'row-pyramid');
+renderCandidateRow('stacked',     'row-stacked');
+renderCandidateRow('chain',       'row-chain');
+renderCandidateRow('fullsession', 'row-fullsession');
+
+/** Render a comparison strip at one common size. */
+function renderStrip(containerId, px) {
+  const entries = [
+    ['bookend',     'Bookend'],
+    ['block',       'Block'],
+    ['cube',        'Cube'],
+    ['pyramid',     'Pyramid'],
+    ['stacked',     'Stacked'],
+    ['chain',       'Chain'],
+    ['fullsession', 'Full Session'],
+  ];
+  const root = document.getElementById(containerId);
+  if (!root) return;
+  root.innerHTML = entries.map(([key, name]) => `
+    <div class="cell">
+      <div class="logo-slot" style="width:${px}px; height:${px}px; display:flex; align-items:center; justify-content:center;">
+        ${renderPlan(key, px)}
+      </div>
+      <div class="name">${name}</div>
+    </div>
+  `).join('');
+}
+
+renderStrip('strip-48', 48);
+renderStrip('strip-16', 16);
+renderStrip('strip-96', 96);
+</script>
+</body>
+</html>

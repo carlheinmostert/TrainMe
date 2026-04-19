@@ -30,48 +30,48 @@ enum _PillSize { spacious, medium, dense }
 class _PillSpec {
   final double width;
   final double height;
-  final bool showIcon;
-  final bool showLabel;
-  final double iconSize;
   final double fontSize;
+
+  /// When true, pills show REDUCED shorthand: `sets|reps` for standalone,
+  /// `reps` only for circuit members. Used at the dense tier where the
+  /// full grammar (`sets|reps|hold`) won't fit. Full grammar available
+  /// via the long-press peek regardless of tier.
+  final bool compactLabel;
+
   const _PillSpec({
     required this.width,
     required this.height,
-    required this.showIcon,
-    required this.showLabel,
-    required this.iconSize,
     required this.fontSize,
+    required this.compactLabel,
   });
 }
 
 _PillSpec _specFor(_PillSize size) {
+  // Pills are intentionally narrow — the active-exercise details row
+  // at the bottom of the matrix carries the full decoded grammar, so
+  // the pills themselves can shrink toward a dense progress strip. The
+  // goal is maximum at-a-glance visibility of the whole plan.
   switch (size) {
     case _PillSize.spacious:
       return const _PillSpec(
-        width: 72,
-        height: 40,
-        showIcon: true,
-        showLabel: true,
-        iconSize: 14,
+        width: 28,
+        height: 22,
         fontSize: 10,
+        compactLabel: false,
       );
     case _PillSize.medium:
       return const _PillSpec(
-        width: 48,
-        height: 32,
-        showIcon: true,
-        showLabel: false,
-        iconSize: 16,
-        fontSize: 0,
+        width: 22,
+        height: 20,
+        fontSize: 9,
+        compactLabel: true,
       );
     case _PillSize.dense:
       return const _PillSpec(
-        width: 24,
-        height: 12,
-        showIcon: false,
-        showLabel: false,
-        iconSize: 0,
-        fontSize: 0,
+        width: 16,
+        height: 18,
+        fontSize: 9,
+        compactLabel: true,
       );
   }
 }
@@ -141,6 +141,14 @@ class ProgressPillSlide {
   /// Total number of cycles in this circuit. Null if standalone.
   final int? totalCycles;
 
+  /// Number to render on the pill itself. For standalone non-rest
+  /// exercises this is a running count (1, 2, 3 across the whole plan,
+  /// skipping rests). For circuit members it is the exercise's position
+  /// WITHIN the circuit group (ignoring any rests inside the circuit);
+  /// so every cycle of a 2-exercise circuit reads as "1, 2". Null for
+  /// rest slides — those render "Rest" instead.
+  final int? displayNumber;
+
   const ProgressPillSlide({
     required this.slideIndex,
     required this.exercise,
@@ -148,6 +156,7 @@ class ProgressPillSlide {
     this.cycle,
     this.positionInCircuit,
     this.totalCycles,
+    this.displayNumber,
   });
 
   bool get isRest => exercise.isRest;
@@ -161,10 +170,22 @@ List<ProgressPillSlide> buildProgressPillSlides(Session session) {
   final out = <ProgressPillSlide>[];
   var i = 0;
   var slideIdx = 0;
+  // Running count of non-rest exercises across the whole plan. Rests don't
+  // increment so standalone pills read as "1, 2, 3…" continuously.
+  var planExerciseNumber = 0;
   while (i < exercises.length) {
     final ex = exercises[i];
     if (ex.circuitId == null) {
-      out.add(ProgressPillSlide(slideIndex: slideIdx++, exercise: ex));
+      int? number;
+      if (!ex.isRest) {
+        planExerciseNumber++;
+        number = planExerciseNumber;
+      }
+      out.add(ProgressPillSlide(
+        slideIndex: slideIdx++,
+        exercise: ex,
+        displayNumber: number,
+      ));
       i++;
     } else {
       final circuitId = ex.circuitId!;
@@ -176,8 +197,16 @@ List<ProgressPillSlide> buildProgressPillSlides(Session session) {
       final groupSize = groupEnd - groupStart;
       final total = session.getCircuitCycles(circuitId);
       for (var cycle = 1; cycle <= total; cycle++) {
+        // Per-cycle counter so each round's exercises read "1, 2, 3…"
+        // rather than continuing the plan-wide sequential numbering.
+        var cycleExerciseNumber = 0;
         for (var pos = 0; pos < groupSize; pos++) {
           final e = exercises[groupStart + pos];
+          int? number;
+          if (!e.isRest) {
+            cycleExerciseNumber++;
+            number = cycleExerciseNumber;
+          }
           out.add(ProgressPillSlide(
             slideIndex: slideIdx++,
             exercise: e,
@@ -185,6 +214,7 @@ List<ProgressPillSlide> buildProgressPillSlides(Session session) {
             cycle: cycle,
             positionInCircuit: pos + 1,
             totalCycles: total,
+            displayNumber: number,
           ));
         }
       }
@@ -292,6 +322,12 @@ class ProgressPillMatrix extends StatefulWidget {
   /// True once the workout has finished. Shows the "Done" end state.
   final bool workoutComplete;
 
+  /// Seconds remaining for the CURRENT slide (or prep countdown during
+  /// the prep phase). Shown as a bold coral leading token in the top
+  /// row: `1:36 · 7:42 left · ~7:42 PM`. Pass a negative value to omit
+  /// the current-slide token entirely.
+  final int currentSlideRemainingSeconds;
+
   /// Called when the user releases a long-press on a different pill. Consumers
   /// should [PageController.jumpToPage] and reset the timer.
   final OnJumpToSlide? onJumpTo;
@@ -303,6 +339,7 @@ class ProgressPillMatrix extends StatefulWidget {
     this.timerProgress = 0.0,
     this.paused = false,
     this.remainingSeconds = 0,
+    this.currentSlideRemainingSeconds = -1,
     this.workoutComplete = false,
     this.onJumpTo,
   });
@@ -328,6 +365,10 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
   OverlayEntry? _peekOverlay;
   final LayerLink _matrixLink = LayerLink();
 
+  /// Timer that auto-dismisses the teaching peek (R-09 onboarding). Cancelled
+  /// if the user starts long-press scrubbing mid-dismiss.
+  Timer? _teachingPeekTimer;
+
   late List<_Column> _columns;
   late List<_CircuitBand> _bands;
 
@@ -342,6 +383,23 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
       duration: _kPulseDuration,
     )..repeat();
     _rebuildLayout();
+    // Teaching peek — auto-show the decoded meta for the active slide
+    // for 2 seconds on every preview session start. Teaches the pipe
+    // shorthand via demonstration instead of relying on the user to
+    // long-press. See Design Rule R-09 in components.md.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final idx = widget.activeSlideIndex;
+      if (idx < 0 || idx >= widget.slides.length) return;
+      _showPeek(idx);
+      _teachingPeekTimer = Timer(const Duration(seconds: 2), () {
+        if (!mounted) return;
+        // Don't dismiss if the user has since started scrubbing — their
+        // own peek takes over.
+        if (_longPressActive) return;
+        _removePeek();
+      });
+    });
   }
 
   @override
@@ -357,8 +415,48 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
   void dispose() {
     _pulseController.dispose();
     _snapBackTimer?.cancel();
+    _teachingPeekTimer?.cancel();
     _removePeek();
     super.dispose();
+  }
+
+  String _activeSlideName() {
+    final idx = widget.activeSlideIndex;
+    if (idx < 0 || idx >= widget.slides.length) return '';
+    final s = widget.slides[idx];
+    if (s.isRest) return 'Rest';
+    return s.exercise.name ?? 'Exercise ${idx + 1}';
+  }
+
+  /// Decoded grammar for the ACTIVE slide — e.g.
+  /// "3 sets · 10 reps · 5s hold" or "10 reps · 5s hold" inside a
+  /// circuit. Shown permanently in the matrix's bottom row so the
+  /// user always sees the full sets/reps/hold for whatever they're
+  /// currently on, without needing to long-press the pill.
+  ///
+  /// Exercises with null reps/sets get defaults (10 reps, 3 sets) to
+  /// match the preview card's legacy badge fallback. The matrix never
+  /// shows bare duration — there's always a reps/sets read.
+  String _activeSlideDetail() {
+    final idx = widget.activeSlideIndex;
+    if (idx < 0 || idx >= widget.slides.length) return '';
+    final slide = widget.slides[idx];
+    if (slide.isRest) {
+      final dur = slide.exercise.holdSeconds ?? 30;
+      return '${dur}s rest';
+    }
+    final e = slide.exercise;
+    final r = e.reps ?? 10;
+    final s = e.sets ?? 3;
+    final hold = e.holdSeconds ?? 0;
+    final isCircuit = slide.circuitId != null;
+    final parts = <String>[];
+    if (!isCircuit) parts.add('$s sets');
+    parts.add('$r reps');
+    if (hold > 0) parts.add('${hold}s hold');
+    // No cycle suffix — the matrix's active-row position already
+    // communicates which cycle the user is in.
+    return parts.join(' · ');
   }
 
   void _rebuildLayout() {
@@ -382,9 +480,14 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
     if (cols == 0) return _PillSize.spacious;
     final spaciousW = _specFor(_PillSize.spacious).width + _kPillGap;
     final mediumW = _specFor(_PillSize.medium).width + _kPillGap;
-    // Comfortable fit: half the columns should show at once.
-    if (cols * spaciousW <= viewportWidth * 1.5) return _PillSize.spacious;
-    if (cols * mediumW <= viewportWidth * 1.8) return _PillSize.medium;
+    // Pick the LARGEST tier where the full track fits in the viewport
+    // without scrolling. The pill matrix should prefer "show everything
+    // at once" to "scroll to the active pill" — scroll is a fallback
+    // only when even the dense tier can't fit the whole plan.
+    final spaciousTrack = cols * spaciousW - _kPillGap;
+    final mediumTrack = cols * mediumW - _kPillGap;
+    if (spaciousTrack <= viewportWidth) return _PillSize.spacious;
+    if (mediumTrack <= viewportWidth) return _PillSize.medium;
     return _PillSize.dense;
   }
 
@@ -393,12 +496,29 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
   // -------------------------------------------------------------------------
 
   /// Compute the x-offset (pixels) that the inner track should translate by
-  /// to centre the active pill in the viewport.
+  /// so the viewport shows as much of the plan as possible while keeping
+  /// the active pill visible — ideally centred, but clamped so no empty
+  /// gutter appears on either side.
   double _computeCenteringOffset(
       double viewportWidth, _PillSpec spec, int activeColumn) {
     final stride = spec.width + _kPillGap;
+    // Track width = N columns of stride with the last trailing _kPillGap
+    // trimmed off the end.
+    final trackWidth = _columns.length * stride - _kPillGap;
+
+    // If the whole track fits in the viewport, show it anchored LEFT.
+    if (trackWidth <= viewportWidth) return 0;
+
     final activeCentre = activeColumn * stride + spec.width / 2;
-    return (viewportWidth / 2) - activeCentre;
+    final centered = (viewportWidth / 2) - activeCentre;
+
+    // Clamp so the track always fills the viewport edge-to-edge: no
+    // empty space on the right when active is near the end of the
+    // plan, and no empty space on the left when active is near the
+    // start.
+    final minOffset = viewportWidth - trackWidth; // most negative
+    const maxOffset = 0.0;
+    return centered.clamp(minOffset, maxOffset);
   }
 
   // -------------------------------------------------------------------------
@@ -413,22 +533,44 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
   }) {
     final stride = spec.width + _kPillGap;
     final rowStride = spec.height + _kPillGap;
-    // Translate the hit point into track-local coordinates.
-    final x = localPosition.dx - trackOffsetX;
-    final y = localPosition.dy;
-    if (x < -_kPillGap) return null;
+    // localPosition is already in TRACK-LOCAL coordinates because the
+    // GestureDetector is the direct child of the AnimatedPositioned
+    // that owns trackOffsetX. Subtracting trackOffsetX again was an
+    // indexing bug that caused taps to miss or land on the wrong pill
+    // whenever the active-centering offset was non-zero.
+    final x = localPosition.dx;
+    // Pills are laid out at top = rowIndex * rowStride + _kCircuitBandInset.
+    // Shift y so row 0 starts at yAdj = 0.
+    final yAdj = localPosition.dy - _kCircuitBandInset;
+    if (x < 0 || yAdj < -_kCircuitBandInset) return null;
     final col = (x / stride).floor();
     if (col < 0 || col >= _columns.length) return null;
-    // Row 0 is centred when there's a single row; when there are multiple
-    // rows, rows stack down. We'll centre the vertical starting row such that
-    // a 1-row column aligns with row 0 of multi-row columns.
-    final rowIndex = (y / rowStride).floor().clamp(0, 99);
+    final clampedY = yAdj < 0 ? 0.0 : yAdj;
+    final rowIndex = (clampedY / rowStride).floor();
     final column = _columns[col];
     if (rowIndex < 0 || rowIndex >= column.slideIndices.length) return null;
-    // Unused vars silenced:
+    // Silence unused-param lint (trackOffsetX kept for API symmetry).
     // ignore: unused_local_variable
     final _ = totalHeight;
+    // ignore: unused_local_variable
+    final __ = trackOffsetX;
     return column.slideIndices[rowIndex];
+  }
+
+  /// Tap-to-jump. A quick tap on a pill navigates immediately to the
+  /// corresponding slide — long-press is reserved for the peek-preview
+  /// scrub flow.
+  void _onTapUp(TapUpDetails details, double trackOffsetX, _PillSpec spec,
+      double totalHeight) {
+    final hit = _hitTest(
+      localPosition: details.localPosition,
+      trackOffsetX: trackOffsetX,
+      spec: spec,
+      totalHeight: totalHeight,
+    );
+    if (hit == null || hit == widget.activeSlideIndex) return;
+    HapticFeedback.selectionClick();
+    widget.onJumpTo?.call(hit);
   }
 
   void _onLongPressStart(LongPressStartDetails details, double trackOffsetX,
@@ -504,10 +646,7 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
     _removePeek();
     final slide = widget.slides[slideIndex];
     _peekOverlay = OverlayEntry(
-      builder: (_) => _PeekOverlay(
-        link: _matrixLink,
-        slide: slide,
-      ),
+      builder: (_) => _PeekOverlay(slide: slide),
     );
     final overlayState = Overlay.maybeOf(context, rootOverlay: true);
     if (overlayState != null) overlayState.insert(_peekOverlay!);
@@ -548,17 +687,66 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
                 ? _coords[activeIdx]
                 : null;
 
-        final centeringOffset = activeCoord == null
+        // Does the whole track fit within the viewport? If so we lock
+        // the track at offset 0, ignore any manual-scrub residue, and
+        // disable horizontal drag entirely (further down in the tree).
+        // Otherwise we compute the clamped centering offset + honour
+        // the manual-scrub delta as before.
+        final stride = spec.width + _kPillGap;
+        final trackWidth = _columns.length * stride - _kPillGap;
+        final trackFits = trackWidth <= viewportWidth;
+
+        final centeringOffset = (activeCoord == null || trackFits)
             ? 0.0
             : _computeCenteringOffset(
                 viewportWidth, spec, activeCoord.column);
 
-        final trackOffsetX = centeringOffset + _manualOffset;
-        final showChevron = _manualOffset.abs() > 16 && activeCoord != null;
+        final trackOffsetX =
+            trackFits ? 0.0 : centeringOffset + _manualOffset;
+        final showChevron =
+            !trackFits && _manualOffset.abs() > 16 && activeCoord != null;
 
         return CompositedTransformTarget(
           link: _matrixLink,
-          child: SizedBox(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Top row: active exercise name (left) + ETA (right).
+              // Sits above the scrolling matrix so both stay visible no
+              // matter how long the plan is. The name reflects the
+              // CURRENT (active) slide, not the scrub target — the peek
+              // shows the scrub target when the user long-presses.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _activeSlideName(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'Montserrat',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                          color: AppColors.textOnDark,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    _EtaDisplay(
+                      remainingSeconds: widget.remainingSeconds,
+                      currentSlideRemainingSeconds:
+                          widget.currentSlideRemainingSeconds,
+                      workoutComplete: widget.workoutComplete,
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
             height: matrixHeight + 4,
             child: ClipRect(
               child: Stack(
@@ -573,8 +761,16 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
                     height: matrixHeight,
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
-                      onHorizontalDragUpdate: _onHorizontalDragUpdate,
-                      onHorizontalDragEnd: _onHorizontalDragEnd,
+                      onTapUp: (d) =>
+                          _onTapUp(d, trackOffsetX, spec, matrixHeight),
+                      // Horizontal drag is disabled when the whole
+                      // track fits in the viewport — there's nothing
+                      // to scroll. Prevents accidental scrubbing that
+                      // would desync the track from its locked 0 offset.
+                      onHorizontalDragUpdate:
+                          trackFits ? null : _onHorizontalDragUpdate,
+                      onHorizontalDragEnd:
+                          trackFits ? null : _onHorizontalDragEnd,
                       onLongPressStart: (d) => _onLongPressStart(
                           d, trackOffsetX, spec, matrixHeight),
                       onLongPressMoveUpdate: (d) => _onLongPressMoveUpdate(
@@ -641,6 +837,34 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
               ),
             ),
           ),
+              // Bottom row: decoded grammar for the ACTIVE slide. The
+              // pills themselves carry no labels, so this row is the
+              // primary "what do I do on this exercise" read. Coral
+              // dot separators, 15pt Inter medium — luxurious spacing
+              // befitting the information's importance. Cycle info is
+              // omitted because the matrix row position already tells
+              // you which cycle you're in.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _activeSlideDetail(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textOnDark,
+                      letterSpacing: 0.1,
+                      height: 1.2,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -695,8 +919,10 @@ class _MatrixTrack extends StatelessWidget {
     // columns block ends one `_kPillGap` before `columns.length * stride`
     // (the trailing gap after the final column), so we subtract that and
     // then add the ETA gap + slot width.
-    final width =
-        columns.length * stride - _kPillGap + _kEtaSlotGap + _kEtaSlotWidth;
+    // ETA now lives on its OWN row above the matrix (see
+    // ProgressPillMatrix.build), not as a trailing slot in the track,
+    // so it's always visible regardless of how long the plan is.
+    final width = columns.length * stride - _kPillGap;
     final height = maxRows * rowStride - _kPillGap + _kCircuitBandInset * 2;
 
     final children = <Widget>[];
@@ -751,27 +977,6 @@ class _MatrixTrack extends StatelessWidget {
       }
     }
 
-    // ETA widget — positioned at the right end of row 1, aligned vertically
-    // with the first row of pills. Sits inside the scrollable track so it
-    // moves with manual scrub / auto-centre. Its own internal 1s timer keeps
-    // the wall-clock drifting forward while the workout is paused.
-    //
-    // On the densest tier the pills are only 12px tall — far too short for
-    // the two-line readout. Clamp to a sane minimum so the ETA always has
-    // room to render without forcing the pill-row layout wider.
-    const double etaMinHeight = 36.0;
-    final etaHeight = spec.height < etaMinHeight ? etaMinHeight : spec.height;
-    children.add(Positioned(
-      left: columns.length * stride + _kEtaSlotGap - _kPillGap,
-      top: _kCircuitBandInset,
-      width: _kEtaSlotWidth,
-      height: etaHeight,
-      child: _EtaDisplay(
-        remainingSeconds: remainingSeconds,
-        workoutComplete: workoutComplete,
-      ),
-    ));
-
     return SizedBox(
       width: width,
       height: height,
@@ -796,10 +1001,12 @@ class _MatrixTrack extends StatelessWidget {
 
 class _EtaDisplay extends StatefulWidget {
   final int remainingSeconds;
+  final int currentSlideRemainingSeconds;
   final bool workoutComplete;
 
   const _EtaDisplay({
     required this.remainingSeconds,
+    required this.currentSlideRemainingSeconds,
     required this.workoutComplete,
   });
 
@@ -869,58 +1076,79 @@ class _EtaDisplayState extends State<_EtaDisplay> {
     const monoFamily = 'JetBrainsMono';
     const monoFallback = ['Menlo', 'Courier'];
 
+    final slideRem = widget.currentSlideRemainingSeconds;
+    final showSlide = slideRem >= 0;
+    final slideLabel = showSlide ? _formatRemaining(slideRem) : '';
+
+    // One line: "1:36 · 7:42 left · ~7:42 PM". Reading L→R zooms OUT in
+    // scope: current exercise → whole workout → wall-clock finish. The
+    // current-slide token is bold coral to signal "active now".
     return Align(
       alignment: Alignment.centerRight,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // "7:42 left" — primary read.
-          Text.rich(
-            TextSpan(children: [
-              TextSpan(
-                text: remainingLabel,
-                style: const TextStyle(
-                  fontFamily: monoFamily,
-                  fontFamilyFallback: monoFallback,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textOnDark,
-                  letterSpacing: -0.2,
-                  height: 1.0,
-                ),
+      child: Text.rich(
+        TextSpan(children: [
+          if (showSlide) ...[
+            TextSpan(
+              text: slideLabel,
+              style: const TextStyle(
+                fontFamily: monoFamily,
+                fontFamilyFallback: monoFallback,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primary,
+                letterSpacing: -0.2,
+                height: 1.0,
               ),
-              const TextSpan(
-                text: ' left',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textOnDark,
-                  letterSpacing: 0.1,
-                  height: 1.0,
-                ),
+            ),
+            const TextSpan(
+              text: ' · ',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textSecondaryOnDark,
+                letterSpacing: 0.1,
+                height: 1.0,
               ),
-            ]),
-            textAlign: TextAlign.right,
-          ),
-          const SizedBox(height: 3),
-          // "~7:42 PM" — secondary planning read. The tilde signals estimate.
-          Text(
-            '~$finishLabel',
-            textAlign: TextAlign.right,
+            ),
+          ],
+          TextSpan(
+            text: remainingLabel,
             style: const TextStyle(
               fontFamily: monoFamily,
               fontFamilyFallback: monoFallback,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textSecondaryOnDark,
-              letterSpacing: 0.0,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textOnDark,
+              letterSpacing: -0.2,
               height: 1.0,
             ),
           ),
-        ],
+          const TextSpan(
+            text: ' · ',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondaryOnDark,
+              letterSpacing: 0.1,
+              height: 1.0,
+            ),
+          ),
+          TextSpan(
+            text: '~$finishLabel',
+            style: const TextStyle(
+              fontFamily: monoFamily,
+              fontFamilyFallback: monoFallback,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondaryOnDark,
+              letterSpacing: -0.2,
+              height: 1.0,
+            ),
+          ),
+        ]),
+        textAlign: TextAlign.right,
       ),
     );
   }
@@ -955,15 +1183,28 @@ class _Pill extends StatelessWidget {
   Widget build(BuildContext context) {
     final isRest = slide.isRest;
     // Choose colours per state.
-    final baseFill = AppColors.surfaceRaised;
+    //
+    // Rest pills preview their sage category EVEN when idle. Otherwise a
+    // future rest looks identical to a future exercise and the client
+    // has no visual "a break is coming" cue. Subtle sage tint on the
+    // backdrop + a sage-tinted border when not active = "you can look
+    // forward to this".
+    final baseFill = (isRest && !isActive && !isCompleted)
+        ? AppColors.rest.withValues(alpha: 0.15)
+        : AppColors.surfaceRaised;
     final borderColor = isActive
         ? (isRest ? AppColors.rest : AppColors.primary)
-        : AppColors.surfaceBorder;
+        : (isRest
+            ? AppColors.rest.withValues(alpha: 0.55)
+            : AppColors.surfaceBorder);
     final borderWidth = isActive ? 2.0 : 1.0;
 
-    // Fill bar colour.
+    // Fill bar colour. Completed pills fill FULLY WITH CORAL (rest
+    // pills fill with sage) so the whole matrix gradually "fills up"
+    // as the user moves through the plan — a macro progress signal
+    // that reads at a glance.
     final fillColor = isCompleted
-        ? AppColors.textSecondaryOnDark.withValues(alpha: 0.55)
+        ? (isRest ? AppColors.rest : AppColors.primary)
         : isRest
             ? AppColors.rest.withValues(alpha: 0.85)
             : AppColors.primary.withValues(alpha: 0.85);
@@ -974,6 +1215,9 @@ class _Pill extends StatelessWidget {
             ? timerProgress.clamp(0.0, 1.0)
             : 0.0;
 
+    // No label any more — opacity kept as a constant for the scrubbed-
+    // state animation scale to hook into.
+    // ignore: unused_local_variable
     final contentOpacity = isCompleted
         ? 0.4
         : isActive
@@ -1000,47 +1244,9 @@ class _Pill extends StatelessWidget {
               widthFactor: fillWidth,
               child: Container(color: fillColor),
             ),
-            if (spec.showIcon || spec.showLabel)
-              Center(
-                child: Opacity(
-                  opacity: contentOpacity,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (spec.showIcon)
-                        SizedBox(
-                          width: spec.iconSize,
-                          height: spec.iconSize,
-                          child: CustomPaint(
-                            painter: _PillIconPainter(
-                              isRest: isRest,
-                              color: _iconColor(isRest, isCompleted, isActive),
-                            ),
-                          ),
-                        ),
-                      if (spec.showIcon && spec.showLabel)
-                        const SizedBox(width: 4),
-                      if (spec.showLabel)
-                        Flexible(
-                          child: Text(
-                            _labelFor(slide),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                            style: TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: spec.fontSize,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.5,
-                              color:
-                                  _iconColor(isRest, isCompleted, isActive),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
+            // Pills are intentionally empty — colour + position + fill
+            // bar carry the visual information. Grammar shows in the
+            // matrix's bottom details row and in the long-press peek.
           ],
         ),
       ),
@@ -1078,11 +1284,15 @@ class _Pill extends StatelessWidget {
       );
     }
 
-    return AnimatedScale(
-      scale: scrubScale,
-      duration: const Duration(milliseconds: 120),
-      curve: Curves.easeOut,
-      child: wrapped,
+    return Semantics(
+      label: _semanticsLabelFor(slide),
+      button: true,
+      child: AnimatedScale(
+        scale: scrubScale,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        child: wrapped,
+      ),
     );
   }
 
@@ -1093,14 +1303,76 @@ class _Pill extends StatelessWidget {
     return AppColors.textSecondaryOnDark;
   }
 
-  static String _labelFor(ProgressPillSlide slide) {
-    if (slide.isRest) return 'REST';
-    final name = slide.exercise.name;
-    if (name == null || name.isEmpty) return '${slide.slideIndex + 1}';
-    // Up to 6 uppercase chars.
-    final firstWord = name.split(' ').first;
-    final short = firstWord.toUpperCase();
-    return short.length > 6 ? short.substring(0, 6) : short;
+  /// Pipe-delimited shorthand on the pill. Full grammar teaches via the
+  /// peek overlay on long-press.
+  ///
+  ///   Standalone exercise (hold > 0):     `S|R|H`   (e.g. `3|10|5`)
+  ///   Standalone exercise (hold = 0):     `S|R`     (e.g. `3|10`)
+  ///   Circuit member (hold > 0):          `R|H`     (e.g. `10|5`)
+  ///   Circuit member (hold = 0):          `R`       (e.g. `10`)
+  ///   Rest:                               `Rest`
+  ///   Video-only (no reps/sets data):     `Ns`      (duration)
+  ///
+  /// Circuit pills drop the sets field because the matrix's row count
+  /// encodes sets directly (N rows = N cycles).
+  ///
+  /// Dense tier ([compact] = true): hold drops even when non-zero so
+  /// the label shrinks to fit. Standalone → `S|R`; circuit → `R`.
+  static String _labelFor(ProgressPillSlide slide, {required bool compact}) {
+    if (slide.isRest) return 'Rest';
+    final e = slide.exercise;
+    final reps = e.reps;
+    final sets = e.sets;
+    final hold = e.holdSeconds ?? 0;
+    final isCircuit = slide.circuitId != null;
+
+    // Video-only exercise — no reps/sets data. Show the effective clip
+    // duration as a bare-second number; users learn `Ns` = duration.
+    if (reps == null && sets == null) {
+      final dur = e.effectiveDurationSeconds;
+      return dur > 0 ? '${dur}s' : '—';
+    }
+
+    final r = reps ?? 10;
+    final s = sets ?? 3;
+
+    if (compact) {
+      return isCircuit ? '$r' : '$s|$r';
+    }
+    if (isCircuit) {
+      return hold > 0 ? '$r|$hold' : '$r';
+    }
+    return hold > 0 ? '$s|$r|$hold' : '$s|$r';
+  }
+
+  /// VoiceOver / screen-reader label. Spoken in plain English so the
+  /// pill is usable even for users who can't see the shorthand.
+  static String _semanticsLabelFor(ProgressPillSlide slide) {
+    if (slide.isRest) {
+      final dur = slide.exercise.holdSeconds ?? 30;
+      return '$dur second rest';
+    }
+    final e = slide.exercise;
+    final parts = <String>[];
+    final name = e.name;
+    if (name != null && name.isNotEmpty) parts.add(name);
+    if (slide.cycle != null && slide.totalCycles != null) {
+      parts.add('cycle ${slide.cycle} of ${slide.totalCycles}');
+    }
+    final reps = e.reps;
+    final sets = e.sets;
+    final hold = e.holdSeconds ?? 0;
+    if (reps == null && sets == null) {
+      final dur = e.effectiveDurationSeconds;
+      if (dur > 0) parts.add('$dur seconds');
+    } else {
+      if (sets != null && slide.circuitId == null) {
+        parts.add('$sets sets');
+      }
+      if (reps != null) parts.add('$reps reps');
+      if (hold > 0) parts.add('$hold second hold');
+    }
+    return parts.join(', ');
   }
 }
 
@@ -1203,123 +1475,71 @@ class _ScrubChevron extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _PeekOverlay extends StatelessWidget {
-  final LayerLink link;
   final ProgressPillSlide slide;
 
-  const _PeekOverlay({required this.link, required this.slide});
+  const _PeekOverlay({required this.slide});
 
   @override
   Widget build(BuildContext context) {
-    final name = slide.isRest
-        ? 'Rest'
-        : (slide.exercise.name ?? 'Exercise ${slide.slideIndex + 1}');
+    final nameLine = _nameFor(slide);
+    final metaLine = _metaFor(slide);
 
-    final reps = slide.exercise.reps;
-    final sets = slide.exercise.sets;
-    final hold = slide.exercise.holdSeconds;
-    final metaParts = <String>[];
-    if (sets != null && reps != null) {
-      metaParts.add('$sets × $reps');
-    } else if (reps != null) {
-      metaParts.add('$reps reps');
-    }
-    if (hold != null && hold > 0) metaParts.add('hold ${hold}s');
-    final meta = metaParts.join(' · ');
-
-    return Positioned(
-      left: 0,
-      right: 0,
-      child: CompositedTransformFollower(
-        link: link,
-        showWhenUnlinked: false,
-        targetAnchor: Alignment.topCenter,
-        followerAnchor: Alignment.bottomCenter,
-        offset: const Offset(0, -16),
+    // Centered on the whole screen — out of the Dynamic Island / notch's
+    // way entirely. During scrub the user's attention is on finding the
+    // right exercise, not on the current one, so covering the middle is
+    // fine. Also auto-displays for 2s at preview start to TEACH the pipe
+    // shorthand users will see on the pills themselves — see the
+    // _scheduleTeachingPeek() call in ProgressPillMatrix.initState.
+    return IgnorePointer(
+      child: SafeArea(
         child: Center(
           child: Material(
             color: Colors.transparent,
             child: Container(
-              width: 200,
-              padding: const EdgeInsets.all(12),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width - 48,
+              ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 28,
+                vertical: 20,
+              ),
               decoration: BoxDecoration(
                 color: AppColors.surfaceRaised,
-                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                border: Border.all(color: AppColors.surfaceBorder),
+                borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                border: Border.all(color: AppColors.primary, width: 2),
               ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Line-drawing placeholder thumbnail — hatched background.
-                  Container(
-                    height: 88,
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceBase,
-                      border: Border.all(color: AppColors.surfaceBorder),
-                      borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-                    ),
-                    child: const Center(
-                      child: Icon(
-                        Icons.accessibility_new_rounded,
-                        size: 40,
-                        color: Color(0xFF4B5563),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
                   Text(
-                    name,
-                    maxLines: 1,
+                    nameLine,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontFamily: 'Montserrat',
                       fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      letterSpacing: -0.2,
+                      fontSize: 22,
+                      letterSpacing: -0.3,
                       color: AppColors.textOnDark,
                     ),
                   ),
-                  if (meta.isNotEmpty) ...[
-                    const SizedBox(height: 2),
+                  if (metaLine.isNotEmpty) ...[
+                    const SizedBox(height: 8),
                     Text(
-                      meta,
+                      metaLine,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontFamily: 'Inter',
-                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 15,
                         color: AppColors.textSecondaryOnDark,
                       ),
                     ),
                   ],
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.only(top: 8),
-                    decoration: const BoxDecoration(
-                      border: Border(
-                        top: BorderSide(
-                          color: AppColors.brandTintBorder,
-                          width: 1,
-                          style: BorderStyle.solid,
-                        ),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        Icon(Icons.arrow_forward_rounded,
-                            size: 12, color: AppColors.primary),
-                        SizedBox(width: 6),
-                        Text(
-                          'release to jump here',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 11,
-                            color: AppColors.primary,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -1328,4 +1548,36 @@ class _PeekOverlay extends StatelessWidget {
       ),
     );
   }
+
+  static String _nameFor(ProgressPillSlide slide) {
+    if (slide.isRest) return 'Rest';
+    return slide.exercise.name ?? 'Exercise ${slide.slideIndex + 1}';
+  }
+
+  /// The DECODED form of the pill grammar — teaches users what the
+  /// pipe shorthand on the pill actually means. e.g. `3 sets · 10 reps
+  /// · 5s hold` for a `3|10|5` pill.
+  static String _metaFor(ProgressPillSlide slide) {
+    if (slide.isRest) {
+      final dur = slide.exercise.holdSeconds ?? 30;
+      return '${dur}s';
+    }
+    final e = slide.exercise;
+    final r = e.reps ?? 10;
+    final s = e.sets ?? 3;
+    final hold = e.holdSeconds ?? 0;
+    final isCircuit = slide.circuitId != null;
+
+    final parts = <String>[];
+    if (!isCircuit) parts.add('$s sets');
+    parts.add('$r reps');
+    if (hold > 0) parts.add('${hold}s hold');
+
+    var line = parts.join(' · ');
+    if (isCircuit && slide.cycle != null && slide.totalCycles != null) {
+      line += '  ·  cycle ${slide.cycle} of ${slide.totalCycles}';
+    }
+    return line;
+  }
 }
+

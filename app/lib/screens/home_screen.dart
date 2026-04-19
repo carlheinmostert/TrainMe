@@ -250,16 +250,35 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Show a SnackBar for a failed publish with a Retry action.
   void _showPublishErrorSnackBar(Session session, String error) {
+    final fullText = 'Publish failed: $error';
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(
-            'Publish failed: $error',
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
+          // Tap the snackbar body to copy the full error to clipboard —
+          // most publish failures are RLS / network exception strings
+          // that need to be pasted into a debug session or shared with
+          // the dev. Tap target is the whole content; the Retry action
+          // remains its own button.
+          content: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () async {
+              await Clipboard.setData(ClipboardData(text: fullText));
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Error copied'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            child: Text(
+              fullText,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-          duration: const Duration(seconds: 6),
+          duration: const Duration(seconds: 12),
           backgroundColor: AppColors.error,
           action: SnackBarAction(
             label: 'Retry',

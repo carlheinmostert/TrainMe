@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../config.dart';
 import '../theme.dart';
+import 'homefit_logo.dart';
 
 /// "powered by homefit.studio" footer with Pulse Mark logo.
 /// Shown at the bottom of primary screens.
@@ -33,14 +34,7 @@ class PoweredByFooter extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  SizedBox(
-                    width: 26,
-                    height: 18,
-                    child: CustomPaint(
-                      painter:
-                          _PulseMarkPainter(color: AppColors.primary),
-                    ),
-                  ),
+                  const HomefitLogo(size: 28),
                   const SizedBox(width: 6),
                   const Text(
                     'homefit.studio',

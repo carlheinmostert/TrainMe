@@ -531,6 +531,17 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   /// Before Start Workout: total plan duration (stale finish-time-if-started
   /// -now). After finish: 0 (but workoutComplete flag takes precedence in the
   /// widget itself).
+  /// Seconds left on the CURRENT slide (or prep countdown during prep
+  /// phase). Feeds the bold coral `1:36` token in the pill matrix's
+  /// top row. Returns -1 outside workout mode so the matrix omits the
+  /// token entirely.
+  int _computeCurrentSlideRemainingSeconds() {
+    if (!_isWorkoutMode) return -1;
+    if (_workoutComplete) return 0;
+    if (_isPrepPhase) return _prepRemainingSeconds;
+    return _remainingSeconds;
+  }
+
   int _computeRemainingWorkoutSeconds() {
     if (_slides.isEmpty) return 0;
     if (_workoutComplete) return 0;
@@ -664,6 +675,8 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                   timerProgress: _computeTimerProgress(),
                   paused: !_isTimerRunning && !_isPrepPhase,
                   remainingSeconds: _computeRemainingWorkoutSeconds(),
+                  currentSlideRemainingSeconds:
+                      _computeCurrentSlideRemainingSeconds(),
                   workoutComplete: _workoutComplete,
                   onJumpTo: _onMatrixJumpTo,
                 ),
@@ -681,20 +694,21 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                     onPageChanged: _onPageChanged,
                     itemBuilder: (context, index) {
                       final slide = _slides[index];
-                      // Show the consolidated timer chip for every slide in
-                      // workout mode (including rest slides). Rest slides
-                      // skip the prep phase but still show running/paused
-                      // modes on the chip.
-                      final showTimerChip = _isWorkoutMode &&
+                      // Chip removed — tap on the video or rest card
+                      // body now triggers the mode-aware handler (skip
+                      // prep / pause / resume). The current-slide
+                      // countdown is shown in the pill matrix's top row.
+                      final isActiveInWorkout = _isWorkoutMode &&
                           !_workoutComplete &&
                           index == _currentPage;
                       return _ExercisePage(
                         slide: slide,
                         session: widget.session,
                         videoController: _videoControllers[index],
-                        timerChip: showTimerChip
-                            ? _buildInlineTimerRing()
-                            : null,
+                        onTap: isActiveInWorkout ? _onTimerChipTap : null,
+                        pausedOverlay: isActiveInWorkout &&
+                            !_isTimerRunning &&
+                            !_isPrepPhase,
                       );
                     },
                   ),
@@ -1008,22 +1022,11 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
             ),
           ),
 
-          // Page counter
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.white12,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Text(
-              '${_currentPage + 1} of $total',
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
+          // Page counter removed — the progress-pill matrix above
+          // already communicates where the user is in the plan (active
+          // pill position + total pill count). The "1 of 15" chip was
+          // redundant signalling.
+
         ],
       ),
     );
@@ -1066,14 +1069,31 @@ class _ExercisePage extends StatefulWidget {
   final VideoPlayerController? videoController;
 
   /// Optional small timer ring shown in the bottom metadata panel during
-  /// workout mode. Rendered on the right side next to the exercise name.
+  /// workout mode. DEPRECATED — superseded by tap-to-pause on the
+  /// video/rest card body and the current-slide countdown in the pill
+  /// matrix's top row. Kept on the widget's API to avoid churn during
+  /// the transition but no longer rendered.
   final Widget? timerChip;
+
+  /// Mode-aware tap handler routed up from the video/rest card's body
+  /// (prep → skip prep, running → pause, paused → resume). Provided by
+  /// the parent during workout mode. Null outside workout mode —
+  /// reverts to the video's own play/pause toggle.
+  final VoidCallback? onTap;
+
+  /// Whether the workout is currently paused (or in prep). Drives the
+  /// centered play-arrow overlay that appears on top of the media so
+  /// the user has a visible "tap to resume" affordance regardless of
+  /// whether the media is a video, photo, or rest card.
+  final bool pausedOverlay;
 
   const _ExercisePage({
     required this.slide,
     required this.session,
     this.videoController,
     this.timerChip,
+    this.onTap,
+    this.pausedOverlay = false,
   });
 
   @override
@@ -1090,6 +1110,14 @@ class _ExercisePageState extends State<_ExercisePage> {
   ExerciseCapture get _exercise => widget.slide.exercise;
 
   void _togglePlayPause() {
+    // In workout mode the parent owns pause/resume — routing tap up
+    // also pauses/skips the workout TIMER, not just the video. Outside
+    // workout mode (idle preview), fall back to local video toggle so
+    // practitioners can scrub the clip.
+    if (widget.onTap != null) {
+      widget.onTap!();
+      return;
+    }
     final controller = widget.videoController;
     if (controller == null || !controller.value.isInitialized) return;
 
@@ -1119,6 +1147,30 @@ class _ExercisePageState extends State<_ExercisePage> {
                 children: [
                   Container(color: const Color(0xFF111111)),
                   _buildMedia(),
+                  // Paused affordance — centered play-arrow over the
+                  // media when the workout is paused. Unified across
+                  // video / photo / rest so tap-to-pause always has
+                  // visible feedback. Touch-transparent so the whole
+                  // area stays tappable.
+                  if (widget.pausedOverlay)
+                    const IgnorePointer(
+                      child: Center(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Color(0x66000000),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Icon(
+                              Icons.play_arrow_rounded,
+                              color: Colors.white,
+                              size: 56,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   // Circuit info + metadata overlay at bottom
                   Positioned(
                     left: 0,
@@ -1127,7 +1179,10 @@ class _ExercisePageState extends State<_ExercisePage> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _buildCircuitBar(),
+                        // _buildCircuitBar() removed — the progress-pill
+                        // matrix above already communicates circuit
+                        // membership + round-of-N, so the orange strip
+                        // over the video was redundant signalling.
                         _buildMetadataOverlay(),
                       ],
                     ),
@@ -1147,12 +1202,25 @@ class _ExercisePageState extends State<_ExercisePage> {
   /// (fallback when OpenCV can't decode H.264/H.265 on iOS), display
   /// it as a photo rather than trying to play a .jpg as video.
   Widget _buildMedia() {
-    if (_exercise.isRest) return _buildRestDisplay();
-    if (_exercise.mediaType == MediaType.video &&
-        !_isStillImageConversion(_exercise)) {
-      return _buildVideoPlayer();
+    final inner = _exercise.isRest
+        ? _buildRestDisplay()
+        : (_exercise.mediaType == MediaType.video &&
+                !_isStillImageConversion(_exercise))
+            ? _buildVideoPlayer()
+            : _buildPhotoViewer();
+    // Whole body is a tap target for the mode-aware pause / skip-prep
+    // handler routed from the parent. The video player already wires
+    // its own GestureDetector via _togglePlayPause (which now routes
+    // up to widget.onTap when provided); rest + photo need this outer
+    // wrapper.
+    if (widget.onTap == null || !_exercise.isRest && _exercise.mediaType == MediaType.video && !_isStillImageConversion(_exercise)) {
+      return inner;
     }
-    return _buildPhotoViewer();
+    return GestureDetector(
+      onTap: _togglePlayPause,
+      behavior: HitTestBehavior.opaque,
+      child: inner,
+    );
   }
 
   /// Rest period display — calming gradient with rest icon and "Next up".
@@ -1376,32 +1444,16 @@ class _ExercisePageState extends State<_ExercisePage> {
     }
     final exercise = _exercise;
 
+    // Exercise name + reps/sets/hold badges removed from the overlay:
+    // the progress-pill matrix above now carries the active exercise
+    // name (top row, left), and the pill itself encodes the shorthand
+    // sets|reps|hold. Notes stay — they're the only instructional copy
+    // the client sees, and can't be collapsed into a pill.
     final info = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Exercise name / number
-        Text(
-          exercise.name ?? 'Exercise ${widget.slide.originalIndex + 1}',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // Metadata badges row
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _buildBadges(exercise),
-        ),
-
-        // Notes
-        if (exercise.notes != null && exercise.notes!.isNotEmpty) ...[
-          const SizedBox(height: 12),
+        if (exercise.notes != null && exercise.notes!.isNotEmpty)
           Text(
             exercise.notes!,
             style: const TextStyle(
@@ -1412,7 +1464,6 @@ class _ExercisePageState extends State<_ExercisePage> {
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
           ),
-        ],
       ],
     );
 

@@ -30,16 +30,17 @@ class ShellPullTab extends StatefulWidget {
   final ShellPullTabSide side;
   final VoidCallback onActivate;
 
-  /// Vertical alignment on the edge. Default sits slightly above mid-
-  /// height so Capture mode's bottom shutter stays breathing room-clear.
-  /// -1.0 is top, 1.0 is bottom.
+  /// Vertical alignment on the edge.  -1.0 is top, 0.0 is centre, 1.0 is
+  /// bottom. Default 0.333 places the tab one third of the screen height
+  /// up from the bottom — consistent across Studio and Capture so the
+  /// user's thumb finds it in the same spot regardless of mode.
   final double verticalAlignment;
 
   const ShellPullTab({
     super.key,
     required this.side,
     required this.onActivate,
-    this.verticalAlignment = -0.35,
+    this.verticalAlignment = 0.333,
   });
 
   @override

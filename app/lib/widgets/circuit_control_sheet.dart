@@ -89,31 +89,19 @@ class _CircuitControlSheetState extends State<CircuitControlSheet> {
                 ),
               ),
             ),
-            const Text(
-              'Circuit',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.5,
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _nameController,
-              textCapitalization: TextCapitalization.words,
+            // Static heading — the circuit letter (A/B/C...) is
+            // auto-assigned and displayed on the header bar. Renaming
+            // is a post-MVP feature that needs a plans.circuit_names
+            // JSONB column; until then the field would collect input
+            // and silently discard it, which is worse UX than no field.
+            Text(
+              widget.initialName,
               style: const TextStyle(
                 fontFamily: 'Montserrat',
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
                 letterSpacing: -0.3,
                 color: AppColors.textOnDark,
-              ),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
               ),
             ),
             const SizedBox(height: 20),

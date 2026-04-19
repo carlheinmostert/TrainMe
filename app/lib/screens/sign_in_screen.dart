@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 
 import '../services/auth_service.dart';
 import '../theme.dart';
+import '../widgets/homefit_logo.dart';
 
 /// Full-screen sign-in landing. Rendered by the AuthGate when the user has
 /// no Supabase session. Once sign-in completes (magic-link deep-link fires,
@@ -448,13 +449,7 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        SizedBox(
-          width: 96,
-          height: 64,
-          child: CustomPaint(
-            painter: _PulseMarkPainter(color: AppColors.primary),
-          ),
-        ),
+        const HomefitLogo(size: 120),
         const SizedBox(height: 24),
         const Text(
           'homefit.studio',

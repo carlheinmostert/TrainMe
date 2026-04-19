@@ -22,6 +22,11 @@ class InlineActionTray extends StatelessWidget {
   /// inside an existing circuit.
   final bool showLinkAction;
 
+  /// Whether `Break here` is offered. Mutually exclusive with Link — shown
+  /// only when the two adjacent cards are already in the same circuit and
+  /// the user wants to split the circuit at this point.
+  final bool showBreakAction;
+
   /// Whether `+ Exercise here` is offered. Usually always true except in
   /// the locked-edit state.
   final bool showInsertAction;
@@ -33,6 +38,7 @@ class InlineActionTray extends StatelessWidget {
 
   final VoidCallback? onRestHere;
   final VoidCallback? onLinkCircuit;
+  final VoidCallback? onBreakLink;
   final VoidCallback? onInsertExercise;
   final VoidCallback onClose;
   final VoidCallback? onLockedAction;
@@ -43,10 +49,12 @@ class InlineActionTray extends StatelessWidget {
     required this.onClose,
     this.showRestAction = true,
     this.showLinkAction = true,
+    this.showBreakAction = false,
     this.showInsertAction = true,
     this.locked = false,
     this.onRestHere,
     this.onLinkCircuit,
+    this.onBreakLink,
     this.onInsertExercise,
     this.onLockedAction,
   });
@@ -90,13 +98,13 @@ class InlineActionTray extends StatelessWidget {
                     children: [
                       if (showRestAction)
                         _TrayAction(
-                          label: 'Rest here',
+                          label: 'Rest',
                           icon: Icons.self_improvement,
                           primary: true,
                           locked: locked,
                           onTap: () => _fire(onRestHere),
                         ),
-                      if (showRestAction && showLinkAction)
+                      if (showRestAction && (showLinkAction || showBreakAction))
                         const SizedBox(width: 8),
                       if (showLinkAction)
                         _TrayAction(
@@ -106,7 +114,15 @@ class InlineActionTray extends StatelessWidget {
                           locked: locked,
                           onTap: () => _fire(onLinkCircuit),
                         ),
-                      if ((showRestAction || showLinkAction) &&
+                      if (showBreakAction)
+                        _TrayAction(
+                          label: 'Break',
+                          icon: Icons.link_off,
+                          primary: false,
+                          locked: locked,
+                          onTap: () => _fire(onBreakLink),
+                        ),
+                      if ((showRestAction || showLinkAction || showBreakAction) &&
                           showInsertAction)
                         const SizedBox(width: 8),
                       if (showInsertAction)
@@ -117,20 +133,10 @@ class InlineActionTray extends StatelessWidget {
                           locked: locked,
                           onTap: () => _fire(onInsertExercise),
                         ),
-                      const Spacer(),
-                      GestureDetector(
-                        onTap: onClose,
-                        behavior: HitTestBehavior.opaque,
-                        child: const SizedBox(
-                          width: 32,
-                          height: 32,
-                          child: Icon(
-                            Icons.close,
-                            size: 18,
-                            color: AppColors.textSecondaryOnDark,
-                          ),
-                        ),
-                      ),
+                      // No × close — the insertion triangle itself flips
+                      // to point LEFT when the tray is open, signalling
+                      // "tap again to close". Reclaims ~40px of width so
+                      // Rest / Link / Exercise all fit without spilling.
                     ],
                   ),
                 ),

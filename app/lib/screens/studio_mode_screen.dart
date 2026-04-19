@@ -58,11 +58,20 @@ class StudioModeScreen extends StatefulWidget {
   State<StudioModeScreen> createState() => _StudioModeScreenState();
 }
 
-class _StudioModeScreenState extends State<StudioModeScreen> {
+class _StudioModeScreenState extends State<StudioModeScreen>
+    with SingleTickerProviderStateMixin {
   late Session _session;
   late ConversionService _conversionService;
   StreamSubscription<ExerciseCapture>? _conversionSub;
   final ImagePicker _picker = ImagePicker();
+
+  /// Shared ticker that drives the coral-halo breathing on every idle
+  /// insertion dot in the list. One controller for the whole Studio so
+  /// all dots pulse in sync — a coherent rhythm reads as "system wide"
+  /// rather than independent widgets blinking on their own clocks.
+  /// See Design Rule R-09: affordances default to obvious; a soft
+  /// coral breath around the dot advertises "this is tappable".
+  late final AnimationController _pulseController;
 
   /// Data index of the currently-expanded card, or null when collapsed.
   int? _expandedIndex;
@@ -85,6 +94,10 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     _lockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
     });
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
   }
 
   @override
@@ -99,6 +112,7 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   void dispose() {
     _conversionSub?.cancel();
     _lockTimer?.cancel();
+    _pulseController.dispose();
     super.dispose();
   }
 
@@ -299,10 +313,26 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         insertIndex > 0 && exercises[insertIndex - 1].isRest;
     if (hasRestBelow || hasRestAbove) return;
 
-    final rest = ExerciseCapture.createRest(
+    // If the rest is being inserted BETWEEN two members of the same
+    // circuit, the rest inherits that circuit's id. Circuits are not
+    // broken by a rest insertion — breakage must be explicit via the
+    // Circuit Control Sheet's "Break circuit" action.
+    String? inheritedCircuit;
+    if (insertIndex > 0 && insertIndex < exercises.length) {
+      final above = exercises[insertIndex - 1];
+      final below = exercises[insertIndex];
+      if (above.circuitId != null && above.circuitId == below.circuitId) {
+        inheritedCircuit = above.circuitId;
+      }
+    }
+
+    var rest = ExerciseCapture.createRest(
       position: insertIndex,
       sessionId: _session.id,
     );
+    if (inheritedCircuit != null) {
+      rest = rest.copyWith(circuitId: inheritedCircuit);
+    }
     exercises.insert(insertIndex, rest);
     for (var i = 0; i < exercises.length; i++) {
       exercises[i] = exercises[i].copyWith(position: i);
@@ -496,6 +526,81 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     );
   }
 
+  /// Split a circuit at the boundary between [upperIndex] and [lowerIndex].
+  ///
+  /// Items from [lowerIndex] through the end of the original circuit
+  /// are re-tagged with a NEW circuit id (preserving their grouping as
+  /// a new circuit). Items above the split stay on the original id.
+  /// Whichever side drops to <2 members has its circuit id cleared —
+  /// a single-member circuit has no semantic meaning.
+  void _breakLinkBetween(int upperIndex, int lowerIndex) {
+    if (_isPublishLocked) {
+      showPublishLockToast(context);
+      return;
+    }
+    final exercises = List<ExerciseCapture>.from(_session.exercises);
+    if (upperIndex < 0 || lowerIndex >= exercises.length) return;
+    final originalCircuitId = exercises[upperIndex].circuitId;
+    if (originalCircuitId == null ||
+        exercises[lowerIndex].circuitId != originalCircuitId) {
+      return;
+    }
+
+    final newCircuitId = const Uuid().v4();
+    var newGroupSize = 0;
+    var i = lowerIndex;
+    while (i < exercises.length &&
+        exercises[i].circuitId == originalCircuitId) {
+      exercises[i] = exercises[i].copyWith(circuitId: newCircuitId);
+      newGroupSize++;
+      i++;
+    }
+
+    // Count upper-side members still on the original id after the split.
+    var upperGroupSize = 0;
+    for (var j = 0; j < lowerIndex; j++) {
+      if (exercises[j].circuitId == originalCircuitId) upperGroupSize++;
+    }
+
+    // Orphan cleanup — a single-member circuit is meaningless.
+    if (upperGroupSize < 2) {
+      for (var j = 0; j < exercises.length; j++) {
+        if (exercises[j].circuitId == originalCircuitId) {
+          exercises[j] = exercises[j].copyWith(clearCircuitId: true);
+        }
+      }
+    }
+    if (newGroupSize < 2) {
+      for (var j = 0; j < exercises.length; j++) {
+        if (exercises[j].circuitId == newCircuitId) {
+          exercises[j] = exercises[j].copyWith(clearCircuitId: true);
+        }
+      }
+    }
+
+    // Inherit cycle count for the new circuit so the split feels
+    // continuous (both halves spin the same N rounds).
+    final originalCycles = _session.getCircuitCycles(originalCircuitId);
+    final updatedCycles = Map<String, int>.from(_session.circuitCycles);
+    if (newGroupSize >= 2) {
+      updatedCycles[newCircuitId] = originalCycles;
+    }
+    if (upperGroupSize < 2) {
+      updatedCycles.remove(originalCircuitId);
+    }
+
+    setState(() {
+      _pushSession(_session.copyWith(
+        exercises: exercises,
+        circuitCycles: updatedCycles,
+      ));
+    });
+    _saveAllExercises(exercises);
+    unawaited(widget.storage.saveSession(_session).catchError((e, st) {
+      debugPrint('saveSession failed: $e');
+    }));
+  }
+
   void _setCircuitCycles(String circuitId, int cycles) {
     setState(() {
       _pushSession(_session.setCircuitCycles(circuitId, cycles));
@@ -529,7 +634,8 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
       context,
       initialName: 'Circuit $letter',
       initialCycles: cycles,
-      minCycles: 1,
+      // A circuit with 1 cycle is just a regular exercise — enforce ≥2.
+      minCycles: 2,
       maxCycles: 10,
       breakLocked: _isPublishLocked,
     );
@@ -586,6 +692,21 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
 
       for (var i = 0; i < exercises.length; i++) {
         exercises[i] = exercises[i].copyWith(position: i);
+      }
+
+      // Circuit stitching — if a null-circuit item is sandwiched
+      // between two items in the SAME circuit, pull it into that
+      // circuit. Dragging an exercise INTO a circuit is interpreted as
+      // "extend the circuit to include this item", never as "break
+      // the circuit". Circuits are only broken by the explicit Break
+      // action in the Circuit Control Sheet.
+      for (var i = 1; i < exercises.length - 1; i++) {
+        if (exercises[i].circuitId != null) continue;
+        final prev = exercises[i - 1];
+        final next = exercises[i + 1];
+        if (prev.circuitId != null && prev.circuitId == next.circuitId) {
+          exercises[i] = exercises[i].copyWith(circuitId: prev.circuitId);
+        }
       }
 
       // Circuit orphan cleanup.
@@ -902,7 +1023,12 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
     // Card content (rest bar or exercise card). Always wrapped in a
     // ReorderableDelayedDragStartListener so ReorderableListView's
     // drag-to-reorder still works (buildDefaultDragHandles is off).
-    final Widget cardContent = exercise.isRest
+    // Non-rest cards are ALSO wrapped in a Dismissible so swipe-left
+    // on the card fires delete with the standard undo SnackBar — the
+    // iOS-native pattern, matching user expectation. Long-press on the
+    // thumbnail still opens the Peek menu with an explicit Delete; both
+    // paths converge on _deleteExercise.
+    Widget cardBody = exercise.isRest
         ? _buildRestRow(dataIndex)
         : StudioExerciseCard(
             key: ValueKey('card_${exercise.id}'),
@@ -927,6 +1053,34 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
               _deleteExercise(dataIndex);
             },
           );
+
+    final Widget cardContent = Dismissible(
+      key: ValueKey('swipe_${exercise.id}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        margin: const EdgeInsets.symmetric(vertical: 2),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Icon(
+          Icons.delete_outline,
+          color: Colors.white,
+          size: 24,
+        ),
+      ),
+      confirmDismiss: (_) async {
+        if (_isPublishLocked) {
+          showPublishLockToast(context);
+          return false;
+        }
+        return true;
+      },
+      onDismissed: (_) => _deleteExercise(dataIndex),
+      child: cardBody,
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -968,20 +1122,26 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
                     ),
                   ),
                 ),
-                // Number glyph — fixed offset from top of gutter so it
-                // aligns visually with the first line of the card
-                // header regardless of card height.
+                // Number glyph — vertically centered across the full
+                // card height. Pinned to the LEFT edge of the gutter
+                // (with a 2px breathing pad) so the circuit rail at the
+                // gutter midpoint is cleanly separated from the digit.
+                // Gap from glyph centre to rail centre ≈ 14px.
                 if (positionNumber != null)
                   Positioned(
                     left: 0,
-                    top: 18,
-                    width: kGutterVisibleWidth,
-                    height: 14,
-                    child: Center(
-                      child: GutterNumberGlyph(
-                        value: positionNumber,
-                        onBrand: isInCircuit,
-                        dimmed: _isPublishLocked,
+                    top: 0,
+                    bottom: 0,
+                    width: kGutterVisibleWidth / 2,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 2),
+                        child: GutterNumberGlyph(
+                          value: positionNumber,
+                          onBrand: isInCircuit,
+                          dimmed: _isPublishLocked,
+                        ),
                       ),
                     ),
                   ),
@@ -1021,12 +1181,28 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
   Widget _buildCircuitHeaderRow(String circuitId) {
     final cycles = _session.getCircuitCycles(circuitId);
     final letter = _circuitLetter(circuitId);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+    // First-class dedicated slot: explicit bounded height so the header
+    // NEVER inherits its size from the Row it lives in. This is the
+    // origin of the circuit-only blow-out bug — a Row with
+    // CrossAxisAlignment.stretch inside an unbounded vertical parent
+    // (ReorderableListView) falls back to intrinsic sizing and the
+    // Expanded subtree balloons the row to full viewport height. By
+    // wrapping in a SizedBox with explicit height, the header occupies
+    // exactly 32 logical pixels no matter what constraints flow in.
+    //
+    // After the 32px header we emit a 6px rail-carrying spacer so the
+    // header's bottom coral border doesn't touch the first card below.
+    // The spacer continues the rail so there's no visual break.
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+      height: 32,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const GutterSpacerCell(height: 32, railThrough: true),
+          const GutterCircuitHeaderCell(height: 32),
           const SizedBox(width: 4),
           Expanded(
             child: GestureDetector(
@@ -1035,14 +1211,12 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
               child: Container(
                 height: 32,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: const BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: AppColors.brandTintBorder,
-                      width: 2,
-                    ),
-                  ),
-                ),
+                // No bottom border — the 6px rail-carrying spacer below
+                // (added in _buildCircuitHeaderRow's Column) plus the
+                // header's own tinted background + coral text already
+                // read as a distinct bar. A 2px coral underline here was
+                // redundant and visually compressed the space between
+                // the header and the first card.
                 child: Row(
                   children: [
                     Text(
@@ -1086,6 +1260,12 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
           ),
         ],
       ),
+    ),
+        // 6px rail-carrying spacer between the header's bottom border and
+        // the first circuit card. The rail continues through so the visual
+        // link is unbroken.
+        const GutterSpacerCell(height: 6, railThrough: true),
+      ],
     );
   }
 
@@ -1109,7 +1289,12 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         upper.circuitId == lower.circuitId;
 
     final showRest = !upper.isRest && !lower.isRest;
-    final showLink = !sameCircuit && !upper.isRest && !lower.isRest;
+    // Rests are first-class members of a circuit — semantically identical
+    // to exercises for the purpose of linking. The only reason to NOT show
+    // link is that the two items are already in the same circuit — in that
+    // case we offer Break instead, to split the circuit at this point.
+    final showLink = !sameCircuit;
+    final showBreak = sameCircuit;
 
     return Stack(
       children: [
@@ -1118,18 +1303,28 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
         // is collapsed so the gutter rail / dot has something to paint
         // against.
         Padding(
-          padding: const EdgeInsets.only(left: kGutterVisibleWidth + 4),
+          // Gap-specific left inset. Wider than the card's standard
+          // `kGutterVisibleWidth + 4` so the flipped (apex-left)
+          // triangle — which sits at x≈34 in the gutter — has clear
+          // breathing room before the tray's left edge. The tray is
+          // only this narrow, not the exercise card below it.
+          padding: const EdgeInsets.only(left: kGutterVisibleWidth + 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Baseline 20px so the dot has room when the tray is idle.
-              // Active tray animates over and past this via AnimatedSize.
-              const SizedBox(height: 20),
+              // Split the 20px baseline into EQUAL top + bottom slivers
+              // (10 + 10) around the tray so the triangle, which is
+              // painted at y = size.height / 2 of the whole Stack, sits
+              // at the tray's true visual middle when the tray is open
+              // — symmetric gap above and below, not skewed toward the
+              // south card.
+              const SizedBox(height: 10),
               InlineActionTray(
                 visible: isActive,
                 showRestAction: showRest,
                 showLinkAction: showLink,
+                showBreakAction: showBreak,
                 showInsertAction: true,
                 locked: _isPublishLocked,
                 onLockedAction: () {
@@ -1144,6 +1339,10 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
                   setState(() => _activeInsertIndex = null);
                   _linkExercises(lowerIndex - 1, lowerIndex);
                 },
+                onBreakLink: () {
+                  setState(() => _activeInsertIndex = null);
+                  _breakLinkBetween(lowerIndex - 1, lowerIndex);
+                },
                 onInsertExercise: () async {
                   setState(() => _activeInsertIndex = null);
                   await _importFromLibrary(insertAt: lowerIndex);
@@ -1152,16 +1351,24 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
                   setState(() => _activeInsertIndex = null);
                 },
               ),
+              // Bottom half of the split baseline — balances the 10px
+              // above the tray so the triangle sits at the tray's true
+              // visual centre. Collapsed total = 10+0+10 = 20 (unchanged
+              // from the prior single-sliver baseline).
+              const SizedBox(height: 10),
             ],
           ),
         ),
-        // Gutter rail / dot — fills the left strip, height inherited
-        // from the card column above.
+        // Gutter rail / dot — fills the left strip plus a +10px
+        // extension into the natural gap between the cards' rounded
+        // corners (at mid-gap Y the cards' bodies curve inward, leaving
+        // clear space for the insertion triangle's right channel). The
+        // wider hit target also makes the triangle easier to tap.
         Positioned(
           left: 0,
           top: 0,
           bottom: 0,
-          width: kGutterVisibleWidth,
+          width: kGutterVisibleWidth + 10,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
@@ -1172,14 +1379,33 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
               });
             },
             child: RepaintBoundary(
-              child: CustomPaint(
-                painter: GutterGapPainter(
-                  state: isActive
-                      ? GutterDotState.active
-                      : GutterDotState.idle,
-                  continuousRail: sameCircuit,
-                  dimmed: _isPublishLocked && !isActive,
-                ),
+              // The shared pulse controller drives only the halo opacity.
+              // AnimatedBuilder rebuilds this small subtree 60Hz — everything
+              // outside it (the row above, the tray) is unaffected.
+              child: AnimatedBuilder(
+                animation: _pulseController,
+                builder: (context, _) {
+                  // Ease-in-out so the halo lingers at peak/valley rather
+                  // than sweeping linearly across. Reads as "breath".
+                  final eased = Curves.easeInOut.transform(
+                    _pulseController.value,
+                  );
+                  return CustomPaint(
+                    painter: GutterGapPainter(
+                      state: isActive
+                          ? GutterDotState.active
+                          : GutterDotState.idle,
+                      continuousRail: sameCircuit,
+                      dimmed: _isPublishLocked && !isActive,
+                      // Pulse ALWAYS when idle — triangles inside a
+                      // circuit are just as tappable as those between
+                      // standalone exercises, so their affordance must
+                      // read the same way. Killing the pulse there was
+                      // an inconsistency bug.
+                      pulsePhase: eased,
+                    ),
+                  );
+                },
               ),
             ),
           ),
@@ -1190,10 +1416,21 @@ class _StudioModeScreenState extends State<StudioModeScreen> {
 
   void _openMediaViewer(ExerciseCapture exercise) {
     if (exercise.isRest) return;
+    // Build a list of the non-rest exercises so the viewer can page
+    // through them. Rests don't have media, so pulling them out keeps
+    // every page a real media slide.
+    final mediaList =
+        _session.exercises.where((e) => !e.isRest).toList(growable: false);
+    final initialIndex =
+        mediaList.indexWhere((e) => e.id == exercise.id);
+    if (initialIndex < 0) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (_) => _MediaViewer(exercise: exercise),
+        builder: (_) => _MediaViewer(
+          exercises: mediaList,
+          initialIndex: initialIndex,
+        ),
       ),
     );
   }
@@ -1341,18 +1578,9 @@ class _RestBarState extends State<_RestBar> {
             ),
           ),
         ),
-        GestureDetector(
-          onTap: widget.onDelete,
-          behavior: HitTestBehavior.opaque,
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 8),
-            child: Icon(
-              Icons.close,
-              size: 16,
-              color: AppColors.rest,
-            ),
-          ),
-        ),
+        // Delete × removed — swipe-left on the whole rest row now
+        // triggers the same onDelete via the outer Dismissible in
+        // _buildRowWithContext. Consistent with exercise cards.
       ],
     );
   }
@@ -1371,49 +1599,77 @@ bool _isStillImageConversion(ExerciseCapture exercise) {
       ext.endsWith('.png');
 }
 
+/// Full-screen media viewer with horizontal swipe across exercises.
+///
+/// Opened from a Studio thumbnail tap. Pages through every non-rest
+/// exercise in the session (rests have no media) via PageView. Each
+/// page is a photo or video; the video controller is lazily created
+/// for the CURRENT page only and disposed when the user swipes away,
+/// so memory stays bounded regardless of plan size.
 class _MediaViewer extends StatefulWidget {
-  final ExerciseCapture exercise;
-  const _MediaViewer({required this.exercise});
+  final List<ExerciseCapture> exercises;
+  final int initialIndex;
+  const _MediaViewer({required this.exercises, required this.initialIndex});
 
   @override
   State<_MediaViewer> createState() => _MediaViewerState();
 }
 
 class _MediaViewerState extends State<_MediaViewer> {
-  VideoPlayerController? _controller;
-  bool _initialized = false;
+  late final PageController _pageController;
+  late int _currentIndex;
+  VideoPlayerController? _videoController;
+  bool _videoInitialized = false;
 
-  bool get _isVideo =>
-      widget.exercise.mediaType == MediaType.video &&
-      !_isStillImageConversion(widget.exercise);
+  ExerciseCapture get _current => widget.exercises[_currentIndex];
+
+  bool _isVideo(ExerciseCapture e) =>
+      e.mediaType == MediaType.video && !_isStillImageConversion(e);
 
   @override
   void initState() {
     super.initState();
-    if (_isVideo) {
-      final controller = VideoPlayerController.file(
-          File(widget.exercise.displayFilePath));
-      _controller = controller;
-      controller.initialize().then((_) {
-        if (!mounted) return;
-        setState(() => _initialized = true);
-        controller.setLooping(true);
-        controller.play();
-      }).catchError((e) {
-        debugPrint('Media viewer video init failed: $e');
-      });
-    }
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: _currentIndex);
+    _initVideoForCurrent();
+  }
+
+  void _initVideoForCurrent() {
+    _videoController?.dispose();
+    _videoController = null;
+    _videoInitialized = false;
+    if (!_isVideo(_current)) return;
+    final controller = VideoPlayerController.file(
+      File(_current.displayFilePath),
+    );
+    _videoController = controller;
+    controller.initialize().then((_) {
+      // Page might have changed before init finishes — only adopt the
+      // result if this is still the active controller.
+      if (!mounted || _videoController != controller) return;
+      setState(() => _videoInitialized = true);
+      controller.setLooping(true);
+      controller.play();
+    }).catchError((e) {
+      debugPrint('Media viewer video init failed: $e');
+    });
   }
 
   @override
   void dispose() {
-    _controller?.dispose();
+    _videoController?.dispose();
+    _pageController.dispose();
     super.dispose();
   }
 
+  void _onPageChanged(int index) {
+    setState(() => _currentIndex = index);
+    _initVideoForCurrent();
+  }
+
   void _togglePlayPause() {
-    final c = _controller;
-    if (c == null || !_initialized) return;
+    final c = _videoController;
+    if (c == null || !_videoInitialized) return;
     setState(() {
       if (c.value.isPlaying) {
         c.pause();
@@ -1423,66 +1679,144 @@ class _MediaViewerState extends State<_MediaViewer> {
     });
   }
 
+  String _headerLabel(ExerciseCapture e, int index) {
+    final n = e.name;
+    if (n != null && n.trim().isNotEmpty) return n;
+    return 'Exercise ${index + 1}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final showPausedPlayIcon = _isVideo(_current) &&
+        _videoInitialized &&
+        _videoController != null &&
+        !_videoController!.value.isPlaying;
     return Scaffold(
       backgroundColor: AppColors.surfaceBg,
-      body: GestureDetector(
-        onTap: _isVideo ? _togglePlayPause : null,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (_isVideo)
-              Center(
-                child: _initialized && _controller != null
-                    ? AspectRatio(
-                        aspectRatio: _controller!.value.aspectRatio,
-                        child: VideoPlayer(_controller!),
-                      )
-                    : const CircularProgressIndicator(
-                        color: Colors.white54),
-              )
-            else
-              Center(
-                child: Image.file(
-                  File(widget.exercise.displayFilePath),
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, e, s) => const Icon(
-                    Icons.broken_image_outlined,
-                    size: 64,
-                    color: Colors.white54,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Pager — one page per non-rest exercise. Video pages show
+          // the VideoPlayer only when the page IS current; otherwise
+          // they render a dark placeholder so adjacent pages don't
+          // spin up extra controllers.
+          PageView.builder(
+            controller: _pageController,
+            itemCount: widget.exercises.length,
+            onPageChanged: _onPageChanged,
+            itemBuilder: (context, index) {
+              final ex = widget.exercises[index];
+              final isCurrent = index == _currentIndex;
+              final isVideo = _isVideo(ex);
+              return GestureDetector(
+                onTap: isCurrent && isVideo ? _togglePlayPause : null,
+                behavior: HitTestBehavior.opaque,
+                child: Center(
+                  child: isVideo
+                      ? (isCurrent &&
+                              _videoInitialized &&
+                              _videoController != null
+                          ? AspectRatio(
+                              aspectRatio:
+                                  _videoController!.value.aspectRatio,
+                              child: VideoPlayer(_videoController!),
+                            )
+                          : isCurrent
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white54)
+                              : const _VideoPagePlaceholder())
+                      : Image.file(
+                          File(ex.displayFilePath),
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, e, s) => const Icon(
+                            Icons.broken_image_outlined,
+                            size: 64,
+                            color: Colors.white54,
+                          ),
+                        ),
+                ),
+              );
+            },
+          ),
+          // Exercise-name header — small pill at the top, always visible.
+          // Sits below the safe-area inset so it clears the notch / bar.
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 12,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: Center(
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width - 96,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    _headerLabel(_current, _currentIndex),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
-            if (_isVideo &&
-                _initialized &&
-                _controller != null &&
-                !_controller!.value.isPlaying)
-              const Center(
-                child: Icon(
-                  Icons.play_arrow,
-                  size: 72,
-                  color: Colors.white54,
-                ),
-              ),
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              right: 8,
-              child: IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(
-                  Icons.close,
-                  color: Colors.white,
-                  size: 28,
-                ),
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.black54,
-                ),
-                tooltip: 'Close',
+            ),
+          ),
+          if (showPausedPlayIcon)
+            const Center(
+              child: Icon(
+                Icons.play_arrow,
+                size: 72,
+                color: Colors.white54,
               ),
             ),
-          ],
-        ),
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 8,
+            child: IconButton(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(
+                Icons.close,
+                color: Colors.white,
+                size: 28,
+              ),
+              style: IconButton.styleFrom(
+                backgroundColor: Colors.black54,
+              ),
+              tooltip: 'Close',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Dark placeholder shown on non-current video pages during horizontal
+/// swipe transitions. Avoids spinning up a VideoPlayerController per
+/// page — only the current page's controller is ever initialised.
+class _VideoPagePlaceholder extends StatelessWidget {
+  const _VideoPagePlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Icon(
+        Icons.play_circle_outline,
+        size: 72,
+        color: Colors.white24,
       ),
     );
   }

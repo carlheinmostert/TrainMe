@@ -214,37 +214,52 @@ class UploadService {
     }
     final trainerId = currentUser.id;
 
-    // Never fall back to the Carl-sentinel practice here — a malformed local
-    // session with practiceId == null must NOT silently charge Carl's tenant.
-    // But we DO allow a fallback to AuthService.currentPracticeId, which was
-    // populated by the SECURITY DEFINER `bootstrap_practice_for_user` RPC and
-    // is therefore the server's view of THIS user's own practice (safe). This
-    // lets us publish sessions that were drafted locally before the publish
-    // flow started tagging sessions with a practice_id. If neither the session
-    // nor the auth service knows the practice, surface the bug loudly so the
-    // HomeScreen banner shows it and the bootstrap retry can fix it.
-    final String practiceId;
+    // Practice id resolution.
+    //
+    // ALWAYS use the bootstrap-cached `AuthService.currentPracticeId`
+    // — it was returned by the `bootstrap_practice_for_user` SECURITY
+    // DEFINER RPC after confirming THIS signed-in user's membership.
+    // The session's stored practiceId can be stale: the session may
+    // have been created on this device while signed in as a different
+    // account (the multi-account scenario), or before the practice_id
+    // wiring landed at all.
+    //
+    // Defence-in-depth: if the cache is empty (cold-start race where
+    // bootstrap hasn't completed yet, OR a transient RPC failure), we
+    // call the bootstrap RPC directly here so the publish always has
+    // a freshly verified practice. Only if THAT fails do we fall back
+    // to the stored value or bail.
+    var cachedPracticeId = AuthService.instance.currentPracticeId.value;
+    if (cachedPracticeId == null) {
+      await AuthService.instance.ensurePracticeMembership();
+      cachedPracticeId = AuthService.instance.currentPracticeId.value;
+    }
     final sessionPracticeId = session.practiceId;
-    if (sessionPracticeId != null) {
+    final String practiceId;
+    if (cachedPracticeId != null) {
+      practiceId = cachedPracticeId;
+      if (sessionPracticeId != cachedPracticeId) {
+        final backfilled = session.copyWith(practiceId: cachedPracticeId);
+        try {
+          await _storage.saveSession(backfilled);
+        } catch (e) {
+          debugPrint(
+            'uploadPlan: failed to backfill practiceId locally: $e',
+          );
+        }
+      }
+    } else if (sessionPracticeId != null) {
       practiceId = sessionPracticeId;
     } else {
-      final fallback = AuthService.instance.currentPracticeId.value;
-      if (fallback == null) {
-        const msg =
-            'Cannot publish: no practice found. Tap Retry on the setup banner.';
-        await _recordFailure(session, msg);
-        throw StateError(msg);
-      }
-      practiceId = fallback;
-      // Backfill locally so future publishes skip this fallback path and the
-      // UI stops treating the session as orphaned.
-      final backfilled = session.copyWith(practiceId: fallback);
-      try {
-        await _storage.saveSession(backfilled);
-      } catch (e) {
-        debugPrint('uploadPlan: failed to backfill practiceId locally: $e');
-      }
+      const msg =
+          'Cannot publish: no practice found. Tap Retry on the setup banner.';
+      await _recordFailure(session, msg);
+      throw StateError(msg);
     }
+    debugPrint(
+      'uploadPlan: trainer=$trainerId practice=$practiceId '
+      'session.practiceId=$sessionPracticeId cached=$cachedPracticeId',
+    );
     final nonRestCount = session.exercises.where((e) => !e.isRest).length;
     final creditsToCharge = creditCostFor(nonRestCount);
 
@@ -553,8 +568,16 @@ class UploadService {
           credits: creditsToCharge,
         );
       }
-      await _recordFailure(session, e.toString());
-      return PublishResult.networkFailed(error: e);
+      // Include practice/trainer context in the failure so a mismatched-
+      // tenant error (RLS rejection) surfaces enough detail in the
+      // user-facing snackbar to diagnose without device logs. The
+      // PublishResult's error is what reaches the SnackBar via
+      // `result.toErrorString()` — wrap the raw exception with context.
+      final wrappedError = StateError(
+        'practice=$practiceId trainer=$trainerId :: ${e.toString()}',
+      );
+      await _recordFailure(session, wrappedError.message);
+      return PublishResult.networkFailed(error: wrappedError);
     }
   }
 

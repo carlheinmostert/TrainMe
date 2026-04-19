@@ -58,10 +58,15 @@ class AppColors {
   static const Color circuitLight = Color(0xFFFFF3ED);
   static const Color circuitDark = Color(0xFFE85A24);
 
-  static const Color rest = Color(0xFF64748B); // slate-500, rest periods
-  static const Color restLight = Color(0xFFF1F5F9); // slate-50
+  // Rest period palette — sage green. Distinct visual CATEGORY (not an
+  // accent). Brand rule: coral is the only accent colour; rest lives in
+  // the green family so it reads as "recovery / a moment to look
+  // forward to" without competing with coral. Teal is explicitly
+  // retired from the palette.
+  static const Color rest = Color(0xFF86EFAC); // green-300, rest periods
+  static const Color restLight = Color(0xFFECFDF5); // green-50
   static const Color restSurface =
-      Color(0xFFE2E8F0); // slate-200, rest card bg
+      Color(0xFFBBF7D0); // green-200, rest card bg
 
   // ── Dark surface tokens (semantic names — D-02) ──
   // Mirrors docs/design/project/tokens.json `color.surface.dark.*`.
