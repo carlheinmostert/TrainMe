@@ -5,6 +5,52 @@ import Accelerate
 import Vision
 import CoreVideo
 
+// MARK: - Line-drawing tuning constants (tweak-and-reinstall friendly)
+//
+// Exposed as named top-level constants so Carl can nudge them after device
+// testing without re-spelunking the pipeline. Each constant is annotated with
+// its previous ("old") hardcoded value and the current tuned value. Baseline:
+// Carl's feedback 2026-04-19 — "line drawing must have more details and be
+// less intense." More details ⇒ lower the edge-detection threshold. Less
+// intense ⇒ lighten the black line overlay.
+//
+// The two-zone rendering (body crisp via Vision person segmentation,
+// equipment at ~35%) lives below in `applyMaskedDim` and is intentionally
+// NOT touched by these constants.
+//
+// Contract:
+//   - `edgeThresholdLo` controls how sensitive the adaptive threshold is.
+//     It replaces the previously-hardcoded `c = 2` offset inside
+//     `adaptiveThreshold`. A gray pixel becomes BLACK (edge) when
+//     `gray < localMean - edgeThresholdLo`. Lower value ⇒ more pixels pass
+//     the test ⇒ more edges / finer detail preserved.
+//         old: 2
+//         new: 1   (≈30% reduction in the detection threshold → more detail)
+//
+//   - `edgeThresholdHi` is a multiplicative dampener on the Dart-supplied
+//     `contrastLow` value (AppConfig.contrastLow = 80). The contrast-boost
+//     pass clips anything below `contrastLow` to black and stretches the
+//     rest. Scaling `contrastLow` down by `edgeThresholdHi` keeps more of
+//     the faint mid-gray sketch strokes alive through the boost. Applied
+//     as `effectiveContrastLow = Int(Double(contrastLow) * edgeThresholdHi)`.
+//         old: 1.0   (use contrastLow as-is)
+//         new: 0.70  (≈30% reduction in the upper threshold → more detail)
+//
+//   - `lineAlpha` is a post-pipeline intensity scale on how dark the final
+//     line pixels render. Applied as a LUT:
+//         `out = 255 - (255 - gray) * lineAlpha`
+//     White stays white (dim(255) = 255); black lines drop toward gray.
+//         old: 1.0   (full-black lines)
+//         new: 0.65  (dims line overlay to ~65% intensity — less intense)
+//
+// Safe tuning ranges (if Carl wants to experiment on device):
+//   edgeThresholdLo : 0 … 4   (int)
+//   edgeThresholdHi : 0.5 … 1.0
+//   lineAlpha       : 0.3 … 1.0
+private let edgeThresholdLo: Int = 1
+private let edgeThresholdHi: Double = 0.70
+private let lineAlpha: Double = 0.65
+
 /// Native iOS platform channel for video-to-line-drawing conversion.
 ///
 /// Uses AVAssetReader/Writer for H.264/265 I/O (which OpenCV can't handle on iOS)
@@ -16,6 +62,7 @@ import CoreVideo
 /// 3. Adaptive threshold for crisp structural lines
 /// 4. Combine (min of both)
 /// 5. Contrast boost
+/// 6. Line-alpha dim (softens intensity — see `edgeThresholdLo/Hi/lineAlpha`)
 class VideoConverterChannel {
     private let channel: FlutterMethodChannel
     private let processingQueue = DispatchQueue(
@@ -1112,20 +1159,38 @@ private class LineDrawingProcessor {
         )
 
         // Threshold: pixel is black (0) if gray < localMean - C, else white (255).
-        // C = 2 matches the OpenCV adaptiveThreshold with C=2.
+        // C is now driven by the `edgeThresholdLo` tuning constant at the top
+        // of this file (was hardcoded at 2; current 1 → ~30% more detail).
         adaptiveThreshold(
             gray: &grayBuffer,
             localMean: &localMeanBuffer,
             dst: &adaptiveBuffer,
-            c: 2
+            c: edgeThresholdLo
         )
 
         // --- Step 4: Combine (take min / darkest of sketch and adaptive) ---
         pixelwiseMin(a: &sketchBuffer, b: &adaptiveBuffer, dst: &combinedBuffer)
 
         // --- Step 5: Contrast boost ---
-        // output = clamp((input - contrastLow) * 255 / (255 - contrastLow), 0, 255)
-        contrastBoost(src: &combinedBuffer, dst: &outputGrayBuffer, low: contrastLow)
+        // output = clamp((input - low) * 255 / (255 - low), 0, 255)
+        //
+        // `low` is the Dart-supplied `contrastLow` (AppConfig.contrastLow = 80)
+        // scaled down by `edgeThresholdHi` (top-of-file tuning constant) so
+        // more of the faint mid-gray sketch strokes survive the boost ⇒ more
+        // detail. Example: 80 * 0.70 = 56.
+        let effectiveContrastLow = max(
+            0,
+            min(254, Int((Double(contrastLow) * edgeThresholdHi).rounded()))
+        )
+        contrastBoost(src: &combinedBuffer, dst: &outputGrayBuffer, low: effectiveContrastLow)
+
+        // --- Step 5.25: Line-alpha dim ---
+        // Post-pipeline intensity scale — lightens black lines without
+        // touching background whites. See `lineAlpha` constant at the top of
+        // this file. NO-OP when lineAlpha >= 0.999.
+        if lineAlpha < 0.999 {
+            applyLineAlpha(dst: &outputGrayBuffer, alpha: lineAlpha)
+        }
 
         // --- Step 5.5: Apply person segmentation mask (optional) ---
         // Two-zone blend: body pixels render at full strength, background
@@ -1312,6 +1377,31 @@ private class LineDrawingProcessor {
                 let inv = 255 - w
                 let blended = (dim * inv + src * w + 127) / 255
                 dstPtr[i] = UInt8(blended)
+            }
+        }
+    }
+
+    /// Line-alpha dim: lighten black lines toward gray without touching the
+    /// near-white background. Implemented as a 256-byte LUT:
+    ///     out = 255 - (255 - gray) * alpha
+    /// With alpha = 0.65: pure black (0) → 89, mid-gray (128) → ~173, white
+    /// (255) stays 255. Applied in-place on the output gray buffer so the
+    /// subsequent Planar8 → BGRA assembly just picks up the lighter pixels.
+    ///
+    /// Tuned via the file-level `lineAlpha` constant. Skipped entirely when
+    /// the caller passes alpha >= 0.999.
+    private func applyLineAlpha(dst: inout vImage_Buffer, alpha: Double) {
+        let count = Int(dst.height) * dst.rowBytes
+        var lut = [UInt8](repeating: 0, count: 256)
+        for v in 0...255 {
+            let out = 255.0 - (255.0 - Double(v)) * alpha
+            lut[v] = UInt8(max(0, min(255, Int(out.rounded()))))
+        }
+        let dstPtr = dst.data.assumingMemoryBound(to: UInt8.self)
+        lut.withUnsafeBufferPointer { bp in
+            guard let l = bp.baseAddress else { return }
+            for i in 0..<count {
+                dstPtr[i] = l[Int(dstPtr[i])]
             }
         }
     }
