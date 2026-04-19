@@ -65,6 +65,24 @@ class ExerciseCapture {
   /// purge on app startup. Null when [archiveFilePath] is null.
   final DateTime? archivedAt;
 
+  /// Remote line drawing URL (returned by `get_plan_full`). Runtime-only;
+  /// not persisted to SQLite. Used by the practitioner's preview screen to
+  /// display the published treatment without re-reading the local
+  /// converted file. Null when the plan was never published (preview uses
+  /// the local file instead).
+  final String? lineDrawingUrl;
+
+  /// Remote URL for the grayscale (saturation-zero) treatment. Actually
+  /// points to the original colour file — grayscale is applied at playback
+  /// via a ColorFilter matrix. Null when the client hasn't said yes to
+  /// grayscale viewing, which disables the B&W segment in the preview.
+  final String? grayscaleUrl;
+
+  /// Remote URL for the unmodified colour treatment. Null when the client
+  /// hasn't said yes to colour viewing, which disables the Original
+  /// segment in the preview.
+  final String? originalUrl;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -86,6 +104,9 @@ class ExerciseCapture {
     this.videoDurationMs,
     this.archiveFilePath,
     this.archivedAt,
+    this.lineDrawingUrl,
+    this.grayscaleUrl,
+    this.originalUrl,
   });
 
   /// Create a new capture with a generated UUID.
@@ -212,6 +233,12 @@ class ExerciseCapture {
     bool clearArchiveFilePath = false,
     DateTime? archivedAt,
     bool clearArchivedAt = false,
+    String? lineDrawingUrl,
+    bool clearLineDrawingUrl = false,
+    String? grayscaleUrl,
+    bool clearGrayscaleUrl = false,
+    String? originalUrl,
+    bool clearOriginalUrl = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -240,6 +267,11 @@ class ExerciseCapture {
           ? null
           : (archiveFilePath ?? this.archiveFilePath),
       archivedAt: clearArchivedAt ? null : (archivedAt ?? this.archivedAt),
+      lineDrawingUrl:
+          clearLineDrawingUrl ? null : (lineDrawingUrl ?? this.lineDrawingUrl),
+      grayscaleUrl:
+          clearGrayscaleUrl ? null : (grayscaleUrl ?? this.grayscaleUrl),
+      originalUrl: clearOriginalUrl ? null : (originalUrl ?? this.originalUrl),
     );
   }
 
