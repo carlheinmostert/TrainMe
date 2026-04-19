@@ -509,3 +509,24 @@ same iteration. Drift breaks the trainer's experience: she demos to the
 client on the web link, so any feature gap reads as "your tool is
 inconsistent". Don't ship player updates to one surface without porting
 to the other.
+
+### R-11 · Account & billing features land on Mobile + Portal as twins
+
+Anything in account, billing, settings, preferences, or referral falls
+into the practitioner's admin surface and MUST ship to BOTH the mobile
+app and the manage portal in the same iteration. Capture and edit
+features stay split (mobile is the editor, web player is the consumer —
+governed by R-10). Player playback features are governed by R-10.
+
+Twins do not have to be visually identical — platform-appropriate UX
+wins (bottom sheet on mobile, full page on web; SnackBar undo on
+mobile, inline countdown banner on web). What must match is the
+*capability set*: if a user can set a password on one surface, they
+can set it on the other; if they can see referral stats on one, they
+can see them on the other. The mobile twin is allowed to be lighter
+(phone is for in-the-moment, desktop is for admin) — but never absent.
+
+Before implementing any account / billing / settings / referral
+feature, explicitly call out which surfaces it touches. Default to
+"both", justify "one" only if the action is fundamentally tied to the
+device (e.g. iOS share sheet, Camera mode).
