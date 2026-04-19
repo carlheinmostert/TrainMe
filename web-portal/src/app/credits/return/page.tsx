@@ -66,14 +66,19 @@ async function maybeApplyOptimisticSandboxCredit(
     .maybeSingle();
   if (!membership) return { applied: false, reason: 'not a member' };
 
-  // Apply: insert the ledger row, then mark the intent complete. If the ledger
-  // insert fails we leave status='pending' so a retry / real ITN can still land.
-  const { error: ledgerErr } = await admin.from('credit_ledger').insert({
-    practice_id: pending.practice_id,
-    delta: pending.credits,
-    type: 'purchase',
-    payfast_payment_id: null, // no real pf_payment_id in sandbox-optimistic path
-    notes: `sandbox-optimistic purchase of ${pending.credits} credits via pending_payment ${pending.id}`,
+  // Apply: route through `record_purchase_with_rebates` so the sandbox path
+  // mirrors the ITN webhook — purchase ledger row + any referral rebate rows
+  // (signup bonus on first purchase, 5% lifetime rebate on all purchases)
+  // are booked atomically in a single DB transaction. If the RPC fails we
+  // leave status='pending' so a retry / real ITN can still land.
+  const costPerCreditZar = Number(pending.amount_zar) / Number(pending.credits);
+  const { error: ledgerErr } = await admin.rpc('record_purchase_with_rebates', {
+    p_practice_id:         pending.practice_id,
+    p_credits:             pending.credits,
+    p_amount_zar:          pending.amount_zar,
+    p_payfast_payment_id:  null, // no real pf_payment_id in sandbox-optimistic path
+    p_bundle_key:          pending.bundle_key ?? null,
+    p_cost_per_credit_zar: costPerCreditZar,
   });
   if (ledgerErr) return { applied: false, reason: ledgerErr.message };
 
