@@ -760,6 +760,11 @@ body {
   flex-shrink: 0;
   padding: 20px;
   background: var(--c-surface-base);
+  /* Flex column so the treatment-seg can self-center while the other
+     children stay left-aligned. See align-self rules below. */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .card-position {
@@ -779,6 +784,104 @@ body {
   color: var(--c-ink-primary);
   line-height: 1.25;
   margin-bottom: 12px;
+}
+
+/* === Treatment Segmented Control (Line · B&W · Original) =================
+   Three-treatment playback picker. Sits centered directly below the
+   exercise name. Tapping a segment switches every <video>'s src and
+   toggles the grayscale filter on the active element. Disabled segments
+   show a lock glyph and a native-tooltip explaining who to ask.
+   Kept in strict parity with the Flutter mobile preview's segmented
+   control (R-10). */
+.treatment-seg {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px;
+  margin: 0 auto 12px;
+  background: var(--c-surface-raised);
+  border: 1px solid var(--c-surface-border);
+  border-radius: 100px;
+  /* Center the pill group — exercise name above is left-aligned inside
+     card-body; the seg wants to feel centered under it. */
+  align-self: center;
+}
+
+.card-body > .card-position,
+.card-body > .card-exercise-name {
+  align-self: flex-start;
+}
+
+.card-body > .treatment-seg {
+  align-self: center;
+}
+
+.treatment-seg__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 60px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 100px;
+  background: transparent;
+  color: var(--c-ink-secondary);
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard),
+              color var(--dur-fast) var(--ease-standard),
+              transform var(--dur-fast) var(--ease-standard);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.treatment-seg__btn:hover:not(.is-disabled):not(.is-selected) {
+  color: var(--c-ink-primary);
+}
+
+.treatment-seg__btn.is-selected {
+  background: var(--c-brand);
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.treatment-seg__btn.is-selected:active {
+  transform: scale(0.97);
+}
+
+.treatment-seg__btn.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  color: var(--c-ink-muted);
+}
+
+.treatment-seg__btn:focus-visible {
+  outline: none;
+  box-shadow: var(--c-focus-ring);
+}
+
+.treatment-seg__lock {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  color: currentColor;
+  opacity: 0.7;
+}
+
+.treatment-seg__label {
+  line-height: 1;
+}
+
+/* B&W treatment: the backend serves the ORIGINAL video at grayscale_url;
+   we apply a CSS grayscale filter + a small contrast bump so the result
+   reads like a film still on the dark surface. This runs client-side so
+   swapping between Line / B&W / Original doesn't re-download the video. */
+video.is-grayscale {
+  filter: grayscale(1) contrast(1.05);
 }
 
 /* Prescription pills */

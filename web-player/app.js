@@ -20,6 +20,26 @@ let slides = [];
 let currentIndex = 0;
 let swipeState = { active: false, startX: 0, startY: 0, currentX: 0, startTime: 0, didSwipe: false };
 
+// Three-treatment playback state.
+//
+// The default treatment is 'line' (always available — line drawings are
+// the only treatment that survives when the raw archive is absent or
+// the client hasn't been cleared to see colour/B&W). Each time the plan
+// loads the selection resets to 'line' (mirrors mobile — a per-session
+// choice, not a per-viewer preference). Tapping a segment updates the
+// active <video> src + plays / applies the CSS filter. Segments for
+// treatments whose URL is null render disabled with a lock glyph.
+//
+// Keep in sync with the Flutter mobile preview's segmented control
+// (R-10 parity — identical labels / default / disabled tooltip copy).
+const TREATMENTS = ['line', 'bw', 'original'];
+const TREATMENT_LABELS = { line: 'Line', bw: 'B&W', original: 'Original' };
+const TREATMENT_DISABLED_TOOLTIP = {
+  bw: "Your practitioner hasn't enabled B&W for this plan",
+  original: "Your practitioner hasn't enabled the original video for this plan",
+};
+let currentTreatment = 'line';
+
 // Workout timer state
 let isWorkoutMode = false;
 let isTimerRunning = false;
@@ -101,34 +121,13 @@ function getPlanIdFromURL() {
 }
 
 async function fetchPlan(planId) {
-  // Milestone C (RLS lockdown): plans + exercises are now scoped by
-  // practice membership, so anon PostgREST SELECT returns nothing. Read
-  // via the `get_plan_full(p_plan_id)` SECURITY DEFINER RPC which
-  // bypasses RLS and also atomically stamps `first_opened_at` on the
-  // first fetch (feeds the publish-lock rule: once a client opens a
-  // plan, structural edits lock on the practitioner's side).
-  const response = await fetch(
-    `${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,
-    {
-      method: 'POST',
-      headers: {
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ p_plan_id: planId }),
-    }
-  );
-  if (!response.ok) throw new Error('Plan not found');
-  const payload = await response.json();
-  if (!payload || !payload.plan) throw new Error('Plan not found');
-
-  // Reshape: RPC returns { plan: {...}, exercises: [...] }. The renderer
-  // expects the plan object with exercises nested as a property, which is
-  // the shape the old PostgREST query produced.
-  const plan = { ...payload.plan, exercises: payload.exercises || [] };
-  plan.exercises.sort((a, b) => a.position - b.position);
-  return plan;
+  // Single enumerated Supabase surface — all reads route through
+  // window.WebPlayerApi. See web-player/api.js and
+  // docs/DATA_ACCESS_LAYER.md for the binding contract.
+  //
+  // The normalised shape guarantees every exercise exposes the three
+  // treatment URLs (nullable where consent-absent / raw archive missing).
+  return window.WebPlayerApi.fetchPlan(planId);
 }
 
 // ============================================================
@@ -233,10 +232,71 @@ function buildCard(slide, index) {
         <div class="card-body">
           <div class="card-position">Exercise ${Number.parseInt(slide.position, 10) || index + 1}</div>
           <div class="card-exercise-name">${escapeHTML(displayName)}</div>
+          ${buildTreatmentSeg(slide, index)}
           ${detail ? `<div class="active-slide-detail">${detail}</div>` : ''}
           ${slide.notes ? `<div class="card-notes">${escapeHTML(slide.notes)}</div>` : ''}
         </div>
       </div>
+    </div>
+  `;
+}
+
+/**
+ * Build the three-treatment segmented control for a given slide.
+ *
+ * Renders a pill group with Line · B&W · Original. Only the Line segment
+ * is guaranteed to be enabled; B&W and Original are disabled when the
+ * backend omits their URL (the practitioner hasn't enabled the treatment
+ * for this plan).
+ *
+ * Rest slides and slides without any treatment URL get no segmented
+ * control at all — there's nothing to switch between, and the bar would
+ * just be visual noise.
+ *
+ * Kept in strict parity with the Flutter mobile preview's segmented
+ * control (R-10): identical label copy, identical default state, same
+ * disabled behaviour (lock glyph + tooltip from TREATMENT_DISABLED_TOOLTIP).
+ */
+function buildTreatmentSeg(slide, index) {
+  if (slide.media_type === 'rest') return '';
+  const hasLine = !!slide.line_drawing_url;
+  const hasBw = !!slide.grayscale_url;
+  const hasOriginal = !!slide.original_url;
+  // Backward-compat: a legacy plan with no treatment URLs at all should
+  // never render an empty / broken seg bar.
+  if (!hasLine && !hasBw && !hasOriginal) return '';
+
+  const buttons = TREATMENTS.map((key) => {
+    const enabled = key === 'line' ? hasLine
+                  : key === 'bw' ? hasBw
+                  : hasOriginal;
+    const selected = key === currentTreatment && enabled;
+    const tooltip = !enabled && TREATMENT_DISABLED_TOOLTIP[key]
+      ? ` title="${escapeHTML(TREATMENT_DISABLED_TOOLTIP[key])}" aria-label="${escapeHTML(TREATMENT_LABELS[key])} — ${escapeHTML(TREATMENT_DISABLED_TOOLTIP[key])}"`
+      : ` aria-label="${escapeHTML(TREATMENT_LABELS[key])}"`;
+    const classes = [
+      'treatment-seg__btn',
+      `treatment-seg__btn--${key}`,
+      selected ? 'is-selected' : '',
+      !enabled ? 'is-disabled' : '',
+    ].filter(Boolean).join(' ');
+    const lockGlyph = !enabled
+      ? '<svg class="treatment-seg__lock" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="6" height="4.5" rx="1"/><path d="M4.25 5.5V4a1.75 1.75 0 0 1 3.5 0v1.5"/></svg>'
+      : '';
+    return `<button
+      type="button"
+      role="tab"
+      class="${classes}"
+      data-treatment="${key}"
+      data-card-index="${index}"
+      aria-selected="${selected ? 'true' : 'false'}"
+      ${!enabled ? 'aria-disabled="true"' : ''}
+      ${tooltip}>${lockGlyph}<span class="treatment-seg__label">${escapeHTML(TREATMENT_LABELS[key])}</span></button>`;
+  }).join('');
+
+  return `
+    <div class="treatment-seg" role="tablist" aria-label="Video treatment">
+      ${buttons}
     </div>
   `;
 }
@@ -344,7 +404,13 @@ function buildActiveSlideDetail(slide) {
 }
 
 function buildMedia(exercise, index) {
-  if (!exercise.media_url) {
+  // Resolve the active treatment URL with a degrade-gracefully fallback.
+  // Always try the picked treatment first; fall through to line drawing;
+  // fall through to any legacy `media_url` field — so a plan published
+  // before the three-treatment migration still renders.
+  const resolvedUrl = resolveTreatmentUrl(exercise, currentTreatment);
+
+  if (!resolvedUrl) {
     // Placeholder for exercises without media yet
     return `
       <div class="media-placeholder">
@@ -364,13 +430,15 @@ function buildMedia(exercise, index) {
   if (exercise.media_type === 'video') {
     const mutedAttr = exercise.include_audio ? '' : 'muted';
     const posterAttr = exercise.thumbnail_url ? `poster="${escapeHTML(exercise.thumbnail_url)}"` : '';
-    // No inline play overlay — item 7/8 consolidate pause/resume on a single
-    // mode-aware tap target (.card-media → handleMediaTap). The
-    // .media-pause-overlay inside the card toggles for the paused state.
+    // data-treatment is read back in switchTreatment() so the <video>
+    // element can be looked up by index and re-pointed without a full
+    // rebuild of the card.
     return `
       <video
         id="video-${index}"
-        src="${escapeHTML(exercise.media_url)}"
+        class="${currentTreatment === 'bw' ? 'is-grayscale' : ''}"
+        src="${escapeHTML(resolvedUrl)}"
+        data-treatment="${currentTreatment}"
         playsinline
         loop
         ${mutedAttr}
@@ -381,8 +449,28 @@ function buildMedia(exercise, index) {
   }
 
   // Photo / image
-  const posterAttr = exercise.thumbnail_url ? exercise.thumbnail_url : exercise.media_url;
+  const posterAttr = exercise.thumbnail_url ? exercise.thumbnail_url : resolvedUrl;
   return `<img src="${escapeHTML(posterAttr)}" alt="${escapeHTML(exercise.name || 'Exercise')}" loading="lazy">`;
+}
+
+/**
+ * Resolve the URL for a given exercise + treatment.
+ *
+ *   'line'     → line_drawing_url (always present on post-migration plans;
+ *                falls back to legacy `media_url` for old plans)
+ *   'bw'       → grayscale_url (the raw original — the CSS
+ *                grayscale filter is applied to the <video> element)
+ *   'original' → original_url (raw unfiltered)
+ *
+ * Returns null when the treatment has no URL (consent-absent). Callers
+ * must handle this gracefully (disable segment + fall back to line).
+ */
+function resolveTreatmentUrl(exercise, treatment) {
+  if (!exercise) return null;
+  if (treatment === 'bw') return exercise.grayscale_url || null;
+  if (treatment === 'original') return exercise.original_url || null;
+  // 'line' + unknown treatments → line drawing (the always-available default).
+  return exercise.line_drawing_url || exercise.media_url || null;
 }
 
 function buildPrescription(exercise) {
@@ -1018,6 +1106,93 @@ function pauseAllVideos() {
   document.querySelectorAll('video').forEach(v => {
     v.pause();
   });
+}
+
+// ============================================================
+// Three-treatment switching
+// ------------------------------------------------------------
+// Tapping a segmented-control button updates the in-session
+// `currentTreatment`, re-points every video's src to the chosen
+// treatment URL, and toggles the grayscale filter class on <video>
+// elements (for 'bw', the backend serves the raw ORIGINAL and we
+// grayscale it client-side via a CSS filter).
+// ============================================================
+
+function switchTreatment(nextTreatment) {
+  if (!TREATMENTS.includes(nextTreatment)) return;
+  if (nextTreatment === currentTreatment) return;
+
+  // Guard: the target treatment must be enabled on the CURRENT slide.
+  // We use the current slide as the authority so the user sees
+  // immediate feedback; slides without the chosen treatment will
+  // degrade to the placeholder on their own buildMedia pass.
+  const currentSlide = slides[currentIndex];
+  if (!currentSlide) return;
+  if (!resolveTreatmentUrl(currentSlide, nextTreatment)) return;
+
+  currentTreatment = nextTreatment;
+
+  // Re-point every video to its treatment URL. For slides that don't
+  // have the chosen treatment, we leave the existing src alone — the
+  // next time that slide is activated / rendered it'll pick up the
+  // correct URL via buildMedia's fallback path.
+  slides.forEach((slide, i) => {
+    const video = document.getElementById(`video-${i}`);
+    if (!video) return;
+    const url = resolveTreatmentUrl(slide, currentTreatment);
+    if (!url) return;
+    // Toggle grayscale class — CSS handles the filter (grayscale(1) +
+    // a touch of contrast to keep the line-drawing bias readable).
+    video.classList.toggle('is-grayscale', currentTreatment === 'bw');
+    video.dataset.treatment = currentTreatment;
+    // Only reload the src if it actually changed. Prevents a flash on
+    // the same-url case (line vs bw both can point at line_drawing_url
+    // for some plans? no — but defensive).
+    if (video.src !== url) {
+      video.src = url;
+      video.load();
+    }
+  });
+
+  // Re-render the segmented control on every card so the selected
+  // pill updates. Cheap — it's tiny DOM, only runs on an explicit tap.
+  document.querySelectorAll('.treatment-seg').forEach((seg) => {
+    seg.querySelectorAll('.treatment-seg__btn').forEach((btn) => {
+      const key = btn.getAttribute('data-treatment');
+      const isDisabled = btn.classList.contains('is-disabled');
+      const selected = key === currentTreatment && !isDisabled;
+      btn.classList.toggle('is-selected', selected);
+      btn.setAttribute('aria-selected', selected ? 'true' : 'false');
+    });
+  });
+
+  // Kick playback on the active slide so the viewer sees the change
+  // immediately rather than waiting for the next loop.
+  autoPlayCurrentVideo();
+}
+
+/**
+ * Delegated click / keyboard handler for the segmented control. Bound
+ * once at init; the seg-button DOM lives inside per-slide cards and
+ * gets re-rendered by switchTreatment().
+ */
+function handleTreatmentSegEvent(e) {
+  const btn = e.target.closest('.treatment-seg__btn');
+  if (!btn) return;
+  // Stop the event before the card's own click handler (pause/resume)
+  // interprets this as a tap on the media area.
+  e.stopPropagation();
+  if (e.type === 'keydown') {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+  }
+  if (btn.classList.contains('is-disabled')) {
+    // Disabled click — browser-native title tooltip does the work.
+    // No analytics / alerts: the tooltip is the affordance.
+    return;
+  }
+  const key = btn.getAttribute('data-treatment');
+  if (key) switchTreatment(key);
 }
 
 // ============================================================
@@ -1777,6 +1952,13 @@ async function init() {
     $cardViewport.addEventListener('touchstart', onTouchStart, { passive: true });
     $cardViewport.addEventListener('touchmove', onTouchMove, { passive: true });
     $cardViewport.addEventListener('touchend', onTouchEnd);
+    // Treatment segmented control (Line · B&W · Original) — delegated so
+    // we don't bind per-card. Runs BEFORE handleMediaTap so the tap on
+    // a seg button is consumed before the pause/resume dispatcher sees
+    // it. stopPropagation() inside handleTreatmentSegEvent keeps it
+    // contained, but capture-phase binding keeps ordering deterministic.
+    $cardViewport.addEventListener('click', handleTreatmentSegEvent);
+    $cardViewport.addEventListener('keydown', handleTreatmentSegEvent);
     // Mode-aware pause — tap anywhere on the active slide's media area.
     $cardViewport.addEventListener('click', handleMediaTap);
     document.addEventListener('keydown', onKeyDown);
