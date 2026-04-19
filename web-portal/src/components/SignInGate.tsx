@@ -1,15 +1,75 @@
 'use client';
 
-import { useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { getBrowserClient } from '@/lib/supabase-browser';
 
+/**
+ * Sign-in surface for the web portal.
+ *
+ * R-11 twin of the mobile app's progressive auth:
+ *   email + (optional) password  →  signInWithPassword
+ *   email + no password / bad creds  →  fallback to signInWithOtp (magic link)
+ *
+ * Google OAuth stays as an alternative. Apple is scaffolded disabled
+ * until the iOS Developer Program approval lands (same as mobile).
+ */
 export function SignInGate() {
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  async function handleEmailSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!email.trim()) {
+      setError('Enter your email.');
+      return;
+    }
+    setError(null);
+    setInfo(null);
+    setSubmitting(true);
+
+    const supabase = getBrowserClient();
+
+    // 1) If a password was provided, try password sign-in first.
+    if (password.length > 0) {
+      const { error: pwErr } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (!pwErr) {
+        // Success — Supabase has set the session cookie; the browser
+        // reload below triggers the server HomePage to redirect to
+        // /dashboard.
+        window.location.assign('/dashboard');
+        return;
+      }
+      // Password failed — fall through to the magic-link path with a
+      // friendly note so the user understands what happened.
+      setInfo('Password didn\'t match — sending you a magic link instead.');
+    }
+
+    // 2) Magic-link fallback (also the default when no password given).
+    const redirectTo = `${window.location.origin}/auth/callback`;
+    const { error: otpErr } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: redirectTo },
+    });
+    if (otpErr) {
+      setError(otpErr.message);
+      setSubmitting(false);
+      return;
+    }
+    setInfo('Check your email — we just sent you a sign-in link.');
+    setSubmitting(false);
+  }
 
   async function handleGoogle() {
-    setLoading(true);
+    setGoogleLoading(true);
     setError(null);
+    setInfo(null);
 
     const supabase = getBrowserClient();
     const redirectTo = `${window.location.origin}/auth/callback`;
@@ -21,9 +81,9 @@ export function SignInGate() {
 
     if (err) {
       setError(err.message);
-      setLoading(false);
+      setGoogleLoading(false);
     }
-    // On success the browser redirects — no need to setLoading(false).
+    // On success the browser redirects — no need to reset loading.
   }
 
   return (
@@ -41,14 +101,69 @@ export function SignInGate() {
         Manage your practice, credits, and plan audit.
       </p>
 
+      <form onSubmit={handleEmailSubmit} className="space-y-3">
+        <div>
+          <label
+            htmlFor="signin-email"
+            className="mb-1 block text-xs font-medium text-ink-muted"
+          >
+            Email
+          </label>
+          <input
+            id="signin-email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={submitting || googleLoading}
+            className="w-full rounded-md border border-surface-border bg-surface-raised px-3 py-2 text-sm text-ink placeholder:text-ink-dim focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:cursor-not-allowed disabled:opacity-60"
+            placeholder="you@practice.co.za"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="signin-password"
+            className="mb-1 block text-xs font-medium text-ink-muted"
+          >
+            Password <span className="text-ink-dim">(optional)</span>
+          </label>
+          <input
+            id="signin-password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={submitting || googleLoading}
+            className="w-full rounded-md border border-surface-border bg-surface-raised px-3 py-2 text-sm text-ink placeholder:text-ink-dim focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:cursor-not-allowed disabled:opacity-60"
+            placeholder="Skip for a magic-link email"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={submitting || googleLoading}
+          className="flex w-full items-center justify-center rounded-md bg-brand px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {submitting ? 'Signing in…' : 'Continue'}
+        </button>
+      </form>
+
+      <div className="my-5 flex items-center gap-3">
+        <div className="h-px flex-1 bg-surface-border" />
+        <span className="text-xs text-ink-dim">or</span>
+        <div className="h-px flex-1 bg-surface-border" />
+      </div>
+
       <button
         type="button"
         onClick={handleGoogle}
-        disabled={loading}
+        disabled={submitting || googleLoading}
         className="flex w-full items-center justify-center gap-3 rounded-md bg-white px-4 py-3 text-sm font-medium text-[#1f1f1f] transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-60"
       >
         <GoogleIcon />
-        {loading ? 'Signing in…' : 'Continue with Google'}
+        {googleLoading ? 'Signing in…' : 'Continue with Google'}
       </button>
 
       <button
@@ -68,6 +183,15 @@ export function SignInGate() {
           className="mt-4 rounded-md border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
         >
           {error}
+        </p>
+      )}
+
+      {info && (
+        <p
+          role="status"
+          className="mt-4 rounded-md border border-brand/40 bg-brand/10 px-3 py-2 text-sm text-ink"
+        >
+          {info}
         </p>
       )}
 
