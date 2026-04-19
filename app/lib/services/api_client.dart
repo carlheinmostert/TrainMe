@@ -278,4 +278,112 @@ class ApiClient {
     if (paths.isEmpty) return;
     await raw.storage.from(mediaBucket).remove(paths);
   }
+
+  // ---------------------------------------------------------------------------
+  // Referral
+  // ---------------------------------------------------------------------------
+
+  /// Fetch (or create) the referral code for [practiceId].
+  ///
+  /// Wraps the `generate_referral_code` RPC. Idempotent — calling it
+  /// repeatedly for the same practice returns the same code, so the
+  /// client can call this on every Settings → Network render without
+  /// worrying about collisions.
+  ///
+  /// Throws if the RPC fails or returns a non-string payload; callers
+  /// are expected to handle errors and retry (e.g. the
+  /// "Couldn't load — tap to retry" row in Settings).
+  Future<String> ensureReferralCode(String practiceId) async {
+    final result = await raw.rpc(
+      'generate_referral_code',
+      params: {'p_practice_id': practiceId},
+    );
+    if (result is String && result.isNotEmpty) return result;
+    if (result is List && result.isNotEmpty) {
+      final first = result.first;
+      if (first is String && first.isNotEmpty) return first;
+      if (first is Map && first['generate_referral_code'] is String) {
+        return first['generate_referral_code'] as String;
+      }
+    }
+    throw StateError(
+      'generate_referral_code returned unexpected payload: $result',
+    );
+  }
+
+  /// Fetch aggregate referral stats for [practiceId].
+  ///
+  /// Wraps the `referral_dashboard_stats` RPC which returns a single row
+  /// with four numeric columns. PostgREST returns this either as a bare
+  /// Map or a List-of-one-Map depending on the RPC return semantics; we
+  /// tolerate both shapes.
+  Future<ReferralStats> getReferralStats(String practiceId) async {
+    final result = await raw.rpc(
+      'referral_dashboard_stats',
+      params: {'p_practice_id': practiceId},
+    );
+    Map<String, dynamic>? row;
+    if (result is Map<String, dynamic>) {
+      row = result;
+    } else if (result is List && result.isNotEmpty) {
+      final first = result.first;
+      if (first is Map<String, dynamic>) row = first;
+    }
+    if (row == null) {
+      throw StateError('referral_dashboard_stats returned no row');
+    }
+    return ReferralStats.fromJson(row);
+  }
+}
+
+/// Aggregate stats for a practice's referral network.
+///
+/// Mirrors the four columns returned by the `referral_dashboard_stats`
+/// RPC. Lives alongside [ApiClient] rather than in a generic models
+/// folder because it's API-surface-specific — the RPC is the schema.
+@immutable
+class ReferralStats {
+  final num rebateBalanceCredits;
+  final num lifetimeRebateCredits;
+  final int refereeCount;
+  final num qualifyingSpendTotalZar;
+
+  const ReferralStats({
+    required this.rebateBalanceCredits,
+    required this.lifetimeRebateCredits,
+    required this.refereeCount,
+    required this.qualifyingSpendTotalZar,
+  });
+
+  /// Safe constructor for "no data yet" states so callers can render the
+  /// shell without a null-check everywhere. Not used for error states —
+  /// error states surface as a thrown exception from [ApiClient].
+  static const empty = ReferralStats(
+    rebateBalanceCredits: 0,
+    lifetimeRebateCredits: 0,
+    refereeCount: 0,
+    qualifyingSpendTotalZar: 0,
+  );
+
+  factory ReferralStats.fromJson(Map<String, dynamic> json) {
+    num asNum(dynamic v) {
+      if (v is num) return v;
+      if (v is String) return num.tryParse(v) ?? 0;
+      return 0;
+    }
+
+    int asInt(dynamic v) {
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) return int.tryParse(v) ?? 0;
+      return 0;
+    }
+
+    return ReferralStats(
+      rebateBalanceCredits: asNum(json['rebate_balance_credits']),
+      lifetimeRebateCredits: asNum(json['lifetime_rebate_credits']),
+      refereeCount: asInt(json['referee_count']),
+      qualifyingSpendTotalZar: asNum(json['qualifying_spend_total_zar']),
+    );
+  }
 }
