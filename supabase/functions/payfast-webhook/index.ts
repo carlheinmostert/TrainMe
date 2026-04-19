@@ -286,21 +286,39 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return new Response('amount mismatch', { status: 400 });
   }
 
-  // --- 5. Credit the practice and complete the intent -------------------
-  // Insert the ledger row FIRST, then flip the status with a WHERE status =
-  // 'pending' predicate. If two concurrent ITNs race, only the first gets
-  // both the insert and the transition — the second finds status != pending
-  // on next lookup (above) and exits idempotently.
+  // --- 5. Credit the practice + book any referral rebates --------------
+  // Route the purchase through `record_purchase_with_rebates` — a SECURITY
+  // DEFINER RPC that wraps the credit_ledger INSERT and the referral_
+  // rebate_ledger INSERTs in ONE transaction. If the practice has a
+  // referrer, this books:
+  //   * a one-time +10 / +10 bonus on the referee's first paid purchase,
+  //   * a 5% lifetime rebate (credits) on every purchase.
+  // Both the purchase row and any rebate rows succeed or fail together.
+  //
+  // Why we pass `cost_per_credit_zar` explicitly: bundle pricing is
+  // managed outside the DB (web-portal bundle list). The webhook already
+  // has the purchased ZAR amount and credit count from `pending_payments`
+  // and can derive it deterministically: `amount_zar / credits`. Passing
+  // it in avoids having to store a price table in the DB just for rebate
+  // math.
+  const costPerCreditZar = Number(pending.amount_zar) / Number(pending.credits);
 
-  const { error: ledgerErr } = await admin.from('credit_ledger').insert({
-    practice_id: pending.practice_id,
-    delta: pending.credits,
-    type: 'purchase',
-    payfast_payment_id: pfPaymentId || null,
-    notes: `PayFast ${pending.bundle_key ?? 'bundle'} (${pending.credits} credits)`,
-  });
-  if (ledgerErr) {
-    console.error('[payfast-webhook] credit_ledger insert failed', ledgerErr);
+  const { error: rebateErr } = await admin.rpc(
+    'record_purchase_with_rebates',
+    {
+      p_practice_id:          pending.practice_id,
+      p_credits:              pending.credits,
+      p_amount_zar:           pending.amount_zar,
+      p_payfast_payment_id:   pfPaymentId || null,
+      p_bundle_key:           pending.bundle_key ?? null,
+      p_cost_per_credit_zar:  costPerCreditZar,
+    },
+  );
+  if (rebateErr) {
+    console.error(
+      '[payfast-webhook] record_purchase_with_rebates failed',
+      rebateErr,
+    );
     return new Response('credit insert failed', { status: 500 });
   }
 
