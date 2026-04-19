@@ -131,14 +131,25 @@ class PublishResult {
 /// shareable link.
 ///
 /// Architecture: Layer 3 of the three decoupled async layers.
-/// Nothing touches the network until the bio taps Send. Only converted
-/// (line drawing) files are uploaded — raw footage stays on device.
+/// Nothing touches the network until the bio taps Send. Publish uploads
+/// converted (line-drawing) media to the public [_bucket] AND, on a
+/// best-effort basis, the compressed 720p H.264 raw archive to the private
+/// [_rawArchiveBucket] so future treatment switches (B&W / original colour)
+/// can stream from cloud instead of requiring the original device.
 class UploadService {
   final LocalStorageService _storage;
   final _supabase = Supabase.instance.client;
 
-  /// Storage bucket name for exercise media assets.
+  /// Storage bucket name for exercise media assets. Public read.
   static const _bucket = 'media';
+
+  /// Private storage bucket for the raw 720p H.264 archive copies. Writes
+  /// are scoped by practice membership via RLS; reads are service-role only
+  /// (the web player never touches this bucket). Created by the backend
+  /// agent (Milestone — three-treatment video model). If the bucket doesn't
+  /// exist yet at publish time, uploads fail gracefully without affecting
+  /// the primary publish path.
+  static const _rawArchiveBucket = 'raw-archive';
 
   UploadService({required LocalStorageService storage}) : _storage = storage;
 
@@ -501,6 +512,34 @@ class UploadService {
       await deleteQuery;
 
       // ----------------------------------------------------------------
+      // Step 7.5: best-effort raw-archive upload.
+      //
+      // For every exercise with a local `archiveFilePath` that hasn't yet
+      // been uploaded, stream the compressed 720p H.264 copy into the
+      // private `raw-archive` bucket at:
+      //     {practiceId}/{planId}/{exerciseId}.mp4
+      //
+      // This is intentionally best-effort:
+      //   - Each exercise is wrapped in its own try/catch, so one failure
+      //     doesn't cascade and take down the rest.
+      //   - ALL failures are swallowed — publish continues regardless.
+      //   - The bucket may not exist yet (parallel backend work in flight);
+      //     a 404 here simply leaves `rawArchiveUploadedAt` null and the
+      //     next publish retries. Do NOT surface this to the practitioner.
+      //   - Already-uploaded exercises (`rawArchiveUploadedAt != null`) are
+      //     skipped to save bandwidth on re-publish.
+      //
+      // Ordering: runs AFTER plan/exercises/orphan-cleanup succeeded so
+      // the main plan is complete even if every raw upload fails. The
+      // practitioner never waits on raw archive — they can re-publish to
+      // back-fill later.
+      // ----------------------------------------------------------------
+      await _uploadRawArchives(
+        session: session,
+        practiceId: practiceId,
+      );
+
+      // ----------------------------------------------------------------
       // Step 8: append an audit row to `plan_issuances`. Records who
       // published which plan-version at what size for what credit cost.
       // The ledger is already authoritative via consume_credit; this row
@@ -578,6 +617,77 @@ class UploadService {
       );
       await _recordFailure(session, wrappedError.message);
       return PublishResult.networkFailed(error: wrappedError);
+    }
+  }
+
+  /// Upload the compressed 720p H.264 raw-archive copy of every video
+  /// exercise in [session] to the private [_rawArchiveBucket] under
+  /// `{practiceId}/{planId}/{exerciseId}.mp4`.
+  ///
+  /// Best-effort: every failure mode (missing local file, missing bucket,
+  /// RLS rejection, network error) is logged via [debugPrint] and
+  /// swallowed. Per-exercise try/catch so one bad file cannot poison the
+  /// rest. Successful uploads stamp `rawArchiveUploadedAt = now()` on the
+  /// local row; already-uploaded exercises are skipped so re-publishes
+  /// don't re-transfer.
+  ///
+  /// Routing note: this eventually wants to live behind the ApiClient
+  /// data-access layer (per docs/DATA_ACCESS_LAYER.md and the mention in
+  /// CLAUDE.md). That file does not yet exist on this branch; once it
+  /// lands, inline this call site into
+  /// `ApiClient.uploadRawArchive({practiceId, planId, exerciseId, localPath})`
+  /// which takes the same four inputs.
+  Future<void> _uploadRawArchives({
+    required Session session,
+    required String practiceId,
+  }) async {
+    for (final exercise in session.exercises) {
+      if (exercise.isRest) continue;
+      if (exercise.rawArchiveUploadedAt != null) continue;
+      final relPath = exercise.archiveFilePath;
+      if (relPath == null || relPath.isEmpty) continue;
+      final absPath = exercise.absoluteArchiveFilePath;
+      if (absPath == null) continue;
+
+      final file = File(absPath);
+      if (!file.existsSync()) {
+        debugPrint(
+          'UploadService: raw-archive file missing for exercise ${exercise.id} '
+          'at $absPath — skipping (local archive may have been pruned).',
+        );
+        continue;
+      }
+
+      final storagePath = '$practiceId/${session.id}/${exercise.id}.mp4';
+      try {
+        await _supabase.storage.from(_rawArchiveBucket).upload(
+              storagePath,
+              file,
+              fileOptions: const FileOptions(upsert: true),
+            );
+        // Persist the success locally so a subsequent publish skips this
+        // file. Wrapped in its own try/catch — a DB hiccup here must not
+        // mask the fact that the upload itself succeeded.
+        try {
+          final stamped = exercise.copyWith(
+            rawArchiveUploadedAt: DateTime.now(),
+          );
+          await _storage.saveExercise(stamped);
+        } catch (dbErr) {
+          debugPrint(
+            'UploadService: raw-archive upload succeeded for ${exercise.id} '
+            'but local stamp failed: $dbErr',
+          );
+        }
+      } catch (e) {
+        // Bucket missing (404) / RLS rejection / transient network — all
+        // non-fatal. Next publish retries. Keep the log terse so a large
+        // plan with a vanished bucket doesn't flood debugPrint.
+        debugPrint(
+          'UploadService: raw-archive upload failed for ${exercise.id} '
+          '→ $storagePath (continuing): $e',
+        );
+      }
     }
   }
 

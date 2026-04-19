@@ -65,6 +65,13 @@ class ExerciseCapture {
   /// purge on app startup. Null when [archiveFilePath] is null.
   final DateTime? archivedAt;
 
+  /// When the raw archive was successfully uploaded to the private
+  /// `raw-archive` Supabase bucket at `{practice_id}/{plan_id}/{exercise_id}.mp4`.
+  /// Set on a best-effort basis during publish — raw-archive upload failures
+  /// never fail the publish. Null means "not yet uploaded" (or upload failed
+  /// on the last attempt); the next publish retries the upload.
+  final DateTime? rawArchiveUploadedAt;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -86,6 +93,7 @@ class ExerciseCapture {
     this.videoDurationMs,
     this.archiveFilePath,
     this.archivedAt,
+    this.rawArchiveUploadedAt,
   });
 
   /// Create a new capture with a generated UUID.
@@ -153,6 +161,10 @@ class ExerciseCapture {
       archivedAt: map['archived_at'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['archived_at'] as int)
           : null,
+      rawArchiveUploadedAt: map['raw_archive_uploaded_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(
+              map['raw_archive_uploaded_at'] as int)
+          : null,
     );
   }
 
@@ -179,6 +191,7 @@ class ExerciseCapture {
       'video_duration_ms': videoDurationMs,
       'archive_file_path': archiveFilePath,
       'archived_at': archivedAt?.millisecondsSinceEpoch,
+      'raw_archive_uploaded_at': rawArchiveUploadedAt?.millisecondsSinceEpoch,
     };
   }
 
@@ -212,6 +225,8 @@ class ExerciseCapture {
     bool clearArchiveFilePath = false,
     DateTime? archivedAt,
     bool clearArchivedAt = false,
+    DateTime? rawArchiveUploadedAt,
+    bool clearRawArchiveUploadedAt = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -240,6 +255,9 @@ class ExerciseCapture {
           ? null
           : (archiveFilePath ?? this.archiveFilePath),
       archivedAt: clearArchivedAt ? null : (archivedAt ?? this.archivedAt),
+      rawArchiveUploadedAt: clearRawArchiveUploadedAt
+          ? null
+          : (rawArchiveUploadedAt ?? this.rawArchiveUploadedAt),
     );
   }
 
