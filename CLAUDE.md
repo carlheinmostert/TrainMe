@@ -34,6 +34,31 @@
 - **No modal confirmations** (R-01) — Destructive actions fire immediately with an undo SnackBar + 7-day soft-delete recycle bin. Never "Are you sure?".
 - **Practitioner, always** (R-06) — UI copy uses "practitioner". "Bio" / "physio" / "trainer" / "coach" are retired role nouns. Client-facing copy uses `{TrainerName}` with "your practitioner" as the fallback.
 
+## Mobile ↔ Web Player Parity (R-10)
+
+The trainer Flutter app and the client web player at `session.homefit.studio`
+are ONE logical product. **Every UX change must land in both surfaces in
+the same PR/branch**. If a brief asks you to "update the player", that
+means BOTH the Flutter player (`app/lib/screens/plan_preview_screen.dart` +
+`widgets/progress_pill_matrix.dart`) AND the web player (`web-player/`).
+
+When implementing, port the change to mobile FIRST (faster iteration),
+verify on device, then mirror to web in the SAME branch. Never ship a
+mobile-only or web-only player change.
+
+When a sub-agent's brief says "the player", the agent must update both.
+When Carl says "the player", he means both. Always remind him to test both.
+
+Surfaces required to match:
+- Pill matrix (sizing, colours, scroll behaviour, label grammar, fill rules)
+- ETA / time row (format, fonts, colours)
+- Bottom decoded grammar
+- Prep overlay + flashing
+- Pause / play affordances
+- Peek overlay (centered, content)
+- Logo
+- Brand tokens (coral, sage, surface)
+
 ## Tech Stack (current)
 
 - **Mobile app:** Flutter 3.41.6 (Dart 3.11.4)

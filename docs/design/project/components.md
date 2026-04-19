@@ -492,3 +492,12 @@ No shadows on any surface except the focus-ring token. Separation uses `surface.
 ### R-08 · Flutter: no `flutter run`
 
 Always build + install + launch. `flutter run` spawns debug processes that don't clean up cleanly. See infrastructure notes.
+
+### R-10 · Player parity is non-negotiable
+
+Mobile (Flutter) and web (`session.homefit.studio`) players are ONE
+logical product. Every change to either surface MUST land in both the
+same iteration. Drift breaks the trainer's experience: she demos to the
+client on the web link, so any feature gap reads as "your tool is
+inconsistent". Don't ship player updates to one surface without porting
+to the other.
