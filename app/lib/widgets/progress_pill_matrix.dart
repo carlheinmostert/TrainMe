@@ -292,6 +292,12 @@ class ProgressPillMatrix extends StatefulWidget {
   /// True once the workout has finished. Shows the "Done" end state.
   final bool workoutComplete;
 
+  /// True while the active slide is in the 15-second prep phase. When set,
+  /// the active pill's pulse-glow border + the ETA "remaining" readout both
+  /// opacity-flash (600ms ease-in-out, 1.0 → 0.4 → 1.0) in sync with the
+  /// top-bar counter chip. Exits cleanly when the exercise timer takes over.
+  final bool isPrepPhase;
+
   /// Called when the user releases a long-press on a different pill. Consumers
   /// should [PageController.jumpToPage] and reset the timer.
   final OnJumpToSlide? onJumpTo;
@@ -304,6 +310,7 @@ class ProgressPillMatrix extends StatefulWidget {
     this.paused = false,
     this.remainingSeconds = 0,
     this.workoutComplete = false,
+    this.isPrepPhase = false,
     this.onJumpTo,
   });
 
@@ -312,8 +319,13 @@ class ProgressPillMatrix extends StatefulWidget {
 }
 
 class _ProgressPillMatrixState extends State<ProgressPillMatrix>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _pulseController;
+
+  /// Fast 600ms ease-in-out opacity cycle used during the prep phase only.
+  /// Drives both the ETA "remaining" readout flash and the active pill's
+  /// border/fill flash so they stay perfectly in sync.
+  late AnimationController _prepFlashController;
 
   /// Manual scrub offset in pixels. When non-zero, the user is dragging the
   /// matrix off-centre; the coral chevron appears and we snap back after 4s.
@@ -341,6 +353,10 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
       vsync: this,
       duration: _kPulseDuration,
     )..repeat();
+    _prepFlashController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
     _rebuildLayout();
   }
 
@@ -356,6 +372,7 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
   @override
   void dispose() {
     _pulseController.dispose();
+    _prepFlashController.dispose();
     _snapBackTimer?.cancel();
     _removePeek();
     super.dispose();
@@ -599,6 +616,8 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
                         timerProgress: widget.timerProgress,
                         paused: widget.paused || _longPressActive,
                         pulseController: _pulseController,
+                        prepFlashController: _prepFlashController,
+                        isPrepPhase: widget.isPrepPhase,
                         remainingSeconds: widget.remainingSeconds,
                         workoutComplete: widget.workoutComplete,
                       ),
@@ -667,6 +686,8 @@ class _MatrixTrack extends StatelessWidget {
   final double timerProgress;
   final bool paused;
   final AnimationController pulseController;
+  final AnimationController prepFlashController;
+  final bool isPrepPhase;
   final int remainingSeconds;
   final bool workoutComplete;
 
@@ -680,6 +701,8 @@ class _MatrixTrack extends StatelessWidget {
     required this.timerProgress,
     required this.paused,
     required this.pulseController,
+    required this.prepFlashController,
+    required this.isPrepPhase,
     required this.remainingSeconds,
     required this.workoutComplete,
   });
@@ -746,6 +769,8 @@ class _MatrixTrack extends StatelessWidget {
             paused: paused,
             timerProgress: isActive ? timerProgress : 0.0,
             pulseController: pulseController,
+            prepFlashController: prepFlashController,
+            isFlashing: isActive && isPrepPhase,
           ),
         ));
       }
@@ -769,6 +794,8 @@ class _MatrixTrack extends StatelessWidget {
       child: _EtaDisplay(
         remainingSeconds: remainingSeconds,
         workoutComplete: workoutComplete,
+        flashing: isPrepPhase,
+        flashController: prepFlashController,
       ),
     ));
 
@@ -798,9 +825,17 @@ class _EtaDisplay extends StatefulWidget {
   final int remainingSeconds;
   final bool workoutComplete;
 
+  /// When true, the "remaining" readout opacity-flashes (1.0 → 0.4 → 1.0)
+  /// in sync with [flashController]. Used during the 15-second prep phase so
+  /// the top-bar counter + active pill + this widget all pulse in lockstep.
+  final bool flashing;
+  final AnimationController flashController;
+
   const _EtaDisplay({
     required this.remainingSeconds,
     required this.workoutComplete,
+    required this.flashing,
+    required this.flashController,
   });
 
   @override
@@ -869,6 +904,50 @@ class _EtaDisplayState extends State<_EtaDisplay> {
     const monoFamily = 'JetBrainsMono';
     const monoFallback = ['Menlo', 'Courier'];
 
+    // "7:42 left" — primary read. During prep phase this block opacity-flashes
+    // 1.0 → 0.4 → 1.0 (600ms ease-in-out) via the shared [flashController].
+    final remainingBlock = Text.rich(
+      TextSpan(children: [
+        TextSpan(
+          text: remainingLabel,
+          style: const TextStyle(
+            fontFamily: monoFamily,
+            fontFamilyFallback: monoFallback,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textOnDark,
+            letterSpacing: -0.2,
+            height: 1.0,
+          ),
+        ),
+        const TextSpan(
+          text: ' left',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textOnDark,
+            letterSpacing: 0.1,
+            height: 1.0,
+          ),
+        ),
+      ]),
+      textAlign: TextAlign.right,
+    );
+
+    final Widget remainingAnimated = widget.flashing
+        ? AnimatedBuilder(
+            animation: widget.flashController,
+            builder: (context, child) {
+              final eased =
+                  Curves.easeInOut.transform(widget.flashController.value);
+              final opacity = 1.0 - (eased * 0.6); // 1.0 → 0.4 → 1.0
+              return Opacity(opacity: opacity, child: child);
+            },
+            child: remainingBlock,
+          )
+        : remainingBlock;
+
     return Align(
       alignment: Alignment.centerRight,
       child: Column(
@@ -876,35 +955,7 @@ class _EtaDisplayState extends State<_EtaDisplay> {
         crossAxisAlignment: CrossAxisAlignment.end,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // "7:42 left" — primary read.
-          Text.rich(
-            TextSpan(children: [
-              TextSpan(
-                text: remainingLabel,
-                style: const TextStyle(
-                  fontFamily: monoFamily,
-                  fontFamilyFallback: monoFallback,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textOnDark,
-                  letterSpacing: -0.2,
-                  height: 1.0,
-                ),
-              ),
-              const TextSpan(
-                text: ' left',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textOnDark,
-                  letterSpacing: 0.1,
-                  height: 1.0,
-                ),
-              ),
-            ]),
-            textAlign: TextAlign.right,
-          ),
+          remainingAnimated,
           const SizedBox(height: 3),
           // "~7:42 PM" — secondary planning read. The tilde signals estimate.
           Text(
@@ -940,6 +991,16 @@ class _Pill extends StatelessWidget {
   final double timerProgress;
   final AnimationController pulseController;
 
+  /// 600ms ease-in-out controller shared with the top-bar counter chip and
+  /// the ETA readout. Used to drive an opacity flash on the border + fill
+  /// when [isFlashing] is true.
+  final AnimationController prepFlashController;
+
+  /// True only when this pill is both the active slide AND the workout is in
+  /// the 15-second prep phase. Causes the border/fill to opacity-flash in
+  /// sync with the top-bar token.
+  final bool isFlashing;
+
   const _Pill({
     required this.slide,
     required this.spec,
@@ -949,6 +1010,8 @@ class _Pill extends StatelessWidget {
     required this.paused,
     required this.timerProgress,
     required this.pulseController,
+    required this.prepFlashController,
+    required this.isFlashing,
   });
 
   @override
@@ -1078,11 +1141,29 @@ class _Pill extends StatelessWidget {
       );
     }
 
+    // Prep-phase flash — opacity 1.0 → 0.4 → 1.0 @ 600ms ease-in-out, applied
+    // over the entire pill (border + fill + content). Same cadence as the
+    // top-bar counter chip and the ETA readout so all three stay visually
+    // synchronised. Only the active pill flashes; everything else stays put.
+    Widget maybeFlashing = wrapped;
+    if (isFlashing) {
+      maybeFlashing = AnimatedBuilder(
+        animation: prepFlashController,
+        builder: (context, child) {
+          final eased =
+              Curves.easeInOut.transform(prepFlashController.value);
+          final opacity = 1.0 - (eased * 0.6); // 1.0 → 0.4 → 1.0
+          return Opacity(opacity: opacity, child: child);
+        },
+        child: wrapped,
+      );
+    }
+
     return AnimatedScale(
       scale: scrubScale,
       duration: const Duration(milliseconds: 120),
       curve: Curves.easeOut,
-      child: wrapped,
+      child: maybeFlashing,
     );
   }
 
