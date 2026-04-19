@@ -72,17 +72,13 @@
       </div>
     </div>
 
-    <!-- Long-press peek panel — spawned/positioned dynamically. -->
+    <!-- Centered scrub/teaching peek (item 9) — name + decoded grammar.
+         Auto-shows for 2s on preview start as a teaching peek (R-09); then
+         only surfaces during long-press scrubbing. No thumbnail, no hint
+         text — just the two lines the user actually reads. -->
     <div class="peek-panel" id="peek-panel" hidden>
-      <div class="peek-thumb"></div>
       <div class="peek-name" id="peek-name"></div>
       <div class="peek-meta" id="peek-meta"></div>
-      <div class="peek-hint">
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 6h6M6 3l3 3-3 3"/>
-        </svg>
-        release to jump here
-      </div>
     </div>
 
     <!-- Card viewport -->
@@ -92,25 +88,11 @@
       </div>
     </main>
 
-    <!-- Timer overlay (workout mode) — three-mode tappable chip (prep / running / paused) -->
-    <div id="timer-overlay" class="timer-overlay" role="button" tabindex="0" aria-label="Timer control" hidden>
-      <div class="timer-overlay-bg"></div>
-      <svg class="timer-ring" viewBox="0 0 120 120">
-        <circle cx="60" cy="60" r="54" stroke-width="6" fill="none" stroke="rgba(255,255,255,0.15)"/>
-        <circle id="timer-ring-progress" class="timer-ring-progress" cx="60" cy="60" r="54"
-                stroke-width="6" fill="none" stroke="#FF6B35"
-                stroke-dasharray="339.29" stroke-dashoffset="0"
-                transform="rotate(-90 60 60)" stroke-linecap="round"/>
-      </svg>
-      <div id="timer-text" class="timer-text">0:00</div>
-      <svg id="timer-mode-icon-play" class="timer-mode-icon timer-mode-icon--play" viewBox="0 0 24 24" fill="currentColor" hidden>
-        <polygon points="6 3 20 12 6 21 6 3"></polygon>
-      </svg>
-      <svg id="timer-mode-icon-pause" class="timer-mode-icon timer-mode-icon--pause" viewBox="0 0 24 24" fill="currentColor" hidden>
-        <rect x="6" y="4" width="4" height="16" rx="1"/>
-        <rect x="14" y="4" width="4" height="16" rx="1"/>
-      </svg>
-    </div>
+    <!-- Dedicated timer chip REMOVED per item 7 of mobile parity.
+         Pause/play is now a single mode-aware gesture: tapping the active
+         slide's media area dispatches by mode (prep → skip; running → pause;
+         paused → resume). See .media-pause-overlay injected into each card. -->
+    <div id="timer-overlay" hidden></div>
 
     <!-- Workout complete overlay -->
     <div id="workout-complete" class="workout-complete" hidden>
@@ -155,17 +137,15 @@
       </button>
     </nav>
 
-    <!-- Footer -->
+    <!-- Footer — HomefitLogo replaces the old Pulse Mark heartbeat (item 10).
+         The logo is a mini-plan glyph: a 2-exercise circuit × 2 rounds, one
+         standalone coral exercise, and one sage rest. See /app.js buildHomefitLogo(). -->
     <footer class="footer">
       <div class="footer-brand">
         <span class="footer-preamble">powered by</span>
-        <div class="footer-logo">
-          <svg class="pulse-mark" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2"
-                  fill="none" stroke="currentColor" stroke-width="2.5"
-                  stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <span class="footer-wordmark">homefit.studio</span>
+        <div class="footer-logo" id="footer-logo">
+          <!-- SVG injected by buildHomefitLogo() at init time. -->
+          <span class="homefit-logo-wordmark">homefit.studio</span>
         </div>
       </div>
     </footer>
