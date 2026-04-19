@@ -51,6 +51,13 @@ class ApiClient {
   /// here.
   static const String mediaBucket = 'media';
 
+  /// Private storage bucket for the raw 720p H.264 archive. Uploads are
+  /// scoped by practice membership via `can_write_to_raw_archive(path)`;
+  /// reads are service-role only (web player gets signed URLs embedded in
+  /// `get_plan_full` when client consent grants grayscale/original).
+  /// Created by the three-treatment backend migration.
+  static const String rawArchiveBucket = 'raw-archive';
+
   /// Raw Supabase client. Only exposed for two carve-outs that currently
   /// have no clean replacement:
   ///
@@ -277,6 +284,32 @@ class ApiClient {
   Future<void> removeMedia({required List<String> paths}) async {
     if (paths.isEmpty) return;
     await raw.storage.from(mediaBucket).remove(paths);
+  }
+
+  // ==========================================================================
+  // Storage — raw-archive bucket (private)
+  // ==========================================================================
+
+  /// Upload a file to the private `raw-archive` bucket at [path]. Path
+  /// shape is `{practice_id}/{plan_id}/{exercise_id}.mp4`. Uses upsert so
+  /// a re-publish overwrites the existing object at the same path.
+  ///
+  /// The bucket is PRIVATE — the web player never reads this directly;
+  /// it gets time-limited signed URLs via the `get_plan_full` RPC when
+  /// client consent grants grayscale or original treatments.
+  ///
+  /// Best-effort from the caller's perspective: if the bucket doesn't
+  /// exist (pre-migration) or the RLS check fails, this throws and the
+  /// caller is expected to swallow (see `UploadService._uploadRawArchives`).
+  Future<void> uploadRawArchive({
+    required String path,
+    required File file,
+  }) async {
+    await raw.storage.from(rawArchiveBucket).upload(
+          path,
+          file,
+          fileOptions: const FileOptions(upsert: true),
+        );
   }
 
   // ---------------------------------------------------------------------------

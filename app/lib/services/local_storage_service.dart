@@ -15,7 +15,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 14;
+  static const _dbVersion = 15;
 
   Database? _db;
 
@@ -84,6 +84,7 @@ class LocalStorageService {
         video_duration_ms INTEGER,
         archive_file_path TEXT,
         archived_at INTEGER,
+        raw_archive_uploaded_at INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -224,6 +225,17 @@ class LocalStorageService {
           where: 'created_by_user_id IS NULL',
         );
       }
+    }
+    if (oldVersion < 15) {
+      // Three-treatment video model — track successful cloud uploads of the
+      // raw archive (720p H.264 compressed). Set to `DateTime.now()` epoch ms
+      // once the corresponding object lands in the private `raw-archive`
+      // Supabase bucket. Allows the publish flow to skip already-uploaded
+      // exercises on re-publish, so network flakes don't re-transfer large
+      // video blobs.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN raw_archive_uploaded_at INTEGER',
+      );
     }
   }
 
