@@ -20,6 +20,7 @@ import '../widgets/inline_editable_text.dart';
 import '../widgets/shell_pull_tab.dart';
 import '../widgets/studio_exercise_card.dart';
 import '../widgets/undo_snackbar.dart';
+import 'clients_screen.dart';
 import 'plan_preview_screen.dart';
 
 /// Post-session editing — the "Studio" mode.
@@ -857,6 +858,20 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           if (totalDuration > 0)
             _Chip(label: '~${formatDuration(totalDuration)}'),
           const Spacer(),
+          // Viewing-preferences entry (three-treatment model). Reads as a
+          // subject-utility, not header chrome. Routes to the Your-clients
+          // screen where the practitioner finds the client and toggles
+          // which treatments are allowed.
+          _ViewingPrefsButton(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const ClientsScreen(),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 8),
           _buildPublishLockBadge(),
         ],
       ),
@@ -1817,6 +1832,54 @@ class _VideoPagePlaceholder extends StatelessWidget {
         Icons.play_circle_outline,
         size: 72,
         color: Colors.white24,
+      ),
+    );
+  }
+}
+
+/// Small "Viewing" chip that routes to the Your-clients screen. Lives in
+/// the studio summary row so the practitioner can jump to the consent
+/// sheet without leaving the session context. Copy is deliberately
+/// peer-to-peer — never "Consent" / "Legal" (R-voice).
+class _ViewingPrefsButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _ViewingPrefsButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 28,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(9999),
+          border: Border.all(color: AppColors.surfaceBorder),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.visibility_outlined,
+              size: 14,
+              color: AppColors.textSecondaryOnDark,
+            ),
+            SizedBox(width: 6),
+            Text(
+              'Viewing',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.3,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

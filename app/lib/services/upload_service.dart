@@ -134,7 +134,7 @@ class PublishResult {
 /// Nothing touches the network until the bio taps Send. Publish uploads
 /// converted (line-drawing) media to the public [_bucket] AND, on a
 /// best-effort basis, the compressed 720p H.264 raw archive to the private
-/// [_rawArchiveBucket] so future treatment switches (B&W / original colour)
+/// [ApiClient.rawArchiveBucket] so future treatment switches (B&W / original colour)
 /// can stream from cloud instead of requiring the original device.
 class UploadService {
   final LocalStorageService _storage;
@@ -145,13 +145,10 @@ class UploadService {
   /// this file.
   ApiClient get _api => ApiClient.instance;
 
-  /// Private storage bucket for the raw 720p H.264 archive copies. Writes
-  /// are scoped by practice membership via RLS; reads are service-role only
-  /// (the web player never touches this bucket). Created by the backend
-  /// agent (Milestone — three-treatment video model). If the bucket doesn't
-  /// exist yet at publish time, uploads fail gracefully without affecting
-  /// the primary publish path.
-  static const _rawArchiveBucket = 'raw-archive';
+  // The private `raw-archive` bucket is the canonical home for the 720p
+  // raw copies; upload goes via [ApiClient.uploadRawArchive], which
+  // defines [ApiClient.rawArchiveBucket]. Keeping the name only in the
+  // data-access layer preserves the single-source-of-truth rule.
 
   UploadService({required LocalStorageService storage}) : _storage = storage;
 
@@ -588,7 +585,7 @@ class UploadService {
   }
 
   /// Upload the compressed 720p H.264 raw-archive copy of every video
-  /// exercise in [session] to the private [_rawArchiveBucket] under
+  /// exercise in [session] to the private [ApiClient.rawArchiveBucket] under
   /// `{practiceId}/{planId}/{exerciseId}.mp4`.
   ///
   /// Best-effort: every failure mode (missing local file, missing bucket,

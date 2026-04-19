@@ -6,8 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import '../models/treatment.dart';
+import '../services/api_client.dart';
 import '../theme.dart';
 import '../widgets/progress_pill_matrix.dart';
+import 'clients_screen.dart';
 
 /// Returns true when a video exercise's converted output is a still image
 /// (i.e. the fallback frame-extraction path produced a .jpg/.png instead
@@ -171,6 +174,29 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
   final Map<int, VideoPlayerController> _videoControllers = {};
 
   // ---------------------------------------------------------------------------
+  // Three-treatment model (line / grayscale / original)
+  //
+  // The practitioner swipes between treatments via a segmented control
+  // below the top bar. Default is [Treatment.line] — the de-identifying
+  // baseline that never requires the client's sign-off. Grayscale and
+  // original-colour depend on the client having opted in: when the
+  // corresponding remote URL is null the segment is disabled.
+  //
+  // Segment state is per-session (not persisted) — every time the
+  // preview opens it starts on Line.
+  // ---------------------------------------------------------------------------
+
+  Treatment _treatment = Treatment.line;
+
+  /// Remote treatment URLs keyed by exercise id. Populated from
+  /// `get_plan_full` after the screen mounts. Null URLs = segment
+  /// disabled for that exercise. An empty map (not fetched yet, or RPC
+  /// failed) collapses the segmented control — we don't want to surface
+  /// a broken control in the fallback case.
+  Map<String, ExerciseTreatmentUrls> _treatmentUrls = const {};
+  bool _treatmentUrlsLoaded = false;
+
+  // ---------------------------------------------------------------------------
   // Workout timer state
   // ---------------------------------------------------------------------------
 
@@ -222,6 +248,100 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
     _pageController = PageController(initialPage: initial);
     // Prepare the initial page's video if it is one
     _prepareVideo(initial);
+    // Fetch remote treatment URLs for this plan — best-effort.
+    // The preview stays fully functional (line-only local playback) if
+    // the RPC is missing or the plan was never published.
+    _fetchTreatmentUrls();
+  }
+
+  /// Pull the three per-exercise treatment URLs from `get_plan_full`.
+  /// Silent fallback on any error: the segmented control collapses, the
+  /// preview keeps playing the local converted file as before.
+  Future<void> _fetchTreatmentUrls() async {
+    final response =
+        await ApiClient.instance.getPlanFull(widget.session.id);
+    if (!mounted) return;
+    final urls =
+        ApiClient.instance.treatmentUrlsFromPlanResponse(response);
+    setState(() {
+      _treatmentUrls = urls;
+      _treatmentUrlsLoaded = true;
+    });
+  }
+
+  /// Remote URLs for the currently-active slide's exercise, or null if
+  /// we haven't heard back from the server (or this plan was never
+  /// published).
+  ExerciseTreatmentUrls? _currentSlideUrls() {
+    if (_slides.isEmpty) return null;
+    final page = _currentPage.clamp(0, _slides.length - 1);
+    final exercise = _slides[page].exercise;
+    return _treatmentUrls[exercise.id];
+  }
+
+  /// True when the remote URL for [t] is non-null on the active slide.
+  /// Line is always considered available — falls back to the local
+  /// converted file when the remote URL is absent.
+  bool _isTreatmentAvailable(Treatment t) {
+    if (t == Treatment.line) return true;
+    final urls = _currentSlideUrls();
+    if (urls == null) return false;
+    switch (t) {
+      case Treatment.line:
+        return true;
+      case Treatment.grayscale:
+        return urls.grayscaleUrl != null;
+      case Treatment.original:
+        return urls.originalUrl != null;
+    }
+  }
+
+  /// Practitioner tapped a segment. If the target treatment is available
+  /// switch to it and reset media state for the active slide so the
+  /// source swaps cleanly.
+  void _onTreatmentChanged(Treatment t) {
+    if (_treatment == t) return;
+    if (!_isTreatmentAvailable(t)) {
+      _openConsentSheetForCurrent();
+      return;
+    }
+    setState(() => _treatment = t);
+    // Every existing controller points at the *previous* treatment's
+    // source. Dispose them all so the lazy _prepareVideo pass rebuilds
+    // with the new URL. For grayscale↔original the underlying network
+    // URL is identical (the backend serves the original under both
+    // keys); disposing the controller is still the cleanest way to
+    // re-enter a consistent state because the ColorFilter wrapping is
+    // widget-level, not controller-level.
+    final allIndices = _videoControllers.keys.toList();
+    for (final i in allIndices) {
+      _disposeVideo(i);
+    }
+    // Re-prepare the active slide immediately; neighbours are prepared
+    // lazily via _onPageChanged.
+    _prepareVideo(_currentPage);
+  }
+
+  /// Open the Your-clients screen so the practitioner can toggle the
+  /// client's viewing preferences. Invoked from the lock tooltip on a
+  /// disabled segment (R-09 affordance: the lock tells you why, the tap
+  /// takes you to the fix).
+  Future<void> _openConsentSheetForCurrent() async {
+    // We don't yet carry a client object through the session — route to
+    // the Your-clients list as a best-available entry point. Agent A's
+    // backend will put `plans.client_id` in the `get_plan_full` response
+    // in a follow-up; at that point this can jump straight into the
+    // client's consent sheet without the list detour.
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const ClientsScreen(),
+      ),
+    );
+    // When the practitioner returns, re-fetch so a just-flipped toggle
+    // re-enables the segment live.
+    if (mounted) {
+      _fetchTreatmentUrls();
+    }
   }
 
   @override
@@ -242,6 +362,15 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
   /// Create and initialise a video controller for the given slide index.
   /// No-op if the exercise at that slide is not a video, or if the video
   /// was converted to a still line drawing image (fallback path on iOS).
+  ///
+  /// Source selection follows the active [Treatment]:
+  ///  - [Treatment.line] — remote `line_drawing_url` if present,
+  ///    otherwise the local converted file (legacy path, works offline
+  ///    and for plans that were never published).
+  ///  - [Treatment.grayscale] — remote original video (grayscale is
+  ///    applied at playback via a saturation-zero ColorFilter; the
+  ///    backend returns the colour file under `grayscale_url`).
+  ///  - [Treatment.original] — remote `original_url`.
   void _prepareVideo(int index) {
     if (index < 0 || index >= _slides.length) return;
     final exercise = _slides[index].exercise;
@@ -250,9 +379,8 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
     if (_isStillImageConversion(exercise)) return;
     if (_videoControllers.containsKey(index)) return;
 
-    final controller = VideoPlayerController.file(
-      File(exercise.displayFilePath),
-    );
+    final controller = _controllerForTreatment(exercise);
+    if (controller == null) return;
     _videoControllers[index] = controller;
 
     // Set volume based on the exercise's includeAudio flag.
@@ -283,6 +411,40 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
   void _disposeVideo(int index) {
     final controller = _videoControllers.remove(index);
     controller?.dispose();
+  }
+
+  /// Build the right [VideoPlayerController] for the active [_treatment].
+  ///
+  /// Remote URLs win when present; falls back to the local converted
+  /// file for Treatment.line so plans that were never published (or the
+  /// pre-publish preview) still work. Returns null when the treatment's
+  /// source is unavailable — the caller treats that as a disabled
+  /// segment (which shouldn't fire since the segmented control itself
+  /// is gated).
+  VideoPlayerController? _controllerForTreatment(ExerciseCapture exercise) {
+    final urls = _treatmentUrls[exercise.id];
+    switch (_treatment) {
+      case Treatment.line:
+        // Prefer the remote line URL (parity with the web player), fall
+        // back to the local converted file when offline / unpublished.
+        final remote = urls?.lineDrawingUrl;
+        if (remote != null) {
+          return VideoPlayerController.networkUrl(Uri.parse(remote));
+        }
+        return VideoPlayerController.file(File(exercise.displayFilePath));
+      case Treatment.grayscale:
+        // Grayscale is the ORIGINAL source with a ColorFilter matrix
+        // applied at the widget layer (saturation = 0). The backend
+        // returns the colour video under `grayscale_url` for this
+        // reason — see the task brief.
+        final remote = urls?.grayscaleUrl;
+        if (remote == null) return null;
+        return VideoPlayerController.networkUrl(Uri.parse(remote));
+      case Treatment.original:
+        final remote = urls?.originalUrl;
+        if (remote == null) return null;
+        return VideoPlayerController.networkUrl(Uri.parse(remote));
+    }
   }
 
   /// Called when the active page changes.
@@ -674,6 +836,24 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
             // Top bar
             _buildTopBar(slideCount),
 
+            // Treatment segmented control (line / B&W / original).
+            // Hidden until the remote URLs have been fetched — we don't
+            // want to flash a broken control while the RPC is still in
+            // flight.
+            if (_treatmentUrlsLoaded && _currentSlideUrls() != null) ...[
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _TreatmentSegmentedControl(
+                  active: _treatment,
+                  grayscaleAvailable: _isTreatmentAvailable(Treatment.grayscale),
+                  originalAvailable: _isTreatmentAvailable(Treatment.original),
+                  onChanged: _onTreatmentChanged,
+                  onLockTap: _openConsentSheetForCurrent,
+                ),
+              ),
+            ],
+
             // Progress-pill matrix — replaces the previous linear bar.
             // Always render when more than 1 slide so the bio can scan the
             // plan structure at a glance. Single-exercise plans skip this.
@@ -725,6 +905,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
                         slide: slide,
                         session: widget.session,
                         videoController: _videoControllers[index],
+                        treatment: _treatment,
                         onTap: isActiveInWorkout ? _onTimerChipTap : null,
                         pausedOverlay: isActiveInWorkout &&
                             !_isTimerRunning &&
@@ -1095,6 +1276,12 @@ class _ExercisePage extends StatefulWidget {
   final Session session;
   final VideoPlayerController? videoController;
 
+  /// Which treatment the practitioner has selected via the segmented
+  /// control. For [Treatment.grayscale] the video is wrapped in a
+  /// saturation-zero ColorFilter at render time — the underlying source
+  /// file is the original colour video.
+  final Treatment treatment;
+
   /// Optional small timer ring shown in the bottom metadata panel during
   /// workout mode. DEPRECATED — superseded by tap-to-pause on the
   /// video/rest card body and the current-slide countdown in the pill
@@ -1131,6 +1318,7 @@ class _ExercisePage extends StatefulWidget {
     required this.slide,
     required this.session,
     this.videoController,
+    this.treatment = Treatment.line,
     this.timerChip,
     this.onTap,
     this.pausedOverlay = false,
@@ -1373,17 +1561,29 @@ class _ExercisePageState extends State<_ExercisePage> {
       );
     }
 
+    // Wrap the VideoPlayer in a saturation-zero ColorFilter matrix when
+    // the active treatment is grayscale. This is the cheap option that
+    // avoids a platform channel — the underlying source is the original
+    // colour file (the backend returns it under `grayscale_url`), and
+    // Flutter desaturates it on the way to the framebuffer. See the
+    // task brief: ColorFiltered vs CIFilter trade-off, we picked (b).
+    Widget videoView = AspectRatio(
+      aspectRatio: controller.value.aspectRatio,
+      child: VideoPlayer(controller),
+    );
+    if (widget.treatment == Treatment.grayscale) {
+      videoView = ColorFiltered(
+        colorFilter: _grayscaleColorFilter,
+        child: videoView,
+      );
+    }
+
     return GestureDetector(
       onTap: _togglePlayPause,
       child: Stack(
         alignment: Alignment.center,
         children: [
-          Center(
-            child: AspectRatio(
-              aspectRatio: controller.value.aspectRatio,
-              child: VideoPlayer(controller),
-            ),
-          ),
+          Center(child: videoView),
           // Play overlay — only shown when the user has explicitly tapped
           // to pause. Never appears during auto-play / transient pauses.
           if (_showPlayOverlay)
@@ -1749,5 +1949,142 @@ class _TimerRingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _TimerRingPainter oldDelegate) {
     return oldDelegate.progress != progress || oldDelegate.color != color;
+  }
+}
+
+// =============================================================================
+// Treatment segmented control (line / B&W / original)
+// =============================================================================
+
+/// Saturation-zero colour matrix used to render the grayscale treatment
+/// from the original colour file. Luminance weights follow the ITU-R
+/// BT.709 recipe (matches the task brief).
+const ColorFilter _grayscaleColorFilter = ColorFilter.matrix(<double>[
+  0.2126, 0.7152, 0.0722, 0, 0,
+  0.2126, 0.7152, 0.0722, 0, 0,
+  0.2126, 0.7152, 0.0722, 0, 0,
+  0,      0,      0,      1, 0,
+]);
+
+/// Three-segment control sitting under the top bar — coral-accented
+/// selected segment, muted unselected. Disabled segments carry a small
+/// lock glyph and tap into a tooltip that routes to the Your-clients
+/// screen (R-09: the lock tells you why, the tap takes you to the fix).
+///
+/// Copy omits "consent" / "legal" deliberately — see voice.md.
+class _TreatmentSegmentedControl extends StatelessWidget {
+  final Treatment active;
+  final bool grayscaleAvailable;
+  final bool originalAvailable;
+  final ValueChanged<Treatment> onChanged;
+  final VoidCallback onLockTap;
+
+  const _TreatmentSegmentedControl({
+    required this.active,
+    required this.grayscaleAvailable,
+    required this.originalAvailable,
+    required this.onChanged,
+    required this.onLockTap,
+  });
+
+  bool _available(Treatment t) {
+    switch (t) {
+      case Treatment.line:
+        return true;
+      case Treatment.grayscale:
+        return grayscaleAvailable;
+      case Treatment.original:
+        return originalAvailable;
+    }
+  }
+
+  String _lockedMessage(Treatment t) {
+    switch (t) {
+      case Treatment.grayscale:
+        return "Client hasn't said yes to grayscale yet — tap to manage.";
+      case Treatment.original:
+        return "Client hasn't said yes to colour yet — tap to manage.";
+      case Treatment.line:
+        return '';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 34,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(9999),
+        border: Border.all(color: AppColors.surfaceBorder),
+      ),
+      child: Row(
+        children: [
+          _segment(context, Treatment.line),
+          _segment(context, Treatment.grayscale),
+          _segment(context, Treatment.original),
+        ],
+      ),
+    );
+  }
+
+  Widget _segment(BuildContext context, Treatment t) {
+    final selected = active == t;
+    final available = _available(t);
+    return Expanded(
+      child: Tooltip(
+        message: available ? '' : _lockedMessage(t),
+        triggerMode: TooltipTriggerMode.tap,
+        child: GestureDetector(
+          onTap: () {
+            if (available) {
+              onChanged(t);
+            } else {
+              onLockTap();
+            }
+          },
+          behavior: HitTestBehavior.opaque,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            margin: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(9999),
+            ),
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!available)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Icon(
+                      Icons.lock_outline,
+                      size: 12,
+                      color: AppColors.textSecondaryOnDark.withValues(alpha: 0.7),
+                    ),
+                  ),
+                Text(
+                  t.shortLabel,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                    color: selected
+                        ? Colors.white
+                        : (available
+                            ? AppColors.textOnDark
+                            : AppColors.textSecondaryOnDark
+                                .withValues(alpha: 0.6)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

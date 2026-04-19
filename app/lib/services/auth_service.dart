@@ -107,7 +107,9 @@ class AuthService {
     if (password.isEmpty) {
       throw const AuthException('Enter a password.');
     }
-    await _supabase.auth.updateUser(UserAttributes(password: password));
+    // Uses the [ApiClient.raw] carve-out — `auth.updateUser` has no
+    // typed equivalent yet; same lane as native OAuth id_token calls.
+    await _api.raw.auth.updateUser(UserAttributes(password: password));
   }
 
   /// Send a one-time magic link to the given email.

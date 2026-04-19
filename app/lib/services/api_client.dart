@@ -1,6 +1,9 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../models/client.dart';
 
 /// The ONE file that enumerates every Supabase operation the Flutter surface
 /// is allowed to perform. Other services (`auth_service.dart`,
@@ -287,6 +290,140 @@ class ApiClient {
   }
 
   // ==========================================================================
+  // Plan reads — three-treatment (Milestone G)
+  // ==========================================================================
+
+  /// Fetch the server-side view of a plan via the `get_plan_full` RPC.
+  /// Returns the raw JSON map (or null on any error). The response shape
+  /// carries the three-treatment URLs per exercise:
+  ///
+  /// ```
+  /// {
+  ///   "plan": { ... },
+  ///   "exercises": [
+  ///     {
+  ///       "id": "...",
+  ///       "line_drawing_url": "https://.../line.mp4",   // always
+  ///       "grayscale_url":    "https://.../orig.mp4" | null,
+  ///       "original_url":     "https://.../orig.mp4" | null,
+  ///       ...
+  ///     }
+  ///   ]
+  /// }
+  /// ```
+  Future<Map<String, dynamic>?> getPlanFull(String planId) async {
+    try {
+      final result = await raw.rpc(
+        'get_plan_full',
+        params: {'p_plan_id': planId},
+      );
+      if (result is Map) return Map<String, dynamic>.from(result);
+      return null;
+    } catch (e) {
+      debugPrint('ApiClient.getPlanFull failed for $planId: $e');
+      return null;
+    }
+  }
+
+  /// Pull just the `line_drawing_url` / `grayscale_url` / `original_url`
+  /// triplet per exercise out of a [getPlanFull] response. Returns an empty
+  /// map on any shape mismatch — callers fall back to local file playback.
+  Map<String, ExerciseTreatmentUrls> treatmentUrlsFromPlanResponse(
+    Map<String, dynamic>? response,
+  ) {
+    final out = <String, ExerciseTreatmentUrls>{};
+    if (response == null) return out;
+    final exercises = response['exercises'];
+    if (exercises is! List) return out;
+    for (final row in exercises) {
+      if (row is! Map) continue;
+      final id = row['id'];
+      if (id is! String) continue;
+      out[id] = ExerciseTreatmentUrls(
+        lineDrawingUrl: _stringOrNull(row['line_drawing_url']),
+        grayscaleUrl: _stringOrNull(row['grayscale_url']),
+        originalUrl: _stringOrNull(row['original_url']),
+      );
+    }
+    return out;
+  }
+
+  // ==========================================================================
+  // Clients + consent — three-treatment (Milestone G)
+  // ==========================================================================
+
+  /// `upsert_client(p_practice_id, p_name)` — idempotent lookup-or-create.
+  /// Returns the client id (uuid). Used by the publish path so existing
+  /// plans with `clientName` free-text become linked to a `clients` row.
+  Future<String?> upsertClient({
+    required String practiceId,
+    required String name,
+  }) async {
+    try {
+      final result = await raw.rpc(
+        'upsert_client',
+        params: {'p_practice_id': practiceId, 'p_name': name},
+      );
+      if (result is String && result.isNotEmpty) return result;
+      return null;
+    } catch (e) {
+      debugPrint('ApiClient.upsertClient failed: $e');
+      return null;
+    }
+  }
+
+  /// List the clients belonging to a practice. Used by the Your-clients
+  /// screen. Returns an empty list on any error so the UI can render an
+  /// empty state rather than crash.
+  Future<List<PracticeClient>> listPracticeClients(String practiceId) async {
+    try {
+      final result = await raw.rpc(
+        'list_practice_clients',
+        params: {'p_practice_id': practiceId},
+      );
+      if (result is! List) return const [];
+      return result
+          .whereType<Map>()
+          .map((m) => PracticeClient.fromJson(Map<String, dynamic>.from(m)))
+          .toList(growable: false);
+    } catch (e) {
+      debugPrint('ApiClient.listPracticeClients failed: $e');
+      return const [];
+    }
+  }
+
+  /// Write the client's video-viewing preferences.
+  ///
+  /// `lineAllowed` is always true (line drawing de-identifies the client
+  /// and is the platform baseline). Passed for explicitness; backend
+  /// validates + preserves it. Returns true on success.
+  ///
+  /// Failures are swallowed silently per R-voice fallback — the caller
+  /// shows a neutral error if needed.
+  Future<bool> setClientVideoConsent({
+    required String clientId,
+    required bool lineAllowed,
+    required bool grayscaleAllowed,
+    required bool colourAllowed,
+  }) async {
+    try {
+      await raw.rpc(
+        'set_client_video_consent',
+        params: {
+          'p_client_id': clientId,
+          'p_line_drawing': lineAllowed,
+          'p_grayscale': grayscaleAllowed,
+          'p_original': colourAllowed,
+        },
+      );
+      return true;
+    } catch (e) {
+      debugPrint('ApiClient.setClientVideoConsent failed: $e');
+      return false;
+    }
+  }
+
+  // ==========================================================================
   // Storage — raw-archive bucket (private)
   // ==========================================================================
 
@@ -419,4 +556,32 @@ class ReferralStats {
       qualifyingSpendTotalZar: asNum(json['qualifying_spend_total_zar']),
     );
   }
+}
+
+/// Private helper used by [ApiClient] three-treatment parsing. Kept here
+/// (module-scope) so it doesn't collide with any file-private `_stringOrNull`
+/// in callers.
+String? _stringOrNull(dynamic v) {
+  if (v is String && v.isNotEmpty) return v;
+  return null;
+}
+
+/// The three remote URLs the segmented control picks between. Any of the
+/// three can be null:
+///   - `lineDrawingUrl` null: not published yet (or plan pre-dates the
+///     three-treatment migration). Callers fall back to the local
+///     converted file if available.
+///   - `grayscaleUrl` null: client hasn't granted grayscale consent.
+///   - `originalUrl` null: client hasn't granted original-colour consent.
+@immutable
+class ExerciseTreatmentUrls {
+  final String? lineDrawingUrl;
+  final String? grayscaleUrl;
+  final String? originalUrl;
+
+  const ExerciseTreatmentUrls({
+    this.lineDrawingUrl,
+    this.grayscaleUrl,
+    this.originalUrl,
+  });
 }

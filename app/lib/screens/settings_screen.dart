@@ -10,6 +10,7 @@ import '../theme.dart';
 import '../widgets/powered_by_footer.dart';
 import '../widgets/set_password_sheet.dart';
 import '../widgets/undo_snackbar.dart';
+import 'clients_screen.dart';
 
 /// Persistent home for account-level actions the practitioner needs
 /// access to at any time — primarily "set or change password" so a
@@ -97,6 +98,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       _Divider(),
                       _ActionRow(
+                        icon: Icons.people_alt_outlined,
+                        label: 'Your clients',
+                        subtitle:
+                            'Manage which treatments each client has said yes to.',
+                        onTap:
+                            _signOutPending ? null : _openClients,
+                      ),
+                      _Divider(),
+                      _ActionRow(
                         icon: Icons.logout_rounded,
                         label: 'Sign out',
                         destructive: true,
@@ -145,6 +155,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ---------------------------------------------------------------------------
   // Actions
   // ---------------------------------------------------------------------------
+
+  Future<void> _openClients() async {
+    HapticFeedback.selectionClick();
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ClientsScreen()),
+    );
+  }
 
   Future<void> _openPasswordSheet() async {
     HapticFeedback.selectionClick();
