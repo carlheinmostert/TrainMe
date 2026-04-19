@@ -149,9 +149,16 @@ class PlanPreviewScreen extends StatefulWidget {
   State<PlanPreviewScreen> createState() => _PlanPreviewScreenState();
 }
 
-class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
+class _PlanPreviewScreenState extends State<PlanPreviewScreen>
+    with SingleTickerProviderStateMixin {
   late final PageController _pageController;
   late final List<PreviewSlide> _slides;
+
+  /// 600ms ease-in-out opacity cycle used by the top-bar counter chip during
+  /// the prep phase. Same cadence as the web player (`prepFlash` keyframe)
+  /// and the `_EtaDisplay` / `_Pill` flash animations — so if the user looks
+  /// at both surfaces at once they perceive sync.
+  late final AnimationController _prepFlashController;
 
   /// Matrix-ready slide list — same ordering as [_slides], carrying the
   /// circuit metadata the [ProgressPillMatrix] needs.
@@ -199,6 +206,10 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
   @override
   void initState() {
     super.initState();
+    _prepFlashController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
     _slides = _buildUnrolledSlides(widget.session);
     _pillSlides = buildProgressPillSlides(widget.session);
     // Clamp the requested initial index to the valid range. Callers may
@@ -215,6 +226,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
 
   @override
   void dispose() {
+    _prepFlashController.dispose();
     _workoutTimer?.cancel();
     _pageController.dispose();
     for (final controller in _videoControllers.values) {
@@ -678,6 +690,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                   currentSlideRemainingSeconds:
                       _computeCurrentSlideRemainingSeconds(),
                   workoutComplete: _workoutComplete,
+                  isPrepPhase: _isPrepPhase,
                   onJumpTo: _onMatrixJumpTo,
                 ),
               ),
@@ -701,6 +714,13 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                       final isActiveInWorkout = _isWorkoutMode &&
                           !_workoutComplete &&
                           index == _currentPage;
+                      // Prep overlay + flashing only apply to the active
+                      // slide during prep phase on a non-rest exercise.
+                      final isActivePrep = _isWorkoutMode &&
+                          !_workoutComplete &&
+                          _isPrepPhase &&
+                          index == _currentPage &&
+                          !slide.exercise.isRest;
                       return _ExercisePage(
                         slide: slide,
                         session: widget.session,
@@ -709,6 +729,9 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
                         pausedOverlay: isActiveInWorkout &&
                             !_isTimerRunning &&
                             !_isPrepPhase,
+                        isPrepPhase: isActivePrep,
+                        prepSecondsRemaining: _prepRemainingSeconds,
+                        prepTotalSeconds: _kPrepSeconds,
                       );
                     },
                   ),
@@ -1026,6 +1049,10 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
           // already communicates where the user is in the plan (active
           // pill position + total pill count). The "1 of 15" chip was
           // redundant signalling.
+          //
+          // NOTE: The shared `_PrepFlashWrapper` + `_prepFlashController`
+          // from 059b828 live on, used instead by the matrix's ETA
+          // bold-coral token and each active pill during prep phase.
 
         ],
       ),
@@ -1087,6 +1114,19 @@ class _ExercisePage extends StatefulWidget {
   /// whether the media is a video, photo, or rest card.
   final bool pausedOverlay;
 
+  /// True when this slide is currently in the 15-second prep phase.
+  /// Drives the big centred countdown overlay on top of the media.
+  final bool isPrepPhase;
+
+  /// Seconds remaining on the prep countdown (15 → 1). Only meaningful when
+  /// [isPrepPhase] is true.
+  final int prepSecondsRemaining;
+
+  /// Total prep duration (matches `_kPrepSeconds`). Used to drive the
+  /// fade-out-in-last-200ms easing on the overlay so the number doesn't pop
+  /// when prep ends.
+  final int prepTotalSeconds;
+
   const _ExercisePage({
     required this.slide,
     required this.session,
@@ -1094,6 +1134,9 @@ class _ExercisePage extends StatefulWidget {
     this.timerChip,
     this.onTap,
     this.pausedOverlay = false,
+    this.isPrepPhase = false,
+    this.prepSecondsRemaining = 0,
+    this.prepTotalSeconds = 15,
   });
 
   @override
@@ -1151,7 +1194,9 @@ class _ExercisePageState extends State<_ExercisePage> {
                   // media when the workout is paused. Unified across
                   // video / photo / rest so tap-to-pause always has
                   // visible feedback. Touch-transparent so the whole
-                  // area stays tappable.
+                  // area stays tappable. Mutually exclusive with the
+                  // prep-countdown overlay below (pausedOverlay is
+                  // gated on !_isPrepPhase).
                   if (widget.pausedOverlay)
                     const IgnorePointer(
                       child: Center(
@@ -1168,6 +1213,19 @@ class _ExercisePageState extends State<_ExercisePage> {
                               size: 56,
                             ),
                           ),
+                        ),
+                      ),
+                    ),
+                  // Big prep-countdown overlay — sits above the media, below
+                  // the metadata panel. Only present during the 15s prep of
+                  // a non-rest exercise. Fades out in the last 200ms of prep
+                  // so it doesn't pop when the exercise timer takes over.
+                  if (widget.isPrepPhase)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: _PrepCountdownOverlay(
+                          secondsRemaining: widget.prepSecondsRemaining,
+                          totalSeconds: widget.prepTotalSeconds,
                         ),
                       ),
                     ),
@@ -1531,6 +1589,112 @@ class _ExercisePageState extends State<_ExercisePage> {
           fontWeight: FontWeight.w600,
         ),
       ),
+    );
+  }
+}
+
+// =============================================================================
+// Prep flash wrapper — shared 600ms ease-in-out opacity cycle
+// =============================================================================
+
+/// Wraps a child in a synchronised opacity-flash animation while [flashing]
+/// is true. When false, the child is rendered at full opacity without any
+/// AnimatedBuilder rebuild churn.
+///
+/// Cadence: 600ms per half-cycle, ease-in-out, opacity 1.0 → 0.4 → 1.0.
+/// Use the SAME [AnimationController] across every call site that needs to
+/// stay in sync (top-bar counter chip + matrix ETA + active pill) so they
+/// flash together.
+class _PrepFlashWrapper extends StatelessWidget {
+  final AnimationController controller;
+  final bool flashing;
+  final Widget child;
+
+  const _PrepFlashWrapper({
+    required this.controller,
+    required this.flashing,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!flashing) return child;
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, inner) {
+        // Controller is repeating with reverse=true, so .value already cycles
+        // 0 → 1 → 0. We only need ease-in-out on top of that.
+        final eased = Curves.easeInOut.transform(controller.value);
+        final opacity = 1.0 - (eased * 0.6); // 1.0 → 0.4 → 1.0
+        return Opacity(opacity: opacity, child: inner);
+      },
+      child: child,
+    );
+  }
+}
+
+// =============================================================================
+// Prep countdown overlay — huge centred coral digit on top of the media
+// =============================================================================
+
+/// Big centred countdown number rendered over the media during the 15-second
+/// prep phase. The demonstration video keeps playing underneath — this widget
+/// is purely decorative (wrapped in IgnorePointer by the caller).
+///
+/// Fades from 0.85 opacity → 0 during the final 200ms of prep so it doesn't
+/// pop when the exercise timer takes over. The digit itself scales
+/// responsively based on the available height.
+class _PrepCountdownOverlay extends StatelessWidget {
+  final int secondsRemaining;
+  final int totalSeconds;
+
+  const _PrepCountdownOverlay({
+    required this.secondsRemaining,
+    required this.totalSeconds,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Opacity ramp: full 0.85 for most of prep, fading to 0 in the last 200ms.
+    // The 1-second tick cadence means we can't do a true 200ms fade inside
+    // the 1s window — instead, the last integer second (1 → 0) renders at a
+    // reduced opacity to signal "about to disappear".
+    final double targetOpacity = secondsRemaining <= 0
+        ? 0.0
+        : (secondsRemaining == 1 ? 0.45 : 0.85);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Scale the digit to fit the available media area. Cap at 180 so we
+        // don't blow past the metadata panel on tablets.
+        final double size = (constraints.maxHeight * 0.45).clamp(96.0, 180.0);
+        return Center(
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            opacity: targetOpacity,
+            child: Text(
+              '$secondsRemaining',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Montserrat',
+                fontWeight: FontWeight.w800,
+                fontSize: size,
+                height: 1.0,
+                letterSpacing: -4.0,
+                color: AppColors.primary,
+                shadows: const [
+                  Shadow(
+                    color: Colors.black54,
+                    blurRadius: 24,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

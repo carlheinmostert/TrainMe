@@ -328,6 +328,12 @@ class ProgressPillMatrix extends StatefulWidget {
   /// the current-slide token entirely.
   final int currentSlideRemainingSeconds;
 
+  /// True while the active slide is in the 15-second prep phase. When set,
+  /// the active pill's pulse-glow border + the ETA "remaining" readout both
+  /// opacity-flash (600ms ease-in-out, 1.0 → 0.4 → 1.0) in sync with the
+  /// top-bar counter chip. Exits cleanly when the exercise timer takes over.
+  final bool isPrepPhase;
+
   /// Called when the user releases a long-press on a different pill. Consumers
   /// should [PageController.jumpToPage] and reset the timer.
   final OnJumpToSlide? onJumpTo;
@@ -341,6 +347,7 @@ class ProgressPillMatrix extends StatefulWidget {
     this.remainingSeconds = 0,
     this.currentSlideRemainingSeconds = -1,
     this.workoutComplete = false,
+    this.isPrepPhase = false,
     this.onJumpTo,
   });
 
@@ -349,8 +356,13 @@ class ProgressPillMatrix extends StatefulWidget {
 }
 
 class _ProgressPillMatrixState extends State<ProgressPillMatrix>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _pulseController;
+
+  /// Fast 600ms ease-in-out opacity cycle used during the prep phase only.
+  /// Drives both the ETA "remaining" readout flash and the active pill's
+  /// border/fill flash so they stay perfectly in sync.
+  late AnimationController _prepFlashController;
 
   /// Manual scrub offset in pixels. When non-zero, the user is dragging the
   /// matrix off-centre; the coral chevron appears and we snap back after 4s.
@@ -382,6 +394,10 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
       vsync: this,
       duration: _kPulseDuration,
     )..repeat();
+    _prepFlashController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
     _rebuildLayout();
     // Teaching peek — auto-show the decoded meta for the active slide
     // for 2 seconds on every preview session start. Teaches the pipe
@@ -414,6 +430,7 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
   @override
   void dispose() {
     _pulseController.dispose();
+    _prepFlashController.dispose();
     _snapBackTimer?.cancel();
     _teachingPeekTimer?.cancel();
     _removePeek();
@@ -742,6 +759,8 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
                       currentSlideRemainingSeconds:
                           widget.currentSlideRemainingSeconds,
                       workoutComplete: widget.workoutComplete,
+                      flashing: widget.isPrepPhase,
+                      flashController: _prepFlashController,
                     ),
                   ],
                 ),
@@ -795,6 +814,8 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
                         timerProgress: widget.timerProgress,
                         paused: widget.paused || _longPressActive,
                         pulseController: _pulseController,
+                        prepFlashController: _prepFlashController,
+                        isPrepPhase: widget.isPrepPhase,
                         remainingSeconds: widget.remainingSeconds,
                         workoutComplete: widget.workoutComplete,
                       ),
@@ -891,6 +912,8 @@ class _MatrixTrack extends StatelessWidget {
   final double timerProgress;
   final bool paused;
   final AnimationController pulseController;
+  final AnimationController prepFlashController;
+  final bool isPrepPhase;
   final int remainingSeconds;
   final bool workoutComplete;
 
@@ -904,6 +927,8 @@ class _MatrixTrack extends StatelessWidget {
     required this.timerProgress,
     required this.paused,
     required this.pulseController,
+    required this.prepFlashController,
+    required this.isPrepPhase,
     required this.remainingSeconds,
     required this.workoutComplete,
   });
@@ -972,6 +997,8 @@ class _MatrixTrack extends StatelessWidget {
             paused: paused,
             timerProgress: isActive ? timerProgress : 0.0,
             pulseController: pulseController,
+            prepFlashController: prepFlashController,
+            isFlashing: isActive && isPrepPhase,
           ),
         ));
       }
@@ -1004,10 +1031,18 @@ class _EtaDisplay extends StatefulWidget {
   final int currentSlideRemainingSeconds;
   final bool workoutComplete;
 
+  /// When true, the "remaining" readout opacity-flashes (1.0 → 0.4 → 1.0)
+  /// in sync with [flashController]. Used during the 15-second prep phase so
+  /// the top-bar counter + active pill + this widget all pulse in lockstep.
+  final bool flashing;
+  final AnimationController flashController;
+
   const _EtaDisplay({
     required this.remainingSeconds,
     required this.currentSlideRemainingSeconds,
     required this.workoutComplete,
+    required this.flashing,
+    required this.flashController,
   });
 
   @override
@@ -1080,75 +1115,103 @@ class _EtaDisplayState extends State<_EtaDisplay> {
     final showSlide = slideRem >= 0;
     final slideLabel = showSlide ? _formatRemaining(slideRem) : '';
 
+    // Bold coral current-slide token. During the 15-second prep phase, this
+    // single leftmost token opacity-flashes 1.0 → 0.4 → 1.0 @ 600ms
+    // ease-in-out via the shared [flashController], in sync with the active
+    // pill + the top-bar counter chip. Per the port spec: flash applies ONLY
+    // to this token, not to the "X left" total or the "~finish" wall-clock.
+    final slideTokenText = Text(
+      slideLabel,
+      style: const TextStyle(
+        fontFamily: monoFamily,
+        fontFamilyFallback: monoFallback,
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+        color: AppColors.primary,
+        letterSpacing: -0.2,
+        height: 1.0,
+      ),
+    );
+    final Widget slideTokenAnimated = widget.flashing
+        ? AnimatedBuilder(
+            animation: widget.flashController,
+            builder: (context, child) {
+              final eased =
+                  Curves.easeInOut.transform(widget.flashController.value);
+              final opacity = 1.0 - (eased * 0.6); // 1.0 → 0.4 → 1.0
+              return Opacity(opacity: opacity, child: child);
+            },
+            child: slideTokenText,
+          )
+        : slideTokenText;
+
+    // Tokens after the leading slide-remaining: " · 7:42 left · ~7:42 PM".
+    // Rendered as a single Text.rich so the kerning + vertical alignment
+    // match the animated leading token exactly.
+    final restOfLine = Text.rich(
+      TextSpan(children: [
+        TextSpan(
+          text: showSlide ? ' · ' : '',
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textSecondaryOnDark,
+            letterSpacing: 0.1,
+            height: 1.0,
+          ),
+        ),
+        TextSpan(
+          text: remainingLabel,
+          style: const TextStyle(
+            fontFamily: monoFamily,
+            fontFamilyFallback: monoFallback,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textOnDark,
+            letterSpacing: -0.2,
+            height: 1.0,
+          ),
+        ),
+        const TextSpan(
+          text: ' · ',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textSecondaryOnDark,
+            letterSpacing: 0.1,
+            height: 1.0,
+          ),
+        ),
+        TextSpan(
+          text: '~$finishLabel',
+          style: const TextStyle(
+            fontFamily: monoFamily,
+            fontFamilyFallback: monoFallback,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textSecondaryOnDark,
+            letterSpacing: -0.2,
+            height: 1.0,
+          ),
+        ),
+      ]),
+      textAlign: TextAlign.right,
+    );
+
     // One line: "1:36 · 7:42 left · ~7:42 PM". Reading L→R zooms OUT in
     // scope: current exercise → whole workout → wall-clock finish. The
     // current-slide token is bold coral to signal "active now".
     return Align(
       alignment: Alignment.centerRight,
-      child: Text.rich(
-        TextSpan(children: [
-          if (showSlide) ...[
-            TextSpan(
-              text: slideLabel,
-              style: const TextStyle(
-                fontFamily: monoFamily,
-                fontFamilyFallback: monoFallback,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: AppColors.primary,
-                letterSpacing: -0.2,
-                height: 1.0,
-              ),
-            ),
-            const TextSpan(
-              text: ' · ',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: AppColors.textSecondaryOnDark,
-                letterSpacing: 0.1,
-                height: 1.0,
-              ),
-            ),
-          ],
-          TextSpan(
-            text: remainingLabel,
-            style: const TextStyle(
-              fontFamily: monoFamily,
-              fontFamilyFallback: monoFallback,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textOnDark,
-              letterSpacing: -0.2,
-              height: 1.0,
-            ),
-          ),
-          const TextSpan(
-            text: ' · ',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textSecondaryOnDark,
-              letterSpacing: 0.1,
-              height: 1.0,
-            ),
-          ),
-          TextSpan(
-            text: '~$finishLabel',
-            style: const TextStyle(
-              fontFamily: monoFamily,
-              fontFamilyFallback: monoFallback,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textSecondaryOnDark,
-              letterSpacing: -0.2,
-              height: 1.0,
-            ),
-          ),
-        ]),
-        textAlign: TextAlign.right,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          if (showSlide) slideTokenAnimated,
+          restOfLine,
+        ],
       ),
     );
   }
@@ -1168,6 +1231,16 @@ class _Pill extends StatelessWidget {
   final double timerProgress;
   final AnimationController pulseController;
 
+  /// 600ms ease-in-out controller shared with the top-bar counter chip and
+  /// the ETA readout. Used to drive an opacity flash on the border + fill
+  /// when [isFlashing] is true.
+  final AnimationController prepFlashController;
+
+  /// True only when this pill is both the active slide AND the workout is in
+  /// the 15-second prep phase. Causes the border/fill to opacity-flash in
+  /// sync with the top-bar token.
+  final bool isFlashing;
+
   const _Pill({
     required this.slide,
     required this.spec,
@@ -1177,6 +1250,8 @@ class _Pill extends StatelessWidget {
     required this.paused,
     required this.timerProgress,
     required this.pulseController,
+    required this.prepFlashController,
+    required this.isFlashing,
   });
 
   @override
@@ -1284,6 +1359,24 @@ class _Pill extends StatelessWidget {
       );
     }
 
+    // Prep-phase flash — opacity 1.0 → 0.4 → 1.0 @ 600ms ease-in-out, applied
+    // over the entire pill (border + fill + content). Same cadence as the
+    // top-bar counter chip and the ETA readout so all three stay visually
+    // synchronised. Only the active pill flashes; everything else stays put.
+    Widget maybeFlashing = wrapped;
+    if (isFlashing) {
+      maybeFlashing = AnimatedBuilder(
+        animation: prepFlashController,
+        builder: (context, child) {
+          final eased =
+              Curves.easeInOut.transform(prepFlashController.value);
+          final opacity = 1.0 - (eased * 0.6); // 1.0 → 0.4 → 1.0
+          return Opacity(opacity: opacity, child: child);
+        },
+        child: wrapped,
+      );
+    }
+
     return Semantics(
       label: _semanticsLabelFor(slide),
       button: true,
@@ -1291,7 +1384,7 @@ class _Pill extends StatelessWidget {
         scale: scrubScale,
         duration: const Duration(milliseconds: 120),
         curve: Curves.easeOut,
-        child: wrapped,
+        child: maybeFlashing,
       ),
     );
   }
