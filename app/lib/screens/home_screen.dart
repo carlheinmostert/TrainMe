@@ -12,7 +12,6 @@ import '../services/local_storage_service.dart';
 import '../services/upload_service.dart';
 import '../theme.dart';
 import '../widgets/powered_by_footer.dart';
-import 'session_capture_screen.dart'; // retained as fallback, see _useShell below
 import 'session_shell_screen.dart';
 
 /// Landing screen — the first thing the bio sees.
@@ -113,10 +112,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Toggle: true = new SessionShellScreen flow, false = legacy
-  /// SessionCaptureScreen. Flip to false to roll back the Camera/Studio split.
-  static const bool _useShell = true;
-
   /// Create a session immediately with a default date-time name and navigate.
   Future<void> _startNewSession() async {
     final now = DateTime.now();
@@ -128,17 +123,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _useShell
-            ? SessionShellScreen(
-                session: session,
-                storage: widget.storage,
-                // New session: bio wants the camera first.
-                initialPage: 1,
-              )
-            : SessionCaptureScreen(
-                session: session,
-                storage: widget.storage,
-              ),
+        builder: (_) => SessionShellScreen(
+          session: session,
+          storage: widget.storage,
+          // New session: bio wants the camera first.
+          initialPage: 1,
+        ),
       ),
     );
 
@@ -164,17 +154,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _openSession(Session session) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _useShell
-            ? SessionShellScreen(
-                session: session,
-                storage: widget.storage,
-                // Existing session: land on Studio to edit.
-                initialPage: 0,
-              )
-            : SessionCaptureScreen(
-                session: session,
-                storage: widget.storage,
-              ),
+        builder: (_) => SessionShellScreen(
+          session: session,
+          storage: widget.storage,
+          // Existing session: land on Studio to edit.
+          initialPage: 0,
+        ),
       ),
     );
 
