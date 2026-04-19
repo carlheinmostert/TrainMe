@@ -90,6 +90,14 @@
       <div id="card-track" class="card-track">
         <!-- Cards injected by JS -->
       </div>
+
+      <!-- Prep-countdown overlay — huge centred coral number on top of the
+           demo video during the 15-second prep phase. Sibling of the card
+           track so it overlays every slide without being swiped along. The
+           demo video keeps playing underneath via pointer-events: none. -->
+      <div id="prep-overlay" class="prep-overlay" aria-live="polite" hidden>
+        <span id="prep-overlay-number">15</span>
+      </div>
     </main>
 
     <!-- Timer overlay (workout mode) — three-mode tappable chip (prep / running / paused) -->

@@ -73,6 +73,13 @@ let $etaFinish = null;
 // the workoutTimer and prepTimer.
 let etaClockTimer = null;
 
+// Prep-countdown big-overlay refs. The overlay is a sibling of the card
+// track inside #card-viewport so it floats above every slide. We toggle its
+// [hidden] attribute via showPrepOverlay / hidePrepOverlay and update its
+// number every prep tick.
+const $prepOverlay = document.getElementById('prep-overlay');
+const $prepOverlayNumber = document.getElementById('prep-overlay-number');
+
 // Workout timer DOM refs
 const $timerOverlay = document.getElementById('timer-overlay');
 const $timerRingProgress = document.getElementById('timer-ring-progress');
@@ -526,6 +533,11 @@ function updateProgressMatrix() {
     const isCompleted = activeIdx >= 0 && slideIdx < activeIdx;
     pill.classList.toggle('is-active', isActive);
     pill.classList.toggle('is-completed', isCompleted);
+    // Prep-phase flash — only the active pill, and only while prep is running.
+    // The class adds a 600ms ease-in-out opacity animation (see @keyframes
+    // prepFlash in styles.css); it composes with the existing pill-pulse
+    // box-shadow so the glow continues while the pill also flashes.
+    pill.classList.toggle('is-prep-flash', isActive && isPrepPhase);
     pill.classList.remove('is-scrubbed');
 
     const fill = pill.querySelector('.pill-fill');
@@ -542,6 +554,19 @@ function updateProgressMatrix() {
       fill.style.width = '0%';
     }
   });
+
+  // Top-bar counter token ("X of Y") — flashes in sync with the active pill
+  // and the ETA readout during prep so the user perceives all three as one
+  // synchronised "get-ready" cue.
+  if ($progress) {
+    $progress.classList.toggle('is-prep-flash', isPrepPhase && isWorkoutMode);
+  }
+  // ETA "remaining" token — same treatment. Queried on the fly because the
+  // matrix is rebuilt on resize and the cached ref may be stale.
+  const etaRemainingBlock = $matrixInner.querySelector('.matrix-eta-remaining');
+  if (etaRemainingBlock) {
+    etaRemainingBlock.classList.toggle('is-prep-flash', isPrepPhase && isWorkoutMode);
+  }
 
   // Centre the active pill.
   const activePill = $matrixInner.querySelector(`.pill[data-slide="${activeIdx}"]`);
@@ -859,6 +884,10 @@ function clearPrepTimer() {
     prepTimer = null;
   }
   isPrepPhase = false;
+  // Always tear down the big countdown + flash flags when prep ends for any
+  // reason (manual skip, slide change, workout exit). Individual callers
+  // like finishPrepPhase() re-show it if they're resetting for a new slide.
+  hidePrepOverlay();
 }
 
 function autoPlayCurrentVideo() {
@@ -1213,6 +1242,10 @@ function startPrepPhase() {
 
   updateTimerDisplay();
   showTimerDisplay();
+  showPrepOverlay(prepRemainingSeconds);
+  // Top-bar token + active pill + ETA remaining all start flashing now. The
+  // is-prep-flash class is driven by updateProgressMatrix().
+  updateProgressMatrix();
   // ETA now reflects prep seconds + new slide's full duration + upcoming.
   updateEtaDisplay();
 
@@ -1228,13 +1261,56 @@ function onPrepTick() {
     return;
   }
   updateTimerDisplay();
+  updatePrepOverlay(prepRemainingSeconds);
   // Prep seconds are part of "remaining" — tick the ETA too.
   updateEtaDisplay();
 }
 
 function finishPrepPhase() {
   clearPrepTimer();
+  hidePrepOverlay();
+  // Clear flash flags on top-bar + pill + ETA; updateProgressMatrix() reads
+  // isPrepPhase via startTimer() → updateProgressMatrix() below, but flip
+  // the local flag first so the class toggle picks up the new state.
+  isPrepPhase = false;
+  updateProgressMatrix();
   startTimer();
+}
+
+/**
+ * Reveal the big centred countdown number on top of the media. The number
+ * scales via CSS clamp() and is coloured coral. Uses the same 200ms-ease
+ * fade the Flutter _PrepCountdownOverlay uses so the user perceives both
+ * surfaces as synchronised.
+ */
+function showPrepOverlay(seconds) {
+  if (!$prepOverlay || !$prepOverlayNumber) return;
+  $prepOverlayNumber.textContent = String(seconds);
+  // Remove any lingering "final-second" class before reveal.
+  $prepOverlay.classList.remove('is-final');
+  $prepOverlay.hidden = false;
+  // Force a reflow + add visible class so the fade-in CSS transition fires.
+  void $prepOverlay.offsetWidth;
+  $prepOverlay.classList.add('is-visible');
+}
+
+/** Update the overlay number (called every prep tick). Fade starts at t=1s. */
+function updatePrepOverlay(seconds) {
+  if (!$prepOverlay || !$prepOverlayNumber) return;
+  $prepOverlayNumber.textContent = String(seconds);
+  // When only 1 second remains, the CSS fade-out transition kicks in so the
+  // overlay vanishes before the exercise timer takes over — no "pop".
+  if (seconds <= 1) {
+    $prepOverlay.classList.add('is-final');
+  } else {
+    $prepOverlay.classList.remove('is-final');
+  }
+}
+
+function hidePrepOverlay() {
+  if (!$prepOverlay) return;
+  $prepOverlay.classList.remove('is-visible', 'is-final');
+  $prepOverlay.hidden = true;
 }
 
 /**
