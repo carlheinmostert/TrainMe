@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -821,99 +820,6 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
     );
   }
 
-  /// Small inline timer ring rendered inside the metadata panel of the
-  /// current slide. Replaces the old centred full-screen overlay so the
-  /// timer sits next to the exercise name/badges instead of covering the
-  /// media.
-  ///
-  /// Acts as a three-mode tappable control:
-  ///  - Prep mode: ring counts 15→0, integer seconds, play icon.
-  ///    Tap = skip prep.
-  ///  - Running mode: ring counts down, M:SS, pause icon.
-  ///    Tap = pause.
-  ///  - Paused mode: ring frozen, M:SS, play icon.
-  ///    Tap = resume.
-  Widget _buildInlineTimerRing() {
-    // Pick the values to render based on the current mode.
-    final double progress;
-    final Color color;
-    final String label;
-    final IconData actionIcon;
-
-    if (_isPrepPhase) {
-      // Prep: ring fills as the 15s count down toward 0.
-      progress = _kPrepSeconds > 0
-          ? (_kPrepSeconds - _prepRemainingSeconds) / _kPrepSeconds
-          : 0.0;
-      // Use the brand accent for prep so it reads as "get ready" rather
-      // than the green→red of an in-progress exercise timer.
-      color = AppColors.primary;
-      label = '$_prepRemainingSeconds';
-      actionIcon = Icons.play_arrow_rounded;
-    } else {
-      progress = _totalSeconds > 0
-          ? (_totalSeconds - _remainingSeconds) / _totalSeconds
-          : 0.0;
-      if (_remainingSeconds > _totalSeconds * 0.25) {
-        color = Colors.green;
-      } else if (_remainingSeconds > _totalSeconds * 0.10) {
-        color = Colors.amber;
-      } else {
-        color = Colors.red;
-      }
-      label = _formatTimer(_remainingSeconds);
-      actionIcon = _isTimerRunning
-          ? Icons.pause_rounded
-          : Icons.play_arrow_rounded;
-    }
-
-    const size = 64.0;
-    return GestureDetector(
-      onTap: _onTimerChipTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            CustomPaint(
-              size: const Size(size, size),
-              painter: _TimerRingPainter(
-                progress: progress,
-                color: color,
-                trackColor: Colors.white.withValues(alpha: 0.15),
-                strokeWidth: 4,
-              ),
-            ),
-            // Time label + small action icon stacked vertically inside ring.
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.5,
-                    height: 1.0,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Icon(
-                  actionIcon,
-                  size: 11,
-                  color: Colors.white70,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   /// Workout complete screen — total time and close button.
   Widget _buildWorkoutCompleteOverlay() {
     final elapsed = _workoutStartTime != null
@@ -1068,13 +974,6 @@ class _ExercisePage extends StatefulWidget {
   final Session session;
   final VideoPlayerController? videoController;
 
-  /// Optional small timer ring shown in the bottom metadata panel during
-  /// workout mode. DEPRECATED — superseded by tap-to-pause on the
-  /// video/rest card body and the current-slide countdown in the pill
-  /// matrix's top row. Kept on the widget's API to avoid churn during
-  /// the transition but no longer rendered.
-  final Widget? timerChip;
-
   /// Mode-aware tap handler routed up from the video/rest card's body
   /// (prep → skip prep, running → pause, paused → resume). Provided by
   /// the parent during workout mode. Null outside workout mode —
@@ -1091,7 +990,6 @@ class _ExercisePage extends StatefulWidget {
     required this.slide,
     required this.session,
     this.videoController,
-    this.timerChip,
     this.onTap,
     this.pausedOverlay = false,
   });
@@ -1176,16 +1074,10 @@ class _ExercisePageState extends State<_ExercisePage> {
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // _buildCircuitBar() removed — the progress-pill
-                        // matrix above already communicates circuit
-                        // membership + round-of-N, so the orange strip
-                        // over the video was redundant signalling.
-                        _buildMetadataOverlay(),
-                      ],
-                    ),
+                    // Bottom metadata overlay (gradient wash + exercise
+                    // notes). Circuit round-of-N signalling is owned by
+                    // the progress-pill matrix above.
+                    child: _buildMetadataOverlay(),
                   ),
                 ],
               ),
@@ -1367,81 +1259,14 @@ class _ExercisePageState extends State<_ExercisePage> {
 
   /// Circuit info bar — shown only when this slide is part of a circuit.
   ///
-  /// Displays "Circuit - Round X of Y - Exercise M of N" using the
-  /// pre-computed metadata from the unrolled [PreviewSlide].
-  Widget _buildCircuitBar() {
-    final slide = widget.slide;
-    if (!slide.isCircuit) return const SizedBox.shrink();
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.75),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.loop, color: Colors.white, size: 18),
-          const SizedBox(width: 8),
-          Text(
-            'Circuit',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          _circuitDot(),
-          Text(
-            'Round ${slide.circuitRound} of ${slide.circuitTotalRounds}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          _circuitDot(),
-          Text(
-            'Exercise ${slide.positionInCircuit} of ${slide.circuitSize}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Small separator dot for the circuit bar.
-  Widget _circuitDot() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Container(
-        width: 4,
-        height: 4,
-        decoration: const BoxDecoration(
-          color: Colors.white70,
-          shape: BoxShape.circle,
-        ),
-      ),
-    );
-  }
-
   /// Semi-transparent metadata card at the bottom of the page.
-  /// For rest slides the panel is slimmed down to just the timer chip so the
-  /// rest-card content (icon, "Rest" label, "Next up") stays clean — the
-  /// chip still sits in the same bottom-right slot as on exercise slides.
+  ///
+  /// Rest slides skip this entirely — their card body already owns the
+  /// visual language. Exercise slides get a gradient wash with the
+  /// notes line on top (the only instructional copy not encoded by the
+  /// progress-pill matrix above).
   Widget _buildMetadataOverlay() {
-    if (_exercise.isRest) {
-      if (widget.timerChip == null) return const SizedBox.shrink();
-      return Container(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-        alignment: Alignment.centerRight,
-        child: widget.timerChip!,
-      );
-    }
+    if (_exercise.isRest) return const SizedBox.shrink();
     final exercise = _exercise;
 
     // Exercise name + reps/sets/hold badges removed from the overlay:
@@ -1449,24 +1274,6 @@ class _ExercisePageState extends State<_ExercisePage> {
     // name (top row, left), and the pill itself encodes the shorthand
     // sets|reps|hold. Notes stay — they're the only instructional copy
     // the client sees, and can't be collapsed into a pill.
-    final info = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (exercise.notes != null && exercise.notes!.isNotEmpty)
-          Text(
-            exercise.notes!,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 15,
-              height: 1.4,
-            ),
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-          ),
-      ],
-    );
-
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -1481,109 +1288,19 @@ class _ExercisePageState extends State<_ExercisePage> {
         ),
       ),
       padding: const EdgeInsets.fromLTRB(20, 32, 20, 20),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(child: info),
-          if (widget.timerChip != null) ...[
-            const SizedBox(width: 16),
-            widget.timerChip!,
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// Build the reps / sets / hold badges.
-  List<Widget> _buildBadges(ExerciseCapture exercise) {
-    final badges = <Widget>[];
-
-    final reps = exercise.reps ?? 10;
-    badges.add(_badge('$reps reps'));
-
-    final sets = exercise.sets ?? 3;
-    badges.add(_badge('$sets sets'));
-
-    if (exercise.holdSeconds != null && exercise.holdSeconds! > 0) {
-      badges.add(_badge('${exercise.holdSeconds}s hold'));
-    }
-
-    return badges;
-  }
-
-  /// A single metadata badge — semi-transparent pill with white text.
-  Widget _badge(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.2),
-          width: 1,
-        ),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+      child: (exercise.notes != null && exercise.notes!.isNotEmpty)
+          ? Text(
+              exercise.notes!,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 15,
+                height: 1.4,
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            )
+          : const SizedBox.shrink(),
     );
   }
 }
 
-// =============================================================================
-// Timer ring painter — draws an arc that fills as time elapses
-// =============================================================================
-
-class _TimerRingPainter extends CustomPainter {
-  final double progress; // 0.0 .. 1.0
-  final Color color;
-  final Color trackColor;
-  final double strokeWidth;
-
-  const _TimerRingPainter({
-    required this.progress,
-    required this.color,
-    required this.trackColor,
-    required this.strokeWidth,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = (math.min(size.width, size.height) - strokeWidth) / 2;
-
-    // Track (full circle, dim)
-    final trackPaint = Paint()
-      ..color = trackColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-    canvas.drawCircle(center, radius, trackPaint);
-
-    // Progress arc — starts at top (−pi/2), sweeps clockwise.
-    if (progress > 0) {
-      final arcPaint = Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth
-        ..strokeCap = StrokeCap.round;
-      canvas.drawArc(
-        Rect.fromCircle(center: center, radius: radius),
-        -math.pi / 2,
-        2 * math.pi * progress,
-        false,
-        arcPaint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _TimerRingPainter oldDelegate) {
-    return oldDelegate.progress != progress || oldDelegate.color != color;
-  }
-}
