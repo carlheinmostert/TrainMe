@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v15-parity';
+const CACHE_NAME = 'homefit-player-v16-three-treatment';
 
 // App shell files — always cached
 const APP_SHELL = [
@@ -13,6 +13,7 @@ const APP_SHELL = [
   '/index.html',
   '/styles.css',
   '/app.js',
+  '/api.js',
 ];
 
 // ============================================================
