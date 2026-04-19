@@ -2,11 +2,15 @@ import Link from 'next/link';
 import { PULSE_MARK_PATH, PULSE_MARK_VIEWBOX } from '@/lib/theme';
 
 type Props = {
-  /** Show the sign-out link (only on authenticated pages). */
+  /** Show the authenticated nav (Account + Sign out). */
   showSignOut?: boolean;
+  /** Current practice context, passed through so nav links keep the selection. */
+  practiceId?: string;
 };
 
-export function BrandHeader({ showSignOut = false }: Props) {
+export function BrandHeader({ showSignOut = false, practiceId }: Props) {
+  const accountHref = practiceId ? `/account?practice=${practiceId}` : '/account';
+
   return (
     <header className="border-b border-surface-border bg-surface-base/80 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
@@ -36,14 +40,22 @@ export function BrandHeader({ showSignOut = false }: Props) {
         </Link>
 
         {showSignOut && (
-          <form action="/auth/sign-out" method="post">
-            <button
-              type="submit"
-              className="text-sm text-ink-muted hover:text-ink transition"
+          <nav className="flex items-center gap-5" aria-label="Account">
+            <Link
+              href={accountHref}
+              className="text-sm text-ink-muted transition hover:text-ink"
             >
-              Sign out
-            </button>
-          </form>
+              Account
+            </Link>
+            <form action="/auth/sign-out" method="post">
+              <button
+                type="submit"
+                className="text-sm text-ink-muted transition hover:text-ink"
+              >
+                Sign out
+              </button>
+            </form>
+          </nav>
         )}
       </div>
     </header>
