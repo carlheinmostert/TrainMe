@@ -69,12 +69,15 @@ Surfaces required to match:
 - **Raw-video archive pipeline:** After conversion, the raw capture is AVAssetExportSession-compressed to 720p H.264 and archived locally at `{Documents}/archive/{exerciseId}.mp4`. 90-day retention. Cloud upload to a private bucket is deferred until the auth story is fully in place (backlog item).
 - **Backend:** Supabase (yrwcofhovrcydootivjx.supabase.co). **CLI is linked** — Claude sessions can run migrations directly via `supabase db query --linked ...` instead of asking Carl to paste SQL in the dashboard.
   - **Tenancy:** `practices` + `practice_members` (role=owner|practitioner) form the tenancy boundary. A trainer can belong to multiple practices; first-ever sign-in claims the Carl-sentinel practice. Fresh sign-ins auto-create a personal practice.
-  - **Plan data:** `plans`, `exercises` with full data model (circuits, rest periods, audio, custom durations, versions, thumbnails). `plans.practice_id` + `plans.first_opened_at`.
-  - **Billing:** `credit_ledger` (append-only, consumption/purchase/refund/adjustment) + `plan_issuances` (append-only audit of every publish) + `pending_payments` (PayFast intent). Credit cost: `ceil(non_rest_count / 8)` clamped to `[1, 3]`.
+  - **Clients:** `clients` table (practice-scoped; unique on `(practice_id, name)`) carries the per-client `video_consent` jsonb `{line_drawing, grayscale, original}`. `line_drawing` is always true (de-identified by pipeline; consent can't be withdrawn). `plans.client_id` FK → `clients.id` (nullable on legacy rows; populated by `upsert_client` on new publishes). Client-management RPCs: `upsert_client`, `set_client_video_consent`, `get_client_by_id`, `list_practice_clients` (all SECURITY DEFINER + practice-membership checks).
+  - **Plan data:** `plans`, `exercises` with full data model (circuits, rest periods, audio, custom durations, versions, thumbnails). `plans.practice_id` + `plans.first_opened_at` + `plans.client_id`.
+  - **Billing:** `credit_ledger` (append-only, consumption/purchase/refund/adjustment) + `plan_issuances` (append-only audit of every publish) + `pending_payments` (PayFast intent). Credit cost: `ceil(non_rest_count / 8)` clamped to `[1, 3]`. Treatment switching on the player (line-drawing / B&W / original) is free — both files are stored once, consent gates playback.
   - **Atomic credit consumption:** `consume_credit(p_practice_id, p_plan_id, p_credits)` SECURITY DEFINER fn with FOR UPDATE locking. Called from publish flow. Accompanying `practice_credit_balance`, `practice_has_credits`.
-  - **Anonymous plan read:** `get_plan_full(plan_id)` SECURITY DEFINER RPC. Web player calls this; no direct SELECT on plans/exercises for anon.
+  - **Anonymous plan read:** `get_plan_full(p_plan_id)` SECURITY DEFINER RPC. Web player calls this; no direct SELECT on plans/exercises for anon. Returns per-exercise `line_drawing_url` (always) + `grayscale_url` / `original_url` (consent-gated; NULL if the client hasn't granted that treatment). Signed URLs are generated inline via `public.sign_storage_url(bucket, path, expires_in)` — a pgjwt-backed helper that pulls the JWT secret + base URL from `vault.secrets` (`supabase_jwt_secret`, `supabase_url`). If either vault secret is missing, the helper returns NULL and clients gracefully fall back to line-drawing only.
   - **RLS:** scoped-by-practice via the helper fns `user_practice_ids()` and `user_is_practice_owner(pid)`. Avoids the self-referential recursion trap that direct subqueries on `practice_members` would cause. The helper fns are SECURITY DEFINER and bypass RLS.
-  - **Storage bucket:** `media` (public read for sharing plan URLs; INSERT/UPDATE/DELETE scoped by path-prefix→plan→practice membership).
+  - **Storage buckets:**
+    - `media` (public read for sharing plan URLs; INSERT/UPDATE/DELETE scoped by path-prefix→plan→practice membership). Stores the line-drawing treatment.
+    - `raw-archive` (PRIVATE; SELECT blocked for anon+authenticated, service-role reads + signed URLs only). Stores the grayscale + original treatments (same file, treatment chosen client-side). Path shape: `{practice_id}/{plan_id}/{exercise_id}.mp4`. INSERT/UPDATE/DELETE gated by `can_write_to_raw_archive(path)` helper which parses the first path segment as practice_id and checks membership.
 - **Web player:** Static HTML/CSS/JS on Vercel, auto-deploys from GitHub (`web-player/` directory)
 - **Domain:** Hostinger DNS, CNAME `session` → `cname.vercel-dns.com` (updated to `00596c638d4cefd8.vercel-dns-017.com.` per Vercel's new IP range)
 - **OG meta tags:** Vercel Edge Middleware (`web-player/middleware.js`) serves bot-friendly HTML for WhatsApp link previews
@@ -162,7 +165,7 @@ Surfaces required to match:
 - **Progress-pill matrix** — Flutter widget + web player version on `feat/progress-pills` awaiting merge. ETA widget completion running.
 - **D2** — Publish-screen practice picker UI (Flutter).
 - **D4 production** — Swap PayFast sandbox for real merchant credentials when Carl signs up.
-- **Three-treatment video model** — line drawing (default) / black-and-white / original colour. Per-client consent gate. Colour requires explicit consent. Treatment change past 24h consumes a credit. Schema migration needed (`clients` table, `exercises.media_treatment` enum, `clients.video_consent` jsonb) + private `raw-archive` bucket (service-role-only, 720p H.264, retained until practice deletion). Not yet implemented.
+- **Three-treatment video model** — line-drawing (default; always shown; de-identifies the subject) / B&W / original. Per-client `video_consent` jsonb gates grayscale + original; `line_drawing` consent is permanent and cannot be withdrawn. Swipe between treatments on the player is **FREE** — both the processed line-drawing and the raw MP4 are uploaded once per publish; the client-side player chooses which file to render based on consent. Schema landed via `supabase/schema_milestone_g_three_treatment.sql` (Milestone G): `clients` table with unique (practice_id, name), `plans.client_id`, private `raw-archive` bucket (720p H.264), pgjwt-based signed URL helper, extended `get_plan_full` returning `line_drawing_url` / `grayscale_url` / `original_url` per exercise (consent-gated). Raw-archive retention tied to practice lifecycle.
 - **Referral loop** (MVP Week 1) — opaque 6-8 char codes, `/join/{code}` capture, both-sided +10 credits on referee's first paid purchase.
 - **First-run onboarding polish + legal + support surface** (MVP Week 1-2).
 
@@ -243,6 +246,7 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 - `supabase/schema_milestone_c.sql` — RLS lockdown + consume_credit
 - `supabase/schema_milestone_c_recursion_fix.sql` — SECURITY DEFINER helpers that fixed the policy recursion
 - `supabase/schema_milestone_d4.sql` — PayFast pending_payments table
+- `supabase/schema_milestone_g_three_treatment.sql` — clients table + video_consent + raw-archive bucket + sign_storage_url helper + extended get_plan_full
 - `app/lib/theme.dart` — Brand theme tokens
 - `app/lib/widgets/powered_by_footer.dart` — Shared Pulse Mark footer (+ build-SHA marker)
 - `app/lib/widgets/gutter_rail.dart` / `inline_action_tray.dart` / `thumbnail_peek.dart` / `circuit_control_sheet.dart` / `set_password_sheet.dart` / `undo_snackbar.dart` — v1.1 Studio components + auth upgrade + R-01 undo
