@@ -7,6 +7,9 @@ import {
   PracticeSwitcher,
   type PracticeSummary,
 } from '@/components/PracticeSwitcher';
+import { NetworkShareCard } from '@/components/NetworkShareCard';
+import { NetworkEarningsCard } from '@/components/NetworkEarningsCard';
+import { PortalReferralApi } from '@/lib/supabase/api';
 
 type SearchParams = { practice?: string };
 
@@ -82,6 +85,15 @@ export default async function DashboardPage({
   const balance = await loadBalance(selected.id);
   const qs = `?practice=${selected.id}`;
 
+  // Referral surface — code is idempotent, stats + referees return
+  // zero rows during pre-backend dev (the typed surface mocks).
+  const referralApi = new PortalReferralApi(supabase);
+  const [referralCode, referralStats, referees] = await Promise.all([
+    referralApi.generateCode(selected.id),
+    referralApi.dashboardStats(selected.id),
+    referralApi.refereesList(selected.id),
+  ]);
+
   return (
     <main className="flex min-h-screen flex-col">
       <BrandHeader showSignOut />
@@ -131,6 +143,18 @@ export default async function DashboardPage({
               {selected.role === 'owner' ? ' Invite teammates.' : ''}
             </p>
           </Link>
+        </div>
+
+        {/* Referral surface — peer-to-peer voice. Share link + network stats. */}
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <NetworkShareCard
+            practiceId={selected.id}
+            initialCode={referralCode}
+          />
+          <NetworkEarningsCard
+            stats={referralStats}
+            referees={referees}
+          />
         </div>
       </div>
     </main>
