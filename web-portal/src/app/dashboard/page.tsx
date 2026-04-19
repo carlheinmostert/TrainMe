@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
-import { createPortalApi } from '@/lib/supabase/api';
+import { createPortalApi, PortalReferralApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { CreditBalance } from '@/components/CreditBalance';
 import { PracticeSwitcher } from '@/components/PracticeSwitcher';
+import { NetworkShareCard } from '@/components/NetworkShareCard';
+import { NetworkEarningsCard } from '@/components/NetworkEarningsCard';
 
 type SearchParams = { practice?: string };
 
@@ -43,6 +45,15 @@ export default async function DashboardPage({
   const selected = practices.find((p) => p.id === selectedId) ?? practices[0];
   const balance = await api.getPracticeBalance(selected.id);
   const qs = `?practice=${selected.id}`;
+
+  // Referral surface — code is idempotent, stats + referees return
+  // zero rows during pre-backend dev (the typed surface mocks).
+  const referralApi = new PortalReferralApi(supabase);
+  const [referralCode, referralStats, referees] = await Promise.all([
+    referralApi.generateCode(selected.id),
+    referralApi.dashboardStats(selected.id),
+    referralApi.refereesList(selected.id),
+  ]);
 
   return (
     <main className="flex min-h-screen flex-col">
@@ -93,6 +104,18 @@ export default async function DashboardPage({
               {selected.role === 'owner' ? ' Invite teammates.' : ''}
             </p>
           </Link>
+        </div>
+
+        {/* Referral surface — peer-to-peer voice. Share link + network stats. */}
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <NetworkShareCard
+            practiceId={selected.id}
+            initialCode={referralCode}
+          />
+          <NetworkEarningsCard
+            stats={referralStats}
+            referees={referees}
+          />
         </div>
       </div>
     </main>
