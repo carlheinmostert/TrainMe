@@ -54,8 +54,11 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (request.method !== 'GET') return;
 
-  // TODO_SUPABASE: Match your Supabase API domain here
-  // API requests: network-first, cache response for offline
+  // Supabase API requests: network-first, cache response for offline.
+  // The `supabase.co` match is intentionally broad — our project domain
+  // (yrwcofhovrcydootivjx.supabase.co) and any future project rename both
+  // match without edits. networkFirstStrategy() further filters to only
+  // cache public media, never /rest/v1/* responses (PII).
   if (url.hostname.includes('supabase.co')) {
     event.respondWith(networkFirstStrategy(request));
     return;

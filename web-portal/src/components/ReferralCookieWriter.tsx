@@ -1,9 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-
-const REFERRAL_COOKIE = 'homefit_referral_code';
-const MAX_AGE_DAYS = 30;
+import { REFERRAL_COOKIE, writeReferralCookie } from '@/lib/referral-cookies';
 
 type Props = { code: string };
 
@@ -14,8 +12,7 @@ type Props = { code: string };
 export function ReferralCookieWriter({ code }: Props) {
   useEffect(() => {
     if (!code) return;
-    const maxAge = MAX_AGE_DAYS * 24 * 60 * 60;
-    document.cookie = `${REFERRAL_COOKIE}=${encodeURIComponent(code)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+    writeReferralCookie(REFERRAL_COOKIE, code);
   }, [code]);
   return null;
 }
