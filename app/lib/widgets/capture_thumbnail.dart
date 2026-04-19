@@ -80,7 +80,7 @@ class CaptureThumbnail extends StatelessWidget {
               thumbFile,
               fit: BoxFit.cover,
               cacheWidth: cacheWidth,
-              errorBuilder: (_, __, ___) => Container(
+              errorBuilder: (_, _, _) => Container(
                 color: AppColors.surfaceRaised,
                 child: const Center(
                   child: Icon(Icons.play_circle_outline,
@@ -107,7 +107,7 @@ class CaptureThumbnail extends StatelessWidget {
       file,
       fit: BoxFit.cover,
       cacheWidth: cacheWidth,
-      errorBuilder: (_, __, ___) => Container(
+      errorBuilder: (_, _, _) => Container(
         color: AppColors.surfaceRaised,
         child: const Center(
           child: Icon(Icons.broken_image_outlined, color: AppColors.grey500, size: 24),

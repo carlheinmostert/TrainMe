@@ -589,13 +589,6 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen> {
     }
   }
 
-  /// Format seconds as "M:SS".
-  String _formatTimer(int seconds) {
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
-
   // ---------------------------------------------------------------------------
   // Navigation helpers
   // ---------------------------------------------------------------------------

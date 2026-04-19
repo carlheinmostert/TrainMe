@@ -639,7 +639,7 @@ class _SessionCaptureScreenState extends State<SessionCaptureScreen> {
               Image.file(
                 File(path),
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Center(
+                errorBuilder: (_, _, _) => const Center(
                   child: Icon(Icons.broken_image_outlined,
                       size: 64, color: Colors.white54),
                 ),
@@ -1641,7 +1641,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                       fit: BoxFit.contain,
                                       width: double.infinity,
                                       errorBuilder:
-                                          (_, __, ___) => Container(
+                                          (_, _, _) => Container(
                                         color: AppColors.surfaceRaised,
                                       ),
                                     )
@@ -1683,7 +1683,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                                     .exercise.displayFilePath),
                                 fit: BoxFit.contain,
                                 width: double.infinity,
-                                errorBuilder: (_, __, ___) => const Center(
+                                errorBuilder: (_, _, _) => const Center(
                                   child: Icon(
                                       Icons.broken_image_outlined,
                                       size: 48,
