@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
 import '../config.dart';
+import '../services/auth_service.dart';
 import '../utils/duration_format.dart';
 import 'exercise_capture.dart';
 
@@ -59,6 +60,19 @@ class Session {
   /// UI lands in a later milestone.
   final DateTime? firstOpenedAt;
 
+  /// Supabase `auth.users.id` of the practitioner who created this session on
+  /// this device. Persisted locally in SQLite as `created_by_user_id` (schema
+  /// v14). Scopes the Home screen list so sessions created under account A
+  /// don't leak into account B's view when they sign in on the same device.
+  ///
+  /// Nullable on purpose:
+  ///   - rows that existed before v14 land as NULL and get claimed by the
+  ///     first signed-in user to open the Home screen (see
+  ///     `LocalStorageService.claimOrphanSessions`).
+  ///   - a session drafted while signed out (cold-start edge case) stays
+  ///     NULL until the next Home load claims it.
+  final String? createdByUserId;
+
   const Session({
     required this.id,
     required this.clientName,
@@ -75,9 +89,17 @@ class Session {
     this.preferredRestIntervalSeconds,
     this.practiceId,
     this.firstOpenedAt,
+    this.createdByUserId,
   });
 
   /// Create a new session with a generated UUID.
+  ///
+  /// Populates [createdByUserId] from [AuthService.instance.currentUserId] at
+  /// construction time so the Home screen can scope the session list to the
+  /// authenticated practitioner. When no user is signed in (cold-start before
+  /// sign-in), the field stays null and the row gets claimed by the first
+  /// user to open the Home screen after signing in — see
+  /// `LocalStorageService.claimOrphanSessions`.
   factory Session.create({
     required String clientName,
     String? title,
@@ -88,6 +110,7 @@ class Session {
       title: title,
       createdAt: DateTime.now(),
       circuitCycles: {},
+      createdByUserId: AuthService.instance.currentUserId,
     );
   }
 
@@ -142,6 +165,7 @@ class Session {
       // we round-trip them; otherwise they stay null.
       practiceId: map['practice_id'] as String?,
       firstOpenedAt: _parseTimestamp(map['first_opened_at']),
+      createdByUserId: map['created_by_user_id'] as String?,
     );
   }
 
@@ -179,6 +203,7 @@ class Session {
           ? null
           : json.encode(circuitCycles),
       'preferred_rest_interval': preferredRestIntervalSeconds,
+      'created_by_user_id': createdByUserId,
     };
   }
 
@@ -199,6 +224,7 @@ class Session {
     bool clearPreferredRestInterval = false,
     String? practiceId,
     DateTime? firstOpenedAt,
+    String? createdByUserId,
   }) {
     return Session(
       id: id,
@@ -220,6 +246,7 @@ class Session {
           : (preferredRestIntervalSeconds ?? this.preferredRestIntervalSeconds),
       practiceId: practiceId ?? this.practiceId,
       firstOpenedAt: firstOpenedAt ?? this.firstOpenedAt,
+      createdByUserId: createdByUserId ?? this.createdByUserId,
     );
   }
 
