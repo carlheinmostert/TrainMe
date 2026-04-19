@@ -65,7 +65,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
-      final sessions = await widget.storage.getActiveSessions();
+      // Scope the list to the signed-in practitioner so sessions created
+      // under account A don't leak into account B when they sign in on the
+      // same device. Also claim any pre-v14 / pre-auth orphan rows so the
+      // next account switch sees only this account's own work.
+      final userId = AuthService.instance.currentUserId;
+      if (userId != null) {
+        // Idempotent — no-op once orphans have been claimed.
+        await widget.storage.claimOrphanSessions(userId);
+      }
+      final sessions = await widget.storage.getSessionsForUser(userId);
       // Fetch publish errors in parallel — skipped silently if schema v11 is
       // not yet applied.
       final errorEntries = await Future.wait(

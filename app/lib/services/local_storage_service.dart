@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import '../config.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import 'auth_service.dart';
 import 'path_resolver.dart';
 
 /// SQLite-backed local persistence for sessions and exercises.
@@ -14,7 +15,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 13;
+  static const _dbVersion = 14;
 
   Database? _db;
 
@@ -56,7 +57,8 @@ class LocalStorageService {
         version INTEGER NOT NULL DEFAULT 0,
         last_published_at INTEGER,
         last_publish_error TEXT,
-        publish_attempt_count INTEGER NOT NULL DEFAULT 0
+        publish_attempt_count INTEGER NOT NULL DEFAULT 0,
+        created_by_user_id TEXT
       )
     ''');
 
@@ -188,6 +190,41 @@ class LocalStorageService {
         'ALTER TABLE exercises ADD COLUMN archived_at INTEGER',
       );
     }
+    if (oldVersion < 14) {
+      // Per-user session scoping. Sessions created under account A must
+      // not leak into account B's Home list when they sign in on the same
+      // device. Tag every session row with the Supabase auth uid of the
+      // practitioner who created it.
+      //
+      // Column stays NULL for:
+      //   - rows that existed before v14 — claimed on first Home load by
+      //     the currently signed-in user (see [claimOrphanSessions]).
+      //   - rows drafted while signed out (edge case; AuthGate normally
+      //     blocks the Home screen pre-auth).
+      //
+      // The migration is naturally idempotent: sqflite only runs it when
+      // crossing the v13 → v14 boundary, and the inline backfill below
+      // only touches rows where `created_by_user_id IS NULL`, so a
+      // re-launch after a successful upgrade is a no-op.
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN created_by_user_id TEXT',
+      );
+
+      // Best-effort inline backfill. If Supabase has already restored a
+      // session by the time this runs (it's initialized before
+      // LocalStorageService.init in main.dart), claim every pre-v14
+      // session for the current user. If no user is signed in yet, leave
+      // the rows NULL and let [claimOrphanSessions] pick them up on the
+      // first signed-in Home load.
+      final uid = AuthService.instance.currentUserId;
+      if (uid != null) {
+        await db.update(
+          'sessions',
+          {'created_by_user_id': uid},
+          where: 'created_by_user_id IS NULL',
+        );
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -217,6 +254,11 @@ class LocalStorageService {
   /// All sessions that are not soft-deleted, newest first.
   /// Published sessions remain active so the trainer can update and
   /// re-publish them.
+  ///
+  /// This is the un-scoped variant — returns every active row regardless of
+  /// which practitioner created it. The Home screen calls
+  /// [getSessionsForUser] instead so sessions stay scoped to the signed-in
+  /// account.
   Future<List<Session>> getActiveSessions() async {
     final rows = await db.query(
       'sessions',
@@ -224,6 +266,45 @@ class LocalStorageService {
       orderBy: 'created_at DESC',
     );
     return _hydrateSessionsWithExercises(rows);
+  }
+
+  /// Active sessions scoped to a practitioner's Supabase auth uid.
+  ///
+  /// When [userId] is non-null, returns rows whose `created_by_user_id`
+  /// matches OR is NULL. Orphan rows (NULL) are rows that existed before the
+  /// v14 migration ran, or were drafted while signed out; they appear in the
+  /// current user's list until [claimOrphanSessions] permanently tags them.
+  ///
+  /// When [userId] is null (nobody signed in — shouldn't normally happen,
+  /// AuthGate blocks Home pre-auth), falls back to [getActiveSessions] so
+  /// any pre-auth UI paths keep working.
+  Future<List<Session>> getSessionsForUser(String? userId) async {
+    if (userId == null) return getActiveSessions();
+    final rows = await db.query(
+      'sessions',
+      where:
+          'deleted_at IS NULL AND (created_by_user_id = ? OR created_by_user_id IS NULL)',
+      whereArgs: [userId],
+      orderBy: 'created_at DESC',
+    );
+    return _hydrateSessionsWithExercises(rows);
+  }
+
+  /// Tag every orphan session (`created_by_user_id IS NULL`) with [userId].
+  ///
+  /// Called by the Home screen on load so pre-v14 rows and sessions drafted
+  /// while signed out get permanently attached to the first signed-in user
+  /// who sees them. Subsequent account switches on the same device will
+  /// then see only their own sessions — no cross-account leakage.
+  ///
+  /// Returns the number of rows updated. Safe to call on every load — a
+  /// no-op once the orphans have been claimed.
+  Future<int> claimOrphanSessions(String userId) async {
+    return db.update(
+      'sessions',
+      {'created_by_user_id': userId},
+      where: 'created_by_user_id IS NULL',
+    );
   }
 
   /// Delete a session and all its exercises. Also removes associated media
