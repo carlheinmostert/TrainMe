@@ -232,6 +232,7 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 - `docs/ANIMATION_PIPELINE.md` — AI pipeline (parked) technical spec
 - `docs/BACKLOG.md` — Deferred work with rationale
 - `docs/BACKLOG_GOOGLE_SIGNIN.md` — Google Sign-In nonce-mismatch post-mortem + re-enablement paths
+- `docs/DATA_ACCESS_LAYER.md` — The binding rule on how each surface talks to Supabase (one file per surface, typed contracts, how to add a new RPC)
 - `docs/PENDING_DEVICE_TESTS.md` — Things landed on main that haven't been verified on Carl's iPhone yet
 - `docs/design/project/index.html` — Design system doc (browsable)
 - `docs/design/project/components.md` — Component inventory + Design Rules R-01..R-08
@@ -249,8 +250,12 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 - `app/ios/Runner/VideoConverterChannel.swift` — Native video pipeline
 - `app/lib/screens/session_shell_screen.dart` — Capture/Studio mode shell
 - `app/lib/screens/sign_in_screen.dart` — Progressive email + password + magic-link gate
-- `app/lib/services/upload_service.dart` — Publish flow with credit consumption
-- `app/lib/services/auth_service.dart` — Sign-in + sentinel-claim logic (Google/Apple wired but UI-removed)
+- `app/lib/services/api_client.dart` — Single enumerated Supabase surface for the Flutter app (see `docs/DATA_ACCESS_LAYER.md`)
+- `app/lib/services/upload_service.dart` — Publish flow with credit consumption (routes through `ApiClient`)
+- `app/lib/services/auth_service.dart` — Sign-in + sentinel-claim logic (Google/Apple wired but UI-removed; routes through `ApiClient`)
+- `web-player/api.js` — Web player's single enumerated Supabase surface (anon `get_plan_full` RPC only)
+- `web-portal/src/lib/supabase/api.ts` — Web portal's typed Supabase surface (PortalApi + AdminApi)
+- `web-portal/src/lib/supabase/database.types.ts` — Generated Supabase types (regenerate after schema migrations)
 - `install-sim.sh` — Simulator reset + rebuild + relaunch with SHA marker
 - `install-device.sh` — Physical iPhone release build + install (runs with VPN on)
 - `web-portal/` — Next.js practice-manager + credits portal

@@ -1,36 +1,13 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
+import {
+  createPortalApi,
+  type PlanIssuanceRow as IssuanceRow,
+} from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 
 type SearchParams = { practice?: string };
-
-type IssuanceRow = {
-  id: string;
-  created_at: string;
-  credits_charged: number | null;
-  trainer_id: string | null;
-  plan_url: string | null;
-  plans: { title: string | null } | { title: string | null }[] | null;
-};
-
-async function loadIssuances(practiceId: string): Promise<IssuanceRow[]> {
-  const supabase = await getServerClient();
-  // NOTE: Joining `auth.users` from PostgREST requires a view or RPC that
-  // Milestone C is building. For now we display the trainer UUID; the audit
-  // page will render the user's email once the `public.trainers` view ships.
-  const { data, error } = await supabase
-    .from('plan_issuances')
-    .select(
-      'id, created_at, credits_charged, trainer_id, plan_url, plans:plan_id ( title )',
-    )
-    .eq('practice_id', practiceId)
-    .order('created_at', { ascending: false })
-    .limit(50);
-
-  if (error || !data) return [];
-  return data as unknown as IssuanceRow[];
-}
 
 function fmtDate(iso: string) {
   try {
@@ -61,9 +38,10 @@ export default async function AuditPage({
   } = await supabase.auth.getUser();
   if (!user) redirect('/');
 
+  const api = createPortalApi(supabase);
   const params = await searchParams;
   const practiceId = params.practice ?? '';
-  const rows = practiceId ? await loadIssuances(practiceId) : [];
+  const rows = practiceId ? await api.listRecentIssuances(practiceId) : [];
 
   return (
     <main className="flex min-h-screen flex-col">

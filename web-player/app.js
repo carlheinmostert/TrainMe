@@ -2,14 +2,12 @@
  * TrainMe Web Player
  * Static exercise plan viewer — clients open shared links from WhatsApp
  * to view their personalised training programmes.
+ *
+ * Data access: all Supabase I/O routes through `window.HomefitApi` (see
+ * api.js). Direct `fetch('.../rest/v1/...')` calls are forbidden here;
+ * the one that used to live in `fetchPlan()` is the reason api.js exists.
+ * See docs/DATA_ACCESS_LAYER.md.
  */
-
-// ============================================================
-// Configuration
-// ============================================================
-
-const SUPABASE_URL = 'https://yrwcofhovrcydootivjx.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_cwhfavfji552BN8X0uPIpA_pwWQ-gw3';
 
 // ============================================================
 // State
@@ -101,27 +99,15 @@ function getPlanIdFromURL() {
 }
 
 async function fetchPlan(planId) {
-  // Milestone C (RLS lockdown): plans + exercises are now scoped by
-  // practice membership, so anon PostgREST SELECT returns nothing. Read
-  // via the `get_plan_full(p_plan_id)` SECURITY DEFINER RPC which
-  // bypasses RLS and also atomically stamps `first_opened_at` on the
-  // first fetch (feeds the publish-lock rule: once a client opens a
-  // plan, structural edits lock on the practitioner's side).
-  const response = await fetch(
-    `${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,
-    {
-      method: 'POST',
-      headers: {
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ p_plan_id: planId }),
-    }
-  );
-  if (!response.ok) throw new Error('Plan not found');
-  const payload = await response.json();
-  if (!payload || !payload.plan) throw new Error('Plan not found');
+  // Milestone C (RLS lockdown): plans + exercises are scoped by practice
+  // membership, so anon PostgREST SELECT returns nothing. We read via
+  // the `get_plan_full(p_plan_id)` SECURITY DEFINER RPC — exposed as the
+  // only allowed anon operation on `window.HomefitApi`.
+  //
+  // The RPC also atomically stamps `first_opened_at` on the first fetch
+  // (feeds the publish-lock rule: once a client opens a plan, structural
+  // edits lock on the practitioner's side).
+  const payload = await window.HomefitApi.getPlanFull(planId);
 
   // Reshape: RPC returns { plan: {...}, exercises: [...] }. The renderer
   // expects the plan object with exercises nested as a property, which is

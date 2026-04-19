@@ -1,38 +1,10 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
+import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 
 type SearchParams = { practice?: string };
-
-type MemberRow = {
-  trainer_id: string;
-  role: 'owner' | 'practitioner';
-  joined_at: string;
-};
-
-async function loadMembers(practiceId: string): Promise<MemberRow[]> {
-  const supabase = await getServerClient();
-  const { data, error } = await supabase
-    .from('practice_members')
-    .select('trainer_id, role, joined_at')
-    .eq('practice_id', practiceId)
-    .order('joined_at', { ascending: true });
-
-  if (error || !data) return [];
-  return data as MemberRow[];
-}
-
-async function viewerIsOwner(practiceId: string, userId: string) {
-  const supabase = await getServerClient();
-  const { data } = await supabase
-    .from('practice_members')
-    .select('role')
-    .eq('practice_id', practiceId)
-    .eq('trainer_id', userId)
-    .maybeSingle();
-  return data?.role === 'owner';
-}
 
 export default async function MembersPage({
   searchParams,
@@ -45,12 +17,16 @@ export default async function MembersPage({
   } = await supabase.auth.getUser();
   if (!user) redirect('/');
 
+  const api = createPortalApi(supabase);
   const params = await searchParams;
   const practiceId = params.practice ?? '';
-  const [members, isOwner] = await Promise.all([
-    practiceId ? loadMembers(practiceId) : Promise.resolve([]),
-    practiceId ? viewerIsOwner(practiceId, user.id) : Promise.resolve(false),
+  const [members, role] = await Promise.all([
+    practiceId ? api.listPracticeMembers(practiceId) : Promise.resolve([]),
+    practiceId
+      ? api.getCurrentUserRole(practiceId, user.id)
+      : Promise.resolve(null),
   ]);
+  const isOwner = role === 'owner';
 
   return (
     <main className="flex min-h-screen flex-col">

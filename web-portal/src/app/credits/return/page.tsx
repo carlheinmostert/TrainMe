@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
 import { getServerClient } from '@/lib/supabase-server';
+import { createAdminApi, createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { isSandboxEnabled } from '@/lib/payfast';
 
@@ -30,26 +30,24 @@ async function maybeApplyOptimisticSandboxCredit(
   pid: string,
 ): Promise<{ applied: boolean; credits?: number; reason?: string }> {
   const sandbox = isSandboxEnabled();
-  const optimistic = (process.env.PAYFAST_SANDBOX_OPTIMISTIC ?? '').toLowerCase() === 'true';
+  const optimistic =
+    (process.env.PAYFAST_SANDBOX_OPTIMISTIC ?? '').toLowerCase() === 'true';
   if (!sandbox || !optimistic) return { applied: false, reason: 'disabled' };
 
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ??
-    'https://yrwcofhovrcydootivjx.supabase.co';
-  if (!serviceRoleKey) return { applied: false, reason: 'no service role' };
-
-  const admin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  // All the data-access below goes through the shared admin wrapper in
+  // `@/lib/supabase/api`. createAdminApi() throws if the service-role key
+  // is missing — catch and translate to a soft-fail so the UI still shows
+  // the confirmation page (the real ITN, when it arrives, is idempotent).
+  let admin;
+  try {
+    admin = await createAdminApi();
+  } catch {
+    return { applied: false, reason: 'no service role' };
+  }
 
   // Look up the pending payment by its id (= the PayFast m_payment_id we sent).
-  const { data: pending, error: lookupErr } = await admin
-    .from('pending_payments')
-    .select('id, practice_id, credits, amount_zar, status, bundle_key')
-    .eq('id', pid)
-    .maybeSingle();
-  if (lookupErr || !pending) return { applied: false, reason: 'lookup failed' };
+  const pending = await admin.findPendingPayment(pid);
+  if (!pending) return { applied: false, reason: 'lookup failed' };
 
   // Idempotent — if another signal already completed it, bail.
   if (pending.status !== 'pending') {
@@ -57,35 +55,23 @@ async function maybeApplyOptimisticSandboxCredit(
   }
 
   // Authorisation — the signed-in user must actually belong to the practice
-  // this payment was issued for. Uses the anon JWT's membership row.
-  const { data: membership } = await admin
-    .from('practice_members')
-    .select('practice_id')
-    .eq('practice_id', pending.practice_id)
-    .eq('trainer_id', userId)
-    .maybeSingle();
-  if (!membership) return { applied: false, reason: 'not a member' };
+  // this payment was issued for. Uses the anon JWT's membership row via the
+  // same server client the page already has.
+  const authedClient = await getServerClient();
+  const api = createPortalApi(authedClient);
+  const isMember = await api.isUserInPractice(pending.practice_id, userId);
+  if (!isMember) return { applied: false, reason: 'not a member' };
 
-  // Apply: insert the ledger row, then mark the intent complete. If the ledger
-  // insert fails we leave status='pending' so a retry / real ITN can still land.
-  const { error: ledgerErr } = await admin.from('credit_ledger').insert({
+  const result = await admin.applyPendingPayment(pid, {
     practice_id: pending.practice_id,
     delta: pending.credits,
     type: 'purchase',
     payfast_payment_id: null, // no real pf_payment_id in sandbox-optimistic path
     notes: `sandbox-optimistic purchase of ${pending.credits} credits via pending_payment ${pending.id}`,
   });
-  if (ledgerErr) return { applied: false, reason: ledgerErr.message };
-
-  await admin
-    .from('pending_payments')
-    .update({
-      status: 'complete',
-      notes: 'applied optimistically on /credits/return (sandbox only)',
-      completed_at: new Date().toISOString(),
-    })
-    .eq('id', pending.id)
-    .eq('status', 'pending'); // belt-and-suspenders against a race with the ITN
+  if (!result.applied) {
+    return { applied: false, reason: result.reason };
+  }
   return { applied: true, credits: pending.credits };
 }
 
