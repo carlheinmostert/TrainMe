@@ -23,9 +23,13 @@ const INK_MUTED = '#9CA3AF';
 const SURFACE_BASE = '#1A1D27';
 const BORDER = '#2E3140';
 
-// SVG path data for the Pulse Mark (shared with theme.ts).
-const PULSE_MARK_PATH =
-  'M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2';
+// HomefitLogo geometry (see components/HomefitLogo.tsx for the shared
+// component; @vercel/og can't import components so we re-emit the
+// shape inline here). Source of truth: web-player/app.js's
+// buildHomefitLogoSvg() and app/lib/widgets/homefit_logo.dart.
+const SAGE = '#86EFAC';
+const RAIL = 'rgba(255, 107, 53, 0.7)';
+const BAND_TINT = 'rgba(255, 107, 53, 0.15)';
 
 async function loadInviter(code: string): Promise<string> {
   try {
@@ -68,18 +72,42 @@ export default async function OgImage({
           }}
         >
           <svg
-            width="84"
-            height="58"
-            viewBox="0 0 52 36"
+            width="120"
+            height="41"
+            viewBox="0 0 33.5 11.5"
             xmlns="http://www.w3.org/2000/svg"
           >
+            {/* Rail entry stub */}
             <path
-              d={PULSE_MARK_PATH}
-              fill="none"
-              stroke={BRAND}
-              strokeWidth="3"
+              d="M0 3.5 L4.5 3.5"
+              stroke={RAIL}
+              strokeWidth="0.7"
               strokeLinecap="round"
-              strokeLinejoin="round"
+            />
+            {/* Coral-tint band behind circuit columns */}
+            <rect
+              x="4.5"
+              y="1.5"
+              width="12.5"
+              height="8.5"
+              rx="1.5"
+              fill={BAND_TINT}
+            />
+            {/* Circuit pills 2×2 */}
+            <rect x="5"    y="2"   width="5" height="3" rx="1" fill={BRAND} />
+            <rect x="5"    y="6.5" width="5" height="3" rx="1" fill={BRAND} />
+            <rect x="11.5" y="2"   width="5" height="3" rx="1" fill={BRAND} />
+            <rect x="11.5" y="6.5" width="5" height="3" rx="1" fill={BRAND} />
+            {/* Standalone */}
+            <rect x="18"   y="2"   width="5" height="3" rx="1" fill={BRAND} />
+            {/* Rest (sage) */}
+            <rect x="24.5" y="2"   width="5" height="3" rx="1" fill={SAGE} />
+            {/* Rail exit stub */}
+            <path
+              d="M29.5 8 L33.5 8"
+              stroke={RAIL}
+              strokeWidth="0.7"
+              strokeLinecap="round"
             />
           </svg>
           <div
