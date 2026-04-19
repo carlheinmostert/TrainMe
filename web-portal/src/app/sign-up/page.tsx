@@ -5,10 +5,9 @@ import { getServerClient } from '@/lib/supabase-server';
 import { PortalReferralApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { SignUpGate } from '@/components/SignUpGate';
+import { REFERRAL_COOKIE } from '@/lib/referral-cookies';
 
 type SearchParams = { ref?: string };
-
-const REFERRAL_COOKIE = 'homefit_referral_code';
 
 // Public sign-up page. Primary role during the referral flow:
 //   1. Capture the referral code (from ?ref= or the REFERRAL_COOKIE)

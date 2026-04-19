@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi, PortalReferralApi } from '@/lib/supabase/api';
-
-const REFERRAL_COOKIE = 'homefit_referral_code';
-const CONSENT_COOKIE = 'homefit_referral_consent';
+import { CONSENT_COOKIE, REFERRAL_COOKIE } from '@/lib/referral-cookies';
 
 // OAuth callback. Supabase redirects here with either a `code` (PKCE) or
 // a fragment-encoded token. For the PKCE flow we exchange the code for a
