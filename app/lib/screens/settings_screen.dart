@@ -654,7 +654,10 @@ class _NetworkSectionState extends State<_NetworkSection> {
   /// Portal URL for the "View full network on the portal" link. Opens
   /// in Safari via url_launcher in external mode so the practitioner
   /// lands in a real browser session (cookies + Supabase auth intact).
-  static const _portalNetworkUrl = 'https://manage.homefit.studio/account';
+  /// Points at /dashboard — that's where the Network share + Network
+  /// earnings cards live (PR #6). /account only has password + sign
+  /// out + about.
+  static const _portalNetworkUrl = 'https://manage.homefit.studio/dashboard';
 
   Future<String>? _codeFuture;
   Future<ReferralStats>? _statsFuture;

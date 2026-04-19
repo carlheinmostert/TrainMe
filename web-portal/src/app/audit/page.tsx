@@ -72,7 +72,7 @@ export default async function AuditPage({
               <thead className="bg-surface-raised text-xs uppercase tracking-wider text-ink-muted">
                 <tr>
                   <th scope="col" className="px-4 py-3">Date</th>
-                  <th scope="col" className="px-4 py-3">Trainer</th>
+                  <th scope="col" className="px-4 py-3">Practitioner</th>
                   <th scope="col" className="px-4 py-3">Plan title</th>
                   <th scope="col" className="px-4 py-3">Credits</th>
                   <th scope="col" className="px-4 py-3">URL</th>

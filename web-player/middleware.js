@@ -1,6 +1,15 @@
 const SUPABASE_URL = 'https://yrwcofhovrcydootivjx.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_cwhfavfji552BN8X0uPIpA_pwWQ-gw3';
 
+// Vercel Edge Middleware that serves bot-friendly HTML with OG meta tags
+// for WhatsApp / iMessage / Slack / Twitter etc. link previews.
+//
+// IMPORTANT: reads go through the `get_plan_full(p_plan_id)` SECURITY
+// DEFINER RPC — NOT direct PostgREST SELECTs on `plans` / `exercises`.
+// Milestone C locked anon SELECT on those tables; direct reads return
+// empty, which silently broke every WhatsApp preview since the lockdown
+// landed. Same contract used by `web-player/api.js`.
+
 export default async function middleware(request) {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/p\/([a-zA-Z0-9_-]+)/);
@@ -13,34 +22,48 @@ export default async function middleware(request) {
   const planId = match[1];
 
   try {
-    // Fetch plan + first exercise thumbnail
+    // Anon-safe read via SECURITY DEFINER RPC (param name is p_plan_id,
+    // NOT plan_id — renamed 2026-04-18 to resolve an ambiguous-column
+    // error in the RPC body).
     const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/plans?id=eq.${planId}&select=title,client_name,exercise_count,exercises(thumbnail_url,name,position)&exercises.order=position.asc&exercises.limit=1`,
+      `${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,
       {
+        method: 'POST',
         headers: {
           'apikey': SUPABASE_ANON_KEY,
           'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        }
-      }
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ p_plan_id: planId }),
+      },
     );
 
     if (!response.ok) {
       return new Response('Not found', { status: 404 });
     }
 
-    const plans = await response.json();
-    if (!plans.length) {
+    const payload = await response.json();
+    const plan = payload && payload.plan;
+    if (!plan) {
       return new Response('Not found', { status: 404 });
     }
 
-    const plan = plans[0];
-    const title = plan.title || plan.client_name || 'Your Exercise Plan';
-    const exerciseCount = plan.exercise_count || 0;
+    const exercises = Array.isArray(payload.exercises) ? payload.exercises : [];
+    // First non-rest exercise's thumbnail is the preferred card image.
+    const firstVisible = exercises.find(
+      (e) => e && e.media_type !== 'rest' && e.thumbnail_url,
+    );
+
+    const title = plan.title || plan.client_name || 'Your exercise plan';
+    const exerciseCount = plan.exercise_count
+      || exercises.filter((e) => e && e.media_type !== 'rest').length;
     const description = `${exerciseCount} exercise${exerciseCount !== 1 ? 's' : ''} ready for you`;
-    const thumbnail = plan.exercises?.[0]?.thumbnail_url || '';
+    const thumbnail = firstVisible?.thumbnail_url || '';
     const planUrl = `https://session.homefit.studio/p/${planId}`;
 
-    // Return minimal HTML with OG tags + redirect
+    // Return minimal HTML with OG tags + redirect.
+    // Brand: always "homefit.studio" (lowercase, one word). The bot sees
+    // this exact string in the unfurl card.
     const safePlanUrl = escapeHtml(planUrl);
     const html = `<!DOCTYPE html>
 <html>
@@ -48,17 +71,17 @@ export default async function middleware(request) {
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' https://*.supabase.co data:;">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="${escapeHtml(title)} — HomeFit">
+  <meta property="og:title" content="${escapeHtml(title)} — homefit.studio">
   <meta property="og:description" content="${escapeHtml(description)}">
   <meta property="og:image" content="${escapeHtml(thumbnail)}">
   <meta property="og:url" content="${safePlanUrl}">
-  <meta property="og:site_name" content="HomeFit Studio">
+  <meta property="og:site_name" content="homefit.studio">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="${escapeHtml(title)} — HomeFit">
+  <meta name="twitter:title" content="${escapeHtml(title)} — homefit.studio">
   <meta name="twitter:description" content="${escapeHtml(description)}">
   <meta name="twitter:image" content="${escapeHtml(thumbnail)}">
   <meta http-equiv="refresh" content="0;url=${safePlanUrl}">
-  <title>${escapeHtml(title)} — HomeFit</title>
+  <title>${escapeHtml(title)} — homefit.studio</title>
 </head>
 <body>
   <p>Loading your exercise plan...</p>
