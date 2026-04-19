@@ -305,6 +305,54 @@ export class AdminApi {
 
     return { applied: true };
   }
+
+  /**
+   * Sandbox-optimistic credit apply with referral rebate awareness.
+   * Mirrors the PayFast ITN webhook by routing through the
+   * `record_purchase_with_rebates` SECURITY DEFINER RPC, so the sandbox
+   * path also produces the +10/+10 signup bonus on first purchase and
+   * the 5% lifetime credit rebate on every subsequent purchase —
+   * atomically with the purchase row, in a single DB transaction.
+   *
+   * Use this in place of `applyPendingPayment` whenever the referral
+   * loop should fire. The plain `applyPendingPayment` is preserved for
+   * legacy / non-rebate-aware callers.
+   */
+  async applyPendingPaymentWithRebates(
+    pid: string,
+    args: {
+      practice_id: string;
+      credits: number;
+      amount_zar: number;
+      bundle_key: string | null;
+      cost_per_credit_zar: number;
+    },
+  ): Promise<{ applied: boolean; reason?: string }> {
+    const { error: ledgerErr } = await this.supabase.rpc(
+      'record_purchase_with_rebates',
+      {
+        p_practice_id: args.practice_id,
+        p_credits: args.credits,
+        p_amount_zar: args.amount_zar,
+        p_payfast_payment_id: null, // sandbox-optimistic has no real pf_payment_id
+        p_bundle_key: args.bundle_key,
+        p_cost_per_credit_zar: args.cost_per_credit_zar,
+      },
+    );
+    if (ledgerErr) return { applied: false, reason: ledgerErr.message };
+
+    await this.supabase
+      .from('pending_payments')
+      .update({
+        status: 'complete',
+        notes: 'applied optimistically on /credits/return (sandbox only)',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', pid)
+      .eq('status', 'pending'); // belt-and-suspenders vs. race with real ITN
+
+    return { applied: true };
+  }
 }
 
 // ============================================================================

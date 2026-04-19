@@ -62,12 +62,17 @@ async function maybeApplyOptimisticSandboxCredit(
   const isMember = await api.isUserInPractice(pending.practice_id, userId);
   if (!isMember) return { applied: false, reason: 'not a member' };
 
-  const result = await admin.applyPendingPayment(pid, {
+  // Apply: route through `applyPendingPaymentWithRebates` so the sandbox
+  // path mirrors the ITN webhook — purchase ledger row + any referral rebate
+  // rows (signup bonus on first purchase, 5% lifetime rebate on every
+  // purchase) are booked atomically in a single DB transaction.
+  const costPerCreditZar = Number(pending.amount_zar) / Number(pending.credits);
+  const result = await admin.applyPendingPaymentWithRebates(pid, {
     practice_id: pending.practice_id,
-    delta: pending.credits,
-    type: 'purchase',
-    payfast_payment_id: null, // no real pf_payment_id in sandbox-optimistic path
-    notes: `sandbox-optimistic purchase of ${pending.credits} credits via pending_payment ${pending.id}`,
+    credits: pending.credits,
+    amount_zar: Number(pending.amount_zar),
+    bundle_key: pending.bundle_key ?? null,
+    cost_per_credit_zar: costPerCreditZar,
   });
   if (!result.applied) {
     return { applied: false, reason: result.reason };
