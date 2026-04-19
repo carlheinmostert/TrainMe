@@ -93,6 +93,23 @@ class AuthService {
   /// signed-in from signed-out without an extra lookup.
   Stream<supa.Session?> get authStateChanges => _api.authStateChanges;
 
+  /// Set (or change) the password on the currently authenticated user.
+  ///
+  /// Requires an active session — call this only from a post-sign-in
+  /// context (e.g. the Settings screen, or the one-time "Set a password?"
+  /// prompt on Home). The next time the user signs in, a password-based
+  /// sign-in flow with this password will succeed.
+  ///
+  /// Supabase doesn't expose whether a user has a password set (security),
+  /// so we don't persist a server-side flag here — the Settings UI just
+  /// offers "Set or change password" without attempting to detect state.
+  Future<void> setPassword(String password) async {
+    if (password.isEmpty) {
+      throw const AuthException('Enter a password.');
+    }
+    await _supabase.auth.updateUser(UserAttributes(password: password));
+  }
+
   /// Send a one-time magic link to the given email.
   ///
   /// Supabase emails a URL of the form
