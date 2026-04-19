@@ -63,8 +63,12 @@ const $peekName = document.getElementById('peek-name');
 const $peekMeta = document.getElementById('peek-meta');
 
 // ETA refs (assigned after buildProgressMatrix injects them).
+// Item 4: three separate numbers — current-slide remaining, total remaining,
+// wall-clock finish. Each styled independently so the coral/white/muted
+// treatment reads at a glance.
 let $etaBlock = null;
-let $etaRemaining = null;
+let $etaCurrent = null;
+let $etaTotal = null;
 let $etaFinish = null;
 
 // Wall-clock ticker for the ETA widget. Runs 1/sec so the finish-time label
@@ -73,16 +77,18 @@ let $etaFinish = null;
 // the workoutTimer and prepTimer.
 let etaClockTimer = null;
 
-// Workout timer DOM refs
+// Workout timer DOM refs (legacy chip is gone per item 7 — see the stub
+// <div id="timer-overlay" hidden> kept for backward compatibility).
 const $timerOverlay = document.getElementById('timer-overlay');
-const $timerRingProgress = document.getElementById('timer-ring-progress');
-const $timerText = document.getElementById('timer-text');
-const $timerModeIconPlay = document.getElementById('timer-mode-icon-play');
-const $timerModeIconPause = document.getElementById('timer-mode-icon-pause');
 const $workoutComplete = document.getElementById('workout-complete');
 const $workoutTotalTime = document.getElementById('workout-total-time');
 const $workoutCloseBtn = document.getElementById('workout-close-btn');
 const $startWorkoutBtn = document.getElementById('start-workout-btn');
+const $footerLogo = document.getElementById('footer-logo');
+
+// Teaching-peek timer (R-09: auto-shows the peek card for 2s on preview start
+// so the user learns the vocabulary once).
+let teachingPeekTimer = null;
 
 // ============================================================
 // Data fetching
@@ -210,23 +216,24 @@ function buildCard(slide, index) {
     return buildRestCard(slide, index);
   }
 
-  const prescriptionPills = buildPrescription(slide);
   const mediaHTML = buildMedia(slide, index);
-  const circuitBar = buildCircuitBar(slide);
-
   const displayName = slide.name || ('Exercise ' + (index + 1));
+  const detail = buildActiveSlideDetail(slide);
+  // Circuit bar was removed per item 14 — circuit context now lives in the
+  // progress-pill matrix (stacked rows under the coral tint band).
 
   return `
     <div class="exercise-card" data-index="${index}">
       <div class="card-inner">
-        ${circuitBar}
-        <div class="card-media">
+        <div class="card-media" data-media-index="${index}">
           ${mediaHTML}
+          ${buildMediaPauseOverlay()}
+          ${buildPrepOverlay()}
         </div>
         <div class="card-body">
           <div class="card-position">Exercise ${Number.parseInt(slide.position, 10) || index + 1}</div>
           <div class="card-exercise-name">${escapeHTML(displayName)}</div>
-          ${prescriptionPills ? `<div class="card-prescription">${prescriptionPills}</div>` : ''}
+          ${detail ? `<div class="active-slide-detail">${detail}</div>` : ''}
           ${slide.notes ? `<div class="card-notes">${escapeHTML(slide.notes)}</div>` : ''}
         </div>
       </div>
@@ -235,41 +242,105 @@ function buildCard(slide, index) {
 }
 
 function buildRestCard(slide, index) {
-  // Rest card: icon + "Rest" title + "Next up: X" subtitle only.
-  // The numeric countdown is owned by the bottom-right timer chip in
-  // workout mode — no duplication here.
+  // Rest card: icon + "Rest" title + "Next up: X" subtitle. The luxurious
+  // bottom detail ("30s rest") lives under card-body. Tap to pause/resume
+  // is via the same .media-pause-overlay as exercise slides.
   const nextSlide = index < slides.length - 1 ? slides[index + 1] : null;
   const nextUpName = nextSlide ? (nextSlide.name || 'Next exercise') : null;
-  const circuitBar = buildCircuitBar(slide);
+  const detail = buildActiveSlideDetail(slide);
 
   return `
     <div class="exercise-card" data-index="${index}">
       <div class="card-inner rest-card">
-        ${circuitBar}
-        <div class="rest-display">
-          <div class="rest-icon">
-            <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="2" opacity="0.3"/>
-              <circle cx="32" cy="32" r="20" stroke="currentColor" stroke-width="2" opacity="0.2"/>
-              <circle cx="32" cy="32" r="12" stroke="currentColor" stroke-width="2" opacity="0.15"/>
-              <path d="M32 20v12l8 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+        <div class="card-media rest-media" data-media-index="${index}">
+          <div class="rest-display">
+            <div class="rest-icon">
+              <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="2" opacity="0.3"/>
+                <circle cx="32" cy="32" r="20" stroke="currentColor" stroke-width="2" opacity="0.2"/>
+                <circle cx="32" cy="32" r="12" stroke="currentColor" stroke-width="2" opacity="0.15"/>
+                <path d="M32 20v12l8 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="rest-title">Rest</div>
+            ${nextUpName ? `<div class="rest-next-up">Next up: ${escapeHTML(nextUpName)}</div>` : ''}
           </div>
-          <div class="rest-title">Rest</div>
-          ${nextUpName ? `<div class="rest-next-up">Next up: ${escapeHTML(nextUpName)}</div>` : ''}
+          ${buildMediaPauseOverlay()}
+          ${buildPrepOverlay()}
         </div>
+        ${detail ? `<div class="card-body"><div class="active-slide-detail">${detail}</div></div>` : ''}
       </div>
     </div>
   `;
 }
 
-function buildCircuitBar(slide) {
-  if (!slide.circuitRound) return '';
-  const round = Number.parseInt(slide.circuitRound, 10) || 1;
-  const totalRounds = Number.parseInt(slide.circuitTotalRounds, 10) || 1;
-  const posInCircuit = Number.parseInt(slide.positionInCircuit, 10) || 1;
-  const circuitSize = Number.parseInt(slide.circuitSize, 10) || 1;
-  return `<div class="circuit-bar">Circuit &middot; Round ${round} of ${totalRounds} &middot; Exercise ${posInCircuit} of ${circuitSize}</div>`;
+/**
+ * Item 8: centered dark-circle overlay with coral play icon. Shown only when
+ * the workout is paused on the active slide. Touch-transparent — the parent
+ * .card-media captures the tap and dispatches via handleMediaTap(). The
+ * overlay is injected into every card but only toggled visible on the
+ * currently active, paused slide.
+ */
+function buildMediaPauseOverlay() {
+  return `
+    <div class="media-pause-overlay">
+      <div class="pause-disc">
+        <svg class="pause-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <polygon points="6 3 20 12 6 21 6 3"/>
+        </svg>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Item 15: prep countdown overlay — big coral number fades over the last
+ * 200ms of each second. Lives inside card-media but above it. JS toggles
+ * visibility + drives the digit text + fade timing.
+ */
+function buildPrepOverlay() {
+  return `
+    <div class="prep-overlay" hidden>
+      <div class="prep-overlay-number">15</div>
+    </div>
+  `;
+}
+
+/**
+ * Item 5 — "luxurious" bottom detail line.
+ *   Standalone exercise: `3 sets · 10 reps · 5s hold`
+ *   Circuit exercise:    `10 reps · 5s hold`      (no sets — rounds carried by matrix)
+ *   Rest:                `30s rest`
+ * Returns a pre-escaped HTML string with <span> separators for the · dots.
+ */
+function buildActiveSlideDetail(slide) {
+  if (slide.media_type === 'rest') {
+    const secs = Number.parseInt(slide.hold_seconds, 10)
+      || Number.parseInt(slide.custom_duration_seconds, 10)
+      || 30;
+    return `${secs}s rest`;
+  }
+
+  const parts = [];
+  const isCircuit = !!slide.circuitRound;
+  const sets = Number.parseInt(slide.sets, 10);
+  const reps = Number.parseInt(slide.reps, 10);
+  const hold = Number.parseInt(slide.hold_seconds, 10);
+
+  // Standalone — include sets. Circuit — omit (rounds live in the matrix).
+  if (!isCircuit && Number.isFinite(sets) && sets > 0) {
+    parts.push(`${sets} sets`);
+  }
+  if (Number.isFinite(reps) && reps > 0) {
+    parts.push(`${reps} reps`);
+  }
+  if (Number.isFinite(hold) && hold > 0) {
+    parts.push(`${hold}s hold`);
+  }
+
+  if (!parts.length) return '';
+  // Use middle-dot · as the separator. Wrap in text since CSS is all styling.
+  return parts.map(escapeHTML).join(' <span class="sep">·</span> ');
 }
 
 function buildMedia(exercise, index) {
@@ -293,6 +364,9 @@ function buildMedia(exercise, index) {
   if (exercise.media_type === 'video') {
     const mutedAttr = exercise.include_audio ? '' : 'muted';
     const posterAttr = exercise.thumbnail_url ? `poster="${escapeHTML(exercise.thumbnail_url)}"` : '';
+    // No inline play overlay — item 7/8 consolidate pause/resume on a single
+    // mode-aware tap target (.card-media → handleMediaTap). The
+    // .media-pause-overlay inside the card toggles for the paused state.
     return `
       <video
         id="video-${index}"
@@ -303,11 +377,6 @@ function buildMedia(exercise, index) {
         preload="auto"
         ${posterAttr}
       ></video>
-      <div class="video-play-overlay is-hidden" data-video-index="${index}">
-        <div class="play-button">
-          <svg viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
-        </div>
-      </div>
     `;
   }
 
@@ -367,25 +436,55 @@ let peekState = {
   timer: null,
 };
 
+// Item 11: aspectish 28×22 / 22×20 / 16×18. Smaller pills overall so the
+// entire plan fits the viewport without scrolling on most hardware.
 const MATRIX_SPECS = {
-  spacious: { width: 72, height: 40, gap: 8 },
-  medium:   { width: 48, height: 32, gap: 8 },
-  dense:    { width: 24, height: 12, gap: 8 },
+  spacious: { width: 28, height: 22, gap: 8 },
+  medium:   { width: 22, height: 20, gap: 8 },
+  dense:    { width: 16, height: 18, gap: 8 },
 };
 
 const LONG_PRESS_MS = 380;
 const MATRIX_AUTO_SNAP_MS = 4000;
 
 /**
- * Choose a size tier based on total columns + viewport width. Spacious when
- * the matrix comfortably fits within ~1.5 × viewport, medium when it fits in
- * ~1.8 × viewport, else dense. The goal is "most pills visible most of the time".
+ * Item 6: pick the LARGEST tier that fits the viewport without horizontal
+ * scroll. Only drop down when a tier genuinely overflows. Leaves ~16px of
+ * gutter on each side (+ ETA slot width) so the matrix doesn't press up
+ * against the viewport edge. When even 'dense' doesn't fit we stay on
+ * 'dense' and accept scroll (rare — only enormous plans).
  */
+const MATRIX_SIDE_PADDING = 32;  // 16px each side
+const MATRIX_ETA_SLOT = 140;     // matches .matrix-eta min-width + gap
+
 function chooseMatrixSizeTier(columnCount, viewportWidth) {
-  const fits = (spec) => columnCount * (spec.width + spec.gap);
-  if (fits(MATRIX_SPECS.spacious) <= viewportWidth * 1.5) return 'spacious';
-  if (fits(MATRIX_SPECS.medium)   <= viewportWidth * 1.8) return 'medium';
+  const available = viewportWidth - MATRIX_SIDE_PADDING - MATRIX_ETA_SLOT;
+  const fits = (spec) => columnCount * (spec.width + spec.gap) <= available;
+  if (fits(MATRIX_SPECS.spacious)) return 'spacious';
+  if (fits(MATRIX_SPECS.medium))   return 'medium';
   return 'dense';
+}
+
+/**
+ * Item 12 — number-grammar pills, preserved for future re-enable.
+ * Currently pills render empty (item 1), but the grammar helper stays so
+ * toggling labels back on is a one-line change.
+ *   Standalone: `S|R|H`
+ *   Circuit:    `R|H`
+ *   Rest:       no label
+ */
+// eslint-disable-next-line no-unused-vars
+function pillGrammarLabel(slide) {
+  if (slide.media_type === 'rest') return '';
+  const parts = [];
+  const isCircuit = !!slide.circuitRound;
+  const sets = Number.parseInt(slide.sets, 10);
+  const reps = Number.parseInt(slide.reps, 10);
+  const hold = Number.parseInt(slide.hold_seconds, 10);
+  if (!isCircuit && Number.isFinite(sets)) parts.push(String(sets));
+  if (Number.isFinite(reps)) parts.push(String(reps));
+  if (Number.isFinite(hold) && hold > 0) parts.push(String(hold));
+  return parts.join('|');
 }
 
 /**
@@ -433,26 +532,9 @@ function buildMatrixColumns() {
   return columns;
 }
 
-/** SVG body glyph (stick figure) or rest glyph (tick in circle). */
-function glyphSVG(isRest) {
-  if (isRest) {
-    return '<svg class="glyph-body" viewBox="0 0 14 14" width="14" height="14">'
-         + '<circle cx="7" cy="7" r="4"/>'
-         + '<path d="M4.5 7l2 1.5L9.5 5.5"/></svg>';
-  }
-  return '<svg class="glyph-body" viewBox="0 0 14 14" width="14" height="14">'
-       + '<circle class="glyph-head" cx="7" cy="3.5" r="1.6"/>'
-       + '<path d="M7 5.2v5M4 7.2l6 0M5 10.2l-1 2.2M9 10.2l1 2.2"/></svg>';
-}
-
-function shortLabelFor(slide, index) {
-  if (slide.media_type === 'rest') return 'REST';
-  const name = slide.name || '';
-  if (!name) return String(index + 1);
-  const first = name.split(/\s+/)[0] || '';
-  const up = first.toUpperCase();
-  return up.length > 6 ? up.substring(0, 6) : up;
-}
+// Legacy glyph/label helpers removed — pills are empty per item 1. The
+// pillGrammarLabel() function (defined above) preserves the number-grammar
+// spec (item 12) for a future re-enable.
 
 /** Build the DOM for the matrix (columns + pills). One-time per render. */
 function buildProgressMatrix() {
@@ -461,9 +543,6 @@ function buildProgressMatrix() {
   const columns = buildMatrixColumns();
   const viewportWidth = window.innerWidth || 375;
   matrixSizeTier = chooseMatrixSizeTier(columns.length, viewportWidth);
-  // The circuit tint band is drawn via the .matrix-col.is-circuit class rather
-  // than a separately positioned overlay — adjacent circuit columns merge
-  // seamlessly via the negative-margin rule in styles.css.
 
   $matrixInner.className = 'progress-matrix-inner';
   const columnsHTML = columns.map((col, colIdx) => {
@@ -472,17 +551,12 @@ function buildProgressMatrix() {
       const isRest = slide.media_type === 'rest';
       const sizeClass = 'size-' + matrixSizeTier;
       const restClass = isRest ? ' is-rest' : '';
-      const label = shortLabelFor(slide, slideIdx);
-      const glyph = glyphSVG(isRest);
-      const content = matrixSizeTier === 'dense'
-        ? ''
-        : `<span class="pill-content">
-             <span class="pill-icon">${glyph}</span>
-             ${matrixSizeTier === 'spacious' ? `<span>${escapeHTML(label)}</span>` : ''}
-           </span>`;
+      // Item 1: pills are EMPTY — no glyph, no label. Just the hull + fill
+      // bar. The macro fill-up effect (item 2) and colour coding carry all
+      // the information the user needs at a glance. Grammar helper lives in
+      // pillGrammarLabel() for future re-enable.
       return `<div class="pill ${sizeClass}${restClass}" data-slide="${slideIdx}">
                 <span class="pill-fill"></span>
-                ${content}
               </div>`;
     }).join('');
 
@@ -490,27 +564,28 @@ function buildProgressMatrix() {
     return `<div class="matrix-col${circuitClass}" data-col="${colIdx}">${rowsHTML}</div>`;
   }).join('');
 
-  // ETA widget — last grid column in the matrix. Scrolls with the matrix by
-  // virtue of being a child of .progress-matrix-inner; its content is driven
-  // separately by the updateEtaDisplay() tick so the wall-clock drifts while
-  // paused (see pattern note at calculateRemainingWorkoutSeconds()).
+  // Item 4: 3-number ETA row — `current · total · ~finish`. All three numbers
+  // are mono, 13pt. current = active-slide remaining (coral bold), total =
+  // whole-plan remaining (white bold), finish = wall-clock finish (muted).
+  // Content driven by updateEtaDisplay() on every tick.
   const etaHTML = `
     <div class="matrix-eta" id="matrix-eta" aria-live="polite">
-      <div class="matrix-eta-remaining">
-        <span class="matrix-eta-remaining-value" id="matrix-eta-remaining">0:00</span><span class="matrix-eta-remaining-suffix"> left</span>
-      </div>
-      <div class="matrix-eta-finish" id="matrix-eta-finish">~--:--</div>
+      <span class="matrix-eta-current" id="matrix-eta-current">0:00</span>
+      <span class="matrix-eta-sep">·</span>
+      <span class="matrix-eta-total" id="matrix-eta-total">0:00</span>
+      <span class="matrix-eta-sep">·</span>
+      <span class="matrix-eta-finish" id="matrix-eta-finish">~--:--</span>
     </div>`;
 
   $matrixInner.innerHTML = columnsHTML + etaHTML;
 
   // Cache ETA DOM refs after the innerHTML swap.
   $etaBlock = $matrixInner.querySelector('#matrix-eta');
-  $etaRemaining = $matrixInner.querySelector('#matrix-eta-remaining');
+  $etaCurrent = $matrixInner.querySelector('#matrix-eta-current');
+  $etaTotal = $matrixInner.querySelector('#matrix-eta-total');
   $etaFinish = $matrixInner.querySelector('#matrix-eta-finish');
 
   // Force layout to run so offsetLeft queries are accurate before first updateUI.
-  // No-op if we can't read (jsdom etc.); cheap otherwise.
   void $matrixInner.offsetWidth;
 }
 
@@ -580,42 +655,60 @@ function matrixPointToPillEl(clientX, clientY) {
   return el.closest ? el.closest('.pill[data-slide]') : null;
 }
 
-function openPeek(slideIdx) {
+/**
+ * Item 9 — centered peek. Shows name + decoded grammar line. CSS positions
+ * the panel at viewport center (translate(-50%, -50%)); no per-pill math.
+ * The optional `teaching` flag adds a fade-out animation that retires the
+ * peek cleanly after the teaching window.
+ */
+function openPeek(slideIdx, opts) {
+  const teaching = !!(opts && opts.teaching);
   const slide = slides[slideIdx];
   if (!slide) return;
   const name = slide.media_type === 'rest'
     ? 'Rest'
     : (slide.name || `Exercise ${slideIdx + 1}`);
-  const metaParts = [];
-  if (slide.sets && slide.reps) metaParts.push(`${slide.sets} × ${slide.reps}`);
-  else if (slide.reps) metaParts.push(`${slide.reps} reps`);
-  if (slide.hold_seconds) metaParts.push(`hold ${slide.hold_seconds}s`);
+
+  // Decoded grammar — same detail line the bottom row uses (luxurious item 5),
+  // stripped of HTML-escape wrappers. Plus a rest prefix for circuits so the
+  // user knows what they're scrubbing to.
+  let meta = '';
+  if (slide.media_type === 'rest') {
+    const secs = Number.parseInt(slide.hold_seconds, 10)
+      || Number.parseInt(slide.custom_duration_seconds, 10)
+      || 30;
+    meta = `${secs}s rest`;
+  } else {
+    const parts = [];
+    const isCircuit = !!slide.circuitRound;
+    const sets = Number.parseInt(slide.sets, 10);
+    const reps = Number.parseInt(slide.reps, 10);
+    const hold = Number.parseInt(slide.hold_seconds, 10);
+    if (!isCircuit && Number.isFinite(sets) && sets > 0) parts.push(`${sets} sets`);
+    if (Number.isFinite(reps) && reps > 0) parts.push(`${reps} reps`);
+    if (Number.isFinite(hold) && hold > 0) parts.push(`${hold}s hold`);
+    if (isCircuit && slide.circuitRound && slide.circuitTotalRounds) {
+      // Prefix circuit round so the scrub peek tells the user where they are.
+      parts.unshift(`Circuit · Round ${slide.circuitRound} of ${slide.circuitTotalRounds}`);
+    }
+    meta = parts.join(' · ');
+  }
+
   $peekName.textContent = name;
-  $peekMeta.textContent = metaParts.join(' · ');
-
-  // Make visible first so we can measure, then position above the pill.
+  $peekMeta.textContent = meta;
+  $peekPanel.classList.toggle('is-teaching', teaching);
   $peekPanel.hidden = false;
-  positionPeek(slideIdx);
-}
-
-function positionPeek(slideIdx) {
-  if ($peekPanel.hidden) return;
-  const pill = $matrixInner.querySelector(`.pill[data-slide="${slideIdx}"]`);
-  if (!pill) return;
-  const rect = pill.getBoundingClientRect();
-  const panelWidth = $peekPanel.offsetWidth || 200;
-  const panelHeight = $peekPanel.offsetHeight || 140;
-  // Centre horizontally over the pill; clamp to viewport edges (8px margin).
-  let left = rect.left + rect.width / 2 - panelWidth / 2;
-  left = Math.max(8, Math.min(window.innerWidth - panelWidth - 8, left));
-  const top = rect.top - panelHeight - 16;
-  $peekPanel.style.left = `${left}px`;
-  $peekPanel.style.top = `${Math.max(8, top)}px`;
 }
 
 function closePeek() {
   $peekPanel.hidden = true;
+  $peekPanel.classList.remove('is-teaching');
 }
+
+// Kept for backward compatibility with the touch handlers that used to call
+// this; with centered positioning there's no per-pill math to do.
+// eslint-disable-next-line no-unused-vars
+function positionPeek(_slideIdx) { /* no-op */ }
 
 function highlightScrubbedPill(slideIdx) {
   $matrixInner.querySelectorAll('.pill.is-scrubbed').forEach((p) =>
@@ -665,8 +758,9 @@ function jumpToSlide(slideIdx) {
     clearWorkoutTimer();
     clearPrepTimer();
     isTimerRunning = false;
-    hideTimerDisplay();
+    isPrepPhase = false;
   }
+  closePeek();
   goTo(slideIdx);
 }
 
@@ -704,6 +798,16 @@ function onMatrixTouchStart(e) {
   }, LONG_PRESS_MS);
 }
 
+/** Item 6: when the matrix fits the viewport without scroll, drag is disabled. */
+function matrixFitsViewport() {
+  if (!$matrixInner) return true;
+  const columns = buildMatrixColumns();
+  const viewportWidth = window.innerWidth || 375;
+  const available = viewportWidth - MATRIX_SIDE_PADDING - MATRIX_ETA_SLOT;
+  const spec = MATRIX_SPECS[matrixSizeTier] || MATRIX_SPECS.dense;
+  return columns.length * (spec.width + spec.gap) <= available;
+}
+
 function onMatrixTouchMove(e) {
   const touch = e.touches ? e.touches[0] : e;
   if (!touch) return;
@@ -738,6 +842,8 @@ function onMatrixTouchMove(e) {
   }
 
   if (matrixTouchStart.moved && Math.abs(dx) > Math.abs(dy)) {
+    // Item 6: skip the scrub if the entire track already fits.
+    if (matrixFitsViewport()) return;
     // Manual scrub — translate by the delta since last move event.
     const lastX = matrixTouchStart._lastX ?? touch.clientX;
     const delta = touch.clientX - lastX;
@@ -813,6 +919,10 @@ function goTo(index) {
   updateUI();
   // After a jump, recompute immediately so we don't wait 1s for the ticker.
   updateEtaDisplay();
+  // Slide state changed — re-evaluate the pause/prep overlay visibility on
+  // the new active slide and hide them on the old one.
+  updatePauseOverlay();
+  updatePrepOverlay();
 
   // Auto-play the current slide's video (muted, looped). Safari's autoplay
   // policy may block this if there hasn't been a user gesture yet — swallow
@@ -833,8 +943,9 @@ function goNext() {
     clearPrepTimer();
     isTimerRunning = false;
     isPrepPhase = false;
-    hideTimerDisplay();
   }
+  // Close any peek / prep overlay so we don't linger into the new slide.
+  closePeek();
   goTo(currentIndex + 1);
 }
 
@@ -844,8 +955,8 @@ function goPrev() {
     clearPrepTimer();
     isTimerRunning = false;
     isPrepPhase = false;
-    hideTimerDisplay();
   }
+  closePeek();
   goTo(currentIndex - 1);
 }
 
@@ -861,16 +972,16 @@ function clearPrepTimer() {
     clearInterval(prepTimer);
     prepTimer = null;
   }
+  if (prepFadeTimer) {
+    clearTimeout(prepFadeTimer);
+    prepFadeTimer = null;
+  }
   isPrepPhase = false;
 }
 
 function autoPlayCurrentVideo() {
   const currentVideo = document.getElementById(`video-${currentIndex}`);
   if (!currentVideo) return;
-  const overlay = $cardTrack.querySelector(
-    `.video-play-overlay[data-video-index="${currentIndex}"]`
-  );
-  if (overlay) overlay.classList.add('is-hidden');
   currentVideo.play().catch((err) => {
     console.warn('video autoplay blocked:', err);
   });
@@ -903,31 +1014,9 @@ function updateUI() {
 // Video Playback
 // ============================================================
 
-function handleVideoTap(e) {
-  const overlay = e.target.closest('.video-play-overlay');
-  if (!overlay) return;
-
-  const videoIndex = parseInt(overlay.dataset.videoIndex, 10);
-  const video = document.getElementById(`video-${videoIndex}`);
-  if (!video) return;
-
-  if (video.paused) {
-    video.play();
-    overlay.classList.add('is-hidden');
-  } else {
-    video.pause();
-    overlay.classList.remove('is-hidden');
-  }
-}
-
 function pauseAllVideos() {
   document.querySelectorAll('video').forEach(v => {
     v.pause();
-  });
-  // Per-video play overlay is hidden by default; we only reveal it when the
-  // user manually pauses the current slide's video via tap (see handleVideoTap).
-  document.querySelectorAll('.video-play-overlay').forEach(o => {
-    o.classList.add('is-hidden');
   });
 }
 
@@ -1010,15 +1099,22 @@ function onKeyDown(e) {
     goPrev();
   } else if (e.key === ' ' && isWorkoutMode) {
     e.preventDefault();
-    handleTimerOverlayTap();
+    // Spacebar is a keyboard equivalent of tapping the active media area.
+    // Same mode-aware dispatch as handleMediaTap without the event target.
+    if (isPrepPhase) {
+      finishPrepPhase();
+    } else if (isTimerRunning) {
+      pauseTimer();
+    } else if (remainingSeconds > 0) {
+      resumeTimer();
+    }
+    updatePauseOverlay();
   }
 }
 
 // ============================================================
 // Workout Timer
 // ============================================================
-
-const TIMER_CIRCUMFERENCE = 2 * Math.PI * 54; // ~339.29
 
 /**
  * Calculate the duration in seconds for an exercise slide.
@@ -1072,6 +1168,23 @@ function sumUpcomingDurations(startIndex) {
 }
 
 /**
+ * Seconds left on the active slide (exclusive of upcoming slides). During
+ * prep: prep runway + full active-slide duration. Running / paused: the
+ * authoritative `remainingSeconds` tick counter.
+ */
+function calculateActiveSlideRemainingSeconds() {
+  if (!slides.length) return 0;
+  if (!isWorkoutMode) {
+    // Pre-workout: current slide's full duration.
+    return calculateDuration(slides[currentIndex]);
+  }
+  if (isPrepPhase) {
+    return prepRemainingSeconds + calculateDuration(slides[currentIndex]);
+  }
+  return Math.max(0, remainingSeconds);
+}
+
+/**
  * Workout seconds left from "right now" — the active slide's remaining
  * portion plus the full duration of every slide after it.
  *
@@ -1081,17 +1194,8 @@ function sumUpcomingDurations(startIndex) {
  */
 function calculateRemainingWorkoutSeconds() {
   if (!slides.length) return 0;
-  if (!isWorkoutMode) {
-    // Not started yet — total plan time from the current slide forward.
-    return sumUpcomingDurations(currentIndex);
-  }
-  let active = 0;
-  if (isPrepPhase) {
-    active = prepRemainingSeconds + calculateDuration(slides[currentIndex]);
-  } else {
-    active = Math.max(0, remainingSeconds);
-  }
-  return active + sumUpcomingDurations(currentIndex + 1);
+  return calculateActiveSlideRemainingSeconds()
+    + sumUpcomingDurations(currentIndex + 1);
 }
 
 /**
@@ -1116,6 +1220,7 @@ function formatFinishTime(date) {
 /**
  * Render the ETA widget. Called on every workout-tick AND on an independent
  * 1s wall-clock tick so the finish time drifts forward while paused.
+ * Item 4: three numbers — current, total, finish.
  */
 function updateEtaDisplay() {
   if (!$etaBlock) return;
@@ -1129,11 +1234,24 @@ function updateEtaDisplay() {
     return;
   }
 
-  const secs = calculateRemainingWorkoutSeconds();
-  const finishAt = new Date(Date.now() + secs * 1000);
+  const activeSecs = calculateActiveSlideRemainingSeconds();
+  const totalSecs = calculateRemainingWorkoutSeconds();
+  const finishAt = new Date(Date.now() + totalSecs * 1000);
 
-  if ($etaRemaining) $etaRemaining.textContent = formatTime(Math.max(0, secs));
+  if ($etaCurrent) $etaCurrent.textContent = formatTime(Math.max(0, activeSecs));
+  if ($etaTotal) $etaTotal.textContent = formatTime(Math.max(0, totalSecs));
   if ($etaFinish) $etaFinish.textContent = `~${formatFinishTime(finishAt)}`;
+
+  // Item 15: prep-phase flash — current-slide token + active pill.
+  if ($etaCurrent) {
+    $etaCurrent.classList.toggle('is-prep-flashing', isPrepPhase);
+  }
+  if ($matrixInner) {
+    const activePill = $matrixInner.querySelector('.pill.is-active');
+    if (activePill) {
+      activePill.classList.toggle('is-prep-flashing', isPrepPhase);
+    }
+  }
 }
 
 // Mirrors the Flutter widget.workoutComplete flag for the ETA "Done" state.
@@ -1203,8 +1321,9 @@ function enterWorkoutPhaseForCurrent() {
 }
 
 /**
- * Begin the 15-second prep countdown. The timer chip shows the prep seconds
- * with a play-arrow glyph; tapping the chip skips to the running phase.
+ * Begin the 15-second prep countdown. The big coral prep overlay counts
+ * down; tapping the media area skips to the running phase (item 7). The
+ * current-slide ETA number + active pill flash during prep (item 15).
  */
 function startPrepPhase() {
   clearPrepTimer();
@@ -1214,8 +1333,9 @@ function startPrepPhase() {
   isTimerRunning = false;
   prepRemainingSeconds = PREP_SECONDS;
 
-  updateTimerDisplay();
-  showTimerDisplay();
+  updatePrepOverlay();
+  schedulePrepFade();
+  updatePauseOverlay();
   // ETA now reflects prep seconds + new slide's full duration + upcoming.
   updateEtaDisplay();
 
@@ -1230,13 +1350,16 @@ function onPrepTick() {
     finishPrepPhase();
     return;
   }
-  updateTimerDisplay();
+  updatePrepOverlay();
+  schedulePrepFade();
   // Prep seconds are part of "remaining" — tick the ETA too.
   updateEtaDisplay();
 }
 
 function finishPrepPhase() {
   clearPrepTimer();
+  // Hide the prep overlay, drop the flash.
+  updatePrepOverlay();
   startTimer();
 }
 
@@ -1248,21 +1371,21 @@ function startTimer() {
   clearPrepTimer();
 
   isTimerRunning = true;
-  updateTimerDisplay();
-  showTimerDisplay();
+  updatePauseOverlay();
   updateEtaDisplay();
 
   workoutTimer = setInterval(onTimerTick, 1000);
 }
 
-function showTimerDisplay() {
-  // Show the timer chip for every slide in workout mode — including rest
-  // slides. The chip is the single source of truth for the countdown.
-  $timerOverlay.hidden = false;
-}
-
+/**
+ * Legacy stubs — the dedicated timer chip is gone (item 7). Keeping the
+ * function names so any late-bound call site from pre-parity code no-ops
+ * instead of throwing.
+ */
+function showTimerDisplay() { /* no-op */ }
 function hideTimerDisplay() {
-  $timerOverlay.hidden = true;
+  // Belt-and-braces: hide the legacy element if anyone kept its markup.
+  if ($timerOverlay) $timerOverlay.hidden = true;
 }
 
 /**
@@ -1275,7 +1398,6 @@ function onTimerTick() {
 
   if (remainingSeconds <= 0) {
     remainingSeconds = 0;
-    updateTimerDisplay();
     updateProgressMatrix();
     clearInterval(workoutTimer);
     workoutTimer = null;
@@ -1286,50 +1408,14 @@ function onTimerTick() {
     return;
   }
 
-  updateTimerDisplay();
   // Matrix active-pill fill needs a per-second nudge too.
   updateProgressMatrix();
   updateEtaDisplay();
 }
 
-/**
- * Update the visual timer display (ring + text + mode icon). Handles three
- * modes: prep (counts 15→0, shows integer seconds + play arrow), running
- * (counts down, shows M:SS + pause glyph), paused (frozen, M:SS + play arrow).
- */
-function updateTimerDisplay() {
-  if (isPrepPhase) {
-    // Prep mode: integer seconds, play-arrow icon, ring counts 15→0.
-    $timerText.textContent = String(Math.max(0, prepRemainingSeconds));
-    const progress = PREP_SECONDS > 0
-      ? (1 - (prepRemainingSeconds / PREP_SECONDS))
-      : 0;
-    const offset = TIMER_CIRCUMFERENCE * (1 - progress);
-    $timerRingProgress.setAttribute('stroke-dashoffset', offset.toString());
-    $timerRingProgress.setAttribute('stroke', '#FF6B35');
-    setTimerModeIcon('play');
-    return;
-  }
-
-  // Running / paused mode
-  $timerText.textContent = formatTime(remainingSeconds);
-
-  const progress = totalSeconds > 0 ? (1 - (remainingSeconds / totalSeconds)) : 0;
-  const offset = TIMER_CIRCUMFERENCE * (1 - progress);
-  $timerRingProgress.setAttribute('stroke-dashoffset', offset.toString());
-
-  // Red only in final 10% of the exercise for urgency; otherwise coral.
-  const pct = totalSeconds > 0 ? (remainingSeconds / totalSeconds) : 1;
-  $timerRingProgress.setAttribute('stroke', pct <= 0.10 ? '#EF4444' : '#FF6B35');
-
-  setTimerModeIcon(isTimerRunning ? 'pause' : 'play');
-}
-
-function setTimerModeIcon(mode) {
-  // mode: 'play' or 'pause'
-  $timerModeIconPlay.hidden = mode !== 'play';
-  $timerModeIconPause.hidden = mode !== 'pause';
-}
+// updateTimerDisplay + setTimerModeIcon removed — the dedicated chip is
+// gone (item 7). Prep digits are driven by updatePrepOverlay(); pause state
+// is driven by updatePauseOverlay(); countdown numbers read from the ETA row.
 
 /**
  * Timer hit zero -- advance to next slide. goTo() re-enters the workout
@@ -1348,7 +1434,9 @@ function onTimerComplete() {
 }
 
 /**
- * Pause the running timer
+ * Pause the running timer. Freezes remainingSeconds (so the ETA "total"
+ * number stays static while the wall-clock finish time drifts forward),
+ * pauses the active video, and reveals the centered pause overlay.
  */
 function pauseTimer() {
   if (!isTimerRunning) return;
@@ -1359,7 +1447,7 @@ function pauseTimer() {
   if (currentVideo && !currentVideo.paused) {
     currentVideo.pause();
   }
-  updateTimerDisplay();
+  updatePauseOverlay();
   // ETA clock keeps running in the background — remaining stays static,
   // finish-time drifts forward. Nudge once to reflect immediately.
   updateEtaDisplay();
@@ -1379,24 +1467,31 @@ function resumeTimer() {
       console.warn('video resume failed:', err);
     });
   }
-  updateTimerDisplay();
+  updatePauseOverlay();
   updateEtaDisplay();
 }
 
 /**
- * Single tap handler for the timer chip. Dispatches
- * based on current mode: prep → skip, running → pause, paused → resume.
+ * Item 7: single mode-aware tap handler for the media area.
+ * Prep → skip prep. Running → pause. Paused → resume.
  *
- * When the user just finished swiping horizontally on this overlay, the
- * browser still fires a synthetic click on touchend. Bail out so the swipe
- * doesn't also toggle pause/resume.
+ * Bail when the user just swiped, so the synthetic click that follows a
+ * touchend doesn't pause/resume by accident.
  */
-function handleTimerOverlayTap() {
+function handleMediaTap(e) {
   if (!isWorkoutMode) return;
   if (swipeState.didSwipe) {
     swipeState.didSwipe = false;
     return;
   }
+  // Only fire for taps that land on .card-media (or its children that aren't
+  // themselves interactive — we keep things simple by hoisting the listener
+  // to .card-media and letting children bubble up).
+  const mediaEl = e.target.closest ? e.target.closest('.card-media[data-media-index]') : null;
+  if (!mediaEl) return;
+  const idx = Number(mediaEl.getAttribute('data-media-index'));
+  if (!Number.isFinite(idx) || idx !== currentIndex) return;
+
   if (isPrepPhase) {
     finishPrepPhase();
     return;
@@ -1406,6 +1501,65 @@ function handleTimerOverlayTap() {
   } else if (remainingSeconds > 0) {
     resumeTimer();
   }
+  updatePauseOverlay();
+}
+
+/**
+ * Item 8: toggle the centered pause overlay on the active slide. Visible only
+ * when the workout is paused AND we're not in the prep phase. Other slides
+ * hide their overlay so we don't leave it visible in the wings of the card
+ * track.
+ */
+function updatePauseOverlay() {
+  if (!$cardTrack) return;
+  const overlays = $cardTrack.querySelectorAll('.media-pause-overlay');
+  const showActive = isWorkoutMode && !isPrepPhase && !isTimerRunning
+    && remainingSeconds > 0;
+  overlays.forEach((overlay) => {
+    const card = overlay.closest('.exercise-card');
+    const idx = card ? Number(card.getAttribute('data-index')) : -1;
+    overlay.classList.toggle('is-visible', showActive && idx === currentIndex);
+  });
+}
+
+/**
+ * Item 15: prep overlay digit. Shown only during the prep phase on the
+ * currently active slide. Digit text is driven by prepRemainingSeconds.
+ * The .is-fading class is added in the last 200ms of each second so the
+ * digit smoothly fades before the next one appears.
+ */
+function updatePrepOverlay() {
+  if (!$cardTrack) return;
+  const overlays = $cardTrack.querySelectorAll('.prep-overlay');
+  overlays.forEach((overlay) => {
+    const card = overlay.closest('.exercise-card');
+    const idx = card ? Number(card.getAttribute('data-index')) : -1;
+    const visible = isPrepPhase && idx === currentIndex;
+    overlay.hidden = !visible;
+    if (visible) {
+      const numEl = overlay.querySelector('.prep-overlay-number');
+      if (numEl) numEl.textContent = String(Math.max(0, prepRemainingSeconds));
+    }
+  });
+}
+
+/**
+ * Kick the fade animation at the start of each prep-second. Adds .is-fading
+ * ~800ms into the second and removes it when the next second's digit is set.
+ */
+let prepFadeTimer = null;
+function schedulePrepFade() {
+  if (prepFadeTimer) clearTimeout(prepFadeTimer);
+  const overlay = $cardTrack.querySelector(
+    `.exercise-card[data-index="${currentIndex}"] .prep-overlay`);
+  if (!overlay) return;
+  const numEl = overlay.querySelector('.prep-overlay-number');
+  if (!numEl) return;
+  numEl.classList.remove('is-fading');
+  // Last ~200ms of the 1000ms beat fade the current digit out.
+  prepFadeTimer = setTimeout(() => {
+    numEl.classList.add('is-fading');
+  }, 800);
 }
 
 /**
@@ -1415,8 +1569,10 @@ function finishWorkout() {
   clearWorkoutTimer();
   clearPrepTimer();
   isTimerRunning = false;
+  isPrepPhase = false;
 
-  hideTimerDisplay();
+  updatePauseOverlay();
+  updatePrepOverlay();
 
   // Calculate total workout time
   const elapsedMs = Date.now() - workoutStartTime;
@@ -1436,6 +1592,7 @@ function finishWorkout() {
 function exitWorkout() {
   isWorkoutMode = false;
   isTimerRunning = false;
+  isPrepPhase = false;
 
   clearWorkoutTimer();
   clearPrepTimer();
@@ -1443,13 +1600,11 @@ function exitWorkout() {
   workoutStartTime = null;
 
   $workoutComplete.hidden = true;
-  hideTimerDisplay();
+  updatePauseOverlay();
+  updatePrepOverlay();
 
   // Show the start workout button again
   $startWorkoutBtn.hidden = false;
-
-  // Reset matrix state — active/completed classes drop back to idle.
-  updateProgressMatrix();
 
   // Rebuild the matrix (which re-injects the ETA HTML replacing the "Done"
   // innerHTML, if it was set) and reset the end-state flag so the readout
@@ -1458,6 +1613,115 @@ function exitWorkout() {
   buildProgressMatrix();
   updateProgressMatrix();
   updateEtaDisplay();
+}
+
+// ============================================================
+// HomefitLogo (item 10)
+// ------------------------------------------------------------
+// Mini-plan glyph built entirely from pill primitives:
+//   col 1..2  — 2-exercise circuit × 2 rounds (coral pills, coral tint band)
+//   col 3     — 1 standalone exercise (coral pill, top row only)
+//   col 4     — 1 rest (sage pill, top row only)
+// Rail entry stub enters at (band left, top-row mid-y). Rail exit stub
+// leaves at (band right, bottom-row mid-y). Coral accents, sage for rest.
+// Rendered proportionally via inline SVG.
+// ============================================================
+
+function buildHomefitLogoSvg() {
+  // Mini-pill metrics — 5×3 per cell with 1.5 gaps.
+  const cell = 5;
+  const rowGap = 1.5;
+  const colGap = 1.5;
+  const rows = 2;
+  const cols = 4;
+  const bandCols = 2;         // circuit spans cols 0 and 1
+  const railStubLen = 3;
+  const padX = 2;
+  const padY = 2;
+
+  const bandX = padX + railStubLen - 0.5;
+  const bandY = padY - 0.5;
+  const bandW = bandCols * cell + (bandCols - 1) * colGap + 1;
+  const bandH = rows * 3 + (rows - 1) * rowGap + 1;
+
+  const cellX = (c) => padX + railStubLen + c * (cell + colGap);
+  const cellY = (r) => padY + r * (3 + rowGap);
+
+  const width = padX + railStubLen + cols * cell + (cols - 1) * colGap
+    + railStubLen + padX;
+  const height = padY + rows * 3 + (rows - 1) * rowGap + padY;
+
+  const coral = '#FF6B35';
+  const coralTint = 'rgba(255, 107, 53, 0.15)';
+  const sage = '#86EFAC';
+  const railColor = 'rgba(255, 107, 53, 0.7)';
+
+  let svg = `<svg class="homefit-logo" viewBox="0 0 ${width} ${height}"`
+    + ` xmlns="http://www.w3.org/2000/svg" aria-hidden="true">`;
+
+  // Rail entry stub — top row, just before band.
+  const topY = cellY(0) + 3 / 2;
+  svg += `<path d="M0 ${topY} L${bandX} ${topY}" stroke="${railColor}"`
+    + ` stroke-width="0.7" stroke-linecap="round"/>`;
+
+  // Coral tint band behind circuit columns.
+  svg += `<rect x="${bandX}" y="${bandY}" width="${bandW}" height="${bandH}"`
+    + ` rx="1.5" fill="${coralTint}"/>`;
+
+  // Circuit pills (cols 0,1 × rows 0,1) — coral.
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < bandCols; c++) {
+      svg += `<rect x="${cellX(c)}" y="${cellY(r)}" width="${cell}" height="3"`
+        + ` rx="1" fill="${coral}"/>`;
+    }
+  }
+
+  // Standalone coral pill — col 2, row 0 only.
+  svg += `<rect x="${cellX(2)}" y="${cellY(0)}" width="${cell}" height="3"`
+    + ` rx="1" fill="${coral}"/>`;
+
+  // Rest sage pill — col 3, row 0 only.
+  svg += `<rect x="${cellX(3)}" y="${cellY(0)}" width="${cell}" height="3"`
+    + ` rx="1" fill="${sage}"/>`;
+
+  // Rail exit stub — bottom row, just after the last col.
+  const botY = cellY(1) + 3 / 2;
+  const exitX = cellX(cols - 1) + cell;
+  svg += `<path d="M${exitX} ${botY} L${width} ${botY}" stroke="${railColor}"`
+    + ` stroke-width="0.7" stroke-linecap="round"/>`;
+
+  svg += `</svg>`;
+  return svg;
+}
+
+function renderFooterLogo() {
+  if (!$footerLogo) return;
+  // Prepend the SVG before the wordmark span.
+  const existingWordmark = $footerLogo.querySelector('.homefit-logo-wordmark');
+  $footerLogo.innerHTML = buildHomefitLogoSvg()
+    + (existingWordmark ? existingWordmark.outerHTML
+        : '<span class="homefit-logo-wordmark">homefit.studio</span>');
+}
+
+// ============================================================
+// Teaching peek (item 9 — R-09)
+// ------------------------------------------------------------
+// On preview start, auto-show the centered peek for the current slide for
+// 2 seconds so the user learns the visual grammar once. Stays out of the
+// way afterwards — only returns during long-press scrubbing in the matrix.
+// ============================================================
+
+function scheduleTeachingPeek() {
+  if (teachingPeekTimer) {
+    clearTimeout(teachingPeekTimer);
+    teachingPeekTimer = null;
+  }
+  if (!slides.length) return;
+  openPeek(currentIndex, { teaching: true });
+  teachingPeekTimer = setTimeout(() => {
+    closePeek();
+    teachingPeekTimer = null;
+  }, 2200);
 }
 
 // ============================================================
@@ -1498,6 +1762,7 @@ async function init() {
 
     // Render
     renderPlan();
+    renderFooterLogo();
 
     // Show app
     $loading.classList.add('fade-out');
@@ -1512,7 +1777,8 @@ async function init() {
     $cardViewport.addEventListener('touchstart', onTouchStart, { passive: true });
     $cardViewport.addEventListener('touchmove', onTouchMove, { passive: true });
     $cardViewport.addEventListener('touchend', onTouchEnd);
-    $cardViewport.addEventListener('click', handleVideoTap);
+    // Mode-aware pause — tap anywhere on the active slide's media area.
+    $cardViewport.addEventListener('click', handleMediaTap);
     document.addEventListener('keydown', onKeyDown);
 
     // Dot navigation
@@ -1524,8 +1790,9 @@ async function init() {
           clearWorkoutTimer();
           clearPrepTimer();
           isTimerRunning = false;
-          hideTimerDisplay();
+          isPrepPhase = false;
         }
+        closePeek();
         goTo(parseInt(dot.dataset.index, 10));
       }
     });
@@ -1534,10 +1801,8 @@ async function init() {
     $startWorkoutBtn.addEventListener('click', startWorkout);
     $workoutCloseBtn.addEventListener('click', exitWorkout);
 
-    // Timer chip is the only pause/play control — one tappable element that
-    // dispatches based on mode (prep / running / paused). It shows on all
-    // slides in workout mode, including rest slides.
-    $timerOverlay.addEventListener('click', handleTimerOverlayTap);
+    // (Item 7) The dedicated timer-chip click binding is retired — tapping
+    // the media area via handleMediaTap() is the only pause/resume control.
 
     // Progress-pill matrix — touch handlers drive both long-press peek
     // (finger held over a pill for >380ms) and manual scrub (horizontal drag).
@@ -1576,6 +1841,10 @@ async function init() {
 
     // Show the Start Workout button
     $startWorkoutBtn.hidden = false;
+
+    // R-09 teaching peek — 2s centered peek for the first slide so users
+    // learn the name + grammar vocabulary once.
+    scheduleTeachingPeek();
 
   } catch (err) {
     console.error('Failed to load plan:', err);

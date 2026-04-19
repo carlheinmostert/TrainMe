@@ -500,3 +500,12 @@ UI affordances default to their most obvious form — breathing glow on tappable
 Customisation belongs in Settings, as explicit pro-user toggles (e.g. "reduce motion", "hide insertion-dot pulse"). The system must not decide on its own that a user has "graduated" — that's paternalistic and penalises newcomers returning after a break.
 
 Rationale: Melissa and her peers will use this intermittently, often after weeks off. A UI that has quietly toned itself down since last visit feels broken. Obvious-by-default is forgiving; user-controlled toning-down is respectful.
+
+### R-10 · Player parity is non-negotiable
+
+Mobile (Flutter) and web (`session.homefit.studio`) players are ONE
+logical product. Every change to either surface MUST land in both the
+same iteration. Drift breaks the trainer's experience: she demos to the
+client on the web link, so any feature gap reads as "your tool is
+inconsistent". Don't ship player updates to one surface without porting
+to the other.

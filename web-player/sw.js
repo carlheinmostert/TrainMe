@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v13-rpc-fetch';
+const CACHE_NAME = 'homefit-player-v15-parity';
 
 // App shell files — always cached
 const APP_SHELL = [
