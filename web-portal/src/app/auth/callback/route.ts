@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase-server';
-import { PortalReferralApi } from '@/lib/supabase/api';
+import { createPortalApi, PortalReferralApi } from '@/lib/supabase/api';
 
 const REFERRAL_COOKIE = 'homefit_referral_code';
 const CONSENT_COOKIE = 'homefit_referral_consent';
@@ -59,20 +59,17 @@ async function tryClaimReferral(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return;
 
-  // Fetch the practice this user was bootstrapped into. RLS scopes
-  // practice_members to rows where trainer_id = auth.uid(), so we can
-  // safely select without an extra filter.
-  const { data: members, error } = await supabase
-    .from('practice_members')
-    .select('practice_id, joined_at')
-    .order('joined_at', { ascending: true })
-    .limit(1);
+  // Fetch the practice this user was bootstrapped into via the typed
+  // data-access layer. RLS scopes practice_members to rows where
+  // trainer_id = auth.uid(); listMyPractices() orders by joined_at asc
+  // so [0] is the first/bootstrapped practice.
+  const portal = createPortalApi(supabase);
+  const practices = await portal.listMyPractices();
+  if (practices.length === 0) return;
+  const practiceId = practices[0].id;
 
-  if (error || !members || members.length === 0) return;
-  const practiceId = members[0].practice_id as string;
-
-  const api = new PortalReferralApi(supabase);
-  await api.claimCode(referralCode, practiceId, consent);
+  const referralApi = new PortalReferralApi(supabase);
+  await referralApi.claimCode(referralCode, practiceId, consent);
 }
 
 function parseCookie(header: string, name: string): string | null {
