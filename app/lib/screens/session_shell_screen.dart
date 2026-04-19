@@ -17,9 +17,8 @@ import 'studio_mode_screen.dart';
 /// - "New Session" from home → opens with [initialPage] = 1 (Capture).
 /// - Tap existing session card → opens with [initialPage] = 0 (Studio).
 ///
-/// This is a speculative UX against the legacy single-screen
-/// [SessionCaptureScreen]. The legacy screen is still in the tree as a
-/// fallback — home_screen routing is the one-line rollback.
+/// Replaces the legacy single-screen capture UX (previously
+/// `session_capture_screen.dart`, removed in the dead-code cleanup).
 class SessionShellScreen extends StatefulWidget {
   final Session session;
   final LocalStorageService storage;
