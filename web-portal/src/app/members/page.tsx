@@ -30,7 +30,7 @@ export default async function MembersPage({
 
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut />
+      <BrandHeader showSignOut practiceId={practiceId} />
       <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link

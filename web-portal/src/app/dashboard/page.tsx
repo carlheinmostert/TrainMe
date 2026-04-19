@@ -46,7 +46,7 @@ export default async function DashboardPage({
 
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut />
+      <BrandHeader showSignOut practiceId={selected.id} />
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
