@@ -1,6 +1,12 @@
 import { ImageResponse } from 'next/og';
 import { getServerClient } from '@/lib/supabase-server';
 import { PortalReferralApi } from '@/lib/supabase/api';
+import {
+  brand,
+  ink,
+  surface,
+  PULSE_MARK_PATH,
+} from '@/lib/theme';
 
 // Dynamic Open Graph image for /r/{code}. This is what unfurls in
 // WhatsApp, iMessage, Twitter, LinkedIn, etc. when the practitioner
@@ -9,23 +15,23 @@ import { PortalReferralApi } from '@/lib/supabase/api';
 //
 // Next.js 15's built-in ImageResponse (next/og) compiles to an Edge
 // function, no `@vercel/og` install required.
+//
+// Satori (the renderer behind ImageResponse) does NOT support Tailwind
+// classes — only inline styles. So we consume the brand tokens from
+// theme.ts as plain string constants rather than through Tailwind utils.
 
 export const runtime = 'edge';
 export const contentType = 'image/png';
 export const size = { width: 1200, height: 630 };
 export const alt = 'Invitation to homefit.studio';
 
-const BRAND = '#FF6B35';
-const BRAND_LIGHT = '#FF8F5E';
-const BG = '#0F1117';
-const INK = '#F0F0F5';
-const INK_MUTED = '#9CA3AF';
-const SURFACE_BASE = '#1A1D27';
-const BORDER = '#2E3140';
-
-// SVG path data for the Pulse Mark (shared with theme.ts).
-const PULSE_MARK_PATH =
-  'M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2';
+const BRAND = brand.primary;
+const BRAND_LIGHT = brand.primaryLight;
+const BG = surface.bg;
+const INK = ink.primary;
+const INK_MUTED = ink.muted;
+const SURFACE_BASE = surface.base;
+const BORDER = surface.border;
 
 async function loadInviter(code: string): Promise<string> {
   try {
