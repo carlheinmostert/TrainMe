@@ -680,6 +680,49 @@ body {
   display: block;
 }
 
+/* Mute toggle — speaker-icon button in the top-right of each video
+   card. Only rendered for videos that ship with audio (see
+   buildMedia). Tap flips the runtime isMuted flag; play/pause is
+   not affected (Wave 3 test items 3 / 4 / 5). */
+.card-media .mute-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #FFFFFF;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 150ms ease, transform 100ms ease;
+  z-index: 6; /* above the video, below the prep / pause overlays */
+}
+.card-media .mute-toggle:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+.card-media .mute-toggle:active {
+  transform: scale(0.92);
+}
+.card-media .mute-toggle svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+.card-media .mute-toggle[aria-pressed="true"] {
+  background: rgba(0, 0, 0, 0.75);
+  color: #F0F0F5;
+}
+.card-media .mute-toggle:focus-visible {
+  outline: 2px solid var(--c-coral, #FF6B35);
+  outline-offset: 2px;
+}
+
 /* Placeholder when no media */
 .media-placeholder {
   display: flex;

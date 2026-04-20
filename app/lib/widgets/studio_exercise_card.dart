@@ -25,6 +25,14 @@ class StudioDefaults {
   static const int sets = 3;
   static const int holdSeconds = 0;
   static const int restSeconds = AppConfig.defaultRestDuration;
+
+  /// Prep-countdown runway in seconds (Wave 3 / Milestone P). The mobile
+  /// preview + web player both default to this when `exercise.prepSeconds`
+  /// is null. Practitioners can override per exercise via the "Prep
+  /// seconds" inline field on the Studio card. Keep in lockstep with
+  /// `_kPrepSeconds` in plan_preview_screen.dart and `PREP_SECONDS` in
+  /// web-player/app.js.
+  static const int prepSeconds = 5;
 }
 
 /// Returns true when [exercise] has any setting that deviates from the
@@ -44,6 +52,7 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
   if ((exercise.notes ?? '').isNotEmpty) return true;
   if (exercise.includeAudio) return true;
   if (exercise.customDurationSeconds != null) return true;
+  if (exercise.prepSeconds != null) return true;
   return false;
 }
 
@@ -462,6 +471,28 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
             _pushUpdate();
           },
         ),
+        // 10a. Prep-countdown override (Wave 3 / Milestone P).
+        //
+        // Null on the model → use the global default (5s); the field
+        // renders as "5s · default" in a muted tone. Tap to edit.
+        // Commit with an empty value OR 0 to clear the override; any
+        // positive integer writes a per-exercise prep runway. Sits in
+        // the Sets/Hold section next to the other timing attributes.
+        _PrepSecondsRow(
+          currentValue: widget.exercise.prepSeconds,
+          globalDefault: StudioDefaults.prepSeconds,
+          onCommit: (override) {
+            if (override == null) {
+              widget.onUpdate(
+                widget.exercise.copyWith(clearPrepSeconds: true),
+              );
+            } else {
+              widget.onUpdate(
+                widget.exercise.copyWith(prepSeconds: override),
+              );
+            }
+          },
+        ),
         // 11. Notes — unchanged.
         const SizedBox(height: 8),
         GestureDetector(
@@ -865,6 +896,216 @@ class _ToggleRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "Prep seconds" inline-editable integer field for the Studio exercise
+/// card's expanded panel (Wave 3 / Milestone P).
+///
+/// Renders in two modes:
+///   * Display — shows "{N}s" in coral text when an override is set, or
+///     "{default}s · default" in a muted tone when null. Tap to edit.
+///   * Edit — numeric TextField with "s" suffix. Submit commits a
+///     positive integer as the override. Empty / 0 / <=0 / non-numeric
+///     clears the override (copyWith(clearPrepSeconds: true)).
+///
+/// The practitioner can't set a negative prep; the CHECK constraint on
+/// Supabase + the edit-time guard below keep garbage out of the column.
+class _PrepSecondsRow extends StatefulWidget {
+  final int? currentValue;
+  final int globalDefault;
+  final ValueChanged<int?> onCommit;
+
+  const _PrepSecondsRow({
+    required this.currentValue,
+    required this.globalDefault,
+    required this.onCommit,
+  });
+
+  @override
+  State<_PrepSecondsRow> createState() => _PrepSecondsRowState();
+}
+
+class _PrepSecondsRowState extends State<_PrepSecondsRow> {
+  late final TextEditingController _controller;
+  final FocusNode _focusNode = FocusNode();
+  bool _editing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: widget.currentValue?.toString() ?? '',
+    );
+    _focusNode.addListener(_onFocusChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PrepSecondsRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_editing && oldWidget.currentValue != widget.currentValue) {
+      _controller.text = widget.currentValue?.toString() ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.removeListener(_onFocusChange);
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChange() {
+    if (!_focusNode.hasFocus && _editing) {
+      _commit();
+    }
+  }
+
+  void _startEditing() {
+    HapticFeedback.selectionClick();
+    _controller.text = widget.currentValue?.toString() ?? '';
+    setState(() => _editing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+      _controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _controller.text.length,
+      );
+    });
+  }
+
+  void _commit() {
+    final text = _controller.text.trim();
+    int? next;
+    if (text.isEmpty) {
+      next = null; // empty → clear override
+    } else {
+      final parsed = int.tryParse(text);
+      // 0 or negative → clear. Only positive integers are valid overrides;
+      // matches the CHECK constraint on Supabase (prep_seconds > 0).
+      if (parsed == null || parsed <= 0) {
+        next = null;
+      } else {
+        next = parsed;
+      }
+    }
+    if (next != widget.currentValue) {
+      widget.onCommit(next);
+    }
+    setState(() => _editing = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasOverride = widget.currentValue != null;
+    final displayText = hasOverride
+        ? '${widget.currentValue}s'
+        : '${widget.globalDefault}s · default';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          const Text(
+            'PREP',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
+              color: AppColors.textSecondaryOnDark,
+            ),
+          ),
+          const Spacer(),
+          if (_editing)
+            SizedBox(
+              width: 80,
+              child: TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontFamily: 'JetBrainsMono',
+                  fontFamilyFallback: ['Menlo', 'Courier'],
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textOnDark,
+                ),
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                  suffixText: 's',
+                  suffixStyle: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    color: AppColors.textSecondaryOnDark,
+                  ),
+                ),
+                onSubmitted: (_) => _commit(),
+              ),
+            )
+          else
+            GestureDetector(
+              onTap: _startEditing,
+              behavior: HitTestBehavior.opaque,
+              child: CustomPaint(
+                painter: _DashedUnderlinePainter(color: AppColors.grey500),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    displayText,
+                    style: TextStyle(
+                      fontFamily: 'JetBrainsMono',
+                      fontFamilyFallback: const ['Menlo', 'Courier'],
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: hasOverride
+                          ? AppColors.textOnDark
+                          : AppColors.textSecondaryOnDark
+                              .withValues(alpha: 0.7),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Dashed underline painter for the "Prep seconds" tappable field.
+/// Mirrors [InlineEditableText]'s local painter — duplicated here so the
+/// card widget stays self-contained.
+class _DashedUnderlinePainter extends CustomPainter {
+  final Color color;
+  _DashedUnderlinePainter({this.color = Colors.grey});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+
+    double startX = 0;
+    const dashWidth = 4.0;
+    const dashGap = 3.0;
+
+    while (startX < size.width) {
+      canvas.drawLine(
+        Offset(startX, size.height),
+        Offset(startX + dashWidth, size.height),
+        paint,
+      );
+      startX += dashWidth + dashGap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // -----------------------------------------------------------------------------
