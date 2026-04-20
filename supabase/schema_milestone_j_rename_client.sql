@@ -43,8 +43,9 @@ BEGIN
 
   -- Practice-membership gate. `user_practice_ids()` is the SECURITY
   -- DEFINER helper from Milestone C — bypasses RLS on practice_members
-  -- so we don't self-recurse.
-  IF NOT (v_practice_id = ANY (user_practice_ids())) THEN
+  -- so we don't self-recurse. It returns `SETOF uuid` (not `uuid[]`),
+  -- so we use IN-subquery — `= ANY(set)` is a type error.
+  IF NOT (v_practice_id IN (SELECT public.user_practice_ids())) THEN
     RAISE EXCEPTION 'not a member of this client''s practice'
       USING ERRCODE = '42501';
   END IF;
