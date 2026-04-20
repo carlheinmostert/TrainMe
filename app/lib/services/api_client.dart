@@ -646,16 +646,29 @@ class ApiClient {
   // ==========================================================================
 
   /// Upload a file to the private `raw-archive` bucket at [path]. Path
-  /// shape is `{practice_id}/{plan_id}/{exercise_id}.mp4`. Uses upsert so
-  /// a re-publish overwrites the existing object at the same path.
+  /// shape is `{practice_id}/{plan_id}/{exercise_id}.mp4`.
   ///
   /// The bucket is PRIVATE — the web player never reads this directly;
   /// it gets time-limited signed URLs via the `get_plan_full` RPC when
   /// client consent grants grayscale or original treatments.
   ///
+  /// **upsert is explicitly FALSE.** The bucket has no SELECT policy for
+  /// `authenticated` — and when `upsert: true`, Supabase Storage does an
+  /// internal existence check that RLS blocks, making the whole upload
+  /// fail silently. The caller (_uploadRawArchives) already gates by
+  /// `rawArchiveUploadedAt == null` so repeated calls on the same path
+  /// don't happen in practice. If a retry ever does collide, the
+  /// resulting 409 is caught by the caller and logged.
+  ///
+  /// **contentType is set explicitly** to avoid the SDK's mime-sniff
+  /// path, which reads the entire file into memory via
+  /// `readAsBytesSync()` — a multi-minute 720p H.264 archive would OOM
+  /// on iOS.
+  ///
   /// Best-effort from the caller's perspective: if the bucket doesn't
   /// exist (pre-migration) or the RLS check fails, this throws and the
-  /// caller is expected to swallow (see `UploadService._uploadRawArchives`).
+  /// caller is expected to log + swallow (see
+  /// `UploadService._uploadRawArchives`).
   Future<void> uploadRawArchive({
     required String path,
     required File file,
@@ -663,7 +676,10 @@ class ApiClient {
     await raw.storage.from(rawArchiveBucket).upload(
           path,
           file,
-          fileOptions: const FileOptions(upsert: true),
+          fileOptions: const FileOptions(
+            upsert: false,
+            contentType: 'video/mp4',
+          ),
         );
   }
 
