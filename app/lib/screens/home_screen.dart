@@ -11,9 +11,9 @@ import '../services/local_storage_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/bootstrap_error_banner.dart';
+import '../widgets/homefit_logo.dart';
 import '../widgets/new_client_sheet.dart';
 import '../widgets/offline_sync_chip.dart';
-import '../widgets/powered_by_footer.dart';
 import '../widgets/practice_chip.dart';
 import '../widgets/undo_snackbar.dart';
 import 'client_sessions_screen.dart';
@@ -428,6 +428,18 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            // Brand anchor. Matrix + wordmark lockup sits above the
+            // identity controls so Home reads as the brand's front
+            // door — the first thing a practitioner sees when opening
+            // the app. Identity controls (PracticeChip + offline chip +
+            // Settings) live underneath so the hierarchy is brand →
+            // identity → content.
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 16, 24, 8),
+              child: Center(
+                child: HomefitLogoLockup(size: 180),
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 8, 0),
               child: Row(
@@ -534,7 +546,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-            const PoweredByFooter(),
           ],
         ),
       ),
