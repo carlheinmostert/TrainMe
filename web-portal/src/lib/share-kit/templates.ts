@@ -53,7 +53,7 @@ export function buildWhatsAppOneToOne(slots: ShareKitSlots): string {
   // but the current mockup copy only uses it in the OG unfurl, not the
   // message body. Reference it so linters don't flag it as unused.
   void slots.firstName;
-  return `Hey {Colleague}, tried homefit.studio for my home programmes — makes the plans visual and tracks whether the client is keeping up. If you sign up through this you land with 8 free credits on me: ${slots.referralLink}`;
+  return `Hey {Colleague}, try homefit.studio — home care plans my clients actually follow. Created in-session, delivered on WhatsApp before they leave. Sign up through this and you land with 8 free credits on me: ${slots.referralLink}`;
 }
 
 /**
