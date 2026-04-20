@@ -2,7 +2,9 @@ import Link from 'next/link';
 import { HomefitLogo } from './HomefitLogo';
 
 type Props = {
-  /** Show the authenticated nav (Account + Sign out). */
+  /** Show the authenticated nav (Account link). Sign-out lives INSIDE
+   *  the Account page — one destination for all account-level actions
+   *  rather than a duplicate sign-out affordance in the header. */
   showSignOut?: boolean;
   /** Current practice context, passed through so nav links keep the selection. */
   practiceId?: string;
@@ -26,21 +28,13 @@ export function BrandHeader({ showSignOut = false, practiceId }: Props) {
         </Link>
 
         {showSignOut && (
-          <nav className="flex items-center gap-5" aria-label="Account">
+          <nav aria-label="Account">
             <Link
               href={accountHref}
               className="text-sm text-ink-muted transition hover:text-ink"
             >
               Account
             </Link>
-            <form action="/auth/sign-out" method="post">
-              <button
-                type="submit"
-                className="text-sm text-ink-muted transition hover:text-ink"
-              >
-                Sign out
-              </button>
-            </form>
           </nav>
         )}
       </div>

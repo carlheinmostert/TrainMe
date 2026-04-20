@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { getBrowserClient } from '@/lib/supabase-browser';
 
 type Props = {
@@ -9,17 +9,30 @@ type Props = {
 };
 
 // Stored alongside the main session cookie so /auth/callback can read
-// them after Supabase completes the OAuth round-trip.
+// them after Supabase completes the sign-in round-trip (magic-link tap
+// back into the portal).
 const REFERRAL_COOKIE = 'homefit_referral_code';
 const CONSENT_COOKIE = 'homefit_referral_consent';
 const COOKIE_MAX_AGE_DAYS = 30;
 
+/**
+ * Sign-up surface — mirrors SignInGate's progressive auth (R-11 twin):
+ *   email + (optional) password  →  signInWithPassword / sign up
+ *   email + no password  →  signInWithOtp (magic link)
+ *
+ * Google + Apple OAuth intentionally absent until we re-enable them
+ * across both surfaces. See SignInGate's module doc for the reasoning.
+ *
+ * The POPIA consent checkbox is the business-critical widget on this
+ * page — it lets the referee opt in to being named in the inviter's
+ * dashboard. Default UNCHECKED per R-09 (privacy wins ties).
+ */
 export function SignUpGate({ referralCode, inviterLabel }: Props) {
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // POPIA: opt-in for visibility. Default UNCHECKED per R-09 obvious-default.
-  // Privacy wins ties — referee appears as "Practice N" in the inviter's
-  // dashboard unless they explicitly opt in here.
+  const [info, setInfo] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
 
   // If a cookie already holds a stale consent flag, clear it on mount —
@@ -29,27 +42,56 @@ export function SignUpGate({ referralCode, inviterLabel }: Props) {
     if (referralCode) writeCookie(REFERRAL_COOKIE, referralCode);
   }, [referralCode]);
 
-  async function handleGoogle() {
-    setLoading(true);
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!email.trim()) {
+      setError('Enter your email.');
+      return;
+    }
     setError(null);
+    setInfo(null);
+    setSubmitting(true);
 
     // Persist consent + referral code via cookies so the /auth/callback
-    // route can claim the code after the session exchange completes.
+    // route can claim the code after the session completes.
     if (referralCode) writeCookie(REFERRAL_COOKIE, referralCode);
     writeCookie(CONSENT_COOKIE, consent ? 'true' : 'false');
 
     const supabase = getBrowserClient();
-    const redirectTo = `${window.location.origin}/auth/callback?flow=signup`;
 
-    const { error: err } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo },
-    });
-
-    if (err) {
-      setError(err.message);
-      setLoading(false);
+    // 1) If a password was provided, try password sign-in first. Supabase
+    //    returns an "Invalid login credentials" error if the email isn't
+    //    registered yet — in that case we fall through to the magic-link
+    //    path with a friendly note, which also creates the account.
+    if (password.length > 0) {
+      const { error: pwErr } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (!pwErr) {
+        window.location.assign('/dashboard');
+        return;
+      }
+      setInfo(
+        'We\'ll send you a sign-in link — tap it to finish creating your account.',
+      );
     }
+
+    // 2) Magic-link fallback (also the default when no password given).
+    //    shouldCreateUser defaults to true — signInWithOtp will create
+    //    the account on first use.
+    const redirectTo = `${window.location.origin}/auth/callback?flow=signup`;
+    const { error: otpErr } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: redirectTo },
+    });
+    if (otpErr) {
+      setError(otpErr.message);
+      setSubmitting(false);
+      return;
+    }
+    setInfo('Check your email — we just sent you a sign-in link.');
+    setSubmitting(false);
   }
 
   return (
@@ -67,15 +109,54 @@ export function SignUpGate({ referralCode, inviterLabel }: Props) {
         Manage your practice, credits, and plans.
       </p>
 
-      <button
-        type="button"
-        onClick={handleGoogle}
-        disabled={loading}
-        className="flex w-full items-center justify-center gap-3 rounded-md bg-white px-4 py-3 text-sm font-medium text-[#1f1f1f] transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        <GoogleIcon />
-        {loading ? 'Signing in…' : 'Continue with Google'}
-      </button>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div>
+          <label
+            htmlFor="signup-email"
+            className="mb-1 block text-xs font-medium text-ink-muted"
+          >
+            Email
+          </label>
+          <input
+            id="signup-email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={submitting}
+            className="w-full rounded-md border border-surface-border bg-surface-raised px-3 py-2 text-sm text-ink placeholder:text-ink-dim focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:cursor-not-allowed disabled:opacity-60"
+            placeholder="you@practice.co.za"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="signup-password"
+            className="mb-1 block text-xs font-medium text-ink-muted"
+          >
+            Password <span className="text-ink-dim">(optional)</span>
+          </label>
+          <input
+            id="signup-password"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={submitting}
+            className="w-full rounded-md border border-surface-border bg-surface-raised px-3 py-2 text-sm text-ink placeholder:text-ink-dim focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:cursor-not-allowed disabled:opacity-60"
+            placeholder="Skip for a magic-link email"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={submitting}
+          className="flex w-full items-center justify-center rounded-md bg-brand px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {submitting ? 'Signing in…' : 'Continue'}
+        </button>
+      </form>
 
       {referralCode && (
         <div className="mt-6 border-t border-surface-border pt-6">
@@ -109,6 +190,15 @@ export function SignUpGate({ referralCode, inviterLabel }: Props) {
         </p>
       )}
 
+      {info && (
+        <p
+          role="status"
+          className="mt-4 rounded-md border border-brand/40 bg-brand/10 px-3 py-2 text-sm text-ink"
+        >
+          {info}
+        </p>
+      )}
+
       <p className="mt-6 text-xs text-ink-dim">
         By continuing, you agree to our terms of service and privacy policy.
       </p>
@@ -123,34 +213,6 @@ export function SignUpGate({ referralCode, inviterLabel }: Props) {
 function writeCookie(name: string, value: string) {
   if (typeof document === 'undefined') return;
   const maxAge = COOKIE_MAX_AGE_DAYS * 24 * 60 * 60;
-  // SameSite=Lax so the cookie survives the OAuth redirect round-trip.
+  // SameSite=Lax so the cookie survives the OAuth/magic-link redirect round-trip.
   document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
-}
-
-function GoogleIcon() {
-  return (
-    <svg
-      className="h-5 w-5"
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 48 48"
-      aria-hidden="true"
-    >
-      <path
-        fill="#FFC107"
-        d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"
-      />
-      <path
-        fill="#FF3D00"
-        d="M6.3 14.7l6.6 4.8C14.7 15.9 19 13 24 13c3 0 5.8 1.1 7.9 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"
-      />
-      <path
-        fill="#4CAF50"
-        d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.8 36 24 36c-5.3 0-9.7-3.4-11.3-8l-6.5 5C9.6 39.6 16.2 44 24 44z"
-      />
-      <path
-        fill="#1976D2"
-        d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.1 5.6l6.2 5.2C41.1 36.1 44 30.6 44 24c0-1.3-.1-2.4-.4-3.5z"
-      />
-    </svg>
-  );
 }
