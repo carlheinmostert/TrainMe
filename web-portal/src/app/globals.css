@@ -36,3 +36,20 @@ h4 {
 button:focus {
   outline: none;
 }
+
+/*
+ * Popover fade + slide-up. Used by PracticeContextLine's switch popover
+ * (and any future popover that wants the same motion token). 150ms
+ * matches D-04 "fast" transition duration; translate distance is a
+ * restrained 4px so the motion reads as "confirm, don't upstage".
+ */
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

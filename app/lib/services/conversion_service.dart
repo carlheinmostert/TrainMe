@@ -306,12 +306,26 @@ class ConversionService extends ChangeNotifier {
       // because the codec backend wasn't compiled in. In that case, fall
       // back to extracting a key frame via video_thumbnail and converting
       // that single frame to a line drawing still image.
+      //
+      // Always mux the audio track into the converted file. The per-exercise
+      // `ExerciseCapture.includeAudio` flag is a PLAYBACK concern (the
+      // preview screen and web player set volume/muted attr based on it —
+      // see `plan_preview_screen.dart:425` and `web-player/app.js:441`).
+      // The file itself should always carry the recorded audio so the
+      // practitioner can toggle the "Include audio on share" switch in
+      // Studio at any time without needing to re-capture.
+      //
+      // Previous behaviour (PR #29) passed `exercise.includeAudio` through
+      // to the converter — but `ExerciseCapture.includeAudio` defaults to
+      // `false` (see `exercise_capture.dart:109`), which collapsed PR #29's
+      // Swift `sourceFormatHint` fix before it could run. Fresh captures
+      // still shipped with silent Line treatment. (2026-04-20).
       final videoOutputPath = p.join(convertedDir, '${exercise.id}_line$ext');
       try {
         await _convertVideo(
           exercise.absoluteRawFilePath,
           videoOutputPath,
-          includeAudio: exercise.includeAudio,
+          includeAudio: true,
         );
         return videoOutputPath;
       } catch (e, stack) {
