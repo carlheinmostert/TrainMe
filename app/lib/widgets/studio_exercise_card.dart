@@ -1017,9 +1017,9 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
             ),
           ),
           const Spacer(),
-          if (_editing)
+          if (_editing) ...[
             SizedBox(
-              width: 80,
+              width: 60,
               child: TextField(
                 controller: _controller,
                 focusNode: _focusNode,
@@ -1045,8 +1045,34 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
                 ),
                 onSubmitted: (_) => _commit(),
               ),
-            )
-          else
+            ),
+            // iOS number pad has no return key, so the TextField's
+            // onSubmitted never fires. Without an explicit Done button
+            // there's no way to commit an edit (Wave 3 item #8 fail —
+            // Carl: "no way of entering a new value"). Tapping Done
+            // also blurs the field, which fires _onFocusChange → commit.
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: _commit,
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'Done',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ] else
             GestureDetector(
               onTap: _startEditing,
               behavior: HitTestBehavior.opaque,
