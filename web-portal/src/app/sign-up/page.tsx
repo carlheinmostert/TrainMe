@@ -57,8 +57,8 @@ export default async function SignUpPage({
                 you to homefit.studio.
               </p>
               <p className="mt-1 text-xs text-ink-muted">
-                You&rsquo;ll get +10 starter credits when you make your first
-                purchase.
+                You&rsquo;ll land with 8 free credits the moment you sign
+                up (3 on the house, plus 5 more for using this invitation).
               </p>
             </aside>
           )}
