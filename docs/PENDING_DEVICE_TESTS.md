@@ -69,6 +69,17 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Tap video — play/pause still works
    - Close button returns to Studio
 
+7. **Studio MediaViewer — vertical treatment control** (branch `feat/vertical-treatment-control`):
+   - Long-press a Studio thumbnail → "Open full-screen"
+   - Verify the treatment segmented control now renders **vertically** on the left edge of the screen (centered in the safe area): Line on top, B&W in the middle, Original on the bottom. Orientation matches the vertical-swipe gesture that cycles treatments.
+   - Tap each segment directly — should still jump to that treatment with the 220ms crossfade + selection haptic.
+   - Tap a locked segment (pre-archive capture where B&W + Original are disabled) — lock glyph shows, tooltip reads "Older capture — re-record to enable."; consent bottom sheet still opens correctly where applicable.
+   - Vertical swipe up/down on the video — still cycles treatments exactly as before.
+   - Horizontal swipe left/right — still pages between exercises; treatment resets to Line.
+   - Active treatment is B&W or Original AND client exists → the `Show {Name}` consent toggle now renders **directly below the vertical pill** (same left-edge stack). Flip it — instant, no modal; SyncService queues the write.
+   - Exercise-name pill stays top-centered; close button stays top-right; page dots stay bottom-center. None of these collide with the left-edge vertical stack.
+   - Regression: the plan preview screen (`plan_preview_screen.dart`) still renders the treatment control **horizontally** — no UX change there.
+
 8. **Home sync-failure banner** (branch `fix/surface-sync-errors`):
    - **Happy path (online + healthy cloud):** open the app with good signal → clients list populates as before → no banner, no empty-state → `Updated Xm ago` hint renders as today. Verify nothing regressed.
    - **Airplane-mode path (offline with cached clients):** toggle airplane mode on → pull-to-refresh the Home list → clients stay visible → offline chip appears next to the practice chip → **no red/coral sync-failure banner** (the offline state is expected, not surfaced as an error).
