@@ -1814,6 +1814,23 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// swipes through treatments faster than a controller can come up.
   int _initToken = 0;
 
+  /// Whether the bottom-right play/pause control is currently visible.
+  /// When paused, always true. When playing, true for ~2s after the last
+  /// user interaction or state change, then fades out so the button
+  /// doesn't clutter the demo-to-client view. Presence in the tree is
+  /// unchanged — we only animate opacity so taps always hit.
+  bool _controlsVisible = true;
+
+  /// Auto-fade timer. Armed only while playing; cancelled on pause /
+  /// user interaction / dispose.
+  Timer? _controlsIdleTimer;
+
+  /// Listener attached to the active [VideoPlayerController] so the
+  /// button icon tracks play/pause transitions that don't originate
+  /// from `_togglePlayPause` (e.g. looping, buffering stalls).
+  VoidCallback? _videoListener;
+  bool _lastKnownIsPlaying = false;
+
   ExerciseCapture get _current => widget.exercises[_currentIndex];
 
   bool _isVideo(ExerciseCapture e) =>
@@ -1865,8 +1882,14 @@ class _MediaViewerState extends State<_MediaViewer> {
   }
 
   void _initVideoForCurrent() {
-    _videoController?.dispose();
+    final previous = _videoController;
+    final previousListener = _videoListener;
+    if (previous != null && previousListener != null) {
+      previous.removeListener(previousListener);
+    }
+    previous?.dispose();
     _videoController = null;
+    _videoListener = null;
     _videoInitialized = false;
     if (!_isVideo(_current)) return;
     final path = _sourcePathForTreatment(_current, _treatment);
@@ -1881,17 +1904,65 @@ class _MediaViewerState extends State<_MediaViewer> {
         controller.dispose();
         return;
       }
-      setState(() => _videoInitialized = true);
+      setState(() {
+        _videoInitialized = true;
+        _lastKnownIsPlaying = false;
+      });
       controller.setLooping(true);
+      // Attach a listener so the play/pause button icon stays in sync
+      // with the controller even when the transition didn't go through
+      // `_togglePlayPause` (e.g. programmatic pause on end-of-media).
+      void listener() => _onVideoStateChanged(controller, token);
+      controller.addListener(listener);
+      _videoListener = listener;
       controller.play();
+      // Controller will flip to `isPlaying == true` shortly after play().
+      // Show controls immediately so the user sees the pause affordance,
+      // then arm the idle fade.
+      _showControlsThenMaybeIdleFade();
     }).catchError((e) {
       debugPrint('MediaViewer: video init failed for $path — $e');
     });
   }
 
+  /// Called via the video controller's listener. Triggers a rebuild
+  /// whenever the playing state flips so the button icon + fade state
+  /// stay in sync with the actual controller.
+  void _onVideoStateChanged(VideoPlayerController controller, int token) {
+    if (!mounted || token != _initToken) return;
+    final isPlaying = controller.value.isPlaying;
+    if (isPlaying == _lastKnownIsPlaying) return;
+    _lastKnownIsPlaying = isPlaying;
+    _showControlsThenMaybeIdleFade();
+  }
+
+  /// Bring the button to full opacity, then (only if playing) arm a
+  /// 2-second timer to fade it away. When paused the button stays
+  /// visible indefinitely.
+  void _showControlsThenMaybeIdleFade() {
+    _controlsIdleTimer?.cancel();
+    if (!mounted) return;
+    setState(() => _controlsVisible = true);
+    final c = _videoController;
+    if (c == null || !_videoInitialized) return;
+    if (!c.value.isPlaying) return;
+    _controlsIdleTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      final controller = _videoController;
+      if (controller == null || !controller.value.isPlaying) return;
+      setState(() => _controlsVisible = false);
+    });
+  }
+
   @override
   void dispose() {
-    _videoController?.dispose();
+    _controlsIdleTimer?.cancel();
+    final controller = _videoController;
+    final listener = _videoListener;
+    if (controller != null && listener != null) {
+      controller.removeListener(listener);
+    }
+    controller?.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -1948,6 +2019,10 @@ class _MediaViewerState extends State<_MediaViewer> {
         c.play();
       }
     });
+    // Any tap — on the video body or the overlay button — resets the
+    // idle timer. If we paused, the button stays visible; if we started
+    // playing, it fades after 2s.
+    _showControlsThenMaybeIdleFade();
   }
 
   /// Flip the consent bit for the active treatment and persist via the
@@ -2014,10 +2089,6 @@ class _MediaViewerState extends State<_MediaViewer> {
 
   @override
   Widget build(BuildContext context) {
-    final showPausedPlayIcon = _isVideo(_current) &&
-        _videoInitialized &&
-        _videoController != null &&
-        !_videoController!.value.isPlaying;
     final hasArchive = _hasArchive(_current);
     return Scaffold(
       backgroundColor: AppColors.surfaceBg,
@@ -2188,12 +2259,23 @@ class _MediaViewerState extends State<_MediaViewer> {
               ),
             ),
           ),
-          if (showPausedPlayIcon)
-            const Center(
-              child: Icon(
-                Icons.play_arrow,
-                size: 72,
-                color: Colors.white54,
+          // Bottom-right play/pause affordance. Always in the tree for
+          // videos so taps always hit — visibility is opacity-driven.
+          // When paused it stays at 100%; when playing it fades to 0
+          // after a 2s idle so it doesn't overlay demo-to-client view.
+          // Sits above the bottom dot-indicator row to avoid overlap.
+          if (_isVideo(_current) && _videoInitialized)
+            Positioned(
+              right: 20,
+              bottom: MediaQuery.of(context).padding.bottom +
+                  ((widget.exercises.length > 1 &&
+                          widget.exercises.length <= 10)
+                      ? 48
+                      : 20),
+              child: _PlayPauseOverlayButton(
+                isPlaying: _videoController?.value.isPlaying ?? false,
+                visible: _controlsVisible,
+                onTap: _togglePlayPause,
               ),
             ),
           // Page dots — swipe affordance at the bottom. Hidden past 10
@@ -2282,6 +2364,62 @@ class _MediaViewerState extends State<_MediaViewer> {
     return KeyedSubtree(
       key: ValueKey('media-viewer-${_treatment.name}'),
       child: videoView,
+    );
+  }
+}
+
+/// Coral, circular, bottom-right play/pause button on top of the
+/// [_MediaViewer]. Presence in the tree is stable whenever the current
+/// page is a video — it's opacity that swings (via [AnimatedOpacity]) so
+/// taps always hit, even during a fade. Caller is responsible for
+/// scheduling the fade (see `_showControlsThenMaybeIdleFade`).
+///
+/// Icon glyph morphs: `play_arrow_rounded` when paused,
+/// `pause_rounded` when playing. 56-px touch target, coral
+/// [AppColors.primary] fill at 85% alpha (enough to read, still lets
+/// a sliver of video tone through), white glyph.
+class _PlayPauseOverlayButton extends StatelessWidget {
+  final bool isPlaying;
+  final bool visible;
+  final VoidCallback onTap;
+
+  const _PlayPauseOverlayButton({
+    required this.isPlaying,
+    required this.visible,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // IgnorePointer when fully faded so a "ghost" button doesn't eat
+    // swipes. AnimatedOpacity keeps the transition smooth.
+    return IgnorePointer(
+      ignoring: !visible,
+      child: AnimatedOpacity(
+        opacity: visible ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+        child: Material(
+          shape: const CircleBorder(),
+          color: AppColors.primary.withValues(alpha: 0.85),
+          elevation: 4,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: SizedBox(
+              width: 56,
+              height: 56,
+              child: Icon(
+                isPlaying
+                    ? Icons.pause_rounded
+                    : Icons.play_arrow_rounded,
+                color: Colors.white,
+                size: 32,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
