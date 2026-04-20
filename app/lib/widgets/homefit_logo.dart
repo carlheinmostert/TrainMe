@@ -1,194 +1,216 @@
 import 'package:flutter/material.dart';
 import '../theme.dart';
 
-/// homefit.studio logo — the "Full Session" mark.
+/// homefit.studio logo — canonical v2 system.
 ///
-/// Renders a valid training-plan snippet using the exact visual vocabulary
-/// of the progress-pill matrix: a 2-exercise circuit × 2 rounds, followed
-/// by a standalone exercise, followed by a rest period.
+/// The logo is a slice of a training-session matrix: the progress-pill
+/// matrix is already the product's visual language, and the mark is
+/// literally that matrix in miniature —
 ///
-/// The logo IS the product. Reading left→right the shape is the literal
-/// output the matrix would draw for that plan — coral pills for exercises,
-/// a coral-tinted band behind the circuit columns, entry + exit rail
-/// stubs, and a sage rest pill closing the sequence.
+///   3 ghost pills (outer → inner, tapering larger + lighter) →
+///   2-cycle circuit sitting in a coral-tint band (2 exercises × 2 cycles) →
+///   1 sage rest pill →
+///   3 ghost pills (mirror on the right)
 ///
-/// No invented shapes. No icons, letters, or decorative curves. See
-/// docs/design/mockups/logo-explorations.html for the exploration set
-/// this was chosen from.
+/// Two variants share the same 11-element matrix geometry:
+///   * [HomefitLogo]       — matrix only, 48×9.5 viewBox. Use in header
+///                           brand-marks (paired with a separate wordmark),
+///                           favicons, app icons, tight chrome, footer
+///                           marks. Default.
+///   * [HomefitLogoLockup] — matrix + wordmark stacked, 48×14 viewBox.
+///                           Use on hero surfaces, sign-in, marketing,
+///                           share cards.
 ///
-/// Scales proportionally to whatever [size] the parent provides.
+/// Geometry canon lives in `web-portal/src/components/HomefitLogo.tsx`;
+/// this widget and the web-player helper `buildHomefitLogoSvg()` in
+/// `web-player/app.js` mirror it byte-for-byte. Signed off at
+/// `docs/design/mockups/logo-ghost-outer.html`.
+///
+/// Scales proportionally to whatever [size] the parent provides. The
+/// intrinsic aspect ratio is 48:9.5 (matrix only) or 48:14 (lockup).
 class HomefitLogo extends StatelessWidget {
-  /// Logical pixel size. The logo fits within a square of this width and
-  /// scales its pill/rail geometry proportionally. Sensible values: 18
-  /// (favicon/footer), 32 (inline badge), 64 (sign-in header), 128+.
+  /// Logical pixel width. Sensible values: 18 (favicon/footer), 32
+  /// (inline badge), 64 (sign-in header), 128+ (hero).
   final double size;
 
   const HomefitLogo({super.key, this.size = 32});
 
   @override
   Widget build(BuildContext context) {
-    // Aspect ratio derived from the logo's natural proportions: 4 columns
-    // wide × 2 rows tall (circuit is 2 rows). Render inside a fixed
-    // width:height box so callers can drop it into Rows without extra
-    // sizing.
+    // Matrix-only aspect: 48 wide × 9.5 tall.
     final width = size;
-    final height = size * (10.0 / 22.0); // matches painter's viewBox
+    final height = size * (9.5 / 48.0);
     return SizedBox(
       width: width,
       height: height,
-      child: CustomPaint(painter: _HomefitLogoPainter()),
+      child: CustomPaint(painter: _HomefitMatrixPainter()),
     );
   }
 }
 
-/// Renders the Full Session plan:
-///   [circuit cols=2 rows=2] · [standalone] · [rest]
-///
-/// All geometry is proportional to the canvas size. The "unit" is derived
-/// from the canvas width so the logo scales cleanly from favicon to
-/// billboard.
-class _HomefitLogoPainter extends CustomPainter {
-  _HomefitLogoPainter();
+/// Lockup variant — wordmark stacked above the matrix. Use on hero
+/// surfaces where the mark has to stand alone. Matrix geometry is
+/// identical to [HomefitLogo], translated +4.5 on Y to make room for
+/// the wordmark row.
+class HomefitLogoLockup extends StatelessWidget {
+  /// Logical pixel width. Sensible values: 96 (hero), 160+ (marketing).
+  final double size;
 
-  // Colour tokens — locked to brand.
-  static const _coral = AppColors.primary;
-  static final _coralBand = AppColors.primary.withValues(alpha: 0.15);
-  static const _sage = AppColors.rest;
+  const HomefitLogoLockup({super.key, this.size = 120});
 
   @override
+  Widget build(BuildContext context) {
+    // Lockup aspect: 48 wide × 14 tall.
+    final width = size;
+    final height = size * (14.0 / 48.0);
+    return SizedBox(
+      width: width,
+      height: height,
+      child: CustomPaint(painter: _HomefitLockupPainter()),
+    );
+  }
+}
+
+// --- Shared geometry helpers ------------------------------------------------
+
+/// 11-element matrix geometry in the source (viewBox-units) space.
+/// Y coordinates are relative to the matrix band top (y=1.0 on the
+/// 48×9.5 canvas). The lockup painter translates these +4.5 on Y.
+///
+/// Matches the TSX definition verbatim.
+class _Pill {
+  final double x;
+  final double y;
+  final double w;
+  final double h;
+  final double rx;
+  final Color fill;
+  const _Pill(this.x, this.y, this.w, this.h, this.rx, this.fill);
+}
+
+// Colour tokens — locked to brand.
+const _coral = AppColors.primary;
+const _sage = AppColors.rest;
+// Ghost pill greys — match tokens.json ink-disabled / ink-muted / ink-secondary
+// (the canonical #4B5563 / #6B7280 / #9CA3AF ramp from the mockup).
+const _ghostOuter = Color(0xFF4B5563);
+const _ghostMid = Color(0xFF6B7280);
+const _ghostInner = Color(0xFF9CA3AF);
+
+/// Canonical 11-element matrix in the 48×9.5 coordinate system.
+final List<_Pill> _matrixPills = <_Pill>[
+  // Left ghost pills: outer→inner, progressively larger + lighter.
+  _Pill(0, 2.75, 2.5, 1.5, 0.5, _ghostOuter),
+  _Pill(4, 2.45, 3.5, 2.1, 0.7, _ghostMid),
+  _Pill(9, 2.15, 4.5, 2.7, 0.9, _ghostInner),
+  // Ex2 / Ex3 — 2×2 grid (2 exercises × 2 cycles), solid coral.
+  _Pill(15, 2, 5, 3, 1, _coral),
+  _Pill(15, 6.5, 5, 3, 1, _coral),
+  _Pill(21.5, 2, 5, 3, 1, _coral),
+  _Pill(21.5, 6.5, 5, 3, 1, _coral),
+  // Rest — sage.
+  _Pill(28, 2, 5, 3, 1, _sage),
+  // Right ghost pills: inner→outer, mirror of left.
+  _Pill(34.5, 2.15, 4.5, 2.7, 0.9, _ghostInner),
+  _Pill(40.5, 2.45, 3.5, 2.1, 0.7, _ghostMid),
+  _Pill(45.5, 2.75, 2.5, 1.5, 0.5, _ghostOuter),
+];
+
+/// Coral-tint band sitting behind the circuit columns.
+const _bandX = 14.5;
+const _bandW = 12.5;
+const _bandH = 8.5;
+const _bandRx = 1.2;
+const _bandY = 1.0; // matrix-only; lockup adds +4.5.
+
+void _paintMatrix(Canvas canvas, Size size, {required double yOffset, required double viewBoxH}) {
+  // Scale from the 48×viewBoxH source space into the canvas.
+  final sx = size.width / 48.0;
+  final sy = size.height / viewBoxH;
+
+  // Band first so pills sit on top.
+  final bandPaint = Paint()..color = _coral.withValues(alpha: 0.15);
+  canvas.drawRRect(
+    RRect.fromRectAndRadius(
+      Rect.fromLTWH(_bandX * sx, (_bandY + yOffset) * sy, _bandW * sx, _bandH * sy),
+      Radius.circular(_bandRx * ((sx + sy) / 2)),
+    ),
+    bandPaint,
+  );
+
+  for (final p in _matrixPills) {
+    final paint = Paint()..color = p.fill;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(p.x * sx, (p.y + yOffset) * sy, p.w * sx, p.h * sy),
+        Radius.circular(p.rx * ((sx + sy) / 2)),
+      ),
+      paint,
+    );
+  }
+}
+
+/// Matrix-only painter (viewBox 48×9.5).
+class _HomefitMatrixPainter extends CustomPainter {
+  @override
   void paint(Canvas canvas, Size size) {
-    // Layout unit — all geometry scales from this. Each pill is
-    // roughly one unit tall.
-    //
-    // Natural viewBox: 4 columns × stride (1.25) + 2 stubs (0.5 each) ≈ 6
-    // wide. 2 rows × rowStride (1.25) + 0.3 band inset × 2 = 3.1 tall.
-    //
-    // We compute unit from height to keep pills square-ish. Width
-    // content then has to fit in size.width; if not, scale down.
-    const pillAspectH = 1.0;   // height units
-    const pillAspectW = 1.1;   // slightly wider than tall
-    const gap = 0.25;          // inter-pill gap in units
-    const bandInset = 0.18;    // band overflow around circuit columns
-    const railStub = 0.35;     // entry/exit stub length
-    const railWidth = 0.09;    // rail stroke thickness in units
-    const cornerRadius = 0.22; // pill corner radius in units
+    _paintMatrix(canvas, size, yOffset: 0, viewBoxH: 9.5);
+  }
 
-    // Layout: 4 columns, circuit has 2 rows, others have 1 row.
-    // Column layout:
-    //   col 0: circuit (2 rows)
-    //   col 1: circuit (2 rows)
-    //   col 2: standalone
-    //   col 3: rest
-    const cols = 4;
-    const maxRows = 2;
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
 
-    final stride = pillAspectW + gap;
-    final rowStride = pillAspectH + gap;
+/// Lockup painter (viewBox 48×14): wordmark row + matrix translated +4.5.
+class _HomefitLockupPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Wordmark sits at y=4.6 in source units, centered in a 48-wide row.
+    // Render via TextPainter with Montserrat 600, scaled so the rendered
+    // width is ≤ 48 source units (matches the SVG textLength="48"
+    // lengthAdjust="spacingAndGlyphs" behaviour).
+    const targetWidthUnits = 48.0;
+    const wordmarkUnitHeight = 6.5; // source units
+    const viewBoxH = 14.0;
 
-    // Content bounds in units (includes band inset + rail stubs).
-    final contentW = cols * stride - gap + bandInset * 2 + railStub * 2;
-    final contentH = maxRows * rowStride - gap + bandInset * 2;
+    final sx = size.width / 48.0;
+    final sy = size.height / viewBoxH;
 
-    // Fit to canvas — preserve aspect ratio.
-    final unitX = size.width / contentW;
-    final unitY = size.height / contentH;
-    final unit = unitX < unitY ? unitX : unitY;
-
-    // Offsets so the drawn content is centred inside the canvas.
-    final dx = (size.width - contentW * unit) / 2 + railStub * unit;
-    final dy = (size.height - contentH * unit) / 2 + bandInset * unit;
-
-    // Helpers
-    double x(double u) => dx + u * unit;
-    double y(double u) => dy + u * unit;
-
-    final pillW = pillAspectW * unit;
-    final pillH = pillAspectH * unit;
-    final radius = Radius.circular(cornerRadius * unit);
-
-    // Draw circuit band — spans cols 0..1.
-    final bandPaint = Paint()..color = _coralBand;
-    final bandLeft = x(-bandInset);
-    final bandTop = y(-bandInset);
-    final bandRight = x(2 * stride - gap + bandInset);
-    final bandBottom = y(maxRows * rowStride - gap + bandInset);
-    final bandRect = RRect.fromLTRBR(
-      bandLeft,
-      bandTop,
-      bandRight,
-      bandBottom,
-      Radius.circular(cornerRadius * unit * 1.2),
-    );
-    canvas.drawRRect(bandRect, bandPaint);
-
-    // Draw rail stubs.
-    //
-    // The circuit is flanked by standalones-or-rests on its right side
-    // (col 2 is a standalone). We only draw a stub on the side that
-    // hands off to an adjacent column. Left side is the start of the
-    // logo, so we also draw a leading stub for visual balance — it
-    // "enters" the plan like a natural ancestor exists off-frame.
-    final railPaint = Paint()
-      ..color = _coral.withValues(alpha: 0.85)
-      ..style = PaintingStyle.fill;
-
-    // Entry stub — horizontal, at top-row mid-y, from left of band to
-    // canvas left edge.
-    final firstRowMidY = y(pillH / unit / 2);
-    canvas.drawRect(
-      Rect.fromLTRB(
-        x(-bandInset) - railStub * unit,
-        firstRowMidY - railWidth * unit / 2,
-        bandLeft,
-        firstRowMidY + railWidth * unit / 2,
+    final wordmarkPainter = TextPainter(
+      text: TextSpan(
+        text: 'homefit.studio',
+        style: TextStyle(
+          fontFamily: 'Montserrat',
+          fontWeight: FontWeight.w600,
+          fontSize: wordmarkUnitHeight * sy,
+          color: const Color(0xFFF0F0F5),
+          letterSpacing: -0.1 * ((sx + sy) / 2),
+          height: 1.0,
+        ),
       ),
-      railPaint,
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
     );
+    wordmarkPainter.layout();
 
-    // Exit stub — horizontal, at bottom-row mid-y. Short terminus
-    // right after the band; does NOT extend toward the standalone
-    // column (which is anchored at row 0, so there's nothing to
-    // connect to at this y-coordinate). Matches how the real matrix
-    // renders a circuit-terminating stub.
-    final lastRowMidY = y(rowStride + pillH / unit / 2);
-    canvas.drawRect(
-      Rect.fromLTRB(
-        bandRight,
-        lastRowMidY - railWidth * unit / 2,
-        bandRight + railStub * unit,
-        lastRowMidY + railWidth * unit / 2,
-      ),
-      railPaint,
-    );
+    // Scale horizontally if the natural width exceeds the target (mirrors
+    // SVG's spacingAndGlyphs compression).
+    final targetWidthPx = targetWidthUnits * sx;
+    final scaleX = wordmarkPainter.width > targetWidthPx
+        ? targetWidthPx / wordmarkPainter.width
+        : 1.0;
 
-    // Draw pills.
-    final coralFill = Paint()..color = _coral;
-    final sageFill = Paint()..color = _sage;
+    canvas.save();
+    // Center the wordmark horizontally, anchor baseline at y=4.6 units.
+    final wordmarkYPx = 4.6 * sy - wordmarkPainter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+    final wordmarkXPx = (size.width - wordmarkPainter.width * scaleX) / 2;
+    canvas.translate(wordmarkXPx, wordmarkYPx);
+    canvas.scale(scaleX, 1.0);
+    wordmarkPainter.paint(canvas, Offset.zero);
+    canvas.restore();
 
-    void drawPill(double col, double row, {required bool isRest}) {
-      final rect = RRect.fromRectAndRadius(
-        Rect.fromLTWH(x(col * stride), y(row * rowStride), pillW, pillH),
-        radius,
-      );
-      canvas.drawRRect(rect, isRest ? sageFill : coralFill);
-    }
-
-    // Circuit: 2 cols × 2 rows.
-    for (var c = 0; c < 2; c++) {
-      for (var r = 0; r < 2; r++) {
-        drawPill(c.toDouble(), r.toDouble(), isRest: false);
-      }
-    }
-    // Standalone at col 2, row 0. The real progress-pill matrix always
-    // anchors non-circuit columns to the TOP row — a 1-row column sits
-    // at row 0 while an N-row circuit column fills rows 0..N-1. The
-    // circuit's exit stub (at bottom-row mid-y) is a stub INTO empty
-    // space below the standalone, not a connector to it — matching
-    // what the real matrix draws.
-    drawPill(2, 0, isRest: false);
-    // Rest also at row 0 of col 3.
-    drawPill(3, 0, isRest: true);
-
+    // Matrix shifted +4.5 units on Y.
+    _paintMatrix(canvas, size, yOffset: 4.5, viewBoxH: viewBoxH);
   }
 
   @override

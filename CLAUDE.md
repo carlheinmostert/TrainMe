@@ -16,7 +16,7 @@
 - **Client plan URL:** `https://session.homefit.studio/p/{uuid}`
 - **Primary accent:** Coral orange `#FF6B35`
 - **Mode:** Dark-first (both trainer app and client web player)
-- **Logo:** Pulse Mark — heartbeat line that traces a house roof silhouette. Rendered as inline SVG/CustomPaint in coral orange.
+- **Logo:** Matrix of pills — a slice of a training session (3 ghost exercises tapering in from each side → 2-cycle circuit in a coral tint band → rest). Two variants: matrix-only (tight chrome — headers, footers, favicons, paired with a separate wordmark) + lockup (matrix + wordmark stacked, for hero surfaces, OG cards, emails). Geometry and callers in `HomefitLogo.tsx` / `homefit_logo.dart` / `buildHomefitLogoSvg()`. Signed off at `docs/design/mockups/logo-ghost-outer.html`.
 - **Typography:** Montserrat (headings, 600-800), Inter (body, 400-700)
 - **Theme tokens:** See `app/lib/theme.dart` (Flutter) and `web-player/styles.css` `:root` (web)
 
@@ -261,7 +261,8 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 - `supabase/schema_milestone_d4.sql` — PayFast pending_payments table
 - `supabase/schema_milestone_g_three_treatment.sql` — clients table + video_consent + raw-archive bucket + sign_storage_url helper + extended get_plan_full
 - `app/lib/theme.dart` — Brand theme tokens
-- `app/lib/widgets/powered_by_footer.dart` — Shared Pulse Mark footer (+ build-SHA marker)
+- `app/lib/widgets/homefit_logo.dart` — Canonical v2 logo widget (matrix-only `HomefitLogo` + `HomefitLogoLockup`)
+- `app/lib/widgets/powered_by_footer.dart` — Shared "powered by" footer (+ build-SHA marker)
 - `app/lib/widgets/gutter_rail.dart` / `inline_action_tray.dart` / `thumbnail_peek.dart` / `circuit_control_sheet.dart` / `set_password_sheet.dart` / `undo_snackbar.dart` — v1.1 Studio components + auth upgrade + R-01 undo
 - `app/ios/Runner/VideoConverterChannel.swift` — Native video pipeline
 - `app/lib/screens/session_shell_screen.dart` — Capture/Studio mode shell
