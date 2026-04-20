@@ -313,21 +313,28 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
     return _treatmentUrls[exercise.id];
   }
 
-  /// True when the remote URL for [t] is non-null on the active slide.
+  /// True when a source for [t] exists on the active slide — either a
+  /// remote signed URL (published plan) OR a local archive file
+  /// (pre-publish preview; 720p H.264 export kept on-device for 90d).
   /// Line is always considered available — falls back to the local
   /// converted file when the remote URL is absent.
   bool _isTreatmentAvailable(Treatment t) {
     if (t == Treatment.line) return true;
-    final urls = _currentSlideUrls();
-    if (urls == null) return false;
-    switch (t) {
-      case Treatment.line:
-        return true;
-      case Treatment.grayscale:
-        return urls.grayscaleUrl != null;
-      case Treatment.original:
-        return urls.originalUrl != null;
-    }
+    if (_slides.isEmpty) return false;
+    final exercise =
+        _slides[_currentPage.clamp(0, _slides.length - 1)].exercise;
+    final urls = _treatmentUrls[exercise.id];
+    final hasRemote = switch (t) {
+      Treatment.line => false, // handled above
+      Treatment.grayscale => urls?.grayscaleUrl != null,
+      Treatment.original => urls?.originalUrl != null,
+    };
+    if (hasRemote) return true;
+    // Pre-publish fallback: B&W + Original both play from the local
+    // archive file (the 720p H.264 export). Grayscale adds a
+    // ColorFilter matrix at render time; Original is pass-through.
+    final localPath = exercise.absoluteArchiveFilePath;
+    return localPath != null && File(localPath).existsSync();
   }
 
   /// Practitioner tapped a segment. If the target treatment is available
@@ -491,45 +498,35 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
     if (_isStillImageConversion(exercise)) return;
     if (_videoControllers.containsKey(index)) return;
 
-    // B&W / Original need a remote signed URL — they play from the
-    // raw-archive bucket, not a local file. Two failure modes both
-    // reach "spinner forever" without the guards below:
-    //
-    //   (a) URL not loaded yet — _fetchTreatmentUrls is async; initState
-    //       can call _prepareVideo with _treatment=grayscale (inherited
-    //       from the exercise's preferredTreatment) BEFORE the URLs
-    //       arrive. _controllerForTreatment returns null, nothing in
-    //       _videoControllers, widget.videoController==null, spinner.
-    //       Also covers unpublished plans (URLs never arrive).
-    //
-    //   (b) URL loaded but 404 — raw-archive upload is best-effort at
-    //       publish time (upload_service.dart _uploadRawArchives). Plans
-    //       published before the upload landed get signed URLs pointing
-    //       at absent objects. AVPlayer waits its full network timeout
-    //       (~30s) before rejecting.
-    //
-    // Line is skipped here: it has a local-file fallback at
-    // controller-build time so a missing remote URL is harmless.
-    if (_treatment != Treatment.line) {
-      final url = _remoteUrlForTreatment(exercise);
-      if (url == null) {
-        // Case (a): silent fallback — user didn't ask for this, it's
-        // just "not ready / not published / no consent". No SnackBar.
-        _fallbackToLine(index, showSnack: false);
-        return;
+    final controller = _controllerForTreatment(exercise);
+    if (controller == null) {
+      // No source at all — neither a remote signed URL nor a local
+      // archive file. Happens on legacy captures whose 90-day archive
+      // was pruned + the plan was never published. Fall back to Line
+      // with a SnackBar so the user understands why the view changed.
+      if (_treatment != Treatment.line) {
+        _fallbackToLine(index, showSnack: true);
       }
-      final ok = await _probeUrl(url);
+      return;
+    }
+
+    // HEAD-probe remote sources ONLY — file-backed controllers init
+    // instantly and don't hang. The probe catches the case where a
+    // published plan has a signed URL pointing at an absent raw-archive
+    // object (upload_service.dart _uploadRawArchives is best-effort
+    // at publish time). Without the probe, AVPlayer waits its full
+    // ~30s network timeout before rejecting; with it, we fall back
+    // in ~200ms.
+    if (controller.dataSourceType == DataSourceType.network &&
+        _treatment != Treatment.line) {
+      final ok = await _probeUrl(controller.dataSource);
       if (!mounted) return;
       if (!ok) {
-        // Case (b): user-visible fallback — publish succeeded but the
-        // raw file is missing, worth explaining why the view changed.
         _fallbackToLine(index, showSnack: true);
         return;
       }
     }
 
-    final controller = _controllerForTreatment(exercise);
-    if (controller == null) return;
     _videoControllers[index] = controller;
 
     // Set volume based on the exercise's includeAudio flag AND the
@@ -569,22 +566,6 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
           _fallbackToLine(index, showSnack: true);
         }
       });
-  }
-
-  /// The remote URL for the current [_treatment] on [exercise], or null
-  /// when no URL has been resolved (offline / unpublished / consent).
-  /// Parallel to [_controllerForTreatment] but returns just the URL so
-  /// we can HEAD-probe it without touching the controller lifecycle.
-  String? _remoteUrlForTreatment(ExerciseCapture exercise) {
-    final urls = _treatmentUrls[exercise.id];
-    switch (_treatment) {
-      case Treatment.line:
-        return urls?.lineDrawingUrl;
-      case Treatment.grayscale:
-        return urls?.grayscaleUrl;
-      case Treatment.original:
-        return urls?.originalUrl;
-    }
   }
 
   /// HEAD-probe [url] with a 3s timeout. Returns true on 2xx, false on
@@ -664,12 +645,28 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
         // returns the colour video under `grayscale_url` for this
         // reason — see the task brief.
         final remote = urls?.grayscaleUrl;
-        if (remote == null) return null;
-        return VideoPlayerController.networkUrl(Uri.parse(remote));
+        if (remote != null) {
+          return VideoPlayerController.networkUrl(Uri.parse(remote));
+        }
+        // Pre-publish preview: play the local 720p H.264 archive
+        // directly. Same source as Original; ColorFilter applied at
+        // render time by _buildVideoPlayer.
+        final localPath = exercise.absoluteArchiveFilePath;
+        if (localPath != null && File(localPath).existsSync()) {
+          return VideoPlayerController.file(File(localPath));
+        }
+        return null;
       case Treatment.original:
         final remote = urls?.originalUrl;
-        if (remote == null) return null;
-        return VideoPlayerController.networkUrl(Uri.parse(remote));
+        if (remote != null) {
+          return VideoPlayerController.networkUrl(Uri.parse(remote));
+        }
+        // Pre-publish fallback — same local archive as grayscale.
+        final localPath = exercise.absoluteArchiveFilePath;
+        if (localPath != null && File(localPath).existsSync()) {
+          return VideoPlayerController.file(File(localPath));
+        }
+        return null;
     }
   }
 
