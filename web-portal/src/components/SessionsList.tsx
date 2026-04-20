@@ -139,6 +139,17 @@ export function SessionsList({ sessions, isOwnerView }: Props) {
                     )}
                   </td>
                 )}
+                {/* TODO(wave-r11-followup): 3-state publish indicator
+                 *
+                 * Mobile's session card is gaining a three-state publish
+                 * indicator — never / published + clean / published +
+                 * dirty (edits since sentAt) — in the iPhone Q1 batch.
+                 * Once the `last_content_edit_at` column lands on the
+                 * plans table + the mobile model, mirror the three
+                 * states here: show a "Changes pending" pill (coral)
+                 * when `s.lastContentEditAt > s.lastPublishedAt` and a
+                 * "Published" tick when clean.
+                 */}
                 <td className="px-4 py-3 align-top text-xs text-ink-muted">
                   <RelativeTime iso={s.lastPublishedAt} fallback="—" />
                 </td>
