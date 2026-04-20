@@ -142,6 +142,25 @@ class AuthService {
     );
   }
 
+  /// Sign in with email + password. Raises `AuthException` on invalid
+  /// credentials — UI decides whether to fall through to magic-link.
+  ///
+  /// Email is normalised to `trim().toLowerCase()` (same rule as
+  /// [sendMagicLink]) so the auth user resolves regardless of capitalisation.
+  Future<void> signInWithPassword({
+    required String email,
+    required String password,
+  }) async {
+    final normalized = email.trim().toLowerCase();
+    if (normalized.isEmpty || !normalized.contains('@')) {
+      throw const AuthException('Enter a valid email address.');
+    }
+    if (password.isEmpty) {
+      throw const AuthException('Enter a password.');
+    }
+    await _api.signInWithPassword(email: normalized, password: password);
+  }
+
   /// Start Google sign-in using the native iOS SDK (google_sign_in v6).
   ///
   /// **Parked behind a `Coming soon` badge on the sign-in screen** as of

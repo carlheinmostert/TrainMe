@@ -39,6 +39,8 @@ class _SignInScreenState extends State<SignInScreen> {
 
   final TextEditingController _emailController = TextEditingController();
   final FocusNode _emailFocus = FocusNode();
+  final TextEditingController _passwordController = TextEditingController();
+  final FocusNode _passwordFocus = FocusNode();
 
   /// UI state machine for the magic-link form:
   ///   - [_MagicLinkState.form] — email input visible, awaiting send
@@ -57,16 +59,27 @@ class _SignInScreenState extends State<SignInScreen> {
   void dispose() {
     _emailController.dispose();
     _emailFocus.dispose();
+    _passwordController.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
-  // ── Magic link ──────────────────────────────────────────────────────────
+  // ── Progressive auth: password first, magic-link fallback ──────────────
 
-  Future<void> _sendMagicLink() async {
+  /// Primary submit handler. Mirrors the portal's SignInGate (R-11):
+  ///   - If a password is provided, try signInWithPassword first.
+  ///   - On password failure (or empty password), fall through to
+  ///     sendMagicLink. User sees the "check your inbox" panel with a
+  ///     gentle note that the password didn't match.
+  ///   - On success the AuthGate's onAuthStateChange listener routes to
+  ///     Home; this widget just waits for the unmount.
+  Future<void> _submit() async {
     if (_state == _MagicLinkState.sending) return;
     unawaited(HapticFeedback.selectionClick());
 
     final email = _emailController.text.trim().toLowerCase();
+    final password = _passwordController.text;
+
     if (email.isEmpty || !email.contains('@')) {
       setState(() {
         _errorText = "We don't recognise that email address.";
@@ -79,6 +92,29 @@ class _SignInScreenState extends State<SignInScreen> {
       _errorText = null;
     });
 
+    // Password path.
+    if (password.isNotEmpty) {
+      try {
+        await AuthService.instance.signInWithPassword(
+          email: email,
+          password: password,
+        );
+        // Success — AuthGate picks up the onAuthStateChange and routes
+        // to Home. No setState here; the widget will unmount.
+        if (!mounted) return;
+        unawaited(HapticFeedback.mediumImpact());
+        return;
+      } on AuthException catch (_) {
+        // Invalid credentials / user-not-found / etc. — fall through to
+        // magic-link with a note so the user knows why the flow switched.
+        if (!mounted) return;
+      } catch (_) {
+        if (!mounted) return;
+      }
+    }
+
+    // Magic-link path (either no password provided, or password sign-in
+    // fell through).
     try {
       await AuthService.instance.sendMagicLink(email);
       if (!mounted) return;
@@ -86,6 +122,9 @@ class _SignInScreenState extends State<SignInScreen> {
       setState(() {
         _state = _MagicLinkState.sent;
         _sentToEmail = email;
+        _errorText = password.isNotEmpty
+            ? "Password didn't match — we sent you a magic link instead."
+            : null;
       });
     } on AuthException catch (e) {
       if (!mounted) return;
@@ -97,7 +136,7 @@ class _SignInScreenState extends State<SignInScreen> {
       if (!mounted) return;
       setState(() {
         _state = _MagicLinkState.form;
-        _errorText = "Couldn't send link. Try again.";
+        _errorText = "Couldn't sign in. Try again.";
       });
     }
   }
@@ -225,7 +264,7 @@ class _SignInScreenState extends State<SignInScreen> {
           focusNode: _emailFocus,
           enabled: !sending,
           keyboardType: TextInputType.emailAddress,
-          textInputAction: TextInputAction.go,
+          textInputAction: TextInputAction.next,
           autocorrect: false,
           enableSuggestions: false,
           autofillHints: const [AutofillHints.email],
@@ -240,7 +279,7 @@ class _SignInScreenState extends State<SignInScreen> {
               setState(() => _errorText = null);
             }
           },
-          onSubmitted: (_) => _sendMagicLink(),
+          onSubmitted: (_) => _passwordFocus.requestFocus(),
           decoration: InputDecoration(
             hintText: 'name@example.com',
             hintStyle: const TextStyle(
@@ -282,6 +321,67 @@ class _SignInScreenState extends State<SignInScreen> {
             ),
           ),
         ),
+        const SizedBox(height: 16),
+        // Password field (optional) — if present, tried before magic-link
+        // fallback. Mirrors the portal's SignInGate for R-11 parity.
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'Password (optional)',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+              color: AppColors.textSecondaryOnDark,
+            ),
+          ),
+        ),
+        TextField(
+          controller: _passwordController,
+          focusNode: _passwordFocus,
+          enabled: !sending,
+          obscureText: true,
+          textInputAction: TextInputAction.go,
+          autocorrect: false,
+          enableSuggestions: false,
+          autofillHints: const [AutofillHints.password],
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 15,
+            color: AppColors.textOnDark,
+          ),
+          cursorColor: AppColors.primary,
+          onSubmitted: (_) => _submit(),
+          decoration: InputDecoration(
+            hintText: 'Skip for a magic-link email',
+            hintStyle: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 15,
+              color: AppColors.textSecondaryOnDark,
+            ),
+            filled: true,
+            fillColor: AppColors.surfaceBase,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              borderSide: const BorderSide(color: AppColors.surfaceBorder),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              borderSide:
+                  const BorderSide(color: AppColors.surfaceBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              borderSide:
+                  const BorderSide(color: AppColors.primary, width: 2),
+            ),
+          ),
+        ),
         if (_errorText != null)
           Padding(
             padding: const EdgeInsets.only(top: 8, left: 4),
@@ -296,35 +396,9 @@ class _SignInScreenState extends State<SignInScreen> {
           ),
         const SizedBox(height: 16),
         _PrimaryButton(
-          label: 'Send magic link',
-          onTap: sending ? null : _sendMagicLink,
+          label: 'Continue',
+          onTap: sending ? null : _submit,
           loading: sending,
-        ),
-        const SizedBox(height: 24),
-        const _OrDivider(),
-        const SizedBox(height: 20),
-        // Google — parked behind "Coming soon"
-        _SignInButton(
-          label: 'Continue with Google',
-          icon: _googleIcon(),
-          onTap:
-              _googleEnabled && !_googleSigningIn ? _signInWithGoogle : null,
-          loading: _googleSigningIn,
-          primary: false,
-          comingSoon: !_googleEnabled,
-        ),
-        const SizedBox(height: 12),
-        // Apple — scaffolded, disabled
-        _SignInButton(
-          label: 'Continue with Apple',
-          icon: const Icon(
-            Icons.apple,
-            color: AppColors.textSecondaryOnDark,
-            size: 22,
-          ),
-          onTap: _appleEnabled ? () {} : null,
-          primary: false,
-          comingSoon: !_appleEnabled,
         ),
       ],
     );

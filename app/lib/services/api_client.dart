@@ -123,6 +123,16 @@ class ApiClient {
     );
   }
 
+  /// Email + password sign-in. Wraps `supabase.auth.signInWithPassword`.
+  /// Raises `AuthException` on invalid credentials; caller owns the
+  /// fallthrough to magic-link.
+  Future<AuthResponse> signInWithPassword({
+    required String email,
+    required String password,
+  }) async {
+    return raw.auth.signInWithPassword(email: email, password: password);
+  }
+
   /// End the current session.
   Future<void> signOut() async {
     await raw.auth.signOut();
