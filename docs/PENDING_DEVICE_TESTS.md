@@ -70,6 +70,16 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Plans with >10 exercises: dots hide (same pattern as `plan_preview_screen.dart`); the name-pill counter is the only where-are-we signal. Confirm behaviour.
    - Regression check: pre-archive captures still show locked B&W + Original segments; the consent row stays hidden when the archive is missing.
 
+8. **Studio MediaViewer — coral bottom-right play/pause** (branch `fix/mediaviewer-play-pause-overlay`):
+   - Long-press a Studio thumbnail → "Open full-screen" on a video exercise
+   - Video auto-starts; coral circular **pause** button appears bottom-right immediately (~85% opacity, white glyph, 56-px touch target, sitting above the bottom page-dots row with no overlap)
+   - Wait ~2 seconds: button fades to 0 over ~300 ms so it no longer overlays the demo-to-client view
+   - Tap the video body anywhere: button reappears and toggles state (playing → paused). While paused the button stays visible indefinitely as a **play** glyph.
+   - Tap the coral button directly: it toggles state. This is the bug-2 regression check — a direct tap on the icon *must* actually call the toggle (the old centred white icon absorbed taps with no action).
+   - Resume with another direct button tap: glyph flips to pause, idle timer re-arms, fade kicks in ~2s later.
+   - Swipe horizontally to the next video exercise: button stays wired + fade restarts for the new video. Vertical treatment swipes also preserve behaviour.
+   - No "Play video" / "Pause video" visible text (R-06 voice).
+
 ### Things to actively watch for
 - **iOS 26.4 SDK gap** — any sub-agent build will fail in their sandbox on this; only Carl's main machine has the SDK installed. Not a code issue.
 - **`sessions.client_id` backfill** — runs on every Home load; should be a no-op after first run per practice.
