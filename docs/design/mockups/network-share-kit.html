@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — /network share-kit mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
+    rel="stylesheet"
+  />
+  <!--
+    ======================================================================
+      /network share-kit — design mockup
+    ======================================================================
+      STATIC HTML/CSS ARTIFACT. Not wired to anything. View locally with
+          open docs/design/mockups/network-share-kit.html
+
+      What this demonstrates
+      ----------------------
+      Redesign of the single "Share link" card currently on /network. Three
+      pre-composed, branded pitches (WhatsApp 1:1, WhatsApp broadcast, Email)
+      plus a downloadable PNG share card with QR — all auto-filled with the
+      practitioner's share code.
+
+      Voice: R-06 peer-to-peer. No "referral / commission / payout / downline"
+      in any practitioner-visible copy. Labels stay on "network / rebate /
+      free credits / colleagues".
+
+      What stays vs what's new
+      ------------------------
+      REPLACES     the existing <NetworkShareCard/> (share-link + copy button).
+      KEEPS        <NetworkEarningsCard/> (network stats + referees list),
+                   page header, nav breadcrumb, "Your network" H1 + lead.
+
+      Personalisation slots shown realistic:
+        Practitioner name:  Carl Mostert
+        Practice:           carlhein@me.com Practice
+        Share code:         K3JT7QR
+        Share URL:          session.homefit.studio/r/K3JT7QR
+
+      Tokens mirrored from docs/design/project/tokens.json.
+    ======================================================================
+  -->
+  <style>
+    /* ------------------------------------------------------------------ */
+    /*  Tokens (mirrored from docs/design/project/tokens.json)            */
+    /* ------------------------------------------------------------------ */
+    :root {
+      /* color.brand */
+      --brand-default: #ff6b35;
+      --brand-dark: #e85a24;
+      --brand-light: #ff8f5e;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+
+      /* color.surface.dark */
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+
+      /* color.ink.dark */
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --ink-disabled: #4b5563;
+      --ink-on-brand: #ffffff;
+
+      /* color.semantic */
+      --success: #22c55e;
+      --rest: #86efac;
+
+      /* typography */
+      --font-display: "Montserrat", system-ui, sans-serif;
+      --font-body: "Inter", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+      /* radius */
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --radius-full: 9999px;
+
+      /* motion */
+      --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  BrandHeader (shape mirror of web-portal/src/components/BrandHeader)*/
+    /* ------------------------------------------------------------------ */
+    .brand-header {
+      border-bottom: 1px solid var(--surface-border);
+      background: rgba(26, 29, 39, 0.8);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand-header-inner {
+      max-width: 1024px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+    }
+
+    .brand-mark {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--ink-primary);
+    }
+
+    .brand-mark svg {
+      width: 28px;
+      height: 28px;
+      color: var(--brand-default);
+    }
+
+    .brand-mark-name {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+    }
+
+    .brand-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 20px;
+      align-items: center;
+    }
+
+    .brand-nav a {
+      font-size: 13px;
+      color: var(--ink-muted);
+      text-decoration: none;
+      transition: color 150ms var(--ease-standard);
+    }
+
+    .brand-nav a:hover {
+      color: var(--ink-primary);
+    }
+
+    .brand-nav a.current {
+      color: var(--ink-primary);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Page shell                                                        */
+    /* ------------------------------------------------------------------ */
+    .page {
+      max-width: 1024px;
+      margin: 0 auto;
+      padding: 40px 24px 96px;
+    }
+
+    .breadcrumb {
+      font-size: 13px;
+      color: var(--ink-muted);
+      margin-bottom: 16px;
+    }
+
+    .breadcrumb a {
+      color: var(--ink-muted);
+      text-decoration: none;
+      transition: color 150ms var(--ease-standard);
+    }
+
+    .breadcrumb a:hover {
+      color: var(--brand-default);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Hero                                                              */
+    /* ------------------------------------------------------------------ */
+    .hero {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: end;
+      gap: 32px;
+      padding-bottom: 40px;
+      border-bottom: 1px solid var(--surface-border);
+      margin-bottom: 48px;
+    }
+
+    .hero h1 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 36px;
+      letter-spacing: -0.5px;
+      line-height: 1.15;
+      margin: 0 0 12px;
+    }
+
+    .hero p {
+      color: var(--ink-secondary);
+      font-size: 15px;
+      margin: 0;
+      max-width: 560px;
+    }
+
+    .code-badge {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+    }
+
+    .code-badge .kicker {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+    }
+
+    .code-badge .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      color: var(--brand-light);
+      font-family: var(--font-mono);
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      padding: 10px 16px;
+      border-radius: var(--radius-full);
+    }
+
+    .code-badge .chip-url {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-secondary);
+    }
+
+    @media (max-width: 720px) {
+      .hero {
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+      .code-badge {
+        align-items: flex-start;
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Section scaffolding                                               */
+    /* ------------------------------------------------------------------ */
+    .section {
+      margin-bottom: 64px;
+    }
+
+    .section-head {
+      margin-bottom: 20px;
+    }
+
+    .section-head .eyebrow {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .section-head h2 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 22px;
+      letter-spacing: -0.3px;
+      margin: 0 0 4px;
+    }
+
+    .section-head p {
+      margin: 0;
+      color: var(--ink-secondary);
+      font-size: 13px;
+      max-width: 640px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Format card — WhatsApp + email                                    */
+    /* ------------------------------------------------------------------ */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    @media (max-width: 860px) {
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .format-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .format-card-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .format-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      background: var(--brand-tint-bg);
+      color: var(--brand-default);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .format-icon svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .format-title {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      margin: 0;
+    }
+
+    .format-sub {
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin: -2px 0 0;
+    }
+
+    .format-meta {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    /* Message body — styled like the message as the colleague will see it */
+    .msg-body {
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 16px 18px;
+      font-size: 14px;
+      color: var(--ink-primary);
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .msg-body .slot {
+      display: inline-block;
+      padding: 1px 6px;
+      background: var(--brand-tint-bg);
+      border: 1px dashed var(--brand-tint-border);
+      border-radius: var(--radius-sm);
+      color: var(--brand-light);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.3px;
+    }
+
+    .msg-body .link {
+      color: var(--brand-default);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      word-break: break-all;
+    }
+
+    /* Button + micro-caption */
+    .action-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 40px;
+      padding: 0 16px;
+      border-radius: var(--radius-full);
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: background 150ms var(--ease-standard),
+        transform 150ms var(--ease-standard);
+      text-decoration: none;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .btn.primary {
+      background: var(--brand-default);
+      color: var(--ink-on-brand);
+    }
+
+    .btn.primary:hover {
+      background: var(--brand-light);
+    }
+
+    .btn.secondary {
+      background: transparent;
+      color: var(--ink-primary);
+      border-color: var(--surface-border);
+    }
+
+    .btn.secondary:hover {
+      border-color: var(--brand-tint-border);
+      color: var(--brand-light);
+    }
+
+    .btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .caption {
+      font-size: 11px;
+      color: var(--ink-muted);
+      letter-spacing: 0.2px;
+      font-style: italic;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  OG unfurl preview                                                 */
+    /* ------------------------------------------------------------------ */
+    .og-preview {
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: var(--surface-raised);
+    }
+
+    .og-image {
+      aspect-ratio: 1.91 / 1;
+      background:
+        radial-gradient(
+          120% 80% at 80% 20%,
+          rgba(255, 107, 53, 0.22) 0%,
+          rgba(255, 107, 53, 0.04) 40%,
+          transparent 70%
+        ),
+        linear-gradient(180deg, #131621 0%, #0f1117 100%);
+      position: relative;
+      display: flex;
+      align-items: center;
+      padding: 20px 24px;
+      gap: 16px;
+    }
+
+    .og-image::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255, 107, 53, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 107, 53, 0.05) 1px, transparent 1px);
+      background-size: 24px 24px;
+      mask-image: linear-gradient(180deg, transparent, black 30%, black 70%, transparent);
+      pointer-events: none;
+    }
+
+    .og-pulse {
+      position: relative;
+      width: 40px;
+      height: 40px;
+      flex-shrink: 0;
+      color: var(--brand-default);
+    }
+
+    .og-pulse svg {
+      width: 100%;
+      height: 100%;
+      filter: drop-shadow(0 0 8px rgba(255, 107, 53, 0.4));
+    }
+
+    .og-image-copy {
+      position: relative;
+      z-index: 1;
+    }
+
+    .og-image-copy .eyebrow {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .og-image-copy .title {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 18px;
+      letter-spacing: -0.3px;
+      color: var(--ink-primary);
+      line-height: 1.2;
+      margin: 0 0 4px;
+    }
+
+    .og-image-copy .sub {
+      font-size: 11px;
+      color: var(--ink-secondary);
+      margin: 0;
+    }
+
+    .og-meta {
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      background: var(--surface-raised);
+      border-top: 1px solid var(--surface-border);
+    }
+
+    .og-meta .domain {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--ink-muted);
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+
+    .og-meta .title {
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-primary);
+      margin: 0;
+    }
+
+    .og-meta .desc {
+      font-size: 11px;
+      color: var(--ink-secondary);
+      margin: 0;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Email block                                                       */
+    /* ------------------------------------------------------------------ */
+    .email-block {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .email-head {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--surface-border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .email-head .format-icon {
+      background: var(--brand-tint-bg);
+      color: var(--brand-default);
+    }
+
+    .email-head-text {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .email-head-text h3 {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      margin: 0;
+    }
+
+    .email-head-text p {
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin: 2px 0 0;
+    }
+
+    .email-body {
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 12px 20px;
+      align-items: start;
+    }
+
+    .email-field-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding-top: 6px;
+    }
+
+    .email-field-value {
+      font-size: 14px;
+      color: var(--ink-primary);
+      line-height: 1.55;
+    }
+
+    .email-field-value.subject {
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .email-field-value.body p {
+      margin: 0 0 12px;
+    }
+
+    .email-field-value.body p:last-child {
+      margin-bottom: 0;
+    }
+
+    .email-field-value .link {
+      color: var(--brand-default);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      word-break: break-all;
+    }
+
+    .email-sig {
+      padding-top: 12px;
+      border-top: 1px dashed var(--surface-border);
+      color: var(--ink-secondary);
+      font-size: 13px;
+    }
+
+    .email-sig .slot {
+      display: inline-block;
+      padding: 1px 6px;
+      background: var(--brand-tint-bg);
+      border: 1px dashed var(--brand-tint-border);
+      border-radius: var(--radius-sm);
+      color: var(--brand-light);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.3px;
+    }
+
+    .email-actions {
+      padding: 16px 24px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      border-top: 1px solid var(--surface-border);
+      background: rgba(36, 39, 51, 0.35);
+    }
+
+    @media (max-width: 640px) {
+      .email-body {
+        grid-template-columns: 1fr;
+        gap: 4px 0;
+      }
+      .email-field-label {
+        padding-top: 14px;
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  PNG card — big hero preview                                       */
+    /* ------------------------------------------------------------------ */
+    .png-wrap {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(240px, 1fr);
+      gap: 32px;
+      align-items: center;
+    }
+
+    @media (max-width: 860px) {
+      .png-wrap {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* THE card — 1080×1350 shape (Instagram-portrait friendly); scaled
+       down with aspect-ratio so it stays legible in the mockup */
+    .png-card {
+      aspect-ratio: 4 / 5;
+      border-radius: var(--radius-xl);
+      background:
+        radial-gradient(
+          80% 60% at 20% 10%,
+          rgba(255, 107, 53, 0.28) 0%,
+          rgba(255, 107, 53, 0.02) 50%,
+          transparent 100%
+        ),
+        radial-gradient(
+          60% 40% at 90% 100%,
+          rgba(255, 107, 53, 0.14) 0%,
+          transparent 70%
+        ),
+        linear-gradient(180deg, #151824 0%, #0c0e14 100%);
+      position: relative;
+      overflow: hidden;
+      padding: 40px 36px;
+      display: flex;
+      flex-direction: column;
+      color: var(--ink-primary);
+      border: 1px solid var(--surface-border);
+    }
+
+    .png-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255, 107, 53, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 107, 53, 0.04) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: linear-gradient(180deg, transparent, black 20%, black 80%, transparent);
+      pointer-events: none;
+    }
+
+    .png-card-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .png-card-top svg {
+      width: 32px;
+      height: 32px;
+      color: var(--brand-default);
+      filter: drop-shadow(0 0 12px rgba(255, 107, 53, 0.5));
+    }
+
+    .png-card-top .wordmark {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      color: var(--ink-primary);
+    }
+
+    .png-card-mid {
+      margin-top: auto;
+      position: relative;
+      z-index: 1;
+    }
+
+    .png-card-mid .practitioner-label {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .png-card-mid .practitioner-name {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 30px;
+      line-height: 1.1;
+      letter-spacing: -0.5px;
+      margin: 0 0 4px;
+    }
+
+    .png-card-mid .practice-name {
+      font-family: var(--font-body);
+      font-size: 13px;
+      color: var(--ink-secondary);
+      margin: 0 0 28px;
+    }
+
+    .png-card-mid .tagline {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 18px;
+      line-height: 1.35;
+      letter-spacing: -0.2px;
+      color: var(--ink-primary);
+      margin: 0;
+      max-width: 88%;
+    }
+
+    .png-card-mid .tagline span {
+      color: var(--brand-default);
+    }
+
+    .png-card-bottom {
+      margin-top: 28px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Pure-CSS "QR code" — not scannable, just the visual block.
+       A real PNG generator would render a scannable QR to the same slot. */
+    .qr {
+      width: 88px;
+      height: 88px;
+      flex-shrink: 0;
+      background: #ffffff;
+      border-radius: 6px;
+      padding: 6px;
+      display: grid;
+      grid-template-columns: repeat(11, 1fr);
+      grid-template-rows: repeat(11, 1fr);
+      gap: 1px;
+    }
+
+    .qr i {
+      background: #0c0e14;
+    }
+
+    .qr i.off {
+      background: transparent;
+    }
+
+    .qr .finder {
+      grid-column: span 3;
+      grid-row: span 3;
+      background:
+        linear-gradient(#0c0e14 0 0) padding-box,
+        linear-gradient(#fff 0 0) padding-box;
+      border: 1px solid #0c0e14;
+      padding: 2px;
+      position: relative;
+    }
+
+    .qr .finder::after {
+      content: "";
+      position: absolute;
+      inset: 2px;
+      background: #fff;
+    }
+
+    .qr .finder::before {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      background: #0c0e14;
+      z-index: 1;
+    }
+
+    .png-card-bottom .url-block {
+      min-width: 0;
+    }
+
+    .png-card-bottom .url-block .hint {
+      font-family: var(--font-body);
+      font-size: 10px;
+      color: var(--ink-muted);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+
+    .png-card-bottom .url-block .url {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--brand-default);
+      letter-spacing: 0.2px;
+      word-break: break-all;
+    }
+
+    .png-card-bottom .url-block .code-pair {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+      padding: 4px 10px;
+      background: rgba(255, 107, 53, 0.15);
+      border: 1px solid var(--brand-tint-border);
+      border-radius: var(--radius-full);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--brand-light);
+      letter-spacing: 0.6px;
+    }
+
+    /* Right-side copy + buttons */
+    .png-cta-block {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .png-cta-block .eyebrow {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+    }
+
+    .png-cta-block h3 {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      margin: 0;
+    }
+
+    .png-cta-block p {
+      color: var(--ink-secondary);
+      font-size: 13px;
+      margin: 0;
+    }
+
+    .png-cta-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .tagline-helper {
+      margin-top: 20px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      flex-wrap: wrap;
+    }
+
+    .tagline-helper .label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .tagline-helper .tagline-text {
+      font-size: 13px;
+      color: var(--ink-primary);
+      flex: 1;
+      min-width: 200px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Footer note                                                       */
+    /* ------------------------------------------------------------------ */
+    .footer-note {
+      margin-top: 48px;
+      padding: 20px 24px;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--ink-primary);
+      line-height: 1.5;
+    }
+
+    .footer-note svg {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      color: var(--brand-default);
+    }
+
+    .footer-note code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 2px 6px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: 4px;
+      color: var(--brand-light);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Annotation tag                                                    */
+    /* ------------------------------------------------------------------ */
+    .annot-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: var(--radius-full);
+      background: var(--surface-raised);
+      border: 1px dashed var(--surface-border);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.3px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+    }
+
+    .annot-tag::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--brand-default);
+    }
+
+    /* Mock doc-watermark banner at the very top */
+    .mock-banner {
+      background: var(--surface-raised);
+      border-bottom: 1px solid var(--surface-border);
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      padding: 8px 24px;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .mock-banner strong {
+      color: var(--brand-default);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="mock-banner">
+    <strong>design mockup</strong> · /network share-kit · tokens mirrored from <code>docs/design/project/tokens.json</code>
+  </div>
+
+  <!-- ================================================================ -->
+  <!--  1. BrandHeader                                                  -->
+  <!-- ================================================================ -->
+  <header class="brand-header">
+    <div class="brand-header-inner">
+      <a class="brand-mark" href="#">
+        <!-- Pulse Mark: heartbeat traces roof silhouette -->
+        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 18 L7 18 L9 14 L11 22 L13 10 L15 20 L17 18 L29 18" />
+          <path d="M5 18 L16 8 L27 18" opacity="0.35" />
+        </svg>
+        <span class="brand-mark-name">homefit.studio</span>
+      </a>
+      <nav class="brand-nav" aria-label="Primary">
+        <a href="#">Clients</a>
+        <a href="#">Credits</a>
+        <a href="#" class="current">Network</a>
+        <a href="#">Audit</a>
+        <a href="#">Members</a>
+        <a href="#">Account</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="page">
+
+    <!-- Breadcrumb -->
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="#">← Dashboard</a>
+    </nav>
+
+    <!-- ============================================================== -->
+    <!--  2. Hero + code badge                                          -->
+    <!-- ============================================================== -->
+    <section class="hero">
+      <div>
+        <h1>Your share kit</h1>
+        <p>
+          Pre-written pitches and a branded card, ready to send.
+          Every link carries your share code, so colleagues get 10 free
+          credits and you earn a lifetime rebate on theirs.
+        </p>
+      </div>
+
+      <div class="code-badge">
+        <div class="kicker">Your share code</div>
+        <div class="chip">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9.5 2.5h2v2M4.5 11.5h-2v-2M11.5 4.5v7h-7v-7z" opacity="0.4"/>
+            <path d="M2.5 6.5h3v3h-3zM8.5 2.5v3M2.5 2.5h3v1"/>
+          </svg>
+          K3JT7QR
+        </div>
+        <div class="chip-url">session.homefit.studio/r/K3JT7QR</div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  3. WhatsApp formats                                           -->
+    <!-- ============================================================== -->
+    <section class="section" aria-labelledby="whatsapp-section">
+      <div class="section-head">
+        <div class="eyebrow">Section 01</div>
+        <h2 id="whatsapp-section">Best for quick WhatsApp sends</h2>
+        <p>
+          Two WhatsApp formats — a short personal message for a colleague
+          you know by name, or a punchier line for your status / broadcast
+          list. Copy, paste, send. The unfurl preview is what they'll see.
+        </p>
+      </div>
+
+      <div class="grid-2">
+
+        <!-- -------- WhatsApp 1:1 ------------------------------------ -->
+        <article class="format-card">
+          <header class="format-card-head">
+            <div class="format-icon">
+              <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 1.5a7.5 7.5 0 0 0-6.6 11.1L1.5 16.5l4-0.9A7.5 7.5 0 1 0 9 1.5Z"/>
+                <path d="M6.2 6.5c0.3-0.7 0.9-0.8 1.3-0.5 0.5 0.4 0.8 1.5 0.3 2 -0.3 0.3-0.4 0.5-0.3 0.7 0.4 1 1.3 1.9 2.3 2.3 0.2 0.1 0.4 0 0.7-0.3 0.5-0.5 1.6-0.2 2 0.3 0.3 0.4 0.2 1-0.5 1.3-1.6 0.6-4-0.9-5.2-2.2-1.1-1.2-2.2-3-1.6-4.6Z" opacity="0.6"/>
+              </svg>
+            </div>
+            <div>
+              <h3 class="format-title">WhatsApp · one-to-one</h3>
+              <p class="format-sub">Short personal message</p>
+            </div>
+            <span class="format-meta">Copy</span>
+          </header>
+
+          <!-- Message body as the recipient sees it.
+               {Colleague} is highlighted as an auto-filled slot only
+               when the practitioner has selected a specific contact;
+               otherwise it's dropped for an unaddressed opener. -->
+          <div class="msg-body">Hey <span class="slot">{Colleague}</span>, tried homefit.studio for my home programmes — makes the plans visual and tracks whether the client is keeping up. If you sign up through this you get 10 free credits on me: <span class="link">session.homefit.studio/r/K3JT7QR</span></div>
+
+          <div class="action-row">
+            <button type="button" class="btn primary">
+              <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="8" height="9" rx="1.5"/>
+                <path d="M5 3V2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1"/>
+              </svg>
+              Copy message
+            </button>
+            <span class="annot-tag">copies to clipboard · toast confirms</span>
+          </div>
+
+          <!-- OG unfurl preview — what WhatsApp shows below the message -->
+          <div class="og-preview">
+            <div class="og-image">
+              <div class="og-pulse">
+                <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 18 L7 18 L9 14 L11 22 L13 10 L15 20 L17 18 L29 18"/>
+                  <path d="M5 18 L16 8 L27 18" opacity="0.35"/>
+                </svg>
+              </div>
+              <div class="og-image-copy">
+                <div class="eyebrow">From Carl Mostert</div>
+                <p class="title">Your first 10 credits are on me.</p>
+                <p class="sub">homefit.studio — visual home-exercise programmes</p>
+              </div>
+            </div>
+            <div class="og-meta">
+              <div class="domain">session.homefit.studio</div>
+              <p class="title">homefit.studio — visual home programmes</p>
+              <p class="desc">Capture once. Share anywhere. Credits land when you sign up.</p>
+            </div>
+          </div>
+        </article>
+
+        <!-- -------- WhatsApp broadcast ------------------------------ -->
+        <article class="format-card">
+          <header class="format-card-head">
+            <div class="format-icon">
+              <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 6v6M3 9h6l6-4v10L9 12M14 6v6"/>
+              </svg>
+            </div>
+            <div>
+              <h3 class="format-title">WhatsApp · status / broadcast</h3>
+              <p class="format-sub">Punchier, no name slot</p>
+            </div>
+            <span class="format-meta">Copy</span>
+          </header>
+
+          <div class="msg-body">Stop chasing clients on adherence. Let them see the plan. <span class="link">session.homefit.studio/r/K3JT7QR</span></div>
+
+          <div class="action-row">
+            <button type="button" class="btn primary">
+              <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="8" height="9" rx="1.5"/>
+                <path d="M5 3V2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1"/>
+              </svg>
+              Copy message
+            </button>
+            <span class="annot-tag">copies to clipboard · toast confirms</span>
+          </div>
+
+          <div class="og-preview">
+            <div class="og-image">
+              <div class="og-pulse">
+                <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 18 L7 18 L9 14 L11 22 L13 10 L15 20 L17 18 L29 18"/>
+                  <path d="M5 18 L16 8 L27 18" opacity="0.35"/>
+                </svg>
+              </div>
+              <div class="og-image-copy">
+                <div class="eyebrow">Visual programmes</div>
+                <p class="title">Let them see the plan.</p>
+                <p class="sub">homefit.studio — capture once, share anywhere</p>
+              </div>
+            </div>
+            <div class="og-meta">
+              <div class="domain">session.homefit.studio</div>
+              <p class="title">homefit.studio — visual home programmes</p>
+              <p class="desc">Capture once. Share anywhere. Credits land when you sign up.</p>
+            </div>
+          </div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  4. Email template                                             -->
+    <!-- ============================================================== -->
+    <section class="section" aria-labelledby="email-section">
+      <div class="section-head">
+        <div class="eyebrow">Section 02</div>
+        <h2 id="email-section">When you want to write something longer</h2>
+        <p>
+          A four-paragraph introduction for colleagues you'd rather email
+          than message. Full copy pre-written — subject line, body, and
+          sign-off auto-filled from your profile.
+        </p>
+      </div>
+
+      <div class="email-block">
+        <div class="email-head">
+          <div class="format-icon">
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2.5" y="4" width="13" height="10" rx="1.5"/>
+              <path d="M2.5 5 L9 10 L15.5 5"/>
+            </svg>
+          </div>
+          <div class="email-head-text">
+            <h3>Email · professional introduction</h3>
+            <p>Subject + body + signature auto-filled</p>
+          </div>
+          <span class="format-meta">Copy</span>
+        </div>
+
+        <div class="email-body">
+          <div class="email-field-label">To</div>
+          <div class="email-field-value" style="color: var(--ink-secondary);">
+            <span class="slot" style="display:inline-block;padding:1px 6px;background:var(--brand-tint-bg);border:1px dashed var(--brand-tint-border);border-radius:var(--radius-sm);color:var(--brand-light);font-family:var(--font-mono);font-size:12px;letter-spacing:0.3px;">{Colleague email}</span>
+          </div>
+
+          <div class="email-field-label">Subject</div>
+          <div class="email-field-value subject">
+            The tool I've been using for home programmes
+          </div>
+
+          <div class="email-field-label">Body</div>
+          <div class="email-field-value body">
+            <p>Hi <span class="slot" style="display:inline-block;padding:1px 6px;background:var(--brand-tint-bg);border:1px dashed var(--brand-tint-border);border-radius:var(--radius-sm);color:var(--brand-light);font-family:var(--font-mono);font-size:12px;letter-spacing:0.3px;">{Colleague}</span>,</p>
+
+            <p>I've been using a tool called homefit.studio for the home programmes I send clients between sessions, and I thought you might get value from it too. It records the actual exercise during the session, converts it into a clean visual demo on the phone, and sends the client a link that works in any browser — no app install.</p>
+
+            <p>The part that's made the biggest difference for me is that clients actually <em>see</em> what I'm asking them to do, instead of reading a list of names on paper. Adherence has genuinely improved. It also lets me check which plans have been opened, so I can tell who's keeping up before their next visit.</p>
+
+            <p>If you want to try it, you can sign up through my link and the first 10 credits are on me:</p>
+
+            <p><span class="link">session.homefit.studio/r/K3JT7QR</span></p>
+
+            <p>Happy to walk you through it if you'd like — a quick call is usually enough to see whether it fits your practice.</p>
+
+            <div class="email-sig">
+              <p style="margin:0 0 4px;">Warmly,</p>
+              <p style="margin:0;color:var(--ink-primary);font-weight:600;">Carl Mostert</p>
+              <p style="margin:0;font-size:12px;color:var(--ink-muted);">carlhein@me.com Practice</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="email-actions">
+          <button type="button" class="btn primary">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="8" height="9" rx="1.5"/>
+              <path d="M5 3V2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1"/>
+            </svg>
+            Copy full email
+          </button>
+          <button type="button" class="btn secondary">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M7 1.5v8M3.5 6 7 9.5 10.5 6M2 12h10"/>
+            </svg>
+            Open in mail client
+          </button>
+          <span class="annot-tag">"copy" → clipboard + toast · "open" → mailto: with subject + body pre-filled</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  5. PNG share card                                             -->
+    <!-- ============================================================== -->
+    <section class="section" aria-labelledby="png-section">
+      <div class="section-head">
+        <div class="eyebrow">Section 03</div>
+        <h2 id="png-section">Print · social · profile</h2>
+        <p>
+          A branded image card with your name, practice, and QR code.
+          Download it as PNG for a WhatsApp status, an Instagram story,
+          a business-card reprint, or your email signature.
+        </p>
+      </div>
+
+      <div class="png-wrap">
+
+        <!-- The card design — CSS recreation; real implementation would
+             generate this as a 1080×1350 PNG server-side. -->
+        <div class="png-card" role="img" aria-label="homefit.studio share card for Carl Mostert, code K3JT7QR">
+          <div class="png-card-top">
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 18 L7 18 L9 14 L11 22 L13 10 L15 20 L17 18 L29 18"/>
+              <path d="M5 18 L16 8 L27 18" opacity="0.35"/>
+            </svg>
+            <span class="wordmark">homefit.studio</span>
+          </div>
+
+          <div class="png-card-mid">
+            <div class="practitioner-label">Your practitioner</div>
+            <h3 class="practitioner-name">Carl Mostert</h3>
+            <p class="practice-name">carlhein@me.com Practice</p>
+
+            <p class="tagline">
+              Home exercise programmes, <span>visually clear</span>.<br/>
+              Try homefit.studio.
+            </p>
+          </div>
+
+          <div class="png-card-bottom">
+            <!-- CSS-built QR stand-in (the finder squares + a peppered
+                 fill). Real generator would render a scannable QR at
+                 the same slot. -->
+            <div class="qr" aria-hidden="true">
+              <!-- top-left finder -->
+              <i class="finder"></i>
+              <i class="off"></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i>
+              <!-- top-right finder (col 9-11) -->
+              <i class="finder" style="grid-column: 9 / span 3;"></i>
+              <!-- row 2 -->
+              <i class="off"></i><i></i><i></i><i class="off"></i><i></i><i class="off"></i><i></i>
+              <!-- row 3 -->
+              <i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i><i></i>
+              <!-- row 4 -->
+              <i class="off"></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i><i></i>
+              <!-- row 5 -->
+              <i></i><i class="off"></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i>
+              <!-- row 6 -->
+              <i></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i>
+              <!-- row 7 -->
+              <i class="off"></i><i></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i>
+              <!-- row 8 -->
+              <i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i>
+              <!-- bottom-left finder (row 9-11, col 1-3) -->
+              <i class="finder" style="grid-column: 1 / span 3; grid-row: 9 / span 3;"></i>
+              <i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i>
+              <!-- remaining rows (padding cells) -->
+              <i class="off"></i><i></i><i></i><i class="off"></i><i></i><i class="off"></i><i></i><i></i>
+              <i></i><i class="off"></i><i></i><i></i><i class="off"></i><i></i><i></i><i class="off"></i>
+            </div>
+
+            <div class="url-block">
+              <div class="hint">Scan or visit</div>
+              <div class="url">session.homefit.studio/r/K3JT7QR</div>
+              <div class="code-pair">CODE · K3JT7QR</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right-side CTAs + copy -->
+        <div class="png-cta-block">
+          <div class="eyebrow">1080 × 1350 · PNG</div>
+          <h3>Downloadable share card</h3>
+          <p>
+            Portrait crop works for WhatsApp status, Instagram story, and
+            most LinkedIn embeds. Use it as a chat sticker, print it on a
+            flyer, drop it into your email signature.
+          </p>
+
+          <div class="png-cta-actions">
+            <button type="button" class="btn primary">
+              <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7 1.5v8M3.5 6 7 9.5 10.5 6M2 12h10"/>
+              </svg>
+              Download PNG
+            </button>
+            <button type="button" class="btn secondary">
+              <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M10 5L5 10M4.5 4.5h0M9.5 9.5h0"/>
+                <rect x="2" y="2" width="10" height="10" rx="1.5"/>
+              </svg>
+              Copy to clipboard
+            </button>
+          </div>
+          <span class="annot-tag">triggers PNG download · filename: homefit-share-carl-mostert.png</span>
+        </div>
+      </div>
+
+      <!-- Tagline helper — for places a PNG won't fit -->
+      <div class="tagline-helper">
+        <span class="label">Tagline</span>
+        <span class="tagline-text">
+          Home exercise programmes, visually clear. Try homefit.studio — session.homefit.studio/r/K3JT7QR
+        </span>
+        <button type="button" class="btn secondary">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="8" height="9" rx="1.5"/>
+            <path d="M5 3V2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1"/>
+          </svg>
+          Copy tagline
+        </button>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  6. Footer note                                                -->
+    <!-- ============================================================== -->
+    <div class="footer-note">
+      <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="9" cy="9" r="7"/>
+        <path d="M9 5.5v4M9 12h0"/>
+      </svg>
+      <div>
+        Messages land on <code>session.homefit.studio/r/K3JT7QR</code> —
+        unique to your practice. Your rebate auto-tracks from there.
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
