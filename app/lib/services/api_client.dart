@@ -540,6 +540,37 @@ class ApiClient {
     }
   }
 
+  /// `delete_client(p_client_id)` — soft-deletes the client and cascades
+  /// a tombstone onto every plan owned by the client (same `deleted_at`
+  /// timestamp so [restoreClient] can reverse it selectively).
+  ///
+  /// Idempotent — calling on an already-deleted client is a no-op and
+  /// returns the existing tombstoned row. SECURITY DEFINER, practice-
+  /// membership gated inside the RPC.
+  ///
+  /// Raises `PostgrestException` on membership / auth failures; caller
+  /// (SyncService) lets those bubble so [markPendingOpFailed] records
+  /// the error for diagnostics.
+  Future<void> deleteClient({required String clientId}) async {
+    await raw.rpc(
+      'delete_client',
+      params: {'p_client_id': clientId},
+    );
+  }
+
+  /// `restore_client(p_client_id)` — reverses [deleteClient]. Restores the
+  /// client row AND any plan whose `deleted_at` matches the client's
+  /// `deleted_at` exactly. Plans soft-deleted at another timestamp
+  /// (manual delete before the cascade) stay deleted.
+  ///
+  /// Idempotent — no-op on a live client.
+  Future<void> restoreClient({required String clientId}) async {
+    await raw.rpc(
+      'restore_client',
+      params: {'p_client_id': clientId},
+    );
+  }
+
   /// List the clients belonging to a practice. Used by the Your-clients
   /// screen. Returns an empty list on any error so the UI can render an
   /// empty state rather than crash.

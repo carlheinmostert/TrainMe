@@ -792,6 +792,90 @@ class LocalStorageService {
     await db.delete('cached_clients', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Soft-delete a cached client and cascade-tombstone every local
+  /// session that belongs to that client (matched via `client_id`, or
+  /// falling back to `clientName == client.name` for legacy sessions).
+  ///
+  /// The tombstone timestamp is returned so the caller (SyncService)
+  /// can stash it alongside the pending `delete_client` op. Restoring
+  /// uses the same timestamp to match-and-revert the cascaded sessions
+  /// — plans soft-deleted earlier at another timestamp stay deleted.
+  ///
+  /// All writes run in a single SQLite transaction; a restart mid-
+  /// operation leaves either the entire cascade in place or none of it.
+  /// The cached_clients row is marked `deleted=1` + `dirty=1` so
+  /// [replaceCachedClientsForPractice] skips it on the next pull and
+  /// the pending op still has something to flush against.
+  Future<int> softDeleteClientCascade({
+    required String clientId,
+  }) async {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'cached_clients',
+        where: 'id = ?',
+        whereArgs: [clientId],
+        limit: 1,
+      );
+      if (rows.isEmpty) return;
+      final client = CachedClient.fromMap(rows.first);
+
+      await txn.update(
+        'cached_clients',
+        <String, Object?>{
+          'deleted': 1,
+          'dirty': 1,
+        },
+        where: 'id = ?',
+        whereArgs: [clientId],
+      );
+
+      // Cascade: every local session whose client_id matches OR whose
+      // clientName matches (legacy rows predating Milestone H's
+      // backfill) — stamp the SAME nowMs. restoreClientCascade uses
+      // equality on this timestamp to undo exactly what we cascaded.
+      await txn.rawUpdate(
+        'UPDATE sessions '
+        'SET deleted_at = ? '
+        'WHERE deleted_at IS NULL '
+        '  AND (client_id = ? OR (client_id IS NULL AND client_name = ?))',
+        [nowMs, clientId, client.name],
+      );
+    });
+    return nowMs;
+  }
+
+  /// Reverse a [softDeleteClientCascade]. Clears the `deleted` flag on
+  /// the cached_clients row and restores every session whose
+  /// `deleted_at` matches [cascadeTimestampMs] exactly. Sessions
+  /// soft-deleted at another timestamp (e.g. manual delete before the
+  /// client was removed) stay deleted — the "undo what we cascaded"
+  /// invariant mirrors the server-side `restore_client` semantics.
+  Future<void> restoreClientCascade({
+    required String clientId,
+    required int cascadeTimestampMs,
+  }) async {
+    await db.transaction((txn) async {
+      await txn.update(
+        'cached_clients',
+        <String, Object?>{
+          'deleted': 0,
+          'dirty': 1,
+        },
+        where: 'id = ?',
+        whereArgs: [clientId],
+      );
+
+      await txn.rawUpdate(
+        'UPDATE sessions SET deleted_at = NULL '
+        'WHERE deleted_at = ? '
+        '  AND (client_id = ? OR client_id IS NULL AND client_name IN '
+        '      (SELECT name FROM cached_clients WHERE id = ?))',
+        [cascadeTimestampMs, clientId, clientId],
+      );
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Offline-first — cached_practices
   // ---------------------------------------------------------------------------

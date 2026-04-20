@@ -94,6 +94,7 @@ export default async function ClientDetailPage({
           initialConsent={client.videoConsent}
           sessionCount={sessionCount}
           recentPractitionerEmail={recentPractitionerEmail}
+          practiceQs={`?practice=${practiceId}`}
         />
 
         {/* Sessions section — reuses the /sessions component verbatim. */}

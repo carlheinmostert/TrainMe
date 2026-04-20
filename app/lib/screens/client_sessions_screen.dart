@@ -42,10 +42,17 @@ class ClientSessionsScreen extends StatefulWidget {
   final PracticeClient client;
   final LocalStorageService storage;
 
+  /// Optional hook fired when the practitioner taps Delete client from
+  /// the overflow menu. HomeScreen passes this so its local list state
+  /// can remove the row immediately (the navigator pops before the
+  /// parent's `_load` callback runs, so the optimistic hint matters).
+  final VoidCallback? onDeleted;
+
   const ClientSessionsScreen({
     super.key,
     required this.client,
     required this.storage,
+    this.onDeleted,
   });
 
   @override
@@ -330,6 +337,79 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   // Actions — client
   // ---------------------------------------------------------------------------
 
+  /// Delete the client + cascade-soft-delete every session.
+  ///
+  /// Fires immediately (R-01: no modal confirmation). The actual
+  /// destructive work goes through the offline-first queue so Undo is
+  /// a local cache flip — instant and roundtrip-free.
+  ///
+  /// On Undo, the client re-appears on Home (via [widget.onDeleted]'s
+  /// parent re-render) and every cascaded session lands back in the
+  /// per-client list.
+  Future<void> _deleteClient() async {
+    HapticFeedback.mediumImpact();
+    final snapshot = _client;
+
+    int cascadeTs;
+    try {
+      cascadeTs = await SyncService.instance.queueDeleteClient(
+        clientId: snapshot.id,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Couldn't delete ${snapshot.name}: $e"),
+          duration: const Duration(seconds: 4),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    widget.onDeleted?.call();
+    if (!mounted) return;
+
+    // Pop BEFORE showing the SnackBar — the parent screen (Home) owns
+    // the messenger; posting on this disposed scaffold swallows the
+    // action silently. The showUndoSnackBar helper looks up the
+    // messenger of the context it's given, so we grab the ancestor
+    // messenger now before navigating away.
+    final rootMessenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).pop();
+
+    rootMessenger.clearSnackBars();
+    rootMessenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          '${snapshot.name.isEmpty ? 'Client' : snapshot.name} deleted',
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 14,
+            color: AppColors.textOnDark,
+          ),
+        ),
+        backgroundColor: AppColors.surfaceRaised,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 7),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: AppColors.surfaceBorder),
+        ),
+        action: SnackBarAction(
+          label: 'Undo',
+          textColor: AppColors.primary,
+          onPressed: () async {
+            await SyncService.instance.queueRestoreClient(
+              clientId: snapshot.id,
+              cascadeTimestampMs: cascadeTs,
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _openConsent() async {
     HapticFeedback.selectionClick();
     final updated =
@@ -446,6 +526,42 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
             color: AppColors.textOnDark,
           ),
         ),
+        actions: [
+          PopupMenuButton<_ClientMenuAction>(
+            icon: const Icon(Icons.more_vert_rounded),
+            tooltip: 'More',
+            color: AppColors.surfaceRaised,
+            onSelected: (action) {
+              switch (action) {
+                case _ClientMenuAction.delete:
+                  _deleteClient();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem<_ClientMenuAction>(
+                value: _ClientMenuAction.delete,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.delete_outline_rounded,
+                      color: AppColors.error,
+                      size: 20,
+                    ),
+                    SizedBox(width: 10),
+                    Text(
+                      'Delete client',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        color: AppColors.textOnDark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
       body: SafeArea(
         top: false,
@@ -897,4 +1013,10 @@ class _DashedUnderlinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DashedUnderlinePainter old) =>
       old.color != color;
+}
+
+/// Items in the per-client overflow menu. Scoped to this file — adding
+/// a new action is a one-enum-value change plus a handler branch.
+enum _ClientMenuAction {
+  delete,
 }

@@ -15,6 +15,7 @@ import '../widgets/new_client_sheet.dart';
 import '../widgets/offline_sync_chip.dart';
 import '../widgets/powered_by_footer.dart';
 import '../widgets/practice_chip.dart';
+import '../widgets/undo_snackbar.dart';
 import 'client_sessions_screen.dart';
 import 'settings_screen.dart';
 
@@ -285,10 +286,82 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => ClientSessionsScreen(
           client: client,
           storage: widget.storage,
+          onDeleted: () => _optimisticallyHide(client.id),
         ),
       ),
     );
     if (mounted) _load();
+  }
+
+  /// Remove a client from the local list immediately, without waiting
+  /// for a DB round-trip. Used both by the swipe-to-delete Dismissible
+  /// and by the detail screen's Delete button (via the [onDeleted]
+  /// callback) so the list-ready state stays in sync with whichever
+  /// surface fired the delete.
+  void _optimisticallyHide(String clientId) {
+    if (!mounted) return;
+    setState(() {
+      _clients = _clients.where((c) => c.id != clientId).toList(growable: false);
+      _stats = Map<String, _ClientSessionStats>.from(_stats)..remove(clientId);
+    });
+  }
+
+  /// Optimistic reinsert after an Undo. Trusts that the client already
+  /// existed and isn't mid-drag.
+  void _optimisticallyRestore(PracticeClient client) {
+    if (!mounted) return;
+    setState(() {
+      if (_clients.any((c) => c.id == client.id)) return;
+      _clients = [..._clients, client];
+    });
+  }
+
+  /// Swipe-to-delete. Fires immediately (R-01: no modal confirmation)
+  /// + surfaces an Undo SnackBar for 7 seconds. Undo reverses the
+  /// cascade: the client AND every session that was cascaded land back
+  /// where they were.
+  Future<void> _deleteClient(PracticeClient client) async {
+    HapticFeedback.mediumImpact();
+    // Hide from the list straight away so the Dismissible's slide-out
+    // looks clean. The Dismissible itself handles the animation frame;
+    // state-level removal is what keeps the list stable if Undo isn't
+    // pressed.
+    _optimisticallyHide(client.id);
+
+    int cascadeTs;
+    try {
+      cascadeTs = await SyncService.instance.queueDeleteClient(
+        clientId: client.id,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _optimisticallyRestore(client);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Couldn't delete ${client.name}: $e"),
+          duration: const Duration(seconds: 4),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    showUndoSnackBar(
+      context,
+      label: '${client.name.isEmpty ? 'Client' : client.name} deleted',
+      duration: const Duration(seconds: 7),
+      onUndo: () async {
+        await SyncService.instance.queueRestoreClient(
+          clientId: client.id,
+          cascadeTimestampMs: cascadeTs,
+        );
+        if (!mounted) return;
+        _optimisticallyRestore(client);
+        // Re-pull stats so session counts repopulate.
+        _load();
+      },
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -414,10 +487,42 @@ class _HomeScreenState extends State<HomeScreen> {
           final client = _clients[i];
           final stats = _stats[client.id] ??
               const _ClientSessionStats(count: 0);
-          return _ClientCard(
-            client: client,
-            stats: stats,
-            onTap: () => _openClient(client),
+          return Dismissible(
+            // Use the client id — stable across reorders and Undo.
+            key: ValueKey('client-${client.id}'),
+            direction: DismissDirection.endToStart,
+            background: const SizedBox.shrink(),
+            secondaryBackground: Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              alignment: Alignment.centerRight,
+              decoration: BoxDecoration(
+                color: AppColors.error,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.delete_outline_rounded, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text(
+                    'Delete',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            onDismissed: (_) => _deleteClient(client),
+            child: _ClientCard(
+              client: client,
+              stats: stats,
+              onTap: () => _openClient(client),
+            ),
           );
         },
       ),

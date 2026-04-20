@@ -48,7 +48,21 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Edge case: capture a stationary shot (practitioner standing still). Motion-peak should fall back gracefully to midpoint; person-crop should still tighten.
    - Edge case: capture a video without a person in frame (e.g. pointing at equipment). Person-segmentation will return nil → thumbnail falls through to the un-cropped masked image (same look as before).
 
-6. **Studio MediaViewer — treatment cycling + inline consent** (branch `feat/studio-mediaviewer-treatments`):
+7. **Delete client + cascade undo** (branch `feat/delete-client`, Milestone L):
+   - Home → swipe-left on a client row → red "Delete" reveals → card slides out
+   - UndoSnackBar appears at the bottom with a 7-second window
+   - Tap Undo → the client row comes back; every session that was cascaded lands back under ClientSessions
+   - Swipe + don't tap Undo → wait 7s → row stays gone
+   - Open the per-client screen → overflow menu (top-right `⋮`) → "Delete client" — fires immediately, pops to Home, SnackBar with Undo appears
+   - Offline path: airplane mode + swipe-delete → "N pending" chip bumps by 1 → toggle online → drains; cloud rows now tombstoned
+   - Offline path: airplane mode + swipe-delete + Undo during the 7s window → both ops queue + cancel out server-side (delete lands, restore lands right after)
+   - Resurrection check: create a new client with the SAME name as a just-deleted one → `upsert_client_with_id` RPC returns a 23505 "a deleted client already uses that name" — surface the error cleanly
+   - Portal `/clients` page → hover the row (desktop) → delete icon fades in bottom-right → click → row vanishes + bottom-centre toast with Undo for 7s → Undo reinstates
+   - Portal `/clients/[id]` → Delete button in the header → click → navigates to `/clients` + the list page surfaces the Undo toast via sessionStorage handshake
+   - Confirm in DB after a delete: `SELECT deleted_at FROM clients WHERE id=...` is non-null, `SELECT id, deleted_at FROM plans WHERE client_id=...` mirrors the same timestamp
+   - Confirm after Undo: both `deleted_at` back to null on the client AND the cascaded plans
+
+8. **Studio MediaViewer — treatment cycling + inline consent** (branch `feat/studio-mediaviewer-treatments`):
    - Long-press a Studio thumbnail → "Open full-screen"
    - Verify top-left segmented control renders: Line · B&W · Original
    - Swipe up — cycles Line → B&W → Original → Line with a 220ms crossfade, per-step haptic
