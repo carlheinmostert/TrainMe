@@ -2,13 +2,15 @@
 
 Work that has landed on `main` but hasn't been visually verified on Carl's iPhone yet. Batched so Carl installs once and tests many.
 
+> **As of 2026-04-20 EOD:** the active QA surface is the Wave test-script infrastructure under `docs/test-scripts/`. See `docs/CHECKPOINT_2026-04-20.md`. **Wave 2 passed 40/40** on the 2026-04-20 build (1 fail + 3 pass-notes rolled into Wave 3 backlog). **Wave 3** at `docs/test-scripts/2026-04-20-wave3-device-qa.html` is awaiting implementation. The historic list below is kept for reference but should be considered cold — new items land in the next-wave HTML, not here.
+
 ---
 
-## 2026-04-20 checkpoint (current)
+## 2026-04-20 checkpoint (historic)
 
-**On device:** `fa3efa7` — the offline-first merge. Everything below has landed on main + is in production. Carl is actively QA-ing.
+**On device:** `fa3efa7` — the offline-first merge (at the time this was written). Everything below has since landed on main + been superseded by the Wave 2 + Wave 3 QA cadence.
 
-### Recently verified ✅
+### Verified ✅
 - Auth loop (password sign-in + magic-link fallback + bad-password fallthrough)
 - Portal + mobile UI refactors (clients spine, dashboard R-12, new /network page)
 - PayFast sandbox end-to-end (after the passphrase fix)

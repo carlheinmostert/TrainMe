@@ -170,6 +170,17 @@ Surfaces required to match:
 - **Offline-first** (Milestone K) — `SyncService` + cache tables (`cached_clients`, `cached_practices`, `cached_credit_balance`, `pending_ops`) + `connectivity_plus` listener + `upsert_client_with_id` RPC for client-generated UUIDs. All reads from cache; all client writes queued. Publish stays online-only.
 - **Line-drawing tuning LOCKED at v6** — `edgeThresholdLo=1, edgeThresholdHi=0.88, lineAlpha=0.96, backgroundDim=0.70`. See `VideoConverterChannel.swift` top-of-file comment; aesthetic signoff is load-bearing, don't tweak without explicit Carl sign-off.
 
+**Shipped 2026-04-20:**
+- **Credit model overhaul (Milestone M)** — signup bonuses move to bootstrap/claim: +3 organic, +8 referred. Referrer 5% lifetime rebate with a 1-credit goodwill floor on first payout. One-time +10 bonuses removed. `schema_milestone_m_credit_model.sql`.
+- **Delete client (Milestone L)** — `delete_client` / `restore_client` RPCs with cascade to plans via matched `deleted_at` timestamps. Portal + mobile twins, UndoSnackBar on both. Hotfix PR #37 qualified `clients.id` to dodge PL/pgSQL `42702` SETOF OUT-col shadowing.
+- **Portal practice rename + popover switcher (Milestone N)** — retired the dropdown. Inline editable "In practice: {Name}  ⇄ Switch" with custom popover; Account Settings has a Practice-name card; owner-only via `rename_practice` RPC. Mobile R-11 twin is a backlog follow-up.
+- **Per-exercise treatment preference (Milestone O)** — swipe-to-set persists via `preferred_treatment` column (SQLite v18 + Supabase). Studio card has a 3-tile row below the exercise name. Vertical pill in `_MediaViewer` uses rotated book-spine text.
+- **B&W thumbnails on practitioner-facing surfaces** — Studio/Home/ClientSessions/Camera peek all render a B&W frame from the raw capture with motion-peak + person-crop. Line-drawing stays on the client web player.
+- **Logo v2 canonical** — retired heartbeat/roof. New matrix: 3 ghost greys per side (`#4B5563` / `#6B7280` / `#9CA3AF`), 2×2 circuit in coral tint band, sage rest. Matrix `viewBox="0 0 48 9.5"` + lockup `viewBox="0 -2 48 16"`. Three impls kept in sync: `HomefitLogo.tsx`, `homefit_logo.dart`, `buildHomefitLogoSvg()`.
+- **Audio on Line treatment** — converter captures + muxes audio always; `includeAudio` flag is now a playback-mute preference. Concurrent drain via `requestMediaDataWhenReady` on separate dispatch queues with `DispatchGroup` gating `finishWriting`. PR #41 is the load-bearing fix.
+- **Test-script infrastructure** — `docs/test-scripts/_server.py` (port 3457) serves static docs + accepts POST to `/api/test-results/{slug}.json`. Test scripts are HTML with numbered pass/fail buttons + notes on both states. Wave 1 + Wave 2 complete; Wave 3 backlog created.
+- **Business case 5-year model** (PR #35, still open) — `docs/business-case/homefit-studio-business-case-v1.xlsx` + `executive-summary.html` with Chart.js + live sliders.
+
 **Backlog (not urgent — nothing currently broken):**
 - **D2** publish-screen practice picker polish.
 - Three-treatment end-to-end validation on device (vault secret is set; needs capture → publish → switch to B&W with consent granted round-trip).

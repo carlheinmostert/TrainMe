@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA Wave 2 — audio + treatment + rename</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 9999px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+    background: var(--coral-bg); color: var(--coral);
+    border: 1px solid rgba(255,107,53,0.3);
+    margin-right: 6px;
+  }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row {
+    margin-top: 8px; display: none;
+  }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-20 · Wave 2 — audio + treatment + rename</div>
+    <h1>Device QA — Wave 2</h1>
+    <p class="lede">
+      Fresh install kicked off. Once it lands on your phone (Sign-in screen = installed), work through the four sections below.
+      New since Wave 1: <span class="pill">#39 audio true fix</span> <span class="pill">#38 per-exercise treatment</span> <span class="pill">#37 delete RPC fix</span> <span class="pill">#36 portal rename</span>
+      <br><br>
+      <strong>Reference items by number</strong> — every checkbox below has a coral monospace prefix (1–40). When something breaks, message me "item 17 broke" or "3 and 4 work" rather than re-typing the line.
+    </p>
+
+    <h2>1 · Line-drawing audio — TRUE fix</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Root cause was <code>includeAudio</code> defaulting to <strong>false</strong> in the Dart model, so the Swift audio mux never ran.
+      Now <code>includeAudio</code> is always <code>true</code> at capture time; the flag is repurposed as a playback-mute preference.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 1">✓</button>
+          <button class="fail" type="button" aria-label="Fail 1">✗</button>
+        </div>
+        <span class="num">1.</span>
+        <span class="text">Capture a fresh video exercise while talking over the movement.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 2">✓</button>
+          <button class="fail" type="button" aria-label="Fail 2">✗</button>
+        </div>
+        <span class="num">2.</span>
+        <span class="text">Wait for conversion (Studio card leaves spinner).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 3">✓</button>
+          <button class="fail" type="button" aria-label="Fail 3">✗</button>
+        </div>
+        <span class="num">3.</span>
+        <span class="text">Open plan preview → <strong>Line treatment</strong> → voiceover should be audible.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 4">✓</button>
+          <button class="fail" type="button" aria-label="Fail 4">✗</button>
+        </div>
+        <span class="num">4.</span>
+        <span class="text">Cross-check Original treatment — sounds identical.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 5">✓</button>
+          <button class="fail" type="button" aria-label="Fail 5">✗</button>
+        </div>
+        <span class="num">5.</span>
+        <span class="text">Publish the plan → open web player at <code>session.homefit.studio/p/{uuid}</code> → Line tab → audio plays there too.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 6">✓</button>
+          <button class="fail" type="button" aria-label="Fail 6">✗</button>
+        </div>
+        <span class="num">6.</span>
+        <span class="text">Pre-existing captures (converted before this fix) remain silent — expected, re-capture to fix.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Per-exercise treatment preference</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Treatments now persist per exercise. Swipe sets are sticky; Studio card gets a new 3-tile row.
+    </p>
+
+    <h3>Vertical pill — rotated text</h3>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 7">✓</button>
+          <button class="fail" type="button" aria-label="Fail 7">✗</button>
+        </div>
+        <span class="num">7.</span>
+        <span class="text">Long-press a thumbnail → "Open full-screen". The left-edge pill is now <strong>narrow</strong> (~34 px wide) with text rotated 90° — "Line", "B&amp;W", "Original" read bottom-to-top (book-spine style).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 8">✓</button>
+          <button class="fail" type="button" aria-label="Fail 8">✗</button>
+        </div>
+        <span class="num">8.</span>
+        <span class="text">Tap + vertical-swipe still work. Consent toggle sits below without colliding.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h3>Sticky preference on swipe</h3>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 9">✓</button>
+          <button class="fail" type="button" aria-label="Fail 9">✗</button>
+        </div>
+        <span class="num">9.</span>
+        <span class="text">On exercise A, vertical-swipe up → B&amp;W. Close the viewer. Reopen on A → lands on B&amp;W.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 10">✓</button>
+          <button class="fail" type="button" aria-label="Fail 10">✗</button>
+        </div>
+        <span class="num">10.</span>
+        <span class="text">Horizontal-swipe to exercise B → starts on Line (its own default), NOT B&amp;W.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 11">✓</button>
+          <button class="fail" type="button" aria-label="Fail 11">✗</button>
+        </div>
+        <span class="num">11.</span>
+        <span class="text">Swipe back to A → still B&amp;W.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 12">✓</button>
+          <button class="fail" type="button" aria-label="Fail 12">✗</button>
+        </div>
+        <span class="num">12.</span>
+        <span class="text">Fully close + relaunch app → A still remembers B&amp;W via SQLite persistence.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h3>Studio card 3-tile row</h3>
+    <ul class="checklist">
+      <li data-num="13" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 13">✓</button>
+          <button class="fail" type="button" aria-label="Fail 13">✗</button>
+        </div>
+        <span class="num">13.</span>
+        <span class="text">Tap an exercise card to expand. Directly below the exercise name + above reps, three tiles render: Line / B&amp;W / Original.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 14">✓</button>
+          <button class="fail" type="button" aria-label="Fail 14">✗</button>
+        </div>
+        <span class="num">14.</span>
+        <span class="text">Each tile shows a mini-preview with the appropriate treatment filter.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="15" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 15">✓</button>
+          <button class="fail" type="button" aria-label="Fail 15">✗</button>
+        </div>
+        <span class="num">15.</span>
+        <span class="text">Active tile has a 2px coral border + check badge top-right.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 16">✓</button>
+          <button class="fail" type="button" aria-label="Fail 16">✗</button>
+        </div>
+        <span class="num">16.</span>
+        <span class="text">Tap a different tile → coral ring moves immediately. Reopen the card → state persists.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="17" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 17">✓</button>
+          <button class="fail" type="button" aria-label="Fail 17">✗</button>
+        </div>
+        <span class="num">17.</span>
+        <span class="text">Pre-archive captures or consent-gated treatments → tile shows lock glyph + 50% opacity; tap is a no-op.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · Delete client — drain recovery</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      RPC bug (<code>42702 ambiguous column</code>) was why deletes piled up. Fixed live.
+    </p>
+    <ul class="checklist">
+      <li data-num="18" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 18">✓</button>
+          <button class="fail" type="button" aria-label="Fail 18">✗</button>
+        </div>
+        <span class="num">18.</span>
+        <span class="text">Force-close + reopen app — any stuck "N pending" chip should drain to 0.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="19" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 19">✓</button>
+          <button class="fail" type="button" aria-label="Fail 19">✗</button>
+        </div>
+        <span class="num">19.</span>
+        <span class="text">Swipe-left on a client row → Delete → UndoSnackBar. Drains immediately, no pile-up.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="20" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 20">✓</button>
+          <button class="fail" type="button" aria-label="Fail 20">✗</button>
+        </div>
+        <span class="num">20.</span>
+        <span class="text">Tap Undo within 7s → client + cascaded sessions restored.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="21" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 21">✓</button>
+          <button class="fail" type="button" aria-label="Fail 21">✗</button>
+        </div>
+        <span class="num">21.</span>
+        <span class="text">Delete from client detail screen (overflow ⋮) → pops to Home with Undo.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="22" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 22">✓</button>
+          <button class="fail" type="button" aria-label="Fail 22">✗</button>
+        </div>
+        <span class="num">22.</span>
+        <span class="text">Offline path: airplane mode → swipe-delete → "N pending" bumps → airplane off → drains.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · Portal — rename + popover switcher (browser)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      New dashboard line replaces the old dropdown. Inline edit + popover switcher.
+    </p>
+
+    <h3>Dashboard inline rename — owner</h3>
+    <ul class="checklist">
+      <li data-num="23" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 23">✓</button>
+          <button class="fail" type="button" aria-label="Fail 23">✗</button>
+        </div>
+        <span class="num">23.</span>
+        <span class="text">Sign in at <code>manage.homefit.studio</code> as <code>carlhein@me.com</code> (owner of both practices).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="24" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 24">✓</button>
+          <button class="fail" type="button" aria-label="Fail 24">✗</button>
+        </div>
+        <span class="num">24.</span>
+        <span class="text">Dashboard shows: "Signed in as carlhein@me.com" + "In practice: <em>{Name}</em>   ⇄ Switch"</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="25" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 25">✓</button>
+          <button class="fail" type="button" aria-label="Fail 25">✗</button>
+        </div>
+        <span class="num">25.</span>
+        <span class="text">Click the practice name → inline text input with old name selected.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="26" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 26">✓</button>
+          <button class="fail" type="button" aria-label="Fail 26">✗</button>
+        </div>
+        <span class="num">26.</span>
+        <span class="text">Type new name + Enter → sentence re-renders, toast says "Practice renamed."</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="27" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 27">✓</button>
+          <button class="fail" type="button" aria-label="Fail 27">✗</button>
+        </div>
+        <span class="num">27.</span>
+        <span class="text">Refresh page → name persists.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h3>Account Settings rename</h3>
+    <ul class="checklist">
+      <li data-num="28" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 28">✓</button>
+          <button class="fail" type="button" aria-label="Fail 28">✗</button>
+        </div>
+        <span class="num">28.</span>
+        <span class="text"><code>/account?practice={yourPracticeId}</code> shows a new "Practice name" card above the password section.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="29" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 29">✓</button>
+          <button class="fail" type="button" aria-label="Fail 29">✗</button>
+        </div>
+        <span class="num">29.</span>
+        <span class="text">Dashed-underline title + Rename button both open inline edit.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="30" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 30">✓</button>
+          <button class="fail" type="button" aria-label="Fail 30">✗</button>
+        </div>
+        <span class="num">30.</span>
+        <span class="text">Commit via Enter → inline green "Practice renamed." confirmation.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h3>Error paths</h3>
+    <ul class="checklist">
+      <li data-num="31" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 31">✓</button>
+          <button class="fail" type="button" aria-label="Fail 31">✗</button>
+        </div>
+        <span class="num">31.</span>
+        <span class="text">Name &gt;60 chars → "Name's a bit long — keep it under 60 characters."</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="32" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 32">✓</button>
+          <button class="fail" type="button" aria-label="Fail 32">✗</button>
+        </div>
+        <span class="num">32.</span>
+        <span class="text">Empty + Enter → "Name can't be empty."</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="33" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 33">✓</button>
+          <button class="fail" type="button" aria-label="Fail 33">✗</button>
+        </div>
+        <span class="num">33.</span>
+        <span class="text">Esc mid-edit → draft reverts, no RPC fires.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h3>⇄ Switch popover</h3>
+    <ul class="checklist">
+      <li data-num="34" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 34">✓</button>
+          <button class="fail" type="button" aria-label="Fail 34">✗</button>
+        </div>
+        <span class="num">34.</span>
+        <span class="text">Click ⇄ Switch → dark rounded card (~240px) fades + slides up below the link.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="35" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 35">✓</button>
+          <button class="fail" type="button" aria-label="Fail 35">✗</button>
+        </div>
+        <span class="num">35.</span>
+        <span class="text">Active practice listed first with coral ✓ + credit count.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="36" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 36">✓</button>
+          <button class="fail" type="button" aria-label="Fail 36">✗</button>
+        </div>
+        <span class="num">36.</span>
+        <span class="text">Click the other membership row → dashboard navigates + re-renders in new context.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="37" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 37">✓</button>
+          <button class="fail" type="button" aria-label="Fail 37">✗</button>
+        </div>
+        <span class="num">37.</span>
+        <span class="text">Closes on outside-click, Escape, or after selection.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h3>Owner-only rule + single-membership hiding</h3>
+    <ul class="checklist">
+      <li data-num="38" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 38">✓</button>
+          <button class="fail" type="button" aria-label="Fail 38">✗</button>
+        </div>
+        <span class="num">38.</span>
+        <span class="text">Switch to the practice where you're a practitioner (not owner) → name renders plain (no underline); tooltip reads "Only the practice owner can rename."</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="39" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 39">✓</button>
+          <button class="fail" type="button" aria-label="Fail 39">✗</button>
+        </div>
+        <span class="num">39.</span>
+        <span class="text">Account Settings practice-name card shows "Only the practice owner can change this." + no Rename button.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="40" data-status="">
+        <div class="vote">
+          <button class="pass" type="button" aria-label="Pass 40">✓</button>
+          <button class="fail" type="button" aria-label="Fail 40">✗</button>
+        </div>
+        <span class="num">40.</span>
+        <span class="text">Sign in as <code>carlhein@icloud.com</code> (single practice) → no ⇄ Switch link appears; rename still works.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <div class="oos">
+      <h3>Out of scope / still in flight</h3>
+      <ul>
+        <li>Share-kit redesign at <code>/network</code> — impl agent has struggled (two failed runs); needs a fresh attempt or me taking it inline</li>
+        <li>Business-case xlsx refactor — agent running (named refs + table formatting + circular-ref removal)</li>
+        <li>Mobile R-11 twin for the practice rename / switcher — deferred</li>
+      </ul>
+    </div>
+
+    <footer>
+      Install is kicking off in the background — you'll see "Sign-In screen (fresh session)" when it's ready. Ping me what's broken or wonky, by item number.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-20-wave2-device-qa.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try {
+        state = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+      } catch (e) { state = {}; }
+
+      // Try to hydrate from server (source of truth). Fall back to localStorage.
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) {
+          if (d && typeof d === 'object' && d.items) {
+            state = d.items;
+            apply();
+          }
+        })
+        .catch(function() { /* offline or missing — localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) {
+            li.setAttribute('data-status', '');
+            return;
+          }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        var payload = {
+          wave: 'wave-2',
+          updatedAt: new Date().toISOString(),
+          items: state
+        };
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      // Wire up pass/fail buttons + note input
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'pass', note: noteInput.value || ''};
+          }
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        // Initialise placeholder from hydrated status
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>
