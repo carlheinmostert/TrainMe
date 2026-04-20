@@ -1874,7 +1874,7 @@ function buildHomefitLogoLockupSvg() {
   // Wordmark uses Montserrat 600, stretched via textLength so it
   // aligns to the 48-unit matrix width at any render size.
   return (
-    `<svg class="homefit-logo homefit-logo--lockup" viewBox="0 0 48 14"` +
+    `<svg class="homefit-logo homefit-logo--lockup" viewBox="0 -2 48 16"` +
     ` xmlns="http://www.w3.org/2000/svg" aria-hidden="true">` +
     `<text x="24" y="4.6" text-anchor="middle" textLength="48"` +
     ` lengthAdjust="spacingAndGlyphs"` +

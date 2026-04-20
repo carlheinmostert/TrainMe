@@ -84,7 +84,7 @@ export function HomefitLogoLockup({
   return (
     <svg
       className={className}
-      viewBox="0 0 48 14"
+      viewBox="0 -2 48 16"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden={ariaHidden}
     >

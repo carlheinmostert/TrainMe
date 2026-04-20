@@ -60,9 +60,10 @@ class HomefitLogoLockup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Lockup aspect: 48 wide × 14 tall.
+    // Lockup aspect: 48 wide × 16 tall (includes 2-unit top padding for
+    // wordmark ascender — mirrors SVG viewBox="0 -2 48 16").
     final width = size;
-    final height = size * (14.0 / 48.0);
+    final height = size * (16.0 / 48.0);
     return SizedBox(
       width: width,
       height: height,
@@ -171,7 +172,7 @@ class _HomefitLockupPainter extends CustomPainter {
     // lengthAdjust="spacingAndGlyphs" behaviour).
     const targetWidthUnits = 48.0;
     const wordmarkUnitHeight = 6.5; // source units
-    const viewBoxH = 14.0;
+    const viewBoxH = 16.0;
 
     final sx = size.width / 48.0;
     final sy = size.height / viewBoxH;
@@ -201,16 +202,17 @@ class _HomefitLockupPainter extends CustomPainter {
         : 1.0;
 
     canvas.save();
-    // Center the wordmark horizontally, anchor baseline at y=4.6 units.
-    final wordmarkYPx = 4.6 * sy - wordmarkPainter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+    // Center the wordmark horizontally, anchor baseline at y=6.6 units
+    // (4.6 original + 2-unit top padding for ascender safety).
+    final wordmarkYPx = 6.6 * sy - wordmarkPainter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
     final wordmarkXPx = (size.width - wordmarkPainter.width * scaleX) / 2;
     canvas.translate(wordmarkXPx, wordmarkYPx);
     canvas.scale(scaleX, 1.0);
     wordmarkPainter.paint(canvas, Offset.zero);
     canvas.restore();
 
-    // Matrix shifted +4.5 units on Y.
-    _paintMatrix(canvas, size, yOffset: 4.5, viewBoxH: viewBoxH);
+    // Matrix shifted +6.5 units on Y (4.5 original + 2-unit top padding).
+    _paintMatrix(canvas, size, yOffset: 6.5, viewBoxH: viewBoxH);
   }
 
   @override
