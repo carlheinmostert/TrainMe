@@ -1,8 +1,12 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { getBrowserClient } from '@/lib/supabase-browser';
-import { createPortalApi, type ClientVideoConsent } from '@/lib/supabase/api';
+import {
+  createPortalApi,
+  RenameClientError,
+  type ClientVideoConsent,
+} from '@/lib/supabase/api';
 
 type Props = {
   clientId: string;
@@ -39,16 +43,20 @@ type Toast = { text: string; tone: 'info' | 'error' } | null;
  */
 export function ClientDetailPanel({
   clientId,
-  clientName,
+  clientName: initialClientName,
   initialConsent,
   sessionCount,
   recentPractitionerEmail,
 }: Props) {
+  const [displayName, setDisplayName] = useState(initialClientName);
   const [grayscale, setGrayscale] = useState(initialConsent.grayscale);
   const [original, setOriginal] = useState(initialConsent.original);
   const [savedConsent, setSavedConsent] = useState(initialConsent);
   const [toast, setToast] = useState<Toast>(null);
   const [pending, startTransition] = useTransition();
+  // Keep a stable alias so the rest of the component's f-strings stay
+  // readable. The live name is `displayName`; rename updates it.
+  const clientName = displayName;
 
   const dirty =
     grayscale !== savedConsent.grayscale || original !== savedConsent.original;
@@ -87,12 +95,11 @@ export function ClientDetailPanel({
     <section aria-labelledby="client-heading">
       {/* 1. Header block */}
       <header>
-        <h1
-          id="client-heading"
-          className="font-heading text-3xl font-bold text-ink"
-        >
-          {clientName}
-        </h1>
+        <EditableClientName
+          clientId={clientId}
+          name={displayName}
+          onRenamed={setDisplayName}
+        />
         <p className="mt-2 text-sm text-ink-muted">
           {sessionCount === 0
             ? `No sessions published for ${clientName} yet.`
@@ -267,5 +274,179 @@ function ToggleRow({
         </span>
       </div>
     </li>
+  );
+}
+
+/**
+ * Inline-editable client name.
+ *
+ * Affordance: dashed underline on the title hints at "click to edit"
+ * (common pattern in Linear, Notion, Airtable). Clicking or focusing
+ * the title switches to an input; Enter saves, Esc cancels, blur saves.
+ *
+ * While saving: input is disabled + the dashed underline turns into a
+ * subtle brand-coloured pulse. On error (duplicate / empty / etc.) the
+ * input stays in edit mode with an inline error below so the
+ * practitioner can fix and retry without re-clicking in.
+ */
+function EditableClientName({
+  clientId,
+  name,
+  onRenamed,
+}: {
+  clientId: string;
+  name: string;
+  onRenamed: (newName: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, startSave] = useTransition();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // Focus + select-all when entering edit mode so the whole
+  // date-timestamp name is easy to blast over with real text.
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  // Keep draft in sync if the parent updates `name` (e.g. another
+  // tab renamed; or a save in this component just completed).
+  useEffect(() => {
+    setDraft(name);
+  }, [name]);
+
+  function startEditing() {
+    setDraft(name);
+    setError(null);
+    setEditing(true);
+  }
+
+  function cancel() {
+    setDraft(name);
+    setError(null);
+    setEditing(false);
+  }
+
+  function commit() {
+    const trimmed = draft.trim();
+    if (trimmed === name) {
+      // No-op save — just exit edit mode.
+      setEditing(false);
+      setError(null);
+      return;
+    }
+    if (trimmed === '') {
+      setError('Name can’t be empty.');
+      return;
+    }
+    startSave(async () => {
+      try {
+        const supabase = getBrowserClient();
+        const api = createPortalApi(supabase);
+        await api.renameClient(clientId, trimmed);
+        onRenamed(trimmed);
+        setError(null);
+        setEditing(false);
+      } catch (e) {
+        if (e instanceof RenameClientError) {
+          if (e.kind === 'duplicate') {
+            setError('Another client in this practice already uses that name.');
+          } else if (e.kind === 'empty') {
+            setError('Name can’t be empty.');
+          } else if (e.kind === 'not-member') {
+            setError('You don’t have permission to rename this client.');
+          } else {
+            setError('Client not found. Try refreshing.');
+          }
+        } else {
+          const msg = e instanceof Error ? e.message : 'Something went wrong.';
+          setError(`Couldn’t rename — ${msg}`);
+        }
+        // Stay in edit mode so the practitioner can fix + retry.
+      }
+    });
+  }
+
+  if (!editing) {
+    // Dashed underline = "click to edit" affordance. No pencil icon —
+    // the underline is the whole signal; keeps the headline clean.
+    return (
+      <h1
+        id="client-heading"
+        role="button"
+        tabIndex={0}
+        onClick={startEditing}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            startEditing();
+          }
+        }}
+        title="Click to rename"
+        className="inline-block cursor-text border-b border-dashed border-ink-muted pb-1 font-heading text-3xl font-bold text-ink transition hover:border-brand focus-visible:border-brand focus-visible:outline-none"
+      >
+        {name}
+      </h1>
+    );
+  }
+
+  return (
+    <div>
+      <label htmlFor="client-name-input" className="sr-only">
+        Client name
+      </label>
+      <input
+        ref={inputRef}
+        id="client-name-input"
+        type="text"
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          if (error) setError(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancel();
+          }
+        }}
+        onBlur={() => {
+          // Blur saves; Esc cancels. If there's an error the input stays
+          // focused by virtue of re-render, so blur is effectively only
+          // triggered by user-intentional tab-out/click-away.
+          if (!saving) commit();
+        }}
+        disabled={saving}
+        maxLength={80}
+        aria-invalid={error !== null}
+        aria-describedby={error ? 'client-name-error' : undefined}
+        className={`w-full max-w-lg rounded-md border bg-surface-base px-3 py-2 font-heading text-3xl font-bold text-ink focus:outline-none disabled:opacity-60 ${
+          error
+            ? 'border-error focus:border-error'
+            : 'border-brand focus:border-brand'
+        }`}
+      />
+      {error && (
+        <p
+          id="client-name-error"
+          role="alert"
+          className="mt-2 text-sm text-error"
+        >
+          {error}
+        </p>
+      )}
+      {!error && (
+        <p className="mt-2 text-xs text-ink-dim">
+          Press Enter to save · Esc to cancel
+        </p>
+      )}
+    </div>
   );
 }

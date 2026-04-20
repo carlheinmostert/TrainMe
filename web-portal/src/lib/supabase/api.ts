@@ -424,6 +424,43 @@ export class PortalApi {
     });
     if (error) throw new Error(error.message);
   }
+
+  /**
+   * Rename a client. Wraps the `rename_client(p_client_id, p_new_name)`
+   * SECURITY DEFINER RPC from milestone J.
+   *
+   * Throws a typed error for the caller to surface:
+   *   - `RenameClientError.Duplicate` — another client in the practice
+   *     already uses the target name (PostgreSQL 23505 unique_violation).
+   *   - `RenameClientError.NotFound` — client id doesn't exist (P0002).
+   *   - `RenameClientError.NotMember` — caller isn't a member of the
+   *     client's practice (42501).
+   *   - `RenameClientError.Empty` — blank name (22023).
+   *   - Generic Error otherwise.
+   */
+  async renameClient(clientId: string, newName: string): Promise<void> {
+    const { error } = await this.supabase.rpc('rename_client', {
+      p_client_id: clientId,
+      p_new_name: newName,
+    });
+    if (!error) return;
+    const code = (error as { code?: string }).code;
+    if (code === '23505') throw new RenameClientError('duplicate', error.message);
+    if (code === 'P0002') throw new RenameClientError('not-found', error.message);
+    if (code === '42501') throw new RenameClientError('not-member', error.message);
+    if (code === '22023') throw new RenameClientError('empty', error.message);
+    throw new Error(error.message);
+  }
+}
+
+export class RenameClientError extends Error {
+  constructor(
+    public readonly kind: 'duplicate' | 'not-found' | 'not-member' | 'empty',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RenameClientError';
+  }
 }
 
 // ============================================================================
