@@ -263,34 +263,49 @@ class GutterGapCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Touch-down haptic (Q1 polish, 2026-04-20 device note).
+    //
+    // The previous attempt put the touch-down haptic on
+    // `GestureDetector.onTapDown`. On device this wasn't firing
+    // reliably — `onTapDown` waits for Flutter's gesture arena to
+    // disambiguate between the cell's tap and the enclosing
+    // `ReorderableListView`'s pan / long-press. By the time the arena
+    // resolves, the haptic misses the perceptual "moment of contact"
+    // window; sometimes it coalesces with the lift-off haptic and
+    // iOS collapses them into one.
+    //
+    // Fix: `Listener.onPointerDown` fires on the RAW pointer event
+    // before the arena runs. Guaranteed first-contact signal.
+    // Bumping the intensity to `mediumImpact` — `lightImpact` was
+    // still too soft against the 6/10px hit zone.
+    //
+    // Wrap order: Listener outside, GestureDetector inside. Listener
+    // observes pointer events without claiming them, so the
+    // GestureDetector below still handles onTap + its own arena
+    // participation normally.
     return SizedBox(
       width: kGutterVisibleWidth,
-      child: GestureDetector(
+      child: Listener(
         behavior: HitTestBehavior.opaque,
-        // Touch-down haptic (Q1 polish, Carl's 2026-04-20 device note).
-        // Fires on the moment of contact so the practitioner feels the
-        // insertion dot reacting instantly. Using `lightImpact` — not
-        // `selectionClick` — because the picker-wheel tick is too
-        // subtle to register as "yes you hit the target" on a 6/10px
-        // zone. lightImpact is the iOS Taptic Engine's "noticed but
-        // not intrusive" level. Lift-off keeps `selectionClick` so
-        // there's still a "commit" beat distinct from the touch-down
-        // "registered" beat.
-        onTapDown:
-            onTap == null ? null : (_) => HapticFeedback.lightImpact(),
-        onTap: () {
-          if (onTap == null) return;
-          HapticFeedback.selectionClick();
-          onTap!();
-        },
-        child: SizedBox(
-          height: 20,
-          width: kGutterHitWidth,
-          child: CustomPaint(
-            painter: GutterGapPainter(
-              state: state,
-              continuousRail: continuousRail,
-              dimmed: dimmed,
+        onPointerDown: onTap == null
+            ? null
+            : (_) => HapticFeedback.mediumImpact(),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            if (onTap == null) return;
+            HapticFeedback.selectionClick();
+            onTap!();
+          },
+          child: SizedBox(
+            height: 20,
+            width: kGutterHitWidth,
+            child: CustomPaint(
+              painter: GutterGapPainter(
+                state: state,
+                continuousRail: continuousRail,
+                dimmed: dimmed,
+              ),
             ),
           ),
         ),
