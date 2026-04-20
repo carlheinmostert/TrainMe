@@ -129,8 +129,8 @@ export async function POST(request: Request) {
   const payload: PayFastPayload = {
     merchant_id: merchantId,
     merchant_key: merchantKey,
-    return_url: `${appUrl}/credits/return?pid=${mPaymentId}`,
-    cancel_url: `${appUrl}/credits/cancel?pid=${mPaymentId}`,
+    return_url: `${appUrl}/credits/return?pid=${mPaymentId}&practice=${practiceId}`,
+    cancel_url: `${appUrl}/credits/cancel?pid=${mPaymentId}&practice=${practiceId}`,
     notify_url: notifyUrl,
     // Buyer fields are optional but PayFast pre-fills them when present.
     email_address: user.email ?? '',

@@ -102,7 +102,7 @@ export default async function CreditsReturnPage({
 
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut />
+      <BrandHeader showSignOut practiceId={practiceId || undefined} />
       <div className="mx-auto w-full max-w-2xl flex-1 px-6 py-16">
         <div className="rounded-lg border border-brand/40 bg-brand/10 p-8 text-center">
           <h1 className="font-heading text-2xl font-bold text-brand">
