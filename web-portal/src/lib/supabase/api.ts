@@ -473,6 +473,52 @@ export class PortalApi {
     if (code === '22023') throw new RenameClientError('empty', error.message);
     throw new Error(error.message);
   }
+
+  /**
+   * `delete_client(p_client_id)` — soft-delete the client and cascade
+   * a tombstone onto every plan owned by the client. Identical
+   * `deleted_at` timestamp on both, so `restoreClient` can reverse
+   * exactly what this cascaded.
+   *
+   * Idempotent — calling on an already-deleted client is a no-op
+   * server-side (returns the tombstoned row unchanged). SECURITY
+   * DEFINER; practice-membership enforced inside the RPC.
+   *
+   * Throws a typed [DeleteClientError] for the caller (Delete action
+   * in [ClientsList] / [ClientDetailPanel]) to surface:
+   *   - `not-found` (P0002) — client id doesn't exist.
+   *   - `not-member` (42501) — caller isn't a member of the practice.
+   *   - Generic Error otherwise.
+   */
+  async deleteClient(clientId: string): Promise<void> {
+    const { error } = await this.supabase.rpc('delete_client', {
+      p_client_id: clientId,
+    });
+    if (!error) return;
+    const code = (error as { code?: string }).code;
+    if (code === 'P0002') throw new DeleteClientError('not-found', error.message);
+    if (code === '42501') throw new DeleteClientError('not-member', error.message);
+    throw new Error(error.message);
+  }
+
+  /**
+   * `restore_client(p_client_id)` — reverses [deleteClient]. Flips the
+   * client's `deleted_at` back to null AND restores cascaded plans
+   * whose `deleted_at` matches the client's `deleted_at` exactly.
+   * Plans soft-deleted at a different timestamp stay deleted.
+   *
+   * Idempotent on an already-live client.
+   */
+  async restoreClient(clientId: string): Promise<void> {
+    const { error } = await this.supabase.rpc('restore_client', {
+      p_client_id: clientId,
+    });
+    if (!error) return;
+    const code = (error as { code?: string }).code;
+    if (code === 'P0002') throw new DeleteClientError('not-found', error.message);
+    if (code === '42501') throw new DeleteClientError('not-member', error.message);
+    throw new Error(error.message);
+  }
 }
 
 export class RenameClientError extends Error {
@@ -482,6 +528,23 @@ export class RenameClientError extends Error {
   ) {
     super(message);
     this.name = 'RenameClientError';
+  }
+}
+
+/**
+ * Categorised failure from [PortalApi.deleteClient] /
+ * [PortalApi.restoreClient]. Mirrors the mobile surface so both
+ * twins show the same voice ("Client not found" / "You don't have
+ * permission"). Only the 42501 / P0002 SQLSTATEs are named — other
+ * errors surface as a plain [Error] with the server message.
+ */
+export class DeleteClientError extends Error {
+  constructor(
+    public readonly kind: 'not-found' | 'not-member',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'DeleteClientError';
   }
 }
 

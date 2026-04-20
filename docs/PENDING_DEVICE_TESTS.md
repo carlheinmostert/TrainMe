@@ -137,3 +137,17 @@ Pre-2026-04-20 pending items that are now all complete. Kept here for reference 
 - Mobile + portal Settings/Account pair — shipped
 - Logo redesign to HomefitLogo — shipped on all surfaces
 - PayFast sandbox smoke test — verified + signed off
+
+12. **Delete client + cascade undo** (branch `feat/delete-client`, Milestone L):
+    - Home → swipe-left on a client row → red "Delete" reveals → card slides out
+    - UndoSnackBar appears at the bottom with a 7-second window
+    - Tap Undo → the client row comes back; every session that was cascaded lands back under ClientSessions
+    - Swipe + don't tap Undo → wait 7s → row stays gone
+    - Open the per-client screen → overflow menu (top-right `⋮`) → "Delete client" — fires immediately, pops to Home, SnackBar with Undo appears
+    - Offline path: airplane mode + swipe-delete → "N pending" chip bumps by 1 → toggle online → drains; cloud rows now tombstoned
+    - Offline path: airplane mode + swipe-delete + Undo during the 7s window → both ops queue + cancel out server-side (delete lands, restore lands right after)
+    - Resurrection check: create a new client with the SAME name as a just-deleted one → `upsert_client_with_id` RPC returns a 23505 "a deleted client already uses that name" — surface the error cleanly
+    - Portal `/clients` page → hover the row (desktop) → delete icon fades in bottom-right → click → row vanishes + bottom-centre toast with Undo for 7s → Undo reinstates
+    - Portal `/clients/[id]` → Delete button in the header → click → navigates to `/clients` + the list page surfaces the Undo toast via sessionStorage handshake
+    - Confirm in DB after a delete: `SELECT deleted_at FROM clients WHERE id=...` is non-null, `SELECT id, deleted_at FROM plans WHERE client_id=...` mirrors the same timestamp
+    - Confirm after Undo: both `deleted_at` back to null on the client AND the cascaded plans

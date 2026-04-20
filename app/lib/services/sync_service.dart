@@ -402,6 +402,55 @@ class SyncService {
     return updated;
   }
 
+  /// Local-first delete. Soft-deletes the cached client row AND
+  /// cascades a tombstone onto every local session that belongs to the
+  /// client. Returns the cascade timestamp (epoch ms) which the caller
+  /// should hold onto — [queueRestoreClient] needs it to reverse the
+  /// same cascade on undo.
+  ///
+  /// The cloud side is handled idempotently by the `delete_client` RPC;
+  /// replay-safe, returns the existing tombstoned row if already
+  /// deleted.
+  Future<int> queueDeleteClient({
+    required String clientId,
+  }) async {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final cascadeTs = await _storage.softDeleteClientCascade(
+      clientId: clientId,
+    );
+    final op = PendingOp.deleteClient(
+      opId: _uuid.v4(),
+      clientId: clientId,
+      nowMs: nowMs,
+    );
+    await _storage.enqueuePendingOp(op);
+    await _refreshPendingCount();
+    unawaited(flush());
+    return cascadeTs;
+  }
+
+  /// Reverse a [queueDeleteClient]. Restores the cached client + any
+  /// session soft-deleted at [cascadeTimestampMs]. Queues a
+  /// `restore_client` op for eventual cloud push.
+  Future<void> queueRestoreClient({
+    required String clientId,
+    required int cascadeTimestampMs,
+  }) async {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    await _storage.restoreClientCascade(
+      clientId: clientId,
+      cascadeTimestampMs: cascadeTimestampMs,
+    );
+    final op = PendingOp.restoreClient(
+      opId: _uuid.v4(),
+      clientId: clientId,
+      nowMs: nowMs,
+    );
+    await _storage.enqueuePendingOp(op);
+    await _refreshPendingCount();
+    unawaited(flush());
+  }
+
   /// Local-first consent write.
   Future<CachedClient?> queueSetConsent({
     required String clientId,
@@ -548,6 +597,29 @@ class SyncService {
         if (!ok) {
           throw Exception('set_client_video_consent returned false');
         }
+        await _storage.db.rawUpdate(
+          'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
+          [DateTime.now().millisecondsSinceEpoch, clientId],
+        );
+        return true;
+
+      case PendingOpType.deleteClient:
+        final clientId = op.payload['client_id'] as String?;
+        if (clientId == null) return true;
+        await ApiClient.instance.deleteClient(clientId: clientId);
+        // Mark the cached row clean; it stays with `deleted=1` so reads
+        // skip it. A subsequent pull will remove it once the server
+        // state settles (list_practice_clients filters deleted rows).
+        await _storage.db.rawUpdate(
+          'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
+          [DateTime.now().millisecondsSinceEpoch, clientId],
+        );
+        return true;
+
+      case PendingOpType.restoreClient:
+        final clientId = op.payload['client_id'] as String?;
+        if (clientId == null) return true;
+        await ApiClient.instance.restoreClient(clientId: clientId);
         await _storage.db.rawUpdate(
           'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
           [DateTime.now().millisecondsSinceEpoch, clientId],

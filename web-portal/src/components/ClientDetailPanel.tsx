@@ -1,9 +1,11 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { getBrowserClient } from '@/lib/supabase-browser';
 import {
   createPortalApi,
+  DeleteClientError,
   RenameClientError,
   type ClientVideoConsent,
 } from '@/lib/supabase/api';
@@ -18,6 +20,9 @@ type Props = {
    *  page can label authorship. Null when caller IS the recent publisher
    *  or when the client has no sessions. */
   recentPractitionerEmail: string | null;
+  /** Query-string fragment carrying the active practice. Used by the
+   *  Delete flow to route back to the clients list after firing. */
+  practiceQs: string;
 };
 
 type Toast = { text: string; tone: 'info' | 'error' } | null;
@@ -47,13 +52,16 @@ export function ClientDetailPanel({
   initialConsent,
   sessionCount,
   recentPractitionerEmail,
+  practiceQs,
 }: Props) {
+  const router = useRouter();
   const [displayName, setDisplayName] = useState(initialClientName);
   const [grayscale, setGrayscale] = useState(initialConsent.grayscale);
   const [original, setOriginal] = useState(initialConsent.original);
   const [savedConsent, setSavedConsent] = useState(initialConsent);
   const [toast, setToast] = useState<Toast>(null);
   const [pending, startTransition] = useTransition();
+  const [deleting, setDeleting] = useState(false);
   // Keep a stable alias so the rest of the component's f-strings stay
   // readable. The live name is `displayName`; rename updates it.
   const clientName = displayName;
@@ -70,6 +78,57 @@ export function ClientDetailPanel({
   const narrowing =
     (savedConsent.grayscale && !grayscale) ||
     (savedConsent.original && !original);
+
+  /**
+   * Delete the client. R-01: fires immediately. After the RPC lands we
+   * surface a 7-second Undo toast AND navigate the user back to
+   * `/clients` so the page reads "this is gone" — the toast is the sole
+   * recovery affordance. Undo fires `restore_client`, then `router.back()`
+   * if we already navigated (otherwise the page stays put).
+   */
+  async function handleDelete() {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      const supabase = getBrowserClient();
+      const api = createPortalApi(supabase);
+      await api.deleteClient(clientId);
+    } catch (e) {
+      setDeleting(false);
+      let msg = "Couldn't delete.";
+      if (e instanceof DeleteClientError) {
+        msg =
+          e.kind === 'not-member'
+            ? `You don't have permission to delete ${displayName}.`
+            : `${displayName} not found.`;
+      } else if (e instanceof Error) {
+        msg = `Couldn't delete — ${e.message}`;
+      }
+      setToast({ text: msg, tone: 'error' });
+      window.setTimeout(() => setToast(null), 4000);
+      return;
+    }
+
+    // Fire Undo window via sessionStorage so ClientsList can render the
+    // toast post-navigation. 7s TTL enforced there.
+    try {
+      sessionStorage.setItem(
+        'portalUndoDelete',
+        JSON.stringify({
+          clientId,
+          clientName: displayName,
+          firedAtMs: Date.now(),
+        }),
+      );
+    } catch {
+      // sessionStorage may be unavailable in private mode — degrade to
+      // no-undo. The delete itself still succeeded.
+    }
+
+    // Route back to the list. The list component reads the undo marker
+    // on mount and surfaces the toast.
+    router.replace(`/clients${practiceQs}`);
+  }
 
   async function handleSave() {
     startTransition(async () => {
@@ -94,25 +153,57 @@ export function ClientDetailPanel({
   return (
     <section aria-labelledby="client-heading">
       {/* 1. Header block */}
-      <header>
-        <EditableClientName
-          clientId={clientId}
-          name={displayName}
-          onRenamed={setDisplayName}
-        />
-        <p className="mt-2 text-sm text-ink-muted">
-          {sessionCount === 0
-            ? `No sessions published for ${clientName} yet.`
-            : `${sessionCount} ${sessionCount === 1 ? 'session' : 'sessions'} published for ${clientName}.`}
-        </p>
-        {recentPractitionerEmail && (
-          <p className="mt-1 text-xs text-ink-dim">
-            Practitioner:{' '}
-            <span className="break-all text-ink-muted">
-              {recentPractitionerEmail}
-            </span>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <EditableClientName
+            clientId={clientId}
+            name={displayName}
+            onRenamed={setDisplayName}
+          />
+          <p className="mt-2 text-sm text-ink-muted">
+            {sessionCount === 0
+              ? `No sessions published for ${clientName} yet.`
+              : `${sessionCount} ${sessionCount === 1 ? 'session' : 'sessions'} published for ${clientName}.`}
           </p>
-        )}
+          {recentPractitionerEmail && (
+            <p className="mt-1 text-xs text-ink-dim">
+              Practitioner:{' '}
+              <span className="break-all text-ink-muted">
+                {recentPractitionerEmail}
+              </span>
+            </p>
+          )}
+        </div>
+
+        {/* Subtle Delete action — paired with EditableClientName so the
+            practitioner finds it near where the client identity lives.
+            R-01: fires immediately, Undo toast appears on /clients post-
+            navigation. R-02: kept visually quiet; the consent panel is
+            the primary affordance. */}
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={deleting}
+          aria-label={`Delete ${displayName}`}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-surface-border bg-surface-base px-3 py-1.5 text-xs font-medium text-ink-muted transition hover:border-error hover:text-error disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="none"
+            aria-hidden="true"
+            className="h-3.5 w-3.5"
+          >
+            <path
+              d="M6 7h8m-7 0v7a1 1 0 001 1h4a1 1 0 001-1V7M8 7V5a1 1 0 011-1h2a1 1 0 011 1v2"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          {deleting ? 'Deleting\u2026' : 'Delete'}
+        </button>
       </header>
 
       {/* 2. Inline consent form — R-01 no modal. */}

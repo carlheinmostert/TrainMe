@@ -20,6 +20,16 @@ enum PendingOpType {
   /// Write the client's video-viewing consent. Dispatches
   /// `set_client_video_consent` RPC.
   setConsent,
+
+  /// Soft-delete a client (cascade to plans server-side). Dispatches
+  /// `delete_client` RPC. Idempotent — replay is a no-op on an
+  /// already-deleted row.
+  deleteClient,
+
+  /// Restore a previously soft-deleted client + cascaded plans.
+  /// Dispatches `restore_client` RPC. Idempotent — replay on a live
+  /// client is a no-op.
+  restoreClient,
 }
 
 String _opTypeToWire(PendingOpType t) {
@@ -30,6 +40,10 @@ String _opTypeToWire(PendingOpType t) {
       return 'rename_client';
     case PendingOpType.setConsent:
       return 'set_consent';
+    case PendingOpType.deleteClient:
+      return 'delete_client';
+    case PendingOpType.restoreClient:
+      return 'restore_client';
   }
 }
 
@@ -41,6 +55,10 @@ PendingOpType? _opTypeFromWire(String s) {
       return PendingOpType.renameClient;
     case 'set_consent':
       return PendingOpType.setConsent;
+    case 'delete_client':
+      return PendingOpType.deleteClient;
+    case 'restore_client':
+      return PendingOpType.restoreClient;
     default:
       return null;
   }
@@ -183,6 +201,41 @@ class PendingOp {
         'client_id': clientId,
         'grayscale_allowed': grayscaleAllowed,
         'colour_allowed': colourAllowed,
+      },
+      createdAt: nowMs,
+    );
+  }
+
+  /// Queue a `delete_client` op. Cascades soft-delete to every plan
+  /// owned by the client server-side (mirrored by
+  /// [LocalStorageService.softDeleteClient] on the local cache).
+  factory PendingOp.deleteClient({
+    required String opId,
+    required String clientId,
+    required int nowMs,
+  }) {
+    return PendingOp(
+      id: opId,
+      type: PendingOpType.deleteClient,
+      payload: <String, dynamic>{
+        'client_id': clientId,
+      },
+      createdAt: nowMs,
+    );
+  }
+
+  /// Queue a `restore_client` op. Reverses the cascade for plans whose
+  /// `deleted_at` matches the client's `deleted_at` exactly.
+  factory PendingOp.restoreClient({
+    required String opId,
+    required String clientId,
+    required int nowMs,
+  }) {
+    return PendingOp(
+      id: opId,
+      type: PendingOpType.restoreClient,
+      payload: <String, dynamic>{
+        'client_id': clientId,
       },
       createdAt: nowMs,
     );
