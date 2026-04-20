@@ -46,12 +46,15 @@ export function WhatsAppOneToOne({ slots }: { slots: ShareKitSlots }) {
       {/* Pre-rendered message body — we display a "pretty" version with
           the {Colleague} slot highlighted and the URL coloured as a
           link. The actual clipboard payload is the plain template
-          string (via `buildWhatsAppOneToOne`). */}
+          string (via `buildWhatsAppOneToOne`). Copy is the Phase 1b
+          product-pitch voice — keep in sync with buildWhatsAppOneToOne
+          in templates.ts. */}
       <div className="whitespace-pre-wrap rounded-md border border-surface-border bg-surface-raised px-[18px] py-4 text-sm leading-relaxed text-ink">
-        Hey <SlotChip>{`{Colleague}`}</SlotChip>, tried homefit.studio for my
-        home programmes — makes the plans visual and tracks whether the
-        client is keeping up. If you sign up through this you land with 8
-        free credits on me: <LinkText>{slots.referralLink}</LinkText>
+        Hey <SlotChip>{`{Colleague}`}</SlotChip>, try homefit.studio —
+        home care plans my clients actually follow. Created in-session,
+        delivered on WhatsApp before they leave. Sign up through this and
+        you land with 8 free credits on me:{' '}
+        <LinkText>{slots.referralLink}</LinkText>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
