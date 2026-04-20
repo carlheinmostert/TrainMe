@@ -33,23 +33,31 @@ import CoreVideo
 //     rest. Scaling `contrastLow` down by `edgeThresholdHi` keeps more of
 //     the faint mid-gray sketch strokes alive through the boost. Applied
 //     as `effectiveContrastLow = Int(Double(contrastLow) * edgeThresholdHi)`.
-//         old: 1.0   (use contrastLow as-is)
-//         new: 0.70  (≈30% reduction in the upper threshold → more detail)
+//         old:   1.0   (use contrastLow as-is)
+//         v1:    0.70  (≈30% reduction → too many faint edges, washed out)
+//         v2:    0.88  (mild reduction → more detail, still discriminating)
 //
 //   - `lineAlpha` is a post-pipeline intensity scale on how dark the final
 //     line pixels render. Applied as a LUT:
 //         `out = 255 - (255 - gray) * lineAlpha`
 //     White stays white (dim(255) = 255); black lines drop toward gray.
-//         old: 1.0   (full-black lines)
-//         new: 0.65  (dims line overlay to ~65% intensity — less intense)
+//         old:   1.0   (full-black lines)
+//         v1:    0.65  (too grey — combined with v1 edgeThresholdHi, image
+//                      looked "overexposed" — uniform grey, no crisp blacks)
+//         v2:    0.85  (subtle softening — blacks still read as black)
 //
-// Safe tuning ranges (if Carl wants to experiment on device):
+// Tuning history:
+//   v0 (pre-2026-04-19) original:      lo=2, hi=1.0,  alpha=1.0
+//   v1 (2026-04-19 "less intense"):    lo=1, hi=0.70, alpha=0.65  ← overexposed
+//   v2 (2026-04-20, current):          lo=1, hi=0.88, alpha=0.85
+//
+// Safe tuning ranges (if you want to experiment on device):
 //   edgeThresholdLo : 0 … 4   (int)
 //   edgeThresholdHi : 0.5 … 1.0
 //   lineAlpha       : 0.3 … 1.0
 private let edgeThresholdLo: Int = 1
-private let edgeThresholdHi: Double = 0.70
-private let lineAlpha: Double = 0.65
+private let edgeThresholdHi: Double = 0.88
+private let lineAlpha: Double = 0.85
 
 /// Native iOS platform channel for video-to-line-drawing conversion.
 ///
