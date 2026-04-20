@@ -4,13 +4,15 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import '../models/client.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../models/treatment.dart';
 import '../services/api_client.dart';
+import '../services/auth_service.dart';
 import '../theme.dart';
+import '../widgets/client_consent_sheet.dart';
 import '../widgets/progress_pill_matrix.dart';
-import 'clients_screen.dart';
 
 /// Returns true when a video exercise's converted output is a still image
 /// (i.e. the fallback frame-extraction path produced a .jpg/.png instead
@@ -322,21 +324,55 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
     _prepareVideo(_currentPage);
   }
 
-  /// Open the Your-clients screen so the practitioner can toggle the
-  /// client's viewing preferences. Invoked from the lock tooltip on a
-  /// disabled segment (R-09 affordance: the lock tells you why, the tap
-  /// takes you to the fix).
+  /// Open the client-consent bottom sheet so the practitioner can
+  /// toggle the client's viewing preferences. Invoked from the lock
+  /// tooltip on a disabled segment (R-09 affordance: the lock tells
+  /// you why, the tap takes you to the fix).
+  ///
+  /// Resolves the target client by [Session.clientId] when set, else
+  /// by [Session.clientName] within the current practice. Falls back
+  /// to a gentle SnackBar when no client row is found (e.g. a legacy
+  /// plan whose first publish predates the clients table).
   Future<void> _openConsentSheetForCurrent() async {
-    // We don't yet carry a client object through the session — route to
-    // the Your-clients list as a best-available entry point. Agent A's
-    // backend will put `plans.client_id` in the `get_plan_full` response
-    // in a follow-up; at that point this can jump straight into the
-    // client's consent sheet without the list detour.
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const ClientsScreen(),
-      ),
-    );
+    final practiceId = AuthService.instance.currentPracticeId.value;
+    if (practiceId == null || practiceId.isEmpty) return;
+
+    final clients =
+        await ApiClient.instance.listPracticeClients(practiceId);
+    if (!mounted) return;
+
+    PracticeClient? match;
+    final cid = widget.session.clientId;
+    if (cid != null) {
+      for (final c in clients) {
+        if (c.id == cid) {
+          match = c;
+          break;
+        }
+      }
+    }
+    if (match == null) {
+      final lower = widget.session.clientName.toLowerCase();
+      for (final c in clients) {
+        if (c.name.toLowerCase() == lower) {
+          match = c;
+          break;
+        }
+      }
+    }
+
+    if (match == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Publish first to set viewing preferences.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    await showClientConsentSheet(context, client: match);
     // When the practitioner returns, re-fetch so a just-flipped toggle
     // re-enables the segment live.
     if (mounted) {

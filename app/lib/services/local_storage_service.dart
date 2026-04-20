@@ -15,7 +15,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 15;
+  static const _dbVersion = 16;
 
   Database? _db;
 
@@ -58,7 +58,8 @@ class LocalStorageService {
         last_published_at INTEGER,
         last_publish_error TEXT,
         publish_attempt_count INTEGER NOT NULL DEFAULT 0,
-        created_by_user_id TEXT
+        created_by_user_id TEXT,
+        client_id TEXT
       )
     ''');
 
@@ -235,6 +236,17 @@ class LocalStorageService {
       // video blobs.
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN raw_archive_uploaded_at INTEGER',
+      );
+    }
+    if (oldVersion < 16) {
+      // Clients-as-Home-spine IA shift. Session rows get a nullable
+      // `client_id` pointing at `clients.id` in Supabase. New sessions
+      // (created via ClientSessionsScreen) populate both client_id and
+      // clientName from the chosen client. Legacy rows keep client_id
+      // NULL; ClientSessionsScreen filters by (client_id OR clientName)
+      // so they still appear under the right client without a backfill.
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN client_id TEXT',
       );
     }
   }
