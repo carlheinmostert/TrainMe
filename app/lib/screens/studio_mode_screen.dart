@@ -7,13 +7,17 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
+import '../models/client.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/path_resolver.dart';
 import '../theme.dart';
+import '../services/api_client.dart';
+import '../services/auth_service.dart';
 import '../widgets/circuit_control_sheet.dart';
+import '../widgets/client_consent_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
@@ -21,7 +25,6 @@ import '../widgets/practice_chip.dart';
 import '../widgets/shell_pull_tab.dart';
 import '../widgets/studio_exercise_card.dart';
 import '../widgets/undo_snackbar.dart';
-import 'clients_screen.dart';
 import 'plan_preview_screen.dart';
 
 /// Post-session editing — the "Studio" mode.
@@ -873,23 +876,65 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             _Chip(label: '~${formatDuration(totalDuration)}'),
           const Spacer(),
           // Viewing-preferences entry (three-treatment model). Reads as a
-          // subject-utility, not header chrome. Routes to the Your-clients
-          // screen where the practitioner finds the client and toggles
-          // which treatments are allowed.
+          // subject-utility, not header chrome. Opens the consent sheet
+          // for the session's linked client inline; no detour through
+          // a client list now that Home IS the client list.
           _ViewingPrefsButton(
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const ClientsScreen(),
-                ),
-              );
-            },
+            onTap: _openConsentForSessionClient,
           ),
           const SizedBox(width: 8),
           _buildPublishLockBadge(),
         ],
       ),
     );
+  }
+
+  /// Open the client-consent bottom sheet for the client linked to this
+  /// session. Resolves the client row via [Session.clientId] when set,
+  /// else by [Session.clientName] within the current practice. Shows a
+  /// gentle SnackBar when no match is found (typically the legacy path
+  /// where the quick-flow never minted a client row).
+  Future<void> _openConsentForSessionClient() async {
+    HapticFeedback.selectionClick();
+    final practiceId = AuthService.instance.currentPracticeId.value;
+    if (practiceId == null || practiceId.isEmpty) return;
+
+    final clients =
+        await ApiClient.instance.listPracticeClients(practiceId);
+    if (!mounted) return;
+
+    PracticeClient? match;
+    final cid = _session.clientId;
+    if (cid != null) {
+      for (final c in clients) {
+        if (c.id == cid) {
+          match = c;
+          break;
+        }
+      }
+    }
+    if (match == null) {
+      final lower = _session.clientName.toLowerCase();
+      for (final c in clients) {
+        if (c.name.toLowerCase() == lower) {
+          match = c;
+          break;
+        }
+      }
+    }
+
+    if (match == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Publish first to set viewing preferences.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    await showClientConsentSheet(context, client: match);
   }
 
   Widget _buildPublishLockBadge() {
