@@ -1090,6 +1090,46 @@
     }
 
     /* ------------------------------------------------------------------ */
+    /*  Colleague name input (Phase 2 — WhatsApp 1:1 only)                */
+    /* ------------------------------------------------------------------ */
+    .colleague-input {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .colleague-input .label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .colleague-input input {
+      width: 100%;
+      max-width: 240px;
+      height: 36px;
+      padding: 0 12px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-sm);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 150ms var(--ease-standard);
+    }
+
+    .colleague-input input::placeholder {
+      color: var(--ink-muted);
+    }
+
+    .colleague-input input:focus {
+      border-color: var(--brand-tint-border);
+    }
+
+    /* ------------------------------------------------------------------ */
     /*  Annotation tag                                                    */
     /* ------------------------------------------------------------------ */
     .annot-tag {
@@ -1270,6 +1310,13 @@
                otherwise it's dropped for an unaddressed opener. -->
           <div class="msg-body">Hey <span class="slot">{Colleague}</span>, try homefit.studio — home care plans my clients actually follow. Created in-session, delivered on WhatsApp before they leave. Sign up through this and you land with 8 free credits on me: <span class="link">session.homefit.studio/r/K3JT7QR</span></div>
 
+          <!-- Phase 2 — optional name slot. Live-substitutes {Colleague}
+               in the body + drives the wa.me intent payload. -->
+          <div class="colleague-input">
+            <label class="label" for="mock-colleague-name">Colleague's first name (optional)</label>
+            <input id="mock-colleague-name" type="text" placeholder="Sarah" />
+          </div>
+
           <div class="action-row">
             <button type="button" class="btn primary">
               <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1278,7 +1325,13 @@
               </svg>
               Copy message
             </button>
-            <span class="annot-tag">copies to clipboard · toast confirms</span>
+            <button type="button" class="btn secondary">
+              <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7 1.5a5.5 5.5 0 0 0-4.8 8.2L1.5 12.5l2.9-0.7A5.5 5.5 0 1 0 7 1.5Z"/>
+              </svg>
+              Open in WhatsApp
+            </button>
+            <span class="annot-tag">"copy" → clipboard · "open" → wa.me/?text=… intent</span>
           </div>
 
           <!-- OG unfurl preview — what WhatsApp shows below the message -->
@@ -1340,7 +1393,13 @@
               </svg>
               Copy message
             </button>
-            <span class="annot-tag">copies to clipboard · toast confirms</span>
+            <button type="button" class="btn secondary">
+              <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7 1.5a5.5 5.5 0 0 0-4.8 8.2L1.5 12.5l2.9-0.7A5.5 5.5 0 1 0 7 1.5Z"/>
+              </svg>
+              Open in WhatsApp
+            </button>
+            <span class="annot-tag">"copy" → clipboard · "open" → wa.me/?text=… intent</span>
           </div>
 
           <div class="og-preview">

@@ -1,9 +1,17 @@
 'use client';
 
+import { useState } from 'react';
+
 import { CopyButton } from './CopyButton';
 import { OgPreview } from './OgPreview';
 import {
+  OpenInAppButton,
+  WhatsAppOutboundGlyph,
+} from './OpenInAppButton';
+import {
   buildWhatsAppOneToOne,
+  buildWhatsAppOneToOneUrl,
+  substituteColleagueName,
   type ShareKitSlots,
 } from '@/lib/share-kit/templates';
 
@@ -14,15 +22,26 @@ import {
  * The rendered message body is visually styled to resemble the
  * recipient's WhatsApp view (surface-raised card + brand-tint chip for
  * the `{Colleague}` placeholder + coral link). Clicking the Copy
- * button drops the unrendered template string onto the clipboard
- * — ie. `{Colleague}` is preserved so the practitioner can swap the
- * name in once they paste into WhatsApp.
+ * button drops the message string onto the clipboard; "Open in
+ * WhatsApp" fires a `wa.me/?text=…` intent.
  *
- * Phase 1 stops at clipboard. Phase 2 will add a secondary "Open in
- * WhatsApp" button that fires a `wa.me/?text=...` intent.
+ * **Phase 2 addition** — a compact "Colleague's first name (optional)"
+ * input sits above the action row. When populated, it substitutes the
+ * `{Colleague}` slot live in both the rendered preview + the intent
+ * URL + the clipboard payload; when empty, the literal placeholder
+ * stays so the practitioner can edit post-paste. Voice-locked (R-06):
+ * the label reads "Colleague's first name (optional)", never
+ * "Recipient" / "Friend" / "Contact".
  */
 export function WhatsAppOneToOne({ slots }: { slots: ShareKitSlots }) {
-  const rendered = buildWhatsAppOneToOne(slots);
+  const [name, setName] = useState('');
+
+  // Trimmed view used for substitution — doesn't mutate the controlled
+  // input value (so trailing spaces while typing don't wipe the cursor
+  // position), just the derived payload.
+  const trimmed = name.trim();
+  const baseBody = buildWhatsAppOneToOne(slots);
+  const rendered = substituteColleagueName(baseBody, trimmed);
 
   return (
     <article className="flex flex-col gap-4 rounded-lg border border-surface-border bg-surface-base p-6">
@@ -44,17 +63,44 @@ export function WhatsAppOneToOne({ slots }: { slots: ShareKitSlots }) {
       </header>
 
       {/* Pre-rendered message body — we display a "pretty" version with
-          the {Colleague} slot highlighted and the URL coloured as a
-          link. The actual clipboard payload is the plain template
-          string (via `buildWhatsAppOneToOne`). Copy is the Phase 1b
+          the {Colleague} slot highlighted (or substituted) and the URL
+          coloured as a link. The clipboard / intent payload always
+          tracks the live-substituted string. Copy is the Phase 1b
           product-pitch voice — keep in sync with buildWhatsAppOneToOne
           in templates.ts. */}
       <div className="whitespace-pre-wrap rounded-md border border-surface-border bg-surface-raised px-[18px] py-4 text-sm leading-relaxed text-ink">
-        Hey <SlotChip>{`{Colleague}`}</SlotChip>, try homefit.studio —
-        home care plans my clients actually follow. Created in-session,
-        delivered on WhatsApp before they leave. Sign up through this and
-        you land with 8 free credits on me:{' '}
+        Hey{' '}
+        {trimmed.length > 0 ? (
+          <NameText>{trimmed}</NameText>
+        ) : (
+          <SlotChip>{`{Colleague}`}</SlotChip>
+        )}
+        , try homefit.studio — home care plans my clients actually follow.
+        Created in-session, delivered on WhatsApp before they leave. Sign up
+        through this and you land with 8 free credits on me:{' '}
         <LinkText>{slots.referralLink}</LinkText>
+      </div>
+
+      {/* Colleague's first name — optional live-substitution input.
+          Kept compact (single row, 240px max) per the Phase 2 brief. */}
+      <div className="flex flex-col gap-1.5">
+        <label
+          htmlFor="share-kit-colleague-name"
+          className="font-mono text-[11px] uppercase tracking-wider text-ink-dim"
+        >
+          Colleague&apos;s first name (optional)
+        </label>
+        <input
+          id="share-kit-colleague-name"
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Sarah"
+          maxLength={40}
+          autoComplete="off"
+          spellCheck={false}
+          className="w-full max-w-[240px] rounded-md border border-surface-border bg-surface-raised px-3 py-2 text-sm text-ink placeholder:text-ink-dim focus:border-brand-tint-border focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -63,6 +109,14 @@ export function WhatsAppOneToOne({ slots }: { slots: ShareKitSlots }) {
           label="Copy message"
           copiedLabel="Copied!"
           ariaLabel="Copy WhatsApp one-to-one message"
+        />
+        <OpenInAppButton
+          getHref={() => buildWhatsAppOneToOneUrl(slots, trimmed)}
+          label="Open in WhatsApp"
+          ariaLabel="Open WhatsApp with this message pre-filled"
+          glyph={<WhatsAppOutboundGlyph />}
+          target="_blank"
+          rel="noopener noreferrer"
         />
       </div>
 
@@ -87,6 +141,19 @@ function FormatIcon({ children }: { children: React.ReactNode }) {
 function SlotChip({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-block rounded-sm border border-dashed border-brand-tint-border bg-brand-tint-bg px-1.5 py-0.5 font-mono text-xs tracking-wide text-brand-light">
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Substituted name rendering — same chip footprint as <SlotChip/> but
+ * solid-filled and un-mono, so the practitioner sees the personalised
+ * message as "settled" rather than "still a placeholder".
+ */
+function NameText({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-block rounded-sm border border-brand-tint-border bg-brand-tint-bg px-1.5 py-0.5 text-sm font-semibold text-brand-light">
       {children}
     </span>
   );
