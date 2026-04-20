@@ -138,6 +138,13 @@ class VideoConverterChannel {
             // controls playback volume AND whether the converter muxes the
             // audio track at all. Keeping it out of the file when muted is
             // a small privacy win (no ambient gym audio in the archive).
+            //
+            // Kill-switch (2026-04-20 audio-hang triage): the Dart side
+            // passes `includeAudio: false` when the build is compiled with
+            // `--dart-define=HOMEFIT_AUDIO_MUX_ENABLED=false`. That path is
+            // the pre-PR-#39 behaviour (video-only output, no audio reader
+            // or writer attached) and is known to complete cleanly — useful
+            // while the mux hang is being triaged. See `config.dart`.
             let includeAudio = (args["includeAudio"] as? Bool) ?? true
             processingQueue.async { [weak self] in
                 self?.convertVideo(
@@ -411,6 +418,13 @@ class VideoConverterChannel {
         var audioReaderOutput: AVAssetReaderTrackOutput?
         var audioWriterInput: AVAssetWriterInput?
 
+        // Telemetry — surfaced in Console.app so we can see exactly which
+        // setup branch was taken on the device run that triggered a hang.
+        NSLog(
+            "[VideoConverter] setup — includeAudio=\(includeAudio) " +
+            "hasAudioTrack=\(asset.tracks(withMediaType: .audio).first != nil)"
+        )
+
         if includeAudio, let audioTrack = asset.tracks(withMediaType: .audio).first {
             let audioOutput = AVAssetReaderTrackOutput(
                 track: audioTrack,
@@ -444,10 +458,14 @@ class VideoConverterChannel {
                 if writer.canAdd(audioInput) {
                     writer.add(audioInput)
                     audioWriterInput = audioInput
+                    NSLog("[VideoConverter] audio mux attached — reader+writer inputs ready")
                 } else {
                     // Audio format incompatible with output — skip audio
                     audioReaderOutput = nil
+                    NSLog("[VideoConverter] audio mux skipped — writer.canAdd(audioInput)=false")
                 }
+            } else {
+                NSLog("[VideoConverter] audio mux skipped — reader.canAdd(audioOutput)=false")
             }
         }
 
@@ -496,6 +514,11 @@ class VideoConverterChannel {
 
         var framesProcessed = 0
         var lastProgressReport = 0
+
+        NSLog(
+            "[VideoConverter] starting video pump — estimatedFrames=\(estimatedTotalFrames) " +
+            "audioInputAttached=\(audioWriterInput != nil)"
+        )
 
         // --- Frame pump loop ---
         // Each iteration is wrapped in an autoreleasepool so that sample
@@ -561,8 +584,27 @@ class VideoConverterChannel {
 
                 // Wait for the writer input to be ready.
                 // (Short sleep — see note above about requestMediaDataWhenReady refactor.)
+                //
+                // Watchdog: if we spin for >2s the writer has likely wedged.
+                // Log exactly how long, the writer's current status, and the
+                // audio input's status so a Console.app capture pinpoints the
+                // exact stall site (the 2026-04-20 audio-hang triage was
+                // blocked on not knowing whether the hang was here or in the
+                // audio drain further down).
+                var waitTicks = 0
                 while !writerInput.isReadyForMoreMediaData {
                     Thread.sleep(forTimeInterval: 0.01)
+                    waitTicks += 1
+                    if waitTicks % 200 == 0 { // every ~2s
+                        NSLog(
+                            "[VideoConverter] VIDEO input busy-wait stuck " +
+                            "ticks=\(waitTicks) (~\(waitTicks / 100)s) " +
+                            "frame=\(framesProcessed) " +
+                            "writerStatus=\(writer.status.rawValue) " +
+                            "audioInputReady=\(audioWriterInput?.isReadyForMoreMediaData ?? false) " +
+                            "readerStatus=\(reader.status.rawValue)"
+                        )
+                    }
                 }
 
                 adaptor.append(outBuffer, withPresentationTime: presentationTime)
@@ -578,12 +620,23 @@ class VideoConverterChannel {
                     DispatchQueue.main.async { [weak self] in
                         self?.channel.invokeMethod("onProgress", arguments: progress)
                     }
+                    NSLog(
+                        "[VideoConverter] pump progress frame=\(framesProcessed)/\(estimatedTotalFrames) " +
+                        "audioInputReady=\(audioWriterInput?.isReadyForMoreMediaData ?? false)"
+                    )
                 }
             }
         }
 
+        NSLog(
+            "[VideoConverter] video pump exited — frames=\(framesProcessed) " +
+            "readerStatus=\(reader.status.rawValue) " +
+            "readerError=\(reader.error?.localizedDescription ?? "nil")"
+        )
+
         // Finish video writing.
         writerInput.markAsFinished()
+        NSLog("[VideoConverter] video input markAsFinished called")
 
         // --- Copy audio samples ---
         // Drain the audio track after all video frames are written. Audio
@@ -598,27 +651,61 @@ class VideoConverterChannel {
         // is still silent, the bug has moved downstream (player, codec mux).
         var audioSamplesWritten = 0
         if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
+            NSLog(
+                "[VideoConverter] starting audio drain — " +
+                "readerStatus=\(reader.status.rawValue)"
+            )
             while let audioSample = audioOutput.copyNextSampleBuffer() {
                 autoreleasepool {
+                    // Watchdog mirror of the video-input busy-wait (see above).
+                    var waitTicks = 0
                     while !audioInput.isReadyForMoreMediaData {
                         Thread.sleep(forTimeInterval: 0.01)
+                        waitTicks += 1
+                        if waitTicks % 200 == 0 {
+                            NSLog(
+                                "[VideoConverter] AUDIO input busy-wait stuck " +
+                                "ticks=\(waitTicks) (~\(waitTicks / 100)s) " +
+                                "samplesWritten=\(audioSamplesWritten) " +
+                                "writerStatus=\(writer.status.rawValue)"
+                            )
+                        }
                     }
                     if audioInput.append(audioSample) {
                         audioSamplesWritten += 1
                     }
                 }
             }
+            NSLog(
+                "[VideoConverter] audio drain complete — samplesWritten=\(audioSamplesWritten)"
+            )
             audioInput.markAsFinished()
+            NSLog("[VideoConverter] audio input markAsFinished called")
+        } else {
+            NSLog(
+                "[VideoConverter] audio drain skipped — " +
+                "audioReaderOutput=\(audioReaderOutput != nil) " +
+                "audioWriterInput=\(audioWriterInput != nil)"
+            )
         }
 
         // Wait for the writer to finish, with a hard timeout so a wedged writer
         // can't hang the UI forever.
+        NSLog("[VideoConverter] calling finishWriting (60s timeout)")
         let semaphore = DispatchSemaphore(value: 0)
         writer.finishWriting {
             semaphore.signal()
         }
         let waitResult = semaphore.wait(timeout: .now() + 60)
         if waitResult == .timedOut {
+            NSLog(
+                "[VideoConverter] finishWriting TIMEOUT after 60s — " +
+                "frames=\(framesProcessed) audioSamplesWritten=\(audioSamplesWritten) " +
+                "writerStatus=\(writer.status.rawValue) " +
+                "writerError=\(writer.error?.localizedDescription ?? "nil") " +
+                "readerStatus=\(reader.status.rawValue) " +
+                "readerError=\(reader.error?.localizedDescription ?? "nil")"
+            )
             writer.cancelWriting()
             reader.cancelReading()
             DispatchQueue.main.async {
