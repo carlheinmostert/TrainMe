@@ -606,6 +606,222 @@ export class DeleteClientError extends Error {
 }
 
 // ============================================================================
+// Members surface (PortalMembersApi)
+// ============================================================================
+//
+// Wraps the Milestone P / Wave 5 SECURITY DEFINER RPCs for member-roster,
+// invite-code minting + claiming, role change, remove, and leave flows.
+// Owner-only gates live inside each RPC — the client just surfaces the
+// typed signature + error mapping.
+//
+// Visibility: any practice member can read the roster (transparency
+// intentional). Write RPCs enforce owner-only (or self) at the DB level.
+
+export type MemberProfile = {
+  trainerId: string;
+  email: string;
+  fullName: string;
+  role: 'owner' | 'practitioner';
+  joinedAt: string;
+  isCurrentUser: boolean;
+};
+
+/**
+ * Typed failure from [PortalMembersApi] mutations. Mirrors the
+ * [RenameClientError] / [RenamePracticeError] shape — kind bucket + message —
+ * so the pages can pick the matching inline copy without string parsing.
+ *
+ *   - `not-owner` (42501) — caller is not an owner (mint, set-role, remove).
+ *   - `not-member` (42501) — caller is not in the practice (leave).
+ *   - `not-found` (P0002) — invite code invalid or member row missing.
+ *   - `invalid` (22023) — self-role-change, last-owner, solo-member, etc.
+ *   - `auth` (28000) — session expired; caller should re-auth.
+ */
+export class MembersError extends Error {
+  constructor(
+    public readonly kind:
+      | 'not-owner'
+      | 'not-member'
+      | 'not-found'
+      | 'invalid'
+      | 'auth',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'MembersError';
+  }
+}
+
+export class PortalMembersApi {
+  constructor(private readonly supabase: CompatSupabase) {}
+
+  /**
+   * Roster for a practice — every member's uuid, email, display name,
+   * role, join-timestamp, plus an `isCurrentUser` flag for the own-row
+   * tag.
+   *
+   * RPC enforces membership (42501 if not a member); we surface an
+   * empty list in that case because defence-in-depth: the caller should
+   * already have gated on `getCurrentUserRole`. Other errors bubble as
+   * empty list too — the members page treats that as "no roster yet"
+   * which matches the degraded-degraded UX the other list wrappers here
+   * follow.
+   */
+  async listMembers(practiceId: string): Promise<MemberProfile[]> {
+    const { data, error } = await this.supabase.rpc(
+      'list_practice_members_with_profile',
+      { p_practice_id: practiceId },
+    );
+    if (error || !data) return [];
+    const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
+    return rows.map((r) => ({
+      trainerId: String(r.trainer_id ?? ''),
+      email: String(r.email ?? ''),
+      fullName: String(r.full_name ?? ''),
+      role: (r.role === 'owner' ? 'owner' : 'practitioner') as
+        | 'owner'
+        | 'practitioner',
+      joinedAt: String(r.joined_at ?? ''),
+      isCurrentUser: Boolean(r.is_current_user),
+    }));
+  }
+
+  /**
+   * Mint a fresh 7-char invite code for the given practice. Owner-only
+   * (enforced inside the RPC; 42501 surfaces as `MembersError('not-owner')`).
+   *
+   * Returns the opaque slug — the caller is responsible for building
+   * the landing-page URL (`{origin}/join/{code}`) and the copy UX.
+   */
+  async mintInviteCode(practiceId: string): Promise<string> {
+    const { data, error } = await this.supabase.rpc(
+      'mint_practice_invite_code',
+      { p_practice_id: practiceId },
+    );
+    if (error) throw mapMembersError(error);
+    if (typeof data !== 'string' || data.length !== 7) {
+      throw new Error('mint_practice_invite_code returned unexpected payload');
+    }
+    return data;
+  }
+
+  /**
+   * Claim an invite code. Any authenticated user can call — if the code
+   * is valid + unclaimed, the caller is inserted into `practice_members`
+   * as `role='practitioner'` and the code is stamped claimed.
+   *
+   * Idempotent: calling on a code the caller has already claimed (same
+   * auth user) succeeds without an extra practice_members insert — just
+   * re-stamps `claimed_at`. This matches the "user re-clicks the link"
+   * degenerate case.
+   *
+   * Returns the practice id + name for post-claim redirect flows. Throws
+   * `MembersError` on invalid / already-used codes (P0002 → `not-found`)
+   * or auth failures (28000 → `auth`).
+   */
+  async claimInvite(
+    code: string,
+  ): Promise<{ practiceId: string; practiceName: string }> {
+    const { data, error } = await this.supabase.rpc('claim_practice_invite', {
+      p_code: code.toUpperCase(),
+    });
+    if (error) throw mapMembersError(error);
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
+    const row = rows[0] as Record<string, unknown> | undefined;
+    if (!row || typeof row.practice_id !== 'string') {
+      throw new Error('claim_practice_invite returned empty payload');
+    }
+    return {
+      practiceId: row.practice_id,
+      practiceName: String(row.practice_name ?? ''),
+    };
+  }
+
+  /**
+   * Update a member's role. Owner-only; the RPC rejects self-role-change
+   * and last-owner demotion at the DB level. Returns void on success.
+   *
+   * Typed errors:
+   *   - `not-owner` (42501) — caller is not an owner.
+   *   - `not-found` (P0002) — member row doesn't exist.
+   *   - `invalid` (22023) — self-change, invalid role string, or last-owner.
+   */
+  async setMemberRole(
+    practiceId: string,
+    trainerId: string,
+    role: 'owner' | 'practitioner',
+  ): Promise<void> {
+    const { error } = await this.supabase.rpc('set_practice_member_role', {
+      p_practice_id: practiceId,
+      p_trainer_id: trainerId,
+      p_new_role: role,
+    });
+    if (error) throw mapMembersError(error);
+  }
+
+  /**
+   * Remove a member from a practice. Owner-only; RPC rejects self-remove
+   * (caller must use `leavePractice` instead) and last-owner remove.
+   * Also revokes any unclaimed invite codes the removed user minted.
+   *
+   * Hard delete — no undo for Wave 5. Follow-up wave may add a 5-second
+   * undo RPC that re-inserts the member and revives their codes.
+   */
+  async removeMember(practiceId: string, trainerId: string): Promise<void> {
+    const { error } = await this.supabase.rpc('remove_practice_member', {
+      p_practice_id: practiceId,
+      p_trainer_id: trainerId,
+    });
+    if (error) throw mapMembersError(error);
+  }
+
+  /**
+   * Leave a practice yourself. Any member can call. Blocks:
+   *   - You're the solo member — contact support to delete the practice.
+   *   - You're the last owner with other members — promote someone first.
+   *
+   * After a successful call the caller's page should redirect to `/`
+   * (which boots them to their remaining practices via practice switcher).
+   */
+  async leavePractice(practiceId: string): Promise<void> {
+    const { error } = await this.supabase.rpc('leave_practice', {
+      p_practice_id: practiceId,
+    });
+    if (error) throw mapMembersError(error);
+  }
+}
+
+/** Construct a `PortalMembersApi` bound to the given Supabase client. */
+export function createPortalMembersApi(
+  supabase: CompatSupabase,
+): PortalMembersApi {
+  return new PortalMembersApi(supabase);
+}
+
+// Error classifier for the Milestone P RPCs. Mirrors the SQLSTATE choices
+// inside `schema_milestone_p_members.sql`.
+function mapMembersError(
+  err: { code?: string; message?: string } | null | undefined,
+): Error {
+  if (!err) return new Error('Unknown error');
+  const code = err.code ?? '';
+  const message = err.message ?? 'Unknown error';
+  if (code === '28000') return new MembersError('auth', message);
+  if (code === '42501') {
+    // Both owner-only and not-a-member surface as 42501. The message is
+    // the only disambiguator — callers that care can inspect `kind`, but
+    // for the portal UI owner-only is the common case so default there.
+    if (/not a member/i.test(message)) {
+      return new MembersError('not-member', message);
+    }
+    return new MembersError('not-owner', message);
+  }
+  if (code === 'P0002') return new MembersError('not-found', message);
+  if (code === '22023') return new MembersError('invalid', message);
+  return new Error(message);
+}
+
+// ============================================================================
 // Admin (service-role) carve-out
 // ============================================================================
 //
