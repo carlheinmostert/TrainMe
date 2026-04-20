@@ -89,6 +89,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         value: email,
                       ),
                       _Divider(),
+                      // Regular credit balance (purchases + welcome bonus −
+                      // consumed). Distinct from the "Network rebate" stat
+                      // in the Network section below, which shows referral
+                      // rebate credits — same RPC contract as the portal's
+                      // CreditBalance widget for R-11 parity.
+                      ValueListenableBuilder<String?>(
+                        valueListenable:
+                            AuthService.instance.currentPracticeId,
+                        builder: (context, practiceId, _) =>
+                            _CreditBalanceRow(practiceId: practiceId),
+                      ),
+                      _Divider(),
                       _ActionRow(
                         icon: Icons.lock_outline_rounded,
                         label: 'Set or change password',
@@ -363,6 +375,91 @@ class _ReadOnlyRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Live-fetched credit balance. Mirrors the portal's CreditBalance
+/// widget shape: "Credit balance" label + "{N} credits" value. Renders
+/// a muted "—" while loading or when the practice id is null. Matches
+/// the R-11 portal twin copy exactly so a practitioner bouncing between
+/// surfaces sees the same numbers with the same labels.
+class _CreditBalanceRow extends StatefulWidget {
+  final String? practiceId;
+  const _CreditBalanceRow({required this.practiceId});
+
+  @override
+  State<_CreditBalanceRow> createState() => _CreditBalanceRowState();
+}
+
+class _CreditBalanceRowState extends State<_CreditBalanceRow> {
+  int? _balance;
+  bool _loading = false;
+  String? _loadedForPracticeId;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CreditBalanceRow old) {
+    super.didUpdateWidget(old);
+    if (widget.practiceId != old.practiceId) {
+      _refresh();
+    }
+  }
+
+  Future<void> _refresh() async {
+    final practiceId = widget.practiceId;
+    if (practiceId == null) {
+      setState(() {
+        _balance = null;
+        _loading = false;
+        _loadedForPracticeId = null;
+      });
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _loadedForPracticeId = practiceId;
+    });
+    try {
+      final result = await ApiClient.instance.practiceCreditBalance(
+        practiceId: practiceId,
+      );
+      if (!mounted || _loadedForPracticeId != practiceId) return;
+      setState(() {
+        _balance = result;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted || _loadedForPracticeId != practiceId) return;
+      setState(() {
+        _balance = null;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    String valueText;
+    if (_loading || widget.practiceId == null) {
+      valueText = '—';
+    } else if (_balance == null) {
+      valueText = 'Couldn\'t load — tap to retry';
+    } else {
+      valueText = _balance == 1 ? '1 credit' : '$_balance credits';
+    }
+    final retryable = !_loading && _balance == null && widget.practiceId != null;
+    final row = _ReadOnlyRow(label: 'Credit balance', value: valueText);
+    if (!retryable) return row;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _refresh,
+      child: row,
     );
   }
 }
@@ -1117,13 +1214,18 @@ class _StatsRow extends StatelessWidget {
             Expanded(
               child: _StatTile(
                 value: loading ? '—' : fmtInt(stats.rebateBalanceCredits),
-                label: 'Credits banked',
+                // "Network rebate" disambiguates from the regular "Credit
+                // balance" shown in the Account section above. Same RPC
+                // contract as the portal's Network earnings card — this is
+                // the 5% lifetime rebate + signup bonus pool, NOT your
+                // main publishing credits.
+                label: 'Network rebate',
               ),
             ),
             Expanded(
               child: _StatTile(
                 value: loading ? '—' : fmtInt(stats.lifetimeRebateCredits),
-                label: 'All-time',
+                label: 'Rebate lifetime',
                 dim: !loading && stats.lifetimeRebateCredits == 0,
               ),
             ),
