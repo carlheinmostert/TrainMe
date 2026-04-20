@@ -130,11 +130,24 @@ export class PortalApi {
    * The nested `practices` join can be either a single row or an array
    * depending on PostgREST's mood — we normalise to a single object here
    * so every caller receives `PracticeWithRole[]`.
+   *
+   * IMPORTANT: we explicitly filter by `trainer_id = auth.uid()` — the
+   * practice_members RLS policy allows SELECTs on ALL rows of any
+   * practice the caller is a member of (needed by /members for the
+   * invite UI), so without this filter the caller sees peer members'
+   * rows too. Seen in the wild when @me.com was signed in and a 3rd
+   * row (@icloud.com's owner row on the shared practice) surfaced in
+   * the practice switcher.
    */
   async listMyPractices(): Promise<PracticeWithRole[]> {
+    const { data: userRes } = await this.supabase.auth.getUser();
+    const userId = userRes.user?.id;
+    if (!userId) return [];
+
     const { data, error } = await this.supabase
       .from('practice_members')
       .select('role, practice_id, practices:practice_id ( id, name )')
+      .eq('trainer_id', userId)
       .order('joined_at', { ascending: true });
 
     if (error || !data) return [];

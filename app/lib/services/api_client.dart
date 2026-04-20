@@ -158,18 +158,26 @@ class ApiClient {
 
   /// List the practices the signed-in user is a member of.
   ///
-  /// Mirrors the portal's `PortalApi.listMyPractices()`. RLS
-  /// (Milestone C helper-fn rewrite) scopes `practice_members` to rows
-  /// where `trainer_id = auth.uid()`, so this always returns only the
-  /// caller's memberships. Ordered by `joined_at` so [0] is the first
-  /// practice the user joined (the Carl-sentinel / bootstrap one).
+  /// Mirrors the portal's `PortalApi.listMyPractices()`. Ordered by
+  /// `joined_at` so [0] is the first practice the user joined (the
+  /// Carl-sentinel / bootstrap one).
+  ///
+  /// Explicitly filters by `trainer_id = auth.uid()` — the
+  /// practice_members RLS policy is broader than "your own rows": it
+  /// allows SELECT on all members of any practice you belong to (needed
+  /// for the members page). Without this filter a user who's in a
+  /// shared practice sees their peer's membership rows too, producing
+  /// phantom entries in the switcher.
   ///
   /// Returns `[]` on any error so UI can render a shell without crashing.
   Future<List<PracticeMembership>> listMyPractices() async {
     try {
+      final userId = raw.auth.currentUser?.id;
+      if (userId == null) return const [];
       final response = await raw
           .from('practice_members')
           .select('role, practice_id, practices:practice_id ( id, name )')
+          .eq('trainer_id', userId)
           .order('joined_at', ascending: true);
       if (response is! List) return const [];
       return response
