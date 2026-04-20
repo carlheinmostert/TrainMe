@@ -108,28 +108,26 @@ class TreatmentSegmentedControl extends StatelessWidget {
   }
 
   // ---------------------------------------------------------------------------
-  // Vertical — narrow pill, three stacked segments. Outer container is pill-
-  // rounded top + bottom; inner segments share flat adjoining edges (same
-  // convention as horizontal, just 90° rotated). Intrinsic width keeps the
-  // pill as narrow as the longest label ("Original") permits, so it stays
-  // out of the way of the media behind it.
+  // Vertical — narrow book-spine pill, three stacked segments. Each
+  // segment is 28 px wide × 72 px tall with the label rotated
+  // counter-clockwise 90° (bottom-to-top, book-spine style) so the text
+  // reads along the spine and the overall pill stays out of the way of
+  // the media behind it (~34 px wide including the hairline border).
   // ---------------------------------------------------------------------------
   Widget _buildVertical(BuildContext context) {
-    return IntrinsicWidth(
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.surfaceRaised,
-          borderRadius: BorderRadius.circular(9999),
-          border: Border.all(color: AppColors.surfaceBorder),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _segment(context, Treatment.line, Axis.vertical),
-            _segment(context, Treatment.grayscale, Axis.vertical),
-            _segment(context, Treatment.original, Axis.vertical),
-          ],
-        ),
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(9999),
+        border: Border.all(color: AppColors.surfaceBorder),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _segment(context, Treatment.line, Axis.vertical),
+          _segment(context, Treatment.grayscale, Axis.vertical),
+          _segment(context, Treatment.original, Axis.vertical),
+        ],
       ),
     );
   }
@@ -139,9 +137,91 @@ class TreatmentSegmentedControl extends StatelessWidget {
   /// height row inside the vertical Column. Styling (coral-active,
   /// lock glyph, label) is identical either way — only the enclosing layout
   /// differs.
+  ///
+  /// Vertical mode is book-spine: the label rotates 90° counter-clockwise
+  /// via [RotatedBox] so it reads bottom-to-top. That lets each segment be
+  /// narrow (~28-32 px) and tall (~72 px), matching the Studio viewer's
+  /// vertical-swipe gesture axis without a wide pill cutting into the
+  /// demo surface.
   Widget _segment(BuildContext context, Treatment t, Axis axis) {
     final selected = active == t;
     final available = _available(t);
+
+    final labelStyle = TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.2,
+      color: selected
+          ? Colors.white
+          : (available
+              ? AppColors.textOnDark
+              : AppColors.textSecondaryOnDark.withValues(alpha: 0.6)),
+    );
+
+    // Lock glyph, when present, sits next to the label along the same
+    // axis as the text. Horizontal: lock left of text. Vertical (rotated):
+    // lock appears BELOW the text after the RotatedBox (quarterTurns=3).
+    final lockIcon = Icon(
+      Icons.lock_outline,
+      size: 12,
+      color: AppColors.textSecondaryOnDark.withValues(alpha: 0.7),
+    );
+
+    Widget labelContent;
+    if (axis == Axis.vertical) {
+      // Book-spine label. quarterTurns=3 rotates 270° clockwise (= 90°
+      // counter-clockwise) so the baseline reads bottom-to-top, which
+      // matches the conventional book-spine direction on iOS/macOS.
+      labelContent = RotatedBox(
+        quarterTurns: 3,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (!available) ...[
+              lockIcon,
+              const SizedBox(width: 4),
+            ],
+            Text(t.shortLabel, style: labelStyle),
+          ],
+        ),
+      );
+    } else {
+      labelContent = Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (!available)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: lockIcon,
+            ),
+          Text(t.shortLabel, style: labelStyle),
+        ],
+      );
+    }
+
+    // Vertical segments get fixed narrow-but-tall dimensions so the
+    // three pills stack into a compact spine strip. Horizontal segments
+    // stay Expanded and inherit the container's height.
+    final inner = AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      margin: const EdgeInsets.all(3),
+      width: axis == Axis.vertical ? 28 : null,
+      height: axis == Axis.vertical ? 72 : null,
+      padding: axis == Axis.vertical
+          ? EdgeInsets.zero
+          : const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: selected ? AppColors.primary : Colors.transparent,
+        borderRadius: BorderRadius.circular(9999),
+      ),
+      alignment: Alignment.center,
+      child: labelContent,
+    );
+
     final pill = Tooltip(
       message: available ? '' : _lockedMessage(t),
       triggerMode: TooltipTriggerMode.tap,
@@ -154,50 +234,7 @@ class TreatmentSegmentedControl extends StatelessWidget {
           }
         },
         behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-          margin: const EdgeInsets.all(3),
-          padding: axis == Axis.vertical
-              ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
-              : EdgeInsets.zero,
-          decoration: BoxDecoration(
-            color: selected ? AppColors.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(9999),
-          ),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (!available)
-                Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Icon(
-                    Icons.lock_outline,
-                    size: 12,
-                    color:
-                        AppColors.textSecondaryOnDark.withValues(alpha: 0.7),
-                  ),
-                ),
-              Text(
-                t.shortLabel,
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.2,
-                  color: selected
-                      ? Colors.white
-                      : (available
-                          ? AppColors.textOnDark
-                          : AppColors.textSecondaryOnDark
-                              .withValues(alpha: 0.6)),
-                ),
-              ),
-            ],
-          ),
-        ),
+        child: inner,
       ),
     );
     if (axis == Axis.horizontal) {

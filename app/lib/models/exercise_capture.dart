@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import '../config.dart';
 import '../services/path_resolver.dart';
+import 'treatment.dart';
 
 /// The type of media captured for an exercise.
 ///
@@ -90,6 +91,30 @@ class ExerciseCapture {
   /// segment in the preview.
   final String? originalUrl;
 
+  /// The practitioner's sticky treatment preference for this specific
+  /// exercise.
+  ///
+  /// Semantics:
+  ///   * `null` → no explicit choice, render as [Treatment.line] (the
+  ///     de-identifying default). This is the value for every exercise
+  ///     at capture time and after a fresh install.
+  ///   * non-null → the practitioner cycled the treatment on this
+  ///     exercise (via the Studio `_MediaViewer` vertical swipe, a
+  ///     plan-preview segment tap, or a Studio-card tile tap) and wants
+  ///     that choice to stick. Next time the plan opens, the preview /
+  ///     viewer starts on this treatment.
+  ///
+  /// Per-exercise: moving to the NEXT exercise in the deck doesn't
+  /// carry this forward — each exercise renders in ITS OWN saved
+  /// preference. An exercise with `null` continues to show Line even
+  /// if the practitioner just flipped the previous exercise to B&W.
+  ///
+  /// Persistence: local SQLite `exercises.preferred_treatment` +
+  /// Supabase `exercises.preferred_treatment` (both nullable TEXT).
+  /// Round-trips unchanged through publish + sync via the wire
+  /// encoding on [TreatmentX.wireValue] / [treatmentFromWire].
+  final Treatment? preferredTreatment;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -115,6 +140,7 @@ class ExerciseCapture {
     this.lineDrawingUrl,
     this.grayscaleUrl,
     this.originalUrl,
+    this.preferredTreatment,
   });
 
   /// Create a new capture with a generated UUID.
@@ -186,6 +212,7 @@ class ExerciseCapture {
           ? DateTime.fromMillisecondsSinceEpoch(
               map['raw_archive_uploaded_at'] as int)
           : null,
+      preferredTreatment: treatmentFromWire(map['preferred_treatment']),
     );
   }
 
@@ -213,6 +240,7 @@ class ExerciseCapture {
       'archive_file_path': archiveFilePath,
       'archived_at': archivedAt?.millisecondsSinceEpoch,
       'raw_archive_uploaded_at': rawArchiveUploadedAt?.millisecondsSinceEpoch,
+      'preferred_treatment': preferredTreatment?.wireValue,
     };
   }
 
@@ -254,6 +282,8 @@ class ExerciseCapture {
     bool clearGrayscaleUrl = false,
     String? originalUrl,
     bool clearOriginalUrl = false,
+    Treatment? preferredTreatment,
+    bool clearPreferredTreatment = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -290,6 +320,9 @@ class ExerciseCapture {
       grayscaleUrl:
           clearGrayscaleUrl ? null : (grayscaleUrl ?? this.grayscaleUrl),
       originalUrl: clearOriginalUrl ? null : (originalUrl ?? this.originalUrl),
+      preferredTreatment: clearPreferredTreatment
+          ? null
+          : (preferredTreatment ?? this.preferredTreatment),
     );
   }
 

@@ -18,7 +18,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 17;
+  static const _dbVersion = 18;
 
   Database? _db;
 
@@ -89,6 +89,7 @@ class LocalStorageService {
         archive_file_path TEXT,
         archived_at INTEGER,
         raw_archive_uploaded_at INTEGER,
+        preferred_treatment TEXT,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -339,6 +340,24 @@ class LocalStorageService {
       // breaks if they're empty (callers always fall through to an
       // empty list).
       await _createOfflineFirstTables(db);
+    }
+    if (oldVersion < 18) {
+      // Per-exercise sticky treatment preference (Milestone O).
+      //
+      // Values: 'line' / 'grayscale' / 'original' / NULL.
+      // NULL means "no explicit choice — render as Line" (the de-
+      // identifying default); every existing row migrates to NULL, which
+      // preserves the pre-feature behaviour (everything renders Line on
+      // first open). New writes land via copyWith(preferredTreatment:...)
+      // from the media viewer / plan preview / studio card tiles.
+      //
+      // Supabase has a matching column in
+      // schema_milestone_o_exercise_preferred_treatment.sql — the mobile
+      // column stays in lockstep so publish + sync can round-trip the
+      // field without any translation layer.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN preferred_treatment TEXT',
+      );
     }
   }
 
