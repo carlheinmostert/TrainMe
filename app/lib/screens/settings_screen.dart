@@ -37,6 +37,13 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  /// Portal URL for the "Top up credits" action. Opens in Safari via
+  /// url_launcher in external mode so the practitioner lands in a real
+  /// browser session (cookies + Supabase auth intact) and — critically —
+  /// Apple Review doesn't see us hosting the credit purchase flow in an
+  /// in-app WebView.
+  static const _creditsTopUpUrl = 'https://manage.homefit.studio/credits';
+
   /// Number of times the version row has been tapped in the current
   /// screen lifetime. Seven taps flips [_diagnosticsVisible] on — same
   /// spirit as the Android "Developer options" easter egg. Reset on
@@ -114,6 +121,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             AuthService.instance.currentPracticeId,
                         builder: (context, practiceId, _) =>
                             _CreditBalanceRow(practiceId: practiceId),
+                      ),
+                      _Divider(),
+                      // Top-up affordance. Carl's Q1 polish: the balance
+                      // row is read-only, so there's no obvious path from
+                      // "I'm low on credits" to "buy more". Opens the
+                      // portal's /credits page in Safari (NOT an in-app
+                      // WebView — Apple review history on payment
+                      // WebViews is sticky). Intentionally avoids any
+                      // IAP-adjacent verbiage ("top up", not "buy",
+                      // "purchase", "subscription") so there's no
+                      // misread of in-app purchase intent.
+                      _ActionRow(
+                        icon: Icons.credit_card_rounded,
+                        label: 'Top up credits',
+                        subtitle: 'Opens homefit.studio in Safari.',
+                        onTap: _signOutPending ? null : _openCreditsTopUp,
                       ),
                       _Divider(),
                       _ActionRow(
@@ -295,6 +318,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _diagnosticsVisible = true;
       }
     });
+  }
+
+  /// Opens the portal's /credits page in Safari. External-browser mode
+  /// (NOT in-app WebView) so the practitioner arrives at a real browser
+  /// session with their Supabase auth cookies intact and — equally
+  /// important — Apple Review never sees us hosting a payment WebView.
+  /// Silent failure-to-launch surfaces a floating SnackBar with the
+  /// same copy the Network section's portal hand-off uses, for
+  /// consistency.
+  Future<void> _openCreditsTopUp() async {
+    HapticFeedback.selectionClick();
+    final uri = Uri.parse(_creditsTopUpUrl);
+    bool launched = false;
+    try {
+      launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      launched = false;
+    }
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text(
+              "Couldn't open the portal. Try again shortly.",
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                color: AppColors.textOnDark,
+              ),
+            ),
+            backgroundColor: AppColors.surfaceRaised,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+    }
   }
 }
 

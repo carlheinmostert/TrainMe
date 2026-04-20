@@ -63,8 +63,18 @@ class SessionCard extends StatelessWidget {
     final hasExercises =
         session.exercises.where((e) => !e.isRest).isNotEmpty;
     final canPublish = hasExercises && !hasConversionsRunning && !isPublishing;
-    final isPublishedClean =
-        session.isPublished && !_hasUnpublishedChanges(session);
+    // Three-state publish indicator (Q1 polish batch):
+    //   - never published    → coral `cloud_upload_outlined`, "Publish"
+    //   - published + clean  → sage `check_circle`, "Published"
+    //   - published + dirty  → coral `cloud_sync_outlined`,
+    //                          "Changes pending — tap to re-sync"
+    // "Dirty" is driven by [Session.hasUnpublishedContentChanges], which
+    // compares the last content-edit timestamp to [sentAt]. Legacy rows
+    // with a null content-edit stamp read as clean so pre-feature
+    // sessions don't all light up orange on upgrade.
+    final isPublishedDirty =
+        session.isPublished && session.hasUnpublishedContentChanges;
+    final isPublishedClean = session.isPublished && !isPublishedDirty;
     final hasPublishError = publishError != null && !isPublishing;
 
     final failedConversions = session.exercises
@@ -178,31 +188,41 @@ class SessionCard extends StatelessWidget {
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
                               iconSize: 20,
-                              onPressed: canPublish
-                                  ? onPublish
-                                  : (hasPublishError
-                                      ? onShowPublishError
-                                      : null),
+                              // Clean published sessions are a no-op tap.
+                              // Dirty + never-published + error all route
+                              // to their respective actions (publish or
+                              // surface the error sheet).
+                              onPressed: hasPublishError
+                                  ? onShowPublishError
+                                  : (isPublishedClean
+                                      ? null
+                                      : (canPublish ? onPublish : null)),
                               icon: Icon(
                                 hasPublishError
                                     ? Icons.cloud_off_outlined
                                     : isPublishedClean
                                         ? Icons.check_circle
-                                        : Icons.cloud_upload_outlined,
+                                        : isPublishedDirty
+                                            ? Icons.cloud_sync_outlined
+                                            : Icons.cloud_upload_outlined,
                                 color: hasPublishError
                                     ? AppColors.error
                                     : isPublishedClean
                                         ? AppColors.circuit
-                                        : canPublish
-                                            ? AppColors.textOnDark
-                                            : AppColors.grey600,
+                                        : isPublishedDirty
+                                            ? AppColors.primary
+                                            : canPublish
+                                                ? AppColors.primary
+                                                : AppColors.grey600,
                                 size: 20,
                               ),
                               tooltip: hasPublishError
                                   ? 'Publish failed — tap for details'
                                   : isPublishedClean
                                       ? 'Published'
-                                      : 'Publish',
+                                      : isPublishedDirty
+                                          ? 'Changes pending — tap to re-sync'
+                                          : 'Publish',
                             ),
                             if (hasPublishError)
                               Positioned(
@@ -283,13 +303,6 @@ class SessionCard extends StatelessWidget {
     return '$v \u00b7 $date';
   }
 
-  /// Heuristic "does this session have unpublished changes?". Mirrors the
-  /// retired Home impl — once published and not actively edited, it's
-  /// considered clean. Any re-publish is explicit.
-  bool _hasUnpublishedChanges(Session session) {
-    if (!session.isPublished) return true;
-    return false;
-  }
 }
 
 /// Coral-tinted retry pill. Extracted unchanged from the retired Home

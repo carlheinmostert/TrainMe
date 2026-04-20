@@ -18,7 +18,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 19;
+  static const _dbVersion = 20;
 
   Database? _db;
 
@@ -59,6 +59,7 @@ class LocalStorageService {
         preferred_rest_interval INTEGER,
         version INTEGER NOT NULL DEFAULT 0,
         last_published_at INTEGER,
+        last_content_edit_at INTEGER,
         last_publish_error TEXT,
         publish_attempt_count INTEGER NOT NULL DEFAULT 0,
         created_by_user_id TEXT,
@@ -373,6 +374,23 @@ class LocalStorageService {
       // `prep_seconds` column on the `exercises` table.
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN prep_seconds INTEGER',
+      );
+    }
+    if (oldVersion < 20) {
+      // Three-state publish indicator (Q1 polish batch).
+      //
+      // Track the most recent content edit so the session card can
+      // distinguish "published & clean" from "published with pending
+      // changes". Stamped by StudioModeScreen on every structural /
+      // content mutation (reps, sets, hold, notes, name, add / delete /
+      // reorder, circuit change, treatment, prep, muted, custom duration,
+      // session title). Pure-UI state (scroll, expand/collapse) does NOT
+      // stamp this.
+      //
+      // Legacy rows migrate as NULL — the card treats null as "clean"
+      // so historic sessions don't all light up as dirty on upgrade.
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN last_content_edit_at INTEGER',
       );
     }
   }
