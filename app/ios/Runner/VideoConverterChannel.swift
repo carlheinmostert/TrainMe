@@ -512,175 +512,172 @@ class VideoConverterChannel {
             segmenter = PersonSegmenter(width: videoWidth, height: videoHeight)
         }
 
+        // Shared mutable counters. All reads/writes are serialised onto their
+        // owning input queues (video pump runs on `videoQueue`, audio pump on
+        // `audioQueue`, final state inspection happens inside `group.notify`
+        // after both pumps have left), so no additional locking is required.
         var framesProcessed = 0
         var lastProgressReport = 0
+        var audioSamplesWritten = 0
 
         NSLog(
             "[VideoConverter] starting video pump — estimatedFrames=\(estimatedTotalFrames) " +
             "audioInputAttached=\(audioWriterInput != nil)"
         )
 
-        // --- Frame pump loop ---
-        // Each iteration is wrapped in an autoreleasepool so that sample
-        // buffers, CVPixelBuffers, and other AVFoundation temporaries are
-        // released promptly instead of piling up until the outer @autoreleasepool
-        // drains. On clips >15s this was the root cause of jetsam OOM kills.
+        // --- Concurrent drain (PR #41 — fixes the multi-track hang) ---
         //
-        // NOTE: the two `isReadyForMoreMediaData` busy-wait loops below are
-        // intentionally left as short sleeps for now. Migrating to
-        // `requestMediaDataWhenReady(on:using:)` is a larger refactor. The 60s
-        // `finishWriting` timeout (see below) prevents indefinite UI hangs if
-        // the writer ever wedges.
-        while let sampleBuffer = readerOutput.copyNextSampleBuffer() {
-            autoreleasepool {
-                guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-                    return
-                }
+        // PR #39 introduced an audio track to the `AVAssetReader` + `AVAssetWriter`
+        // pair. PR #40 added the instrumentation that confirmed (Carl's device
+        // log 2026-04-20) the video busy-wait was spinning indefinitely while
+        // the audio input's writer-side interleave budget stayed unfilled —
+        // AVAssetWriter backpressures one input whenever another attached
+        // input is starved of samples. The fix is the Apple-canonical pattern:
+        // each writer input gets its own dispatch queue and its own
+        // `requestMediaDataWhenReady` callback, and both pumps run in parallel.
+        // A DispatchGroup gates `finishWriting` until both inputs have marked
+        // themselves finished.
+        //
+        // Autoreleasepools remain inside each iteration — on clips >15s they're
+        // the difference between a clean drain and a jetsam OOM kill.
 
-                let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let group = DispatchGroup()
+        let videoQueue = DispatchQueue(label: "homefit.videoconverter.video")
+        let audioQueue = DispatchQueue(label: "homefit.videoconverter.audio")
 
-                // Allocate an output pixel buffer from the adaptor's pool
-                // (reuses backing memory frame-to-frame).
-                var outputPixelBuffer: CVPixelBuffer?
-                let allocStatus: CVReturn
-                if let pool = adaptor.pixelBufferPool {
-                    allocStatus = CVPixelBufferPoolCreatePixelBuffer(
-                        nil,
-                        pool,
-                        &outputPixelBuffer
-                    )
-                } else {
-                    // Pool not available (only before startSession on some OS versions);
-                    // fall back to direct allocation so we at least make forward progress.
-                    allocStatus = CVPixelBufferCreate(
-                        kCFAllocatorDefault,
-                        videoWidth,
-                        videoHeight,
-                        kCVPixelFormatType_32BGRA,
-                        nil,
-                        &outputPixelBuffer
-                    )
-                }
+        // Video pump — processes each incoming sample into a line drawing,
+        // appends through the pixel buffer adaptor, and finishes the input
+        // when the reader is exhausted. Holds a strong capture on the
+        // channel so progress invocations still fire even if the owning
+        // VideoConverterChannel is released mid-conversion — the reader,
+        // writer, and pumps are all self-sufficient once the drain starts.
+        group.enter()
+        var videoPumpFinished = false
+        let progressChannel = self.channel
+        writerInput.requestMediaDataWhenReady(on: videoQueue) {
+            while writerInput.isReadyForMoreMediaData {
+                autoreleasepool {
+                    guard let sampleBuffer = readerOutput.copyNextSampleBuffer() else {
+                        if !videoPumpFinished {
+                            videoPumpFinished = true
+                            NSLog(
+                                "[VideoConverter] video pump exited — frames=\(framesProcessed) " +
+                                "readerStatus=\(reader.status.rawValue) " +
+                                "readerError=\(reader.error?.localizedDescription ?? "nil")"
+                            )
+                            writerInput.markAsFinished()
+                            NSLog("[VideoConverter] video input markAsFinished called")
+                            group.leave()
+                        }
+                        return
+                    }
 
-                guard allocStatus == kCVReturnSuccess,
-                      let outBuffer = outputPixelBuffer else {
-                    return
-                }
+                    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+                        return
+                    }
 
-                // Generate person segmentation mask (iOS 15+). If segmentation
-                // fails or is unavailable, maskPtr stays nil and the processor
-                // falls through to an unmasked line drawing.
-                var maskPtr: UnsafePointer<UInt8>? = nil
-                if #available(iOS 15.0, *), let seg = segmenter as? PersonSegmenter {
-                    maskPtr = seg.generateMask(for: pixelBuffer)
-                }
+                    let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 
-                // Process the frame into a line drawing, writing into outBuffer.
-                // When maskPtr != nil the processor erases (forces to white) any
-                // pixel whose mask value is below 128 — the background.
-                guard processor.processFrame(pixelBuffer, mask: maskPtr, into: outBuffer) else {
-                    return
-                }
+                    // Allocate an output pixel buffer from the adaptor's pool
+                    // (reuses backing memory frame-to-frame).
+                    var outputPixelBuffer: CVPixelBuffer?
+                    let allocStatus: CVReturn
+                    if let pool = adaptor.pixelBufferPool {
+                        allocStatus = CVPixelBufferPoolCreatePixelBuffer(
+                            nil,
+                            pool,
+                            &outputPixelBuffer
+                        )
+                    } else {
+                        // Pool not available (only before startSession on some OS versions);
+                        // fall back to direct allocation so we at least make forward progress.
+                        allocStatus = CVPixelBufferCreate(
+                            kCFAllocatorDefault,
+                            videoWidth,
+                            videoHeight,
+                            kCVPixelFormatType_32BGRA,
+                            nil,
+                            &outputPixelBuffer
+                        )
+                    }
 
-                // Wait for the writer input to be ready.
-                // (Short sleep — see note above about requestMediaDataWhenReady refactor.)
-                //
-                // Watchdog: if we spin for >2s the writer has likely wedged.
-                // Log exactly how long, the writer's current status, and the
-                // audio input's status so a Console.app capture pinpoints the
-                // exact stall site (the 2026-04-20 audio-hang triage was
-                // blocked on not knowing whether the hang was here or in the
-                // audio drain further down).
-                var waitTicks = 0
-                while !writerInput.isReadyForMoreMediaData {
-                    Thread.sleep(forTimeInterval: 0.01)
-                    waitTicks += 1
-                    if waitTicks % 200 == 0 { // every ~2s
+                    guard allocStatus == kCVReturnSuccess,
+                          let outBuffer = outputPixelBuffer else {
+                        return
+                    }
+
+                    // Generate person segmentation mask (iOS 15+). If segmentation
+                    // fails or is unavailable, maskPtr stays nil and the processor
+                    // falls through to an unmasked line drawing.
+                    var maskPtr: UnsafePointer<UInt8>? = nil
+                    if #available(iOS 15.0, *), let seg = segmenter as? PersonSegmenter {
+                        maskPtr = seg.generateMask(for: pixelBuffer)
+                    }
+
+                    // Process the frame into a line drawing, writing into outBuffer.
+                    // When maskPtr != nil the processor erases (forces to white) any
+                    // pixel whose mask value is below 128 — the background.
+                    guard processor.processFrame(pixelBuffer, mask: maskPtr, into: outBuffer) else {
+                        return
+                    }
+
+                    adaptor.append(outBuffer, withPresentationTime: presentationTime)
+                    framesProcessed += 1
+
+                    // Report progress every 30 frames.
+                    if framesProcessed - lastProgressReport >= 30 {
+                        lastProgressReport = framesProcessed
+                        let progress: [String: Any] = [
+                            "framesProcessed": framesProcessed,
+                            "totalFrames": estimatedTotalFrames,
+                        ]
+                        DispatchQueue.main.async {
+                            progressChannel.invokeMethod("onProgress", arguments: progress)
+                        }
                         NSLog(
-                            "[VideoConverter] VIDEO input busy-wait stuck " +
-                            "ticks=\(waitTicks) (~\(waitTicks / 100)s) " +
-                            "frame=\(framesProcessed) " +
-                            "writerStatus=\(writer.status.rawValue) " +
-                            "audioInputReady=\(audioWriterInput?.isReadyForMoreMediaData ?? false) " +
-                            "readerStatus=\(reader.status.rawValue)"
+                            "[VideoConverter] pump progress frame=\(framesProcessed)/\(estimatedTotalFrames) " +
+                            "audioInputReady=\(audioWriterInput?.isReadyForMoreMediaData ?? false)"
                         )
                     }
                 }
-
-                adaptor.append(outBuffer, withPresentationTime: presentationTime)
-                framesProcessed += 1
-
-                // Report progress every 30 frames.
-                if framesProcessed - lastProgressReport >= 30 {
-                    lastProgressReport = framesProcessed
-                    let progress: [String: Any] = [
-                        "framesProcessed": framesProcessed,
-                        "totalFrames": estimatedTotalFrames,
-                    ]
-                    DispatchQueue.main.async { [weak self] in
-                        self?.channel.invokeMethod("onProgress", arguments: progress)
-                    }
-                    NSLog(
-                        "[VideoConverter] pump progress frame=\(framesProcessed)/\(estimatedTotalFrames) " +
-                        "audioInputReady=\(audioWriterInput?.isReadyForMoreMediaData ?? false)"
-                    )
-                }
+                if videoPumpFinished { return }
             }
         }
 
-        NSLog(
-            "[VideoConverter] video pump exited — frames=\(framesProcessed) " +
-            "readerStatus=\(reader.status.rawValue) " +
-            "readerError=\(reader.error?.localizedDescription ?? "nil")"
-        )
-
-        // Finish video writing.
-        writerInput.markAsFinished()
-        NSLog("[VideoConverter] video input markAsFinished called")
-
-        // --- Copy audio samples ---
-        // Drain the audio track after all video frames are written. Audio
-        // samples are small and fast to copy, so a simple serial loop is fine.
-        // (Same busy-wait caveat applies — pending requestMediaDataWhenReady refactor.)
-        //
-        // `audioSamplesWritten` is logged after `finishWriting` so a future
-        // debugger can tell at a glance whether audio made it into the output.
-        // Zero here means either the source had no audio track, the gate was
-        // disabled from Dart (`includeAudio: false`), or the reader failed
-        // to produce samples. Non-zero means audio was appended — if playback
-        // is still silent, the bug has moved downstream (player, codec mux).
-        var audioSamplesWritten = 0
+        // Audio pump — only started if the audio track was successfully
+        // attached to both reader and writer during setup. Runs concurrently
+        // with the video pump, on its own queue, so the AVAssetWriter can
+        // interleave samples without either input starving the other.
         if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
             NSLog(
-                "[VideoConverter] starting audio drain — " +
+                "[VideoConverter] starting audio pump — " +
                 "readerStatus=\(reader.status.rawValue)"
             )
-            while let audioSample = audioOutput.copyNextSampleBuffer() {
-                autoreleasepool {
-                    // Watchdog mirror of the video-input busy-wait (see above).
-                    var waitTicks = 0
-                    while !audioInput.isReadyForMoreMediaData {
-                        Thread.sleep(forTimeInterval: 0.01)
-                        waitTicks += 1
-                        if waitTicks % 200 == 0 {
-                            NSLog(
-                                "[VideoConverter] AUDIO input busy-wait stuck " +
-                                "ticks=\(waitTicks) (~\(waitTicks / 100)s) " +
-                                "samplesWritten=\(audioSamplesWritten) " +
-                                "writerStatus=\(writer.status.rawValue)"
-                            )
+            group.enter()
+            var audioPumpFinished = false
+            audioInput.requestMediaDataWhenReady(on: audioQueue) {
+                while audioInput.isReadyForMoreMediaData {
+                    autoreleasepool {
+                        guard let audioSample = audioOutput.copyNextSampleBuffer() else {
+                            if !audioPumpFinished {
+                                audioPumpFinished = true
+                                NSLog(
+                                    "[VideoConverter] audio drain complete — " +
+                                    "samplesWritten=\(audioSamplesWritten)"
+                                )
+                                audioInput.markAsFinished()
+                                NSLog("[VideoConverter] audio input markAsFinished called")
+                                group.leave()
+                            }
+                            return
+                        }
+                        if audioInput.append(audioSample) {
+                            audioSamplesWritten += 1
                         }
                     }
-                    if audioInput.append(audioSample) {
-                        audioSamplesWritten += 1
-                    }
+                    if audioPumpFinished { return }
                 }
             }
-            NSLog(
-                "[VideoConverter] audio drain complete — samplesWritten=\(audioSamplesWritten)"
-            )
-            audioInput.markAsFinished()
-            NSLog("[VideoConverter] audio input markAsFinished called")
         } else {
             NSLog(
                 "[VideoConverter] audio drain skipped — " +
@@ -689,72 +686,79 @@ class VideoConverterChannel {
             )
         }
 
-        // Wait for the writer to finish, with a hard timeout so a wedged writer
-        // can't hang the UI forever.
-        NSLog("[VideoConverter] calling finishWriting (60s timeout)")
-        let semaphore = DispatchSemaphore(value: 0)
-        writer.finishWriting {
-            semaphore.signal()
-        }
-        let waitResult = semaphore.wait(timeout: .now() + 60)
-        if waitResult == .timedOut {
+        // --- Finalisation ---
+        // Wait for BOTH pumps to finish (DispatchGroup) before calling
+        // `finishWriting`. Notify on a global queue rather than
+        // `processingQueue` (which is serial and still owns this call frame
+        // until convertVideo returns — we don't want follow-up channel calls
+        // to block behind finishWriting's 60s timeout).
+        let notifyQueue = DispatchQueue.global(qos: .userInitiated)
+        group.notify(queue: notifyQueue) {
+            NSLog("[VideoConverter] calling finishWriting (60s timeout)")
+            let semaphore = DispatchSemaphore(value: 0)
+            writer.finishWriting {
+                semaphore.signal()
+            }
+            let waitResult = semaphore.wait(timeout: .now() + 60)
+            if waitResult == .timedOut {
+                NSLog(
+                    "[VideoConverter] finishWriting TIMEOUT after 60s — " +
+                    "frames=\(framesProcessed) audioSamplesWritten=\(audioSamplesWritten) " +
+                    "writerStatus=\(writer.status.rawValue) " +
+                    "writerError=\(writer.error?.localizedDescription ?? "nil") " +
+                    "readerStatus=\(reader.status.rawValue) " +
+                    "readerError=\(reader.error?.localizedDescription ?? "nil")"
+                )
+                writer.cancelWriting()
+                reader.cancelReading()
+                DispatchQueue.main.async {
+                    result(FlutterError(
+                        code: "TIMEOUT",
+                        message: "Conversion timed out",
+                        details: nil
+                    ))
+                    endBackgroundTask()
+                }
+                return
+            }
+
+            reader.cancelReading()
+
+            // Surface audio + error state in the device log so we can verify
+            // on the next capture whether audio samples actually made it into
+            // the output. A silent Line-treatment playback with
+            // `audioSamplesWritten > 0` here means the issue is downstream
+            // (player volume, mux, or decoder); zero means it's upstream
+            // (gate disabled, reader failed, or source had no audio track).
             NSLog(
-                "[VideoConverter] finishWriting TIMEOUT after 60s — " +
-                "frames=\(framesProcessed) audioSamplesWritten=\(audioSamplesWritten) " +
+                "[VideoConverter] convert done — frames=\(framesProcessed) " +
+                "audioIncluded=\(includeAudio) audioInputAttached=\(audioWriterInput != nil) " +
+                "audioSamplesWritten=\(audioSamplesWritten) " +
                 "writerStatus=\(writer.status.rawValue) " +
                 "writerError=\(writer.error?.localizedDescription ?? "nil") " +
                 "readerStatus=\(reader.status.rawValue) " +
                 "readerError=\(reader.error?.localizedDescription ?? "nil")"
             )
-            writer.cancelWriting()
-            reader.cancelReading()
-            DispatchQueue.main.async {
-                result(FlutterError(
-                    code: "TIMEOUT",
-                    message: "Conversion timed out",
-                    details: nil
-                ))
-                endBackgroundTask()
-            }
-            return
-        }
 
-        reader.cancelReading()
-
-        // Surface audio + error state in the device log so we can verify
-        // on the next capture whether audio samples actually made it into
-        // the output. A silent Line-treatment playback with
-        // `audioSamplesWritten > 0` here means the issue is downstream
-        // (player volume, mux, or decoder); zero means it's upstream
-        // (gate disabled, reader failed, or source had no audio track).
-        NSLog(
-            "[VideoConverter] convert done — frames=\(framesProcessed) " +
-            "audioIncluded=\(includeAudio) audioInputAttached=\(audioWriterInput != nil) " +
-            "audioSamplesWritten=\(audioSamplesWritten) " +
-            "writerStatus=\(writer.status.rawValue) " +
-            "writerError=\(writer.error?.localizedDescription ?? "nil") " +
-            "readerStatus=\(reader.status.rawValue) " +
-            "readerError=\(reader.error?.localizedDescription ?? "nil")"
-        )
-
-        if writer.status == .completed {
-            DispatchQueue.main.async {
-                result([
-                    "success": true,
-                    "framesProcessed": framesProcessed,
-                    "audioSamplesWritten": audioSamplesWritten,
-                    "outputPath": outputPath,
-                ])
-                endBackgroundTask()
-            }
-        } else {
-            DispatchQueue.main.async {
-                result(FlutterError(
-                    code: "WRITE_FAILED",
-                    message: "AVAssetWriter finished with status \(writer.status.rawValue): \(writer.error?.localizedDescription ?? "unknown")",
-                    details: nil
-                ))
-                endBackgroundTask()
+            if writer.status == .completed {
+                DispatchQueue.main.async {
+                    result([
+                        "success": true,
+                        "framesProcessed": framesProcessed,
+                        "audioSamplesWritten": audioSamplesWritten,
+                        "outputPath": outputPath,
+                    ])
+                    endBackgroundTask()
+                }
+            } else {
+                DispatchQueue.main.async {
+                    result(FlutterError(
+                        code: "WRITE_FAILED",
+                        message: "AVAssetWriter finished with status \(writer.status.rawValue): \(writer.error?.localizedDescription ?? "unknown")",
+                        details: nil
+                    ))
+                    endBackgroundTask()
+                }
             }
         }
     }
