@@ -4,6 +4,52 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+## Audit expansion — full event log with filters + CSV export (Wave 9)
+
+**Status:** Scheduled **Wave 9** (after Wave 5 Members lands — several event kinds originate there). Design locked 2026-04-20.
+
+**Scope expansion:** today `/audit` shows `plan_issuances` only (truncated trainer_id, no filters). Expand to a unified practice event log:
+
+- **Event sources:** `plan_issuances` (publishes), `credit_ledger` (purchases / refunds / signup bonuses / adjustments / consumption), `referral_rebate_ledger` (rebates in), `clients.created_at` / `deleted_at`, `practice_members.joined_at`, `practice_invite_codes.created_at`.
+- **New `audit_events` table** (id, ts, practice_id, actor_id, kind, ref_id, meta jsonb) for mutations without natural sources: member removals, role changes, practice renames, client restores.
+- **Single RPC** `list_practice_audit(p_practice_id, p_offset, p_limit, p_kinds[], p_actor, p_from, p_to)` — SECURITY DEFINER, unions across all sources, returns `{ts, kind, trainer_id, email, full_name, title, credits_delta, balance_after, ref_id, meta}`.
+
+**UI:** table with `Date · Actor (email + name) · Kind chip · Description · Credit Δ · Balance after · Link`. Kind-chip colours: coral (publish/consumption), sage (credits-in), red (refund/deletion), grey (neutral membership/rename). Filter bar above: multi-select Kind + Practitioner + Date range. Pagination (50/page, total count shown). `Export CSV` button — client-side conversion of the currently-filtered set.
+
+**Visibility:** all practice members see everything — transparency is intentional. No role-based filtering.
+
+**Identity fix:** same SECURITY DEFINER `join auth.users` pattern as Wave 5 Members. Shows email + full name.
+
+---
+
+## Members area — identity, invite codes, role, remove, leave (Wave 5)
+
+**Status:** Scheduled **Wave 5** — Carl, 2026-04-20. Bumped sticky-defaults to Wave 8.
+
+**Problem:** current `/members` is a scaffold — truncated trainer_id UUIDs, disabled invite form ("wiring pending — Milestone D4 follow-up"), no remove / role / leave.
+
+**Scope:**
+
+1. **Identity surface.** New `list_practice_members_with_profile(p_practice_id)` RPC (SECURITY DEFINER, owner-only) joins `practice_members` → `auth.users`. Returns `{trainer_id, email, full_name, role, joined_at, is_current_user}`.
+
+2. **Invite codes — per-practitioner-per-practice.** New `practice_invite_codes(code TEXT PK, practice_id, created_by, created_at, claimed_by, claimed_at, revoked_at)` table. 7-char opaque slug with unambiguous alphabet (same pattern as referral codes). Owner mints a code per practitioner. **No expiry. Multi-code per practice, one per invited person. Auto-join on claim.** Landing page `/join/:code` shows practice name + "Join as practitioner" button; after auth, `claim_practice_invite(p_code)` inserts into `practice_members` as role=`practitioner` + stamps `claimed_at`.
+
+3. **Remove member.** `remove_practice_member(p_practice_id, p_trainer_id)` — owner-only. Hard-deletes row. Also revokes any unclaimed invite codes minted for them. Credit ledger attribution preserved (FK to `auth.users`, not the pivot).
+
+4. **Role change.** `set_practice_member_role(p_practice_id, p_trainer_id, p_new_role)` — owner-only. DB-enforced blocks: (a) can't demote the last owner, (b) can't change your own role.
+
+5. **Self-service leave.** `leave_practice(p_practice_id)` — any member. Blocks: (a) last owner with practitioners remaining — must promote someone first, (b) only member — destructive-delete flow out of scope for this wave.
+
+**UI (`/members`):**
+- Table: `Email · Name · Role · Joined · Actions`.
+- Own row tagged "(you)" with `Leave practice` button in actions.
+- Top of page: "Invite a practitioner" mints a new code + copies to clipboard.
+- Owners see Role dropdown + Remove button per non-self row; practitioners see table only.
+
+**UI (`/join/:code`):** auth gate → practice name header + "Join as practitioner" button → claim RPC → redirect to `/dashboard`.
+
+---
+
 ## Unified player — Flutter + Web share a single rendering codebase
 
 **Status:** Scheduled as **Wave 4** (next iteration after Wave 3 QA wraps, 2026-04-20). Pre-MVP. Decision Carl, 2026-04-20.

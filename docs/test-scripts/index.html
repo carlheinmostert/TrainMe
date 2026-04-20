@@ -210,8 +210,8 @@
         <a>
           <div class="row">
             <div>
-              <div class="name">Wave 5 — Sticky per-client defaults</div>
-              <div class="scope">JSONB <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">client_exercise_defaults</code> on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">clients</code> + SQLite mirror. Propagates 7 fields forward-only on every edit: reps · sets · hold · muted · preferred treatment · prep seconds · custom duration. Invisible UX — practitioner just sees pre-filled values on the next new exercise. Also: landscape capture + "long-press to record video" hint.</div>
+              <div class="name">Wave 5 — Members area (identity + invite codes + roles)</div>
+              <div class="scope">Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">/members</code> rewrite. Shows email + name (new SECURITY DEFINER RPC joins <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">auth.users</code>). Per-practitioner-per-practice invite codes, no expiry, auto-join on claim via new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">/join/:code</code> landing page. Role change (block last-owner demotion + self-role-change). Hard remove (revokes unclaimed codes). Self-service leave (block last-owner-with-practitioners + only-member cases).</div>
             </div>
             <div style="text-align: right;">
               <span class="chip planned">Planned</span>
@@ -238,6 +238,32 @@
             <div>
               <div class="name">Wave 7 — Silent-failure observability</div>
               <div class="scope">Architectural. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">error_logs</code> table + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">_loudSwallow</code> helper + pre-commit lint banning bare catch blocks + boot-time Diagnostics screen with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">signed_url_self_check()</code> probe + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">publish_health</code> SQL view with daily WhatsApp ping via the CallMeBot skill. Would have caught the 2026-04-20 raw-archive / vault / client_id bleeders on first launch. Design: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">docs/design-reviews/silent-failures-2026-04-20.md</code>.</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip planned">Planned</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li class="planned">
+        <a>
+          <div class="row">
+            <div>
+              <div class="name">Wave 8 — Sticky per-client defaults</div>
+              <div class="scope">JSONB <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">client_exercise_defaults</code> on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">clients</code> + SQLite mirror. Propagates 7 fields forward-only on every edit: reps · sets · hold · muted · preferred treatment · prep seconds · custom duration. Invisible UX — practitioner just sees pre-filled values on the next new exercise. Also: landscape capture + "long-press to record video" hint.</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip planned">Planned</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li class="planned">
+        <a>
+          <div class="row">
+            <div>
+              <div class="name">Wave 9 — Audit expansion (full event log + filters + CSV)</div>
+              <div class="scope">Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">/audit</code> expands from "50 most recent publishes" to a full event log: publishes, credit purchases / refunds / signup bonuses / rebates / adjustments, clients created / deleted / restored, members joined / removed / role-changed, practice renames, invites minted. New <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">audit_events</code> table for mutations without natural sources; single <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">list_practice_audit</code> RPC unions across sources. UI: Date · Actor (email + name) · Kind chip (coral/sage/red/grey palette) · Description · Credit Δ · Balance after · Link. Filters: Kind multi-select, Practitioner, Date range. Page navigation. CSV export. Everyone sees everything — transparency.</div>
             </div>
             <div style="text-align: right;">
               <span class="chip planned">Planned</span>
