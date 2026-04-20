@@ -113,21 +113,74 @@ export default async function NetworkPage({
           </Link>
         </nav>
 
-        {/* Hero — title + lead + share-code chip. Mirrors the mockup
-            hero. The chip is read-only; regenerate / copy-link is on
-            the individual format cards. */}
-        <section className="mb-12 flex flex-col gap-6 border-b border-surface-border pb-8 sm:flex-row sm:items-end sm:justify-between sm:gap-8">
-          <div>
-            <h1 className="font-heading text-3xl font-extrabold tracking-tight">
-              Your share kit
-            </h1>
-            <p className="mt-2 max-w-[560px] text-sm text-ink-muted">
-              Pre-written pitches, ready to send. Every link carries your
-              share code, so colleagues land with 8 free credits and you
-              earn a lifetime rebate on theirs.
-            </p>
+        {/* Hero — the product pitch the practitioner wants to forward.
+            Two rows: top row is H1 + sub + share-code chip; below that
+            a body paragraph, a three-feature amplifier of the sub, and
+            a one-line closer. Mirrors the mockup hero. The chip is
+            read-only; regenerate / copy-link is on the individual
+            format cards below. */}
+        <section className="mb-12 border-b border-surface-border pb-10">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+            <div className="max-w-[640px]">
+              <h1 className="font-heading text-3xl font-extrabold leading-tight tracking-tight">
+                Create a professional home care plan your client will love
+                and follow in under 5 min.
+              </h1>
+              <p className="mt-3 text-base font-medium text-ink">
+                Captured in-session. Published on your device. Delivered on
+                WhatsApp — before the door closes.
+              </p>
+            </div>
+            <CodeBadge code={referralCode} />
           </div>
-          <CodeBadge code={referralCode} />
+
+          <p className="mt-6 max-w-[720px] text-sm text-ink-muted">
+            No app install, no library of generic animations, no studio
+            time. Demonstrate the exercise once and homefit.studio turns it
+            into a clean line-drawing your client can follow at home — with
+            your reps, sets, and timing baked in. Every link is branded to
+            you and carries a signed audit trail, so you know who opened
+            which plan and when.
+          </p>
+
+          <div className="mt-8 grid gap-5 sm:grid-cols-3 sm:gap-6">
+            <div>
+              <div className="font-mono text-[11px] font-semibold uppercase tracking-wider text-brand">
+                Captured in-session
+              </div>
+              <p className="mt-2 text-sm text-ink-muted">
+                One-handed shutter, long-press for video. Line-drawing
+                conversion runs on-device while you move to the next
+                exercise. Your client's face is abstracted — POPIA is
+                built in.
+              </p>
+            </div>
+            <div>
+              <div className="font-mono text-[11px] font-semibold uppercase tracking-wider text-brand">
+                Published on your device
+              </div>
+              <p className="mt-2 text-sm text-ink-muted">
+                No cloud wait, no render queue. The plan is a link by the
+                time you tap publish, and the upload finishes in the
+                background while you walk to reception.
+              </p>
+            </div>
+            <div>
+              <div className="font-mono text-[11px] font-semibold uppercase tracking-wider text-brand">
+                Delivered on WhatsApp
+              </div>
+              <p className="mt-2 text-sm text-ink-muted">
+                Paste the link, send. No download, no login. Your client
+                taps and the exercises play. 84% of South African
+                healthcare clients are already on WhatsApp — we meet them
+                there.
+              </p>
+            </div>
+          </div>
+
+          <p className="mt-8 max-w-[640px] text-sm font-medium text-ink">
+            The plan your client receives is the plan they'll actually do.
+          </p>
         </section>
 
         {/* Primary Phase-1 surface — three copy-to-clipboard templates. */}

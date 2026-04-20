@@ -203,9 +203,9 @@
     .hero {
       display: grid;
       grid-template-columns: 1fr auto;
-      align-items: end;
+      align-items: start;
       gap: 32px;
-      padding-bottom: 40px;
+      padding-bottom: 48px;
       border-bottom: 1px solid var(--surface-border);
       margin-bottom: 48px;
     }
@@ -216,14 +216,62 @@
       font-size: 36px;
       letter-spacing: -0.5px;
       line-height: 1.15;
-      margin: 0 0 12px;
+      margin: 0 0 14px;
+      max-width: 820px;
     }
 
-    .hero p {
-      color: var(--ink-secondary);
-      font-size: 15px;
+    .hero > div > p {
+      color: var(--ink-primary);
+      font-size: 16px;
+      font-weight: 500;
       margin: 0;
-      max-width: 560px;
+      max-width: 720px;
+    }
+
+    .hero .hero-body {
+      color: var(--ink-secondary);
+      font-size: 14px;
+      font-weight: 400;
+      margin-top: 20px;
+      max-width: 720px;
+      line-height: 1.6;
+    }
+
+    .hero-features {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 24px;
+      margin-top: 28px;
+    }
+
+    .hero-features > div {
+      min-width: 0;
+    }
+
+    .hero-features .label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--brand-default);
+      margin-bottom: 8px;
+    }
+
+    .hero-features p {
+      color: var(--ink-secondary);
+      font-size: 13px;
+      line-height: 1.55;
+      margin: 0;
+      max-width: none;
+    }
+
+    .hero-closer {
+      color: var(--ink-primary);
+      font-size: 14px;
+      font-weight: 500;
+      margin-top: 28px !important;
+      max-width: 640px;
     }
 
     .code-badge {
@@ -270,6 +318,10 @@
       }
       .code-badge {
         align-items: flex-start;
+      }
+      .hero-features {
+        grid-template-columns: 1fr;
+        gap: 20px;
       }
     }
 
@@ -1138,12 +1190,33 @@
     <!-- ============================================================== -->
     <section class="hero">
       <div>
-        <h1>Your share kit</h1>
+        <h1>Create a professional home care plan your client will love and follow in under 5 min.</h1>
         <p>
-          Pre-written pitches and a branded card, ready to send.
-          Every link carries your share code, so colleagues land with 8 free
-          credits and you earn a lifetime rebate on theirs.
+          Captured in-session. Published on your device. Delivered on WhatsApp — before the door closes.
         </p>
+        <p class="hero-body">
+          No app install, no library of generic animations, no studio time.
+          Demonstrate the exercise once and homefit.studio turns it into a
+          clean line-drawing your client can follow at home — with your
+          reps, sets, and timing baked in. Every link is branded to you
+          and carries a signed audit trail, so you know who opened which
+          plan and when.
+        </p>
+        <div class="hero-features">
+          <div>
+            <div class="label">Captured in-session</div>
+            <p>One-handed shutter, long-press for video. Line-drawing conversion runs on-device while you move to the next exercise. Your client's face is abstracted — POPIA is built in.</p>
+          </div>
+          <div>
+            <div class="label">Published on your device</div>
+            <p>No cloud wait, no render queue. The plan is a link by the time you tap publish, and the upload finishes in the background while you walk to reception.</p>
+          </div>
+          <div>
+            <div class="label">Delivered on WhatsApp</div>
+            <p>Paste the link, send. No download, no login. Your client taps and the exercises play. 84% of South African healthcare clients are already on WhatsApp — we meet them there.</p>
+          </div>
+        </div>
+        <p class="hero-closer">The plan your client receives is the plan they'll actually do.</p>
       </div>
 
       <div class="code-badge">
@@ -1195,7 +1268,7 @@
                {Colleague} is highlighted as an auto-filled slot only
                when the practitioner has selected a specific contact;
                otherwise it's dropped for an unaddressed opener. -->
-          <div class="msg-body">Hey <span class="slot">{Colleague}</span>, tried homefit.studio for my home programmes — makes the plans visual and tracks whether the client is keeping up. If you sign up through this you land with 8 free credits on me: <span class="link">session.homefit.studio/r/K3JT7QR</span></div>
+          <div class="msg-body">Hey <span class="slot">{Colleague}</span>, try homefit.studio — home care plans my clients actually follow. Created in-session, delivered on WhatsApp before they leave. Sign up through this and you land with 8 free credits on me: <span class="link">session.homefit.studio/r/K3JT7QR</span></div>
 
           <div class="action-row">
             <button type="button" class="btn primary">
@@ -1431,8 +1504,8 @@
             <p class="practice-name">carlhein@me.com Practice</p>
 
             <p class="tagline">
-              Home exercise programmes, <span>visually clear</span>.<br/>
-              Try homefit.studio.
+              Plans your client will <span>love and follow</span>.<br/>
+              Ready before they leave.
             </p>
           </div>
 
@@ -1509,7 +1582,7 @@
       <div class="tagline-helper">
         <span class="label">Tagline</span>
         <span class="tagline-text">
-          Home exercise programmes, visually clear. Try homefit.studio — session.homefit.studio/r/K3JT7QR
+          Plans your client will love and follow. Ready before they leave. — session.homefit.studio/r/K3JT7QR
         </span>
         <button type="button" class="btn secondary">
           <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
