@@ -83,6 +83,31 @@ export type MemberRow = {
 };
 
 /**
+ * A published session visible to the caller. See `list_practice_sessions`
+ * RPC (`supabase/schema_milestone_h_list_practice_sessions.sql`). The
+ * trainer fields are populated from the most recent `plan_issuances` row
+ * for each plan — `plans` itself carries no `trainer_id`.
+ */
+export type PracticeSession = {
+  id: string;
+  title: string;
+  clientName: string | null;
+  trainerId: string;
+  trainerEmail: string | null;
+  version: number;
+  /** ISO timestamp of the most recent publish. Null if never published. */
+  lastPublishedAt: string | null;
+  /** One-way stamp from `get_plan_full`; null until the client opens the link. */
+  firstOpenedAt: string | null;
+  /** Total rows in `plan_issuances` for this plan (all versions). */
+  issuanceCount: number;
+  /** Non-rest exercises on the plan. */
+  exerciseCount: number;
+  /** True when the current user is the most recent publisher. */
+  isOwnSession: boolean;
+};
+
+/**
  * PortalApi wraps a `SupabaseClient<Database>` with the enumerated
  * operations the portal surface is permitted to perform. Construct via
  * the helpers at the bottom of this module; never `new PortalApi(...)`
@@ -227,6 +252,44 @@ export class PortalApi {
 
     if (error || !data) return [];
     return data as unknown as PlanIssuanceRow[];
+  }
+
+  // ==========================================================================
+  // Sessions
+  // ==========================================================================
+
+  /**
+   * Sessions (plans) visible to the caller in a given practice.
+   *
+   * Wraps the `list_practice_sessions(p_practice_id)` SECURITY DEFINER
+   * RPC. Visibility is determined inside the RPC:
+   *   - Owner       → every session in the practice.
+   *   - Practitioner → only sessions they most-recently published.
+   * Non-members of the practice receive a 42501 exception, which we
+   * fold to an empty list here — the portal page should already have
+   * gated the call on `getCurrentUserRole()`, so this is defense-in-depth.
+   */
+  async listPracticeSessions(
+    practiceId: string,
+  ): Promise<PracticeSession[]> {
+    const { data, error } = await this.supabase.rpc('list_practice_sessions', {
+      p_practice_id: practiceId,
+    });
+    if (error || !data) return [];
+    const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
+    return rows.map((r) => ({
+      id: String(r.id ?? ''),
+      title: String(r.title ?? ''),
+      clientName: r.client_name ? String(r.client_name) : null,
+      trainerId: r.trainer_id ? String(r.trainer_id) : '',
+      trainerEmail: r.trainer_email ? String(r.trainer_email) : null,
+      version: Number(r.version ?? 0),
+      lastPublishedAt: r.last_published_at ? String(r.last_published_at) : null,
+      firstOpenedAt: r.first_opened_at ? String(r.first_opened_at) : null,
+      issuanceCount: Number(r.issuance_count ?? 0),
+      exerciseCount: Number(r.exercise_count ?? 0),
+      isOwnSession: Boolean(r.is_own_session),
+    }));
   }
 }
 

@@ -12,6 +12,9 @@ type Props = {
 
 export function BrandHeader({ showSignOut = false, practiceId }: Props) {
   const accountHref = practiceId ? `/account?practice=${practiceId}` : '/account';
+  // Sessions always needs a practice in the qs — if we don't have one yet,
+  // route through the dashboard which will redirect the user to a default.
+  const sessionsHref = practiceId ? `/sessions?practice=${practiceId}` : '/dashboard';
 
   return (
     <header className="border-b border-surface-border bg-surface-base/80 backdrop-blur">
@@ -28,7 +31,13 @@ export function BrandHeader({ showSignOut = false, practiceId }: Props) {
         </Link>
 
         {showSignOut && (
-          <nav aria-label="Account">
+          <nav aria-label="Primary" className="flex items-center gap-5">
+            <Link
+              href={sessionsHref}
+              className="text-sm text-ink-muted transition hover:text-ink"
+            >
+              Sessions
+            </Link>
             <Link
               href={accountHref}
               className="text-sm text-ink-muted transition hover:text-ink"
