@@ -61,7 +61,17 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Tap video — play/pause still works
    - Close button returns to Studio
 
-7. **Studio MediaViewer polish — consent switch + swipe affordance** (branch `feat/mediaviewer-polish`):
+8. **Home sync-failure banner** (branch `fix/surface-sync-errors`):
+   - **Happy path (online + healthy cloud):** open the app with good signal → clients list populates as before → no banner, no empty-state → `Updated Xm ago` hint renders as today. Verify nothing regressed.
+   - **Airplane-mode path (offline with cached clients):** toggle airplane mode on → pull-to-refresh the Home list → clients stay visible → offline chip appears next to the practice chip → **no red/coral sync-failure banner** (the offline state is expected, not surfaced as an error).
+   - **Online + RPC failure path (the bug Carl hit):** force an RPC failure while online. Easiest reproduction:
+     - Sign in, then in Supabase SQL editor run `revoke execute on function public.list_practice_clients(uuid) from authenticated;` for ~30s.
+     - Relaunch the app or trigger a practice switch.
+     - Expected: cached clients STILL visible on Home; a coral-bordered banner appears above the list: "Couldn't refresh. Tap to retry." Tapping it shows a spinner; while the RPC is still revoked, another tap increments the counter ("Couldn't refresh (2 tries). Tap to retry.").
+     - Restore permissions: `grant execute on function public.list_practice_clients(uuid) to authenticated;` Tap retry → banner dismisses, `Updated just now` hint returns.
+   - **Cache-empty + RPC failure** (the really nasty case): fresh install + online + RPC failure → empty-state card renders with a prominent "Try again" button instead of the old silent "No clients yet" that made Carl think his data was gone. Tap → retries; on success, normal empty-state (or populated list) appears.
+
+9. **Studio MediaViewer polish — consent switch + swipe affordance** (branch `feat/mediaviewer-polish`):
    - Long-press a Studio thumbnail → "Open full-screen"
    - Active treatment is B&W or Original AND client exists → the consent affordance now renders as a dark pill with `Show {Name}` + an iOS-style Switch on the right (coral when on). Verify the Switch reads as a "setting you're tweaking", not an ack button. Flip it — immediate, no modal; SyncService queues the write. Toggle back — same.
    - Verify the Switch styling matches `ClientConsentSheet` (coral `activeTrackColor`, white thumb when on). Scale is slightly smaller (`Transform.scale 0.82`) to fit the compact pill.
