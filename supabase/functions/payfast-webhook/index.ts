@@ -289,10 +289,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // --- 5. Credit the practice + book any referral rebates --------------
   // Route the purchase through `record_purchase_with_rebates` — a SECURITY
   // DEFINER RPC that wraps the credit_ledger INSERT and the referral_
-  // rebate_ledger INSERTs in ONE transaction. If the practice has a
+  // rebate_ledger INSERT in ONE transaction. If the practice has a
   // referrer, this books:
-  //   * a one-time +10 / +10 bonus on the referee's first paid purchase,
-  //   * a 5% lifetime rebate (credits) on every purchase.
+  //   * a 5% lifetime rebate (credits) on every purchase,
+  //   * with a 1-credit goodwill floor on the referrer's FIRST rebate from
+  //     each referee (for tiny starter-bundle first purchases).
   // Both the purchase row and any rebate rows succeed or fail together.
   //
   // Why we pass `cost_per_credit_zar` explicitly: bundle pricing is

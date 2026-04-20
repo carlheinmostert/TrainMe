@@ -131,6 +131,14 @@ class VideoConverterChannel {
                 ))
                 return
             }
+            // `includeAudio` is optional for backward compat. Default to
+            // true — the line-drawing output should retain the captured audio
+            // track unless the practitioner explicitly muted the exercise.
+            // See `ExerciseCapture.includeAudio` on the Dart side: the flag
+            // controls playback volume AND whether the converter muxes the
+            // audio track at all. Keeping it out of the file when muted is
+            // a small privacy win (no ambient gym audio in the archive).
+            let includeAudio = (args["includeAudio"] as? Bool) ?? true
             processingQueue.async { [weak self] in
                 self?.convertVideo(
                     inputPath: inputPath,
@@ -138,6 +146,7 @@ class VideoConverterChannel {
                     blurKernel: blurKernel,
                     thresholdBlock: thresholdBlock,
                     contrastLow: contrastLow,
+                    includeAudio: includeAudio,
                     result: result
                 )
             }
@@ -159,12 +168,19 @@ class VideoConverterChannel {
             // the largest pixel-diff vs frame 0). Falls back to midpoint if
             // motion sampling fails.
             let autoPick = args["autoPick"] as? Bool ?? false
+            // Optional: when true, run a luminance-preserving grayscale pass
+            // after person-segmentation and before JPEG encoding. Used by the
+            // practitioner-facing list thumbnails so they read legibly at small
+            // sizes. Defaults to false to preserve the legacy contract on any
+            // caller that still wants the raw/line-drawing treatment.
+            let grayscale = args["grayscale"] as? Bool ?? false
             processingQueue.async { [weak self] in
                 self?.extractThumbnail(
                     inputPath: inputPath,
                     outputPath: outputPath,
                     timeMs: timeMs,
                     autoPick: autoPick,
+                    grayscale: grayscale,
                     result: result
                 )
             }
@@ -233,6 +249,7 @@ class VideoConverterChannel {
         blurKernel: Int,
         thresholdBlock: Int,
         contrastLow: Int,
+        includeAudio: Bool,
         result: @escaping FlutterResult
     ) {
         // --- Defense in depth: validate input file exists and is readable ---
@@ -381,13 +398,20 @@ class VideoConverterChannel {
 
         // --- Audio passthrough setup ---
         // Copy the audio track as-is (no re-encoding) so the converted video
-        // retains the original audio. If the source has no audio track, we
-        // simply skip this — the output will be video-only.
+        // retains the original audio. If the source has no audio track, or
+        // the practitioner toggled `includeAudio = false` on this exercise,
+        // we skip audio entirely — the output will be video-only.
+        //
+        // IMPORTANT: passthrough (`outputSettings: nil`) on the writer input
+        // requires a `sourceFormatHint` so AVAssetWriter knows the codec and
+        // sample-rate layout of the compressed samples it's about to mux. On
+        // iOS 15+ without the hint, the writer silently drops the audio track
+        // from the output file — which is exactly what caused Carl's "no sound
+        // on line drawing" bug (2026-04-20). Keep the hint.
         var audioReaderOutput: AVAssetReaderTrackOutput?
         var audioWriterInput: AVAssetWriterInput?
 
-        // Audio track — optional, skip gracefully if incompatible
-        if let audioTrack = asset.tracks(withMediaType: .audio).first {
+        if includeAudio, let audioTrack = asset.tracks(withMediaType: .audio).first {
             let audioOutput = AVAssetReaderTrackOutput(
                 track: audioTrack,
                 outputSettings: nil
@@ -398,9 +422,22 @@ class VideoConverterChannel {
                 reader.add(audioOutput)
                 audioReaderOutput = audioOutput
 
+                // Pull the source format description so the writer can
+                // passthrough the compressed samples without re-encoding.
+                // `formatDescriptions` is [Any] in AVFoundation's legacy
+                // typing; the first entry is the track's canonical format.
+                // Conditional-cast so we pass nil cleanly if the array is
+                // empty (edge case — shouldn't happen for a real track).
+                let formatHint: CMFormatDescription?
+                if let first = audioTrack.formatDescriptions.first {
+                    formatHint = (first as! CMFormatDescription)
+                } else {
+                    formatHint = nil
+                }
                 let audioInput = AVAssetWriterInput(
                     mediaType: .audio,
-                    outputSettings: nil
+                    outputSettings: nil,
+                    sourceFormatHint: formatHint
                 )
                 audioInput.expectsMediaDataInRealTime = false
 
@@ -744,6 +781,7 @@ class VideoConverterChannel {
         outputPath: String,
         timeMs: Int,
         autoPick: Bool,
+        grayscale: Bool = false,
         result: @escaping FlutterResult
     ) {
         // Defense in depth: verify the input file exists and is readable.
@@ -812,14 +850,30 @@ class VideoConverterChannel {
             // fails or is unavailable, fall through to the un-masked image.
             // On autoPick:true we also crop tight around the person using
             // the mask's bounding box for a more readable small-surface
-            // thumbnail.
+            // thumbnail. When `grayscale` is true, segmentation skips the
+            // two-zone background-dim pass and instead recolours the whole
+            // frame to luminance — used by practitioner-facing list
+            // thumbnails where the B&W frame is more legible than the
+            // line-drawing treatment.
             var finalImage: CGImage = cgImage
             if #available(iOS 15.0, *) {
                 if let masked = Self.applySegmentationToThumbnail(
                     cgImage: cgImage,
-                    cropToPerson: autoPick
+                    cropToPerson: autoPick,
+                    grayscale: grayscale
                 ) {
                     finalImage = masked
+                } else if grayscale {
+                    // Segmentation bailed (no person / pre-iOS-15) but the
+                    // caller still asked for a B&W thumbnail — honour the
+                    // contract by grayscaling the full frame.
+                    if let gray = Self.grayscaleCGImage(cgImage) {
+                        finalImage = gray
+                    }
+                }
+            } else if grayscale {
+                if let gray = Self.grayscaleCGImage(cgImage) {
+                    finalImage = gray
                 }
             }
             let uiImage = UIImage(cgImage: finalImage)
@@ -982,10 +1036,20 @@ class VideoConverterChannel {
     /// ~10% padding. Improves readability at small sizes (Studio list,
     /// Camera peek). Falls back gracefully to the un-cropped masked image
     /// if the bounding box is degenerate.
+    ///
+    /// When `grayscale` is true, the usual body/background two-zone dim is
+    /// SKIPPED and each BGRA pixel is instead recoloured to its luminance
+    /// ([R,G,B] × [0.299, 0.587, 0.114]) with all three channels set to
+    /// that value. Used by practitioner-facing list thumbnails so the
+    /// client is visible and readable at small sizes (the line-drawing
+    /// treatment lives on the client-facing web player). The
+    /// segmentation-based bounding-box crop still runs when
+    /// `cropToPerson` is true — we just skip the body/background blend.
     @available(iOS 15.0, *)
     static func applySegmentationToThumbnail(
         cgImage: CGImage,
-        cropToPerson: Bool = false
+        cropToPerson: Bool = false,
+        grayscale: Bool = false
     ) -> CGImage? {
         let width = cgImage.width
         let height = cgImage.height
@@ -1081,29 +1145,58 @@ class VideoConverterChannel {
             softMaskPtr = maskPtr
         }
 
-        // Precompute the dim LUT once.
-        var dimLUT = [UInt8](repeating: 0, count: 256)
-        for v in 0...255 {
-            let dimmed = 255.0 - (255.0 - Double(v)) * 0.35
-            dimLUT[v] = UInt8(max(0, min(255, Int(dimmed.rounded()))))
-        }
-
         let dstPtr = base.assumingMemoryBound(to: UInt8.self)
-        dimLUT.withUnsafeBufferPointer { lutBuf in
-            guard let lut = lutBuf.baseAddress else { return }
+
+        if grayscale {
+            // Practitioner-thumbnail path: recolour every pixel to its
+            // BT.601 luminance. We keep the segmentation run (for the
+            // crop-to-person bounding box below) but skip the two-zone
+            // body/background blend entirely. Using integer arithmetic
+            // with the canonical coefficients ×1000 keeps us away from
+            // floating point inside the inner loop.
+            //
+            //     Y = 0.299·R + 0.587·G + 0.114·B
+            //
+            // BGRA layout: B at +0, G at +1, R at +2, A at +3.
             for y in 0..<height {
                 let rowStart = y * bytesPerRow
-                let maskRowStart = y * width
                 for x in 0..<width {
-                    let w = Int(softMaskPtr[maskRowStart + x])
-                    let inv = 255 - w
                     let p = rowStart + x * 4
-                    // B, G, R are blended; A is left at source.
-                    for c in 0..<3 {
-                        let src = Int(dstPtr[p + c])
-                        let dim = Int(lut[src])
-                        let blended = (dim * inv + src * w + 127) / 255
-                        dstPtr[p + c] = UInt8(blended)
+                    let b = Int(dstPtr[p + 0])
+                    let g = Int(dstPtr[p + 1])
+                    let r = Int(dstPtr[p + 2])
+                    let y8 = (r * 299 + g * 587 + b * 114 + 500) / 1000
+                    let luma = UInt8(max(0, min(255, y8)))
+                    dstPtr[p + 0] = luma
+                    dstPtr[p + 1] = luma
+                    dstPtr[p + 2] = luma
+                    // Alpha at p+3 left at source.
+                }
+            }
+        } else {
+            // Precompute the dim LUT once.
+            var dimLUT = [UInt8](repeating: 0, count: 256)
+            for v in 0...255 {
+                let dimmed = 255.0 - (255.0 - Double(v)) * 0.35
+                dimLUT[v] = UInt8(max(0, min(255, Int(dimmed.rounded()))))
+            }
+
+            dimLUT.withUnsafeBufferPointer { lutBuf in
+                guard let lut = lutBuf.baseAddress else { return }
+                for y in 0..<height {
+                    let rowStart = y * bytesPerRow
+                    let maskRowStart = y * width
+                    for x in 0..<width {
+                        let w = Int(softMaskPtr[maskRowStart + x])
+                        let inv = 255 - w
+                        let p = rowStart + x * 4
+                        // B, G, R are blended; A is left at source.
+                        for c in 0..<3 {
+                            let src = Int(dstPtr[p + c])
+                            let dim = Int(lut[src])
+                            let blended = (dim * inv + src * w + 127) / 255
+                            dstPtr[p + c] = UInt8(blended)
+                        }
                     }
                 }
             }
@@ -1165,6 +1258,62 @@ class VideoConverterChannel {
         }
 
         return finalImage
+    }
+
+    // MARK: - Grayscale Fallback
+
+    /// Recolour every pixel of a CGImage to its BT.601 luminance and return
+    /// a fresh CGImage. Used by the thumbnail path as a fallback whenever
+    /// `applySegmentationToThumbnail` returned nil (e.g. iOS < 15 or no
+    /// person detected) so the grayscale contract still holds for
+    /// practitioner-facing list thumbnails.
+    ///
+    /// Mirrors the in-place loop inside `applySegmentationToThumbnail`
+    /// so the visual output matches whether segmentation succeeds or not.
+    /// Returns nil only on CGContext allocation failure — caller should
+    /// fall through to the un-touched source image in that rare case.
+    static func grayscaleCGImage(_ cgImage: CGImage) -> CGImage? {
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0 else { return nil }
+
+        let bytesPerRow = width * 4
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo: UInt32 =
+            CGBitmapInfo.byteOrder32Little.rawValue |
+            CGImageAlphaInfo.premultipliedFirst.rawValue
+
+        guard let ctx = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            return nil
+        }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let data = ctx.data else { return nil }
+        let ptr = data.assumingMemoryBound(to: UInt8.self)
+        let actualRowBytes = ctx.bytesPerRow
+        for y in 0..<height {
+            let rowStart = y * actualRowBytes
+            for x in 0..<width {
+                let p = rowStart + x * 4
+                let b = Int(ptr[p + 0])
+                let g = Int(ptr[p + 1])
+                let r = Int(ptr[p + 2])
+                let y8 = (r * 299 + g * 587 + b * 114 + 500) / 1000
+                let luma = UInt8(max(0, min(255, y8)))
+                ptr[p + 0] = luma
+                ptr[p + 1] = luma
+                ptr[p + 2] = luma
+            }
+        }
+        return ctx.makeImage()
     }
 }
 

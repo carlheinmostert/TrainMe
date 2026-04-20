@@ -104,7 +104,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             _PracticeRow(practiceId: practiceId),
                       ),
                       _Divider(),
-                      // Regular credit balance (purchases + welcome bonus −
+                      // Regular credit balance (purchases + signup bonus −
                       // consumed). Distinct from the "Network rebate" stat
                       // in the Network section below, which shows referral
                       // rebate credits — same RPC contract as the portal's
@@ -1085,9 +1085,9 @@ class _NetworkSectionState extends State<_NetworkSection> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Invite a colleague — both of you get +10 credits when '
-                'they make their first purchase. Plus 5% in free credits '
-                'for every plan they ever publish, forever.',
+                'Invite a colleague — they land with 8 free credits '
+                'instead of 3. You earn 5% in free credits for every plan '
+                'they ever publish, forever.',
                 style: TextStyle(
                   fontFamily: 'Inter',
                   fontSize: 13,
