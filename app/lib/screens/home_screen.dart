@@ -12,7 +12,6 @@ import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/bootstrap_error_banner.dart';
 import '../widgets/homefit_logo.dart';
-import '../widgets/new_client_sheet.dart';
 import '../widgets/offline_sync_chip.dart';
 import '../widgets/practice_chip.dart';
 import '../widgets/undo_snackbar.dart';
@@ -289,6 +288,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _addClient() async {
+    // No modal popup — the "I don't want popups" rule applies here too.
+    // Auto-name the new client with the first unused "New client {N}"
+    // index, create it via SyncService (offline-first), and drop the
+    // practitioner straight into the per-client screen where the
+    // inline editable name affordance handles the rename.
     HapticFeedback.selectionClick();
     final practiceId = AuthService.instance.currentPracticeId.value;
     if (practiceId == null || practiceId.isEmpty) {
@@ -301,18 +305,34 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    final result = await showNewClientSheet(context, practiceId: practiceId);
-    if (result == null) return;
+    int i = 1;
+    while (_clients.any((c) => c.name == 'New client $i')) {
+      i++;
+    }
+    final defaultName = 'New client $i';
 
-    // NewClientSheet already wrote the local cached_clients row +
-    // enqueued the upsert_client_with_id op via SyncService. Surface
-    // the freshly created client in the local state without waiting
-    // on the cache round-trip so the drilldown lands instantly.
-    final freshClient = PracticeClient(
-      id: result.id,
-      practiceId: practiceId,
-      name: result.name,
-    );
+    PracticeClient freshClient;
+    try {
+      final cached = await SyncService.instance.queueCreateClient(
+        practiceId: practiceId,
+        name: defaultName,
+      );
+      freshClient = PracticeClient(
+        id: cached.id,
+        practiceId: practiceId,
+        name: cached.name,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Couldn't create client: $e"),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
     if (!mounted) return;
     setState(() {
       _clients = [..._clients, freshClient];
@@ -435,7 +455,10 @@ class _HomeScreenState extends State<HomeScreen> {
             // Settings) live underneath so the hierarchy is brand →
             // identity → content.
             const Padding(
-              padding: EdgeInsets.fromLTRB(24, 16, 24, 8),
+              // Bottom padding 3× bigger per Wave 3 #14 pass-note — gives
+              // the brand anchor enough breathing room before the
+              // identity-controls row (practice chip + sync + settings).
+              padding: EdgeInsets.fromLTRB(24, 16, 24, 24),
               child: Center(
                 child: HomefitLogoLockup(size: 180),
               ),
@@ -1012,22 +1035,19 @@ class _ClientCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        _ConsentSummaryChip(client: client),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _subtitle(stats),
-                            style: const TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 12,
-                              color: AppColors.textSecondaryOnDark,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
+                    // Consent summary chip removed from the Home list per
+                    // Carl (2026-04-20 post-Wave-3): treatment consent
+                    // detail isn't relevant at the client-list level;
+                    // consent lives on the client detail screen's header
+                    // chip + the sheet it opens.
+                    Text(
+                      _subtitle(stats),
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: AppColors.textSecondaryOnDark,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -1071,47 +1091,6 @@ class _ClientCard extends StatelessWidget {
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
     return '${dt.day} ${months[dt.month - 1]}';
-  }
-}
-
-/// Coral-tinted chip summarising the client's consent state.
-/// `Line only` / `+ B&W` / `+ Original` / `+ B&W + Original`.
-class _ConsentSummaryChip extends StatelessWidget {
-  final PracticeClient client;
-
-  const _ConsentSummaryChip({required this.client});
-
-  @override
-  Widget build(BuildContext context) {
-    final label = _label();
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: AppColors.primary.withValues(alpha: 0.25),
-        ),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: AppColors.textOnDark,
-        ),
-      ),
-    );
-  }
-
-  String _label() {
-    if (client.grayscaleAllowed && client.colourAllowed) {
-      return 'Line + B&W + Original';
-    }
-    if (client.grayscaleAllowed) return 'Line + B&W';
-    if (client.colourAllowed) return 'Line + Original';
-    return 'Line only';
   }
 }
 
