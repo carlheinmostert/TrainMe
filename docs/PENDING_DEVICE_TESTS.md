@@ -61,6 +61,15 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Tap video — play/pause still works
    - Close button returns to Studio
 
+7. **Studio MediaViewer polish — consent switch + swipe affordance** (branch `feat/mediaviewer-polish`):
+   - Long-press a Studio thumbnail → "Open full-screen"
+   - Active treatment is B&W or Original AND client exists → the consent affordance now renders as a dark pill with `Show {Name}` + an iOS-style Switch on the right (coral when on). Verify the Switch reads as a "setting you're tweaking", not an ack button. Flip it — immediate, no modal; SyncService queues the write. Toggle back — same.
+   - Verify the Switch styling matches `ClientConsentSheet` (coral `activeTrackColor`, white thumb when on). Scale is slightly smaller (`Transform.scale 0.82`) to fit the compact pill.
+   - "Exercise N of M" counter appears as a second line inside the name pill — confirm it stays pinned on swipe and that the count updates correctly.
+   - Page dots at the bottom of the viewer — appear when the session has 2-10 exercises. Active dot grows to a short coral-free white capsule; inactive dots are small + translucent. Confirm they animate when swiping horizontally.
+   - Plans with >10 exercises: dots hide (same pattern as `plan_preview_screen.dart`); the name-pill counter is the only where-are-we signal. Confirm behaviour.
+   - Regression check: pre-archive captures still show locked B&W + Original segments; the consent row stays hidden when the archive is missing.
+
 ### Things to actively watch for
 - **iOS 26.4 SDK gap** — any sub-agent build will fail in their sandbox on this; only Carl's main machine has the SDK installed. Not a code issue.
 - **`sessions.client_id` backfill** — runs on every Home load; should be a no-op after first run per practice.
