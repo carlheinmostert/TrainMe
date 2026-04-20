@@ -12,9 +12,11 @@ type Props = {
 
 export function BrandHeader({ showSignOut = false, practiceId }: Props) {
   const accountHref = practiceId ? `/account?practice=${practiceId}` : '/account';
-  // Sessions always needs a practice in the qs — if we don't have one yet,
-  // route through the dashboard which will redirect the user to a default.
-  const sessionsHref = practiceId ? `/sessions?practice=${practiceId}` : '/dashboard';
+  // Clients is the primary navigation destination — sessions roll up beneath
+  // each client on /clients/[id]. The standalone /sessions page was retired.
+  // Without a practice in the qs, route through the dashboard which will
+  // redirect the user to a default selection.
+  const clientsHref = practiceId ? `/clients?practice=${practiceId}` : '/dashboard';
 
   return (
     <header className="border-b border-surface-border bg-surface-base/80 backdrop-blur">
@@ -33,10 +35,10 @@ export function BrandHeader({ showSignOut = false, practiceId }: Props) {
         {showSignOut && (
           <nav aria-label="Primary" className="flex items-center gap-5">
             <Link
-              href={sessionsHref}
+              href={clientsHref}
               className="text-sm text-ink-muted transition hover:text-ink"
             >
-              Sessions
+              Clients
             </Link>
             <Link
               href={accountHref}

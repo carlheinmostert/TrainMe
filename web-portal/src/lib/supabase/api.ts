@@ -108,6 +108,43 @@ export type PracticeSession = {
 };
 
 /**
+ * Per-client consent matrix. Matches the `clients.video_consent` jsonb
+ * default from `schema_milestone_g_three_treatment.sql`. `line_drawing`
+ * is always true — de-identification is structural, not toggleable.
+ */
+export type ClientVideoConsent = {
+  line_drawing: true;
+  grayscale: boolean;
+  original: boolean;
+};
+
+/**
+ * A row from `list_practice_clients(p_practice_id)`. The RPC surfaces
+ * practice-scoped clients plus the timestamp of their most-recent plan
+ * (null when they have no plans yet, which in practice means they've
+ * been created but not published-to).
+ */
+export type PracticeClient = {
+  id: string;
+  name: string;
+  videoConsent: ClientVideoConsent;
+  /** ISO timestamp of the client's most recent plan activity. Null when none. */
+  lastPlanAt: string | null;
+};
+
+/**
+ * A single client, resolved via `get_client_by_id(p_client_id)`. Separated
+ * from `PracticeClient` because the detail RPC has no `last_plan_at`
+ * join — callers that need activity dates should combine this with
+ * `listSessionsForClient()`.
+ */
+export type ClientDetail = {
+  id: string;
+  name: string;
+  videoConsent: ClientVideoConsent;
+};
+
+/**
  * PortalApi wraps a `SupabaseClient<Database>` with the enumerated
  * operations the portal surface is permitted to perform. Construct via
  * the helpers at the bottom of this module; never `new PortalApi(...)`
@@ -290,19 +327,102 @@ export class PortalApi {
     });
     if (error || !data) return [];
     const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
+    return rows.map(mapPracticeSessionRow);
+  }
+
+  // ==========================================================================
+  // Clients
+  // ==========================================================================
+
+  /**
+   * List the clients belonging to a practice. Wraps `list_practice_clients`
+   * (Milestone G). Non-members receive 42501 inside the RPC which we fold
+   * to an empty list here — the portal page should have gated on
+   * `getCurrentUserRole` first.
+   *
+   * Rows are ordered most-recent-activity-first by the RPC (NULLs last,
+   * alphabetical tiebreak). Callers that need a different sort should
+   * sort client-side after the fetch.
+   */
+  async listPracticeClients(
+    practiceId: string,
+  ): Promise<PracticeClient[]> {
+    const { data, error } = await this.supabase.rpc('list_practice_clients', {
+      p_practice_id: practiceId,
+    });
+    if (error || !data) return [];
+    const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
     return rows.map((r) => ({
       id: String(r.id ?? ''),
-      title: String(r.title ?? ''),
-      clientName: r.client_name ? String(r.client_name) : null,
-      trainerId: r.trainer_id ? String(r.trainer_id) : '',
-      trainerEmail: r.trainer_email ? String(r.trainer_email) : null,
-      version: Number(r.version ?? 0),
-      lastPublishedAt: r.last_published_at ? String(r.last_published_at) : null,
-      firstOpenedAt: r.first_opened_at ? String(r.first_opened_at) : null,
-      issuanceCount: Number(r.issuance_count ?? 0),
-      exerciseCount: Number(r.exercise_count ?? 0),
-      isOwnSession: Boolean(r.is_own_session),
+      name: String(r.name ?? ''),
+      videoConsent: normaliseConsent(r.video_consent),
+      lastPlanAt: r.last_plan_at ? String(r.last_plan_at) : null,
     }));
+  }
+
+  /**
+   * Fetch a single client by id. Wraps `get_client_by_id` (Milestone G),
+   * which returns an empty set — not an error — when the client doesn't
+   * exist or the caller isn't a member. We normalise that to `null`.
+   */
+  async getClientById(clientId: string): Promise<ClientDetail | null> {
+    const { data, error } = await this.supabase.rpc('get_client_by_id', {
+      p_client_id: clientId,
+    });
+    if (error || !data) return null;
+    const rows = Array.isArray(data) ? data : [data];
+    const row = rows[0] as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      id: String(row.id ?? ''),
+      name: String(row.name ?? ''),
+      videoConsent: normaliseConsent(row.video_consent),
+    };
+  }
+
+  /**
+   * Sessions belonging to a single client. Wraps the Milestone I RPC
+   * `list_sessions_for_client`. Same visibility rules as
+   * `listPracticeSessions`: practitioners see only their own publishes,
+   * owners see every session. Non-member → empty array.
+   *
+   * A new RPC rather than client-side filtering because the detail page
+   * has no business pulling every session in the practice to render one
+   * client's slice — better to let Postgres do the WHERE.
+   */
+  async listSessionsForClient(
+    clientId: string,
+  ): Promise<PracticeSession[]> {
+    const { data, error } = await this.supabase.rpc('list_sessions_for_client', {
+      p_client_id: clientId,
+    });
+    if (error || !data) return [];
+    const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
+    return rows.map(mapPracticeSessionRow);
+  }
+
+  /**
+   * Update a client's video treatment toggles. `line_drawing` is always
+   * true (the RPC rejects false; line drawings are the structural
+   * de-identification layer and can't be "withdrawn"). `grayscale` and
+   * `original` are the practitioner-facing toggles on `/clients/[id]`.
+   *
+   * Throws on RPC error so the caller can surface a toast. Returns void
+   * on success — callers that need the updated row should refetch via
+   * `getClientById`.
+   */
+  async setClientVideoConsent(
+    clientId: string,
+    grayscale: boolean,
+    original: boolean,
+  ): Promise<void> {
+    const { error } = await this.supabase.rpc('set_client_video_consent', {
+      p_client_id: clientId,
+      p_line_drawing: true,
+      p_grayscale: grayscale,
+      p_original: original,
+    });
+    if (error) throw new Error(error.message);
   }
 }
 
@@ -654,6 +774,46 @@ function isMissingRpc(err: { code?: string; message?: string }): boolean {
   if (err.code === 'PGRST202' || err.code === '42883') return true;
   const msg = err.message ?? '';
   return /function .* does not exist|could not find the function/i.test(msg);
+}
+
+/**
+ * Normalise the `video_consent` jsonb returned by Supabase into the typed
+ * `ClientVideoConsent` shape. Any coercion happens here — callers always
+ * receive a well-formed object with `line_drawing === true` (the RPC
+ * layer enforces that it can't be false). Unknown jsonb shapes fall back
+ * to the conservative default (line drawing only).
+ */
+function normaliseConsent(raw: unknown): ClientVideoConsent {
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    return {
+      line_drawing: true,
+      grayscale: Boolean(obj.grayscale),
+      original: Boolean(obj.original),
+    };
+  }
+  return { line_drawing: true, grayscale: false, original: false };
+}
+
+/**
+ * Shared row mapper between `list_practice_sessions` and
+ * `list_sessions_for_client` — the two RPCs return the same columns so
+ * there's no need to duplicate the string-coercion ritual.
+ */
+function mapPracticeSessionRow(r: Record<string, unknown>): PracticeSession {
+  return {
+    id: String(r.id ?? ''),
+    title: String(r.title ?? ''),
+    clientName: r.client_name ? String(r.client_name) : null,
+    trainerId: r.trainer_id ? String(r.trainer_id) : '',
+    trainerEmail: r.trainer_email ? String(r.trainer_email) : null,
+    version: Number(r.version ?? 0),
+    lastPublishedAt: r.last_published_at ? String(r.last_published_at) : null,
+    firstOpenedAt: r.first_opened_at ? String(r.first_opened_at) : null,
+    issuanceCount: Number(r.issuance_count ?? 0),
+    exerciseCount: Number(r.exercise_count ?? 0),
+    isOwnSession: Boolean(r.is_own_session),
+  };
 }
 
 /** Stable 6-char code derived from a uuid. Mock-only fallback. */
