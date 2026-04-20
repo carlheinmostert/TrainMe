@@ -3,26 +3,30 @@ import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi, PortalReferralApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
-import { NetworkShareCard } from '@/components/NetworkShareCard';
 import { NetworkEarningsCard } from '@/components/NetworkEarningsCard';
+import { ShareKit } from '@/components/ShareKit/ShareKit';
+import { referralUrl } from '@/lib/referral-share';
+import type { ShareKitSlots } from '@/lib/share-kit/templates';
 
 type SearchParams = { practice?: string };
 
 /**
- * `/network` — the practitioner's referral management surface.
+ * `/network` — the practitioner's share + rebate surface.
  *
- * R-12 lift: the share link + rebate stats previously lived only on
- * the dashboard, which meant navigating away from /dashboard lost
- * access to them. Promoted to a dedicated page so the dashboard tile
- * can become a summary-plus-click-through and the nav gets a durable
- * home for network features.
+ * Wave 6 Phase 1 (2026-04-20): the single `<NetworkShareCard/>` is
+ * retired in favour of `<ShareKit/>` — three pre-composed pitch
+ * templates (WhatsApp 1:1, WhatsApp broadcast, Email) with copy-to-
+ * clipboard + visual OG unfurl previews. Phase 2 adds wa.me / mailto:
+ * intents; Phase 3 adds the PNG share card + QR. See
+ * `docs/design/mockups/network-share-kit.html` for the spec.
  *
- * Voice: peer-to-peer. NEVER "referral rewards", "commission", "cash",
- * "payout", "downline". Labels below use "free credits", "rebate",
- * "your network".
+ * Voice: peer-to-peer (R-06 + voice.md). NEVER "referral rewards",
+ * "commission", "cash", "payout", "downline". Labels below use
+ * "free credits", "rebate", "your network".
  *
  * R-11 twin: the mobile app surfaces the same capabilities from
- * Settings → Network rebate / share code (shipped on feat/mobile-referral-share).
+ * Settings → Network rebate / share code (shipped on
+ * feat/mobile-referral-share).
  */
 export default async function NetworkPage({
   searchParams,
@@ -50,13 +54,51 @@ export default async function NetworkPage({
   }
   const isOwner = role === 'owner';
 
-  // Three parallel fetches — code (idempotent generate), stats, referees.
+  // Four parallel fetches — code (idempotent generate), stats,
+  // referees, practices (for the practice-name slot in the email
+  // signature).
   const referralApi = new PortalReferralApi(supabase);
-  const [referralCode, referralStats, referees] = await Promise.all([
-    referralApi.generateCode(practiceId),
-    referralApi.dashboardStats(practiceId),
-    referralApi.refereesList(practiceId),
-  ]);
+  const [referralCode, referralStats, referees, myPractices] =
+    await Promise.all([
+      referralApi.generateCode(practiceId),
+      referralApi.dashboardStats(practiceId),
+      referralApi.refereesList(practiceId),
+      api.listMyPractices(),
+    ]);
+
+  // Practice name — used in the email signature ("{fullName} /
+  // {practiceName}") and surfaces as the kicker on hero/debug rows.
+  // Falls back to "Your Practice" so the UI never shows a blank line.
+  const activePractice = myPractices.find((p) => p.id === practiceId);
+  const practiceName = activePractice?.name ?? 'Your Practice';
+
+  // Derive a display name for the practitioner. Supabase stores custom
+  // names under `user_metadata.full_name` (Google OAuth) or
+  // `user_metadata.name` (manual-set). If neither is present, fall
+  // back to the local-part of the email — gives us "carlhein" instead
+  // of a random UUID. Never shown as a UUID.
+  const metadata =
+    (user.user_metadata as Record<string, unknown> | undefined) ?? {};
+  const metadataFullName =
+    (typeof metadata.full_name === 'string' && metadata.full_name.trim()) ||
+    (typeof metadata.name === 'string' && metadata.name.trim()) ||
+    '';
+  const emailLocalPart = (user.email ?? '').split('@')[0] ?? '';
+  const fullName = metadataFullName || titleCase(emailLocalPart) || 'A friend';
+  const firstName = fullName.split(/\s+/)[0] || fullName;
+
+  // Build the share URL via the same helper used by the legacy card,
+  // so Phase 2 intent links keep a single source of truth.
+  const referralLink = referralCode
+    ? referralUrl(referralCode)
+    : 'https://manage.homefit.studio/r/loading';
+
+  const shareKitSlots: ShareKitSlots = {
+    firstName,
+    fullName,
+    practiceName,
+    referralLink,
+  };
 
   return (
     <main className="flex min-h-screen flex-col">
@@ -71,21 +113,101 @@ export default async function NetworkPage({
           </Link>
         </nav>
 
-        <h1 className="font-heading text-3xl font-bold">Your network</h1>
-        <p className="mt-2 max-w-2xl text-sm text-ink-muted">
-          Share your code with colleagues. They land with 8 free credits
-          instead of 3, and you earn a 5% lifetime rebate on every purchase
-          they ever make.
-        </p>
+        {/* Hero — title + lead + share-code chip. Mirrors the mockup
+            hero. The chip is read-only; regenerate / copy-link is on
+            the individual format cards. */}
+        <section className="mb-12 flex flex-col gap-6 border-b border-surface-border pb-8 sm:flex-row sm:items-end sm:justify-between sm:gap-8">
+          <div>
+            <h1 className="font-heading text-3xl font-extrabold tracking-tight">
+              Your share kit
+            </h1>
+            <p className="mt-2 max-w-[560px] text-sm text-ink-muted">
+              Pre-written pitches, ready to send. Every link carries your
+              share code, so colleagues land with 8 free credits and you
+              earn a lifetime rebate on theirs.
+            </p>
+          </div>
+          <CodeBadge code={referralCode} />
+        </section>
 
-        <div className="mt-8 grid gap-6 lg:grid-cols-2">
-          <NetworkShareCard
-            practiceId={practiceId}
-            initialCode={referralCode}
-          />
-          <NetworkEarningsCard stats={referralStats} referees={referees} />
+        {/* Primary Phase-1 surface — three copy-to-clipboard templates. */}
+        <ShareKit slots={shareKitSlots} />
+
+        {/* Earnings + referee list retained from the previous layout. */}
+        <div className="mt-16 border-t border-surface-border pt-10">
+          <h2 className="font-heading text-[22px] font-bold tracking-tight">
+            Your network
+          </h2>
+          <p className="mt-1 max-w-[640px] text-sm text-ink-muted">
+            Rebate ledger and colleagues who signed up through your code.
+          </p>
+          <div className="mt-5">
+            <NetworkEarningsCard
+              stats={referralStats}
+              referees={referees}
+            />
+          </div>
         </div>
       </div>
     </main>
   );
+}
+
+/**
+ * Hero chip — displays the practitioner's share code + its fully-
+ * qualified URL. Read-only; no clipboard affordance (the format cards
+ * below carry the copy actions). Empty state = a subtle "Generating…"
+ * label so the layout doesn't reflow once the RPC resolves.
+ */
+function CodeBadge({ code }: { code: string | null }) {
+  const url = code
+    ? referralUrl(code).replace(/^https?:\/\//, '')
+    : 'generating link…';
+
+  return (
+    <div className="flex flex-col items-start gap-2 sm:items-end">
+      <div className="font-mono text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
+        Your share code
+      </div>
+      <div className="inline-flex items-center gap-2.5 rounded-full border border-brand-tint-border bg-brand-tint-bg px-4 py-2.5 font-mono text-lg font-semibold tracking-widest text-brand-light">
+        <CodeGlyph />
+        {code ?? '·······'}
+      </div>
+      <div className="font-mono text-[11px] text-ink-muted">{url}</div>
+    </div>
+  );
+}
+
+function CodeGlyph() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9.5 2.5h2v2M4.5 11.5h-2v-2M11.5 4.5v7h-7v-7z" opacity="0.4" />
+      <path d="M2.5 6.5h3v3h-3zM8.5 2.5v3M2.5 2.5h3v1" />
+    </svg>
+  );
+}
+
+/**
+ * Very small title-case helper so we can turn `carlhein` into
+ * `Carlhein` when we have no full-name metadata. Intentional: we
+ * prefer the user-set metadata, but a bare email prefix looks
+ * weird left lowercase in the email signature.
+ */
+function titleCase(s: string): string {
+  if (!s) return '';
+  return s
+    .split(/[.\-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
