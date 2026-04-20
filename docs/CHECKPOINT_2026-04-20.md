@@ -94,7 +94,7 @@ From the MVP backlog + flagged items:
 
 1. **Publish-screen practice picker polish (D2)** — mobile. Today the practice context is implicit via the chip; a formal picker on the publish screen was in MVP plan but not explicitly done.
 2. **Three-treatment end-to-end validation** — vault secret is set, publish path uploads raw archive; need a real-device round-trip (capture → publish → open in portal /r/{code} preview → switch to B&W with consent granted).
-3. **Referral loop end-to-end** — create account via /r/{code}, make sandbox purchase, verify +10/+10 signup bonus + 5% lifetime rebate rows in `referral_rebate_ledger`.
+3. **Referral loop end-to-end** — create account via /r/{code}, make sandbox purchase, verify +3 signup_bonus + +5 referral_signup_bonus rows in `credit_ledger` and a 5% rebate (with 1-credit goodwill floor on first purchase) in `referral_rebate_ledger`. See `supabase/schema_milestone_m_credit_model.sql` for the current model.
 4. **POPIA privacy page + terms of service** — links from portal footer + sign-up gate. Legal copy pending.
 5. **PayFast production cutover** — blocked on Carl's real merchant account.
 6. **Dead-code sweep** — PR #10 flagged a list of unused elements; skipped during the MVP push. `_PrepFlashWrapper`, `_TimerRingPainter`, `_PulseMarkPainter`, etc.

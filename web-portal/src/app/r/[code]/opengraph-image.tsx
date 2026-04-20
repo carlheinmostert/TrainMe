@@ -27,9 +27,15 @@ const BORDER = '#2E3140';
 // component; @vercel/og can't import components so we re-emit the
 // shape inline here). Source of truth: web-player/app.js's
 // buildHomefitLogoSvg() and app/lib/widgets/homefit_logo.dart.
+// v2 matrix (signed off at docs/design/mockups/logo-ghost-outer.html):
+// 3 ghost pills taper in → 2×2 circuit in a coral band → sage rest →
+// 3 ghost pills mirrored. Matrix-only variant — the OG card renders
+// the "homefit.studio" text wordmark next to it.
 const SAGE = '#86EFAC';
-const RAIL = 'rgba(255, 107, 53, 0.7)';
 const BAND_TINT = 'rgba(255, 107, 53, 0.15)';
+const GHOST_OUTER = '#4B5563';
+const GHOST_MID = '#6B7280';
+const GHOST_INNER = '#9CA3AF';
 
 async function loadInviter(code: string): Promise<string> {
   try {
@@ -72,43 +78,28 @@ export default async function OgImage({
           }}
         >
           <svg
-            width="120"
-            height="41"
-            viewBox="0 0 33.5 11.5"
+            width="160"
+            height="32"
+            viewBox="0 0 48 9.5"
             xmlns="http://www.w3.org/2000/svg"
           >
-            {/* Rail entry stub */}
-            <path
-              d="M0 3.5 L4.5 3.5"
-              stroke={RAIL}
-              strokeWidth="0.7"
-              strokeLinecap="round"
-            />
-            {/* Coral-tint band behind circuit columns */}
-            <rect
-              x="4.5"
-              y="1.5"
-              width="12.5"
-              height="8.5"
-              rx="1.5"
-              fill={BAND_TINT}
-            />
-            {/* Circuit pills 2×2 */}
-            <rect x="5"    y="2"   width="5" height="3" rx="1" fill={BRAND} />
-            <rect x="5"    y="6.5" width="5" height="3" rx="1" fill={BRAND} />
-            <rect x="11.5" y="2"   width="5" height="3" rx="1" fill={BRAND} />
-            <rect x="11.5" y="6.5" width="5" height="3" rx="1" fill={BRAND} />
-            {/* Standalone */}
-            <rect x="18"   y="2"   width="5" height="3" rx="1" fill={BRAND} />
-            {/* Rest (sage) */}
-            <rect x="24.5" y="2"   width="5" height="3" rx="1" fill={SAGE} />
-            {/* Rail exit stub */}
-            <path
-              d="M29.5 8 L33.5 8"
-              stroke={RAIL}
-              strokeWidth="0.7"
-              strokeLinecap="round"
-            />
+            {/* Left ghost pills: outer→inner, progressively larger + lighter */}
+            <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill={GHOST_OUTER} />
+            <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill={GHOST_MID} />
+            <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill={GHOST_INNER} />
+            {/* Coral tint band behind circuit columns */}
+            <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill={BAND_TINT} />
+            {/* Circuit pills 2×2 — solid coral */}
+            <rect x="15"   y="2"    width="5" height="3" rx="1" fill={BRAND} />
+            <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill={BRAND} />
+            <rect x="21.5" y="2"    width="5" height="3" rx="1" fill={BRAND} />
+            <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill={BRAND} />
+            {/* Rest — sage */}
+            <rect x="28"   y="2"    width="5" height="3" rx="1" fill={SAGE} />
+            {/* Right ghost pills: inner→outer, mirror of left */}
+            <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill={GHOST_INNER} />
+            <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill={GHOST_MID} />
+            <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill={GHOST_OUTER} />
           </svg>
           <div
             style={{

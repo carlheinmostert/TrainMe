@@ -80,9 +80,9 @@ export function NetworkShareCard({ practiceId, initialCode }: Props) {
             Your network
           </h2>
           <p className="mt-1 text-sm text-ink-muted">
-            Share your link with colleagues. They get +10 starter credits when
-            they make their first purchase. You get a 5% lifetime rebate on
-            everything they spend, paid in free credits.
+            Share your link with colleagues. They land with 8 free credits
+            the moment they sign up (vs 3 on organic signup). You get a 5%
+            lifetime rebate on everything they spend, paid in free credits.
           </p>
         </div>
       </div>

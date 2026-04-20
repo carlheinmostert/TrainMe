@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — logo v2 (matrix + lockup)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap"
+    rel="stylesheet"
+  />
+  <!--
+    ======================================================================
+      logo-ghost-outer — signed-off canonical v2 logo system
+    ======================================================================
+      STATIC HTML ARTIFACT — signed off by Carl 2026-04-20. Every SVG
+      in this file is the authoritative geometry. Code comments in
+      HomefitLogo.tsx / homefit_logo.dart / buildHomefitLogoSvg() point
+      here. DO NOT tweak the matrix pills, band dimensions, or ghost
+      pill ramp without explicit Carl sign-off.
+
+      Two variants, one family:
+        - Matrix only (48×9.5) — default. Use next to a text wordmark
+          (header brand-marks, footers, favicons, app icons, tight chrome).
+        - Lockup (48×14)       — matrix + wordmark stacked. Use on hero
+          surfaces, sign-in, OG cards, emails, share PNGs.
+
+      The mark reads left→right as a slice of the progress-pill matrix:
+        3 ghost pills tapering in from the left (outer → inner, larger
+        and lighter) → 2-cycle circuit in a coral-tint band (2 ex × 2
+        cycles, solid coral) → sage rest → 3 ghost pills mirrored.
+
+      No heartbeat, no rooftop — the Pulse Mark v1 was retired here.
+    ======================================================================
+  -->
+  <style>
+    :root {
+      --brand: #FF6B35;
+      --sage: #86EFAC;
+      --ghost-outer: #4B5563;
+      --ghost-mid: #6B7280;
+      --ghost-inner: #9CA3AF;
+      --ink: #F0F0F5;
+      --ink-muted: #9CA3AF;
+      --ink-dim: #6B7280;
+      --surface: #0F1117;
+      --surface-raised: #1A1D27;
+      --surface-border: #2E3140;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 48px 24px 96px;
+      background: var(--surface);
+      color: var(--ink);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 920px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 800;
+      font-size: 32px;
+      letter-spacing: -0.5px;
+      margin: 0 0 8px;
+    }
+
+    .sub {
+      color: var(--ink-muted);
+      font-size: 14px;
+      margin: 0 0 40px;
+    }
+
+    h2 {
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.2px;
+      margin: 48px 0 12px;
+      color: var(--ink);
+    }
+
+    .caption {
+      color: var(--ink-dim);
+      font-size: 12px;
+      margin: 0 0 20px;
+    }
+
+    .stage {
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: 16px;
+      padding: 48px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+
+    .row > figure {
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .row figcaption {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      color: var(--ink-dim);
+      text-transform: uppercase;
+    }
+
+    .matrix-xl { width: 480px; height: auto; }
+    .matrix-lg { width: 300px; height: auto; }
+    .matrix-md { width: 180px; height: auto; }
+    .matrix-sm { width: 96px; height: auto; }
+    .matrix-xs { width: 48px; height: auto; }
+
+    .lockup-xl { width: 360px; height: auto; }
+    .lockup-lg { width: 240px; height: auto; }
+
+    .swatch-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .swatch {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 11px;
+      color: var(--ink-muted);
+    }
+
+    .swatch i {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    code {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 12px;
+      padding: 2px 6px;
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 4px;
+      color: var(--ink);
+    }
+
+    .note {
+      padding: 16px 20px;
+      background: rgba(255, 107, 53, 0.08);
+      border: 1px solid rgba(255, 107, 53, 0.25);
+      border-radius: 12px;
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.6;
+      margin-top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>homefit.studio — logo v2</h1>
+    <p class="sub">
+      Signed off 2026-04-20. Matrix-only + lockup share the same
+      11-element geometry. Source of truth for
+      <code>HomefitLogo.tsx</code>,
+      <code>homefit_logo.dart</code>, and
+      <code>buildHomefitLogoSvg()</code>.
+    </p>
+
+    <!-- Matrix only -->
+    <h2>Matrix only · <code>viewBox="0 0 48 9.5"</code></h2>
+    <p class="caption">
+      Default variant. Use in header brand-marks (paired with a text
+      wordmark), footers, favicons, app icons, tight chrome. Aspect
+      ratio 48:9.5 (~5.05:1).
+    </p>
+    <div class="stage">
+      <svg class="matrix-xl" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+        <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+        <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+        <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+        <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+        <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+        <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+        <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+      </svg>
+
+      <div class="row">
+        <figure>
+          <svg class="matrix-lg" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+            <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+            <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+            <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+            <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+            <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+            <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+            <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+          </svg>
+          <figcaption>300px · header</figcaption>
+        </figure>
+
+        <figure>
+          <svg class="matrix-md" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+            <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+            <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+            <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+            <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+            <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+            <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+            <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+          </svg>
+          <figcaption>180px · inline</figcaption>
+        </figure>
+
+        <figure>
+          <svg class="matrix-sm" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+            <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+            <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+            <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+            <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+            <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+            <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+            <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+          </svg>
+          <figcaption>96px · footer</figcaption>
+        </figure>
+
+        <figure>
+          <svg class="matrix-xs" viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+            <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+            <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+            <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+            <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+            <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+            <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+            <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+            <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+          </svg>
+          <figcaption>48px · favicon</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <!-- Lockup -->
+    <h2>Lockup · <code>viewBox="0 -2 48 16"</code></h2>
+    <p class="caption">
+      Hero variant. Wordmark row sits above the matrix, stretched via
+      <code>textLength="48"</code> so it aligns with the matrix width
+      at any render size. Matrix is identical geometry, translated +4.5
+      on Y. Use on sign-in screens, OG cards, email templates, printed
+      share cards.
+    </p>
+    <div class="stage">
+      <svg class="lockup-xl" viewBox="0 -2 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <text x="24" y="4.6" text-anchor="middle" textLength="48" lengthAdjust="spacingAndGlyphs"
+              font-family="Montserrat, sans-serif" font-weight="600" font-size="6.5"
+              fill="#F0F0F5" letter-spacing="-0.1">homefit.studio</text>
+        <rect x="0"    y="7.25" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+        <rect x="4"    y="6.95" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+        <rect x="9"    y="6.65" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+        <rect x="14.5" y="5.5"  width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+        <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="15"   y="11"   width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="21.5" y="11"   width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="28"   y="6.5"  width="5" height="3" rx="1" fill="#86EFAC"/>
+        <rect x="34.5" y="6.65" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+        <rect x="40.5" y="6.95" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+        <rect x="45.5" y="7.25" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+      </svg>
+
+      <svg class="lockup-lg" viewBox="0 -2 48 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <text x="24" y="4.6" text-anchor="middle" textLength="48" lengthAdjust="spacingAndGlyphs"
+              font-family="Montserrat, sans-serif" font-weight="600" font-size="6.5"
+              fill="#F0F0F5" letter-spacing="-0.1">homefit.studio</text>
+        <rect x="0"    y="7.25" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+        <rect x="4"    y="6.95" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+        <rect x="9"    y="6.65" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+        <rect x="14.5" y="5.5"  width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+        <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="15"   y="11"   width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="21.5" y="11"   width="5" height="3" rx="1" fill="#FF6B35"/>
+        <rect x="28"   y="6.5"  width="5" height="3" rx="1" fill="#86EFAC"/>
+        <rect x="34.5" y="6.65" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+        <rect x="40.5" y="6.95" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+        <rect x="45.5" y="7.25" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+      </svg>
+    </div>
+
+    <!-- Palette -->
+    <h2>Palette</h2>
+    <p class="caption">
+      The ghost pill ramp is the ink-disabled / ink-muted / ink-secondary
+      sequence from <code>docs/design/project/tokens.json</code>. Reusing
+      the ink ramp means the ghosts read as neutral context, not competing
+      accents.
+    </p>
+    <div class="swatch-row">
+      <div class="swatch"><i style="background:#FF6B35"></i>brand · #FF6B35</div>
+      <div class="swatch"><i style="background:rgba(255,107,53,0.15)"></i>band · #FF6B35 @ 15%</div>
+      <div class="swatch"><i style="background:#86EFAC"></i>rest · #86EFAC</div>
+      <div class="swatch"><i style="background:#9CA3AF"></i>ghost inner · #9CA3AF</div>
+      <div class="swatch"><i style="background:#6B7280"></i>ghost mid · #6B7280</div>
+      <div class="swatch"><i style="background:#4B5563"></i>ghost outer · #4B5563</div>
+    </div>
+
+    <div class="note">
+      The 11-element geometry is frozen. Changing the taper ramp, pill
+      dimensions, band size, or row positions requires explicit sign-off
+      — every code surface mirrors these numbers byte-for-byte.
+    </div>
+  </div>
+</body>
+</html>

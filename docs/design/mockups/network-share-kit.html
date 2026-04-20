@@ -136,9 +136,11 @@
     }
 
     .brand-mark svg {
-      width: 28px;
-      height: 28px;
-      color: var(--brand-default);
+      /* Matrix-only logo — v2 aspect ratio is 48:9.5 ≈ 5.05:1.
+         Size bumped from the old 78×27 slot to 78×15.5 so the new
+         geometry doesn't stretch. */
+      width: 78px;
+      height: 15.5px;
     }
 
     .brand-mark-name {
@@ -509,18 +511,19 @@
       pointer-events: none;
     }
 
+    /* OG preview brand-mark slot — matrix-only logo (48:9.5).
+       Bumped from 96×33 to 96×19 to match the new v2 aspect ratio. */
     .og-pulse {
       position: relative;
-      width: 40px;
-      height: 40px;
+      width: 96px;
+      height: 19px;
       flex-shrink: 0;
-      color: var(--brand-default);
     }
 
     .og-pulse svg {
       width: 100%;
       height: 100%;
-      filter: drop-shadow(0 0 8px rgba(255, 107, 53, 0.4));
+      filter: drop-shadow(0 0 8px rgba(255, 107, 53, 0.35));
     }
 
     .og-image-copy {
@@ -777,10 +780,12 @@
     }
 
     .png-card-top svg {
-      width: 32px;
-      height: 32px;
-      color: var(--brand-default);
-      filter: drop-shadow(0 0 12px rgba(255, 107, 53, 0.5));
+      /* HomefitLogo v2 matrix-only (48:9.5). Previously 32×32; bumped
+         to 120×24 so the new aspect ratio renders clean next to the
+         wordmark. */
+      width: 120px;
+      height: 24px;
+      filter: drop-shadow(0 0 12px rgba(255, 107, 53, 0.4));
     }
 
     .png-card-top .wordmark {
@@ -1088,10 +1093,25 @@
   <header class="brand-header">
     <div class="brand-header-inner">
       <a class="brand-mark" href="#">
-        <!-- Pulse Mark: heartbeat traces roof silhouette -->
-        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M3 18 L7 18 L9 14 L11 22 L13 10 L15 20 L17 18 L29 18" />
-          <path d="M5 18 L16 8 L27 18" opacity="0.35" />
+        <!-- HomefitLogo v2 — matrix-only (paired with text wordmark to the right). -->
+        <svg viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <!-- Left ghost pills: outer → inner, tapering larger + lighter -->
+          <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+          <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+          <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+          <!-- Coral tint band behind the 2×2 circuit -->
+          <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+          <!-- Circuit: 2 exercises × 2 cycles -->
+          <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+          <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+          <!-- Rest (sage) -->
+          <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+          <!-- Right ghost pills: mirror of left -->
+          <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+          <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+          <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
         </svg>
         <span class="brand-mark-name">homefit.studio</span>
       </a>
@@ -1121,7 +1141,7 @@
         <h1>Your share kit</h1>
         <p>
           Pre-written pitches and a branded card, ready to send.
-          Every link carries your share code, so colleagues get 10 free
+          Every link carries your share code, so colleagues land with 8 free
           credits and you earn a lifetime rebate on theirs.
         </p>
       </div>
@@ -1175,7 +1195,7 @@
                {Colleague} is highlighted as an auto-filled slot only
                when the practitioner has selected a specific contact;
                otherwise it's dropped for an unaddressed opener. -->
-          <div class="msg-body">Hey <span class="slot">{Colleague}</span>, tried homefit.studio for my home programmes — makes the plans visual and tracks whether the client is keeping up. If you sign up through this you get 10 free credits on me: <span class="link">session.homefit.studio/r/K3JT7QR</span></div>
+          <div class="msg-body">Hey <span class="slot">{Colleague}</span>, tried homefit.studio for my home programmes — makes the plans visual and tracks whether the client is keeping up. If you sign up through this you land with 8 free credits on me: <span class="link">session.homefit.studio/r/K3JT7QR</span></div>
 
           <div class="action-row">
             <button type="button" class="btn primary">
@@ -1192,14 +1212,25 @@
           <div class="og-preview">
             <div class="og-image">
               <div class="og-pulse">
-                <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M3 18 L7 18 L9 14 L11 22 L13 10 L15 20 L17 18 L29 18"/>
-                  <path d="M5 18 L16 8 L27 18" opacity="0.35"/>
+                <!-- HomefitLogo v2 — matrix-only, paired with copy block to the right -->
+                <svg viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+                  <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                  <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                  <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+                  <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+                  <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                  <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+                  <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                  <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+                  <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                  <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                  <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
                 </svg>
               </div>
               <div class="og-image-copy">
                 <div class="eyebrow">From Carl Mostert</div>
-                <p class="title">Your first 10 credits are on me.</p>
+                <p class="title">Your first 8 credits are on me.</p>
                 <p class="sub">homefit.studio — visual home-exercise programmes</p>
               </div>
             </div>
@@ -1242,9 +1273,20 @@
           <div class="og-preview">
             <div class="og-image">
               <div class="og-pulse">
-                <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M3 18 L7 18 L9 14 L11 22 L13 10 L15 20 L17 18 L29 18"/>
-                  <path d="M5 18 L16 8 L27 18" opacity="0.35"/>
+                <!-- HomefitLogo v2 — matrix-only -->
+                <svg viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+                  <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                  <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                  <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+                  <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+                  <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                  <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+                  <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+                  <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+                  <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+                  <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+                  <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
                 </svg>
               </div>
               <div class="og-image-copy">
@@ -1312,7 +1354,7 @@
 
             <p>The part that's made the biggest difference for me is that clients actually <em>see</em> what I'm asking them to do, instead of reading a list of names on paper. Adherence has genuinely improved. It also lets me check which plans have been opened, so I can tell who's keeping up before their next visit.</p>
 
-            <p>If you want to try it, you can sign up through my link and the first 10 credits are on me:</p>
+            <p>If you want to try it, you can sign up through my link and the first 8 credits are on me:</p>
 
             <p><span class="link">session.homefit.studio/r/K3JT7QR</span></p>
 
@@ -1365,9 +1407,20 @@
              generate this as a 1080×1350 PNG server-side. -->
         <div class="png-card" role="img" aria-label="homefit.studio share card for Carl Mostert, code K3JT7QR">
           <div class="png-card-top">
-            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M3 18 L7 18 L9 14 L11 22 L13 10 L15 20 L17 18 L29 18"/>
-              <path d="M5 18 L16 8 L27 18" opacity="0.35"/>
+            <!-- HomefitLogo v2 — matrix-only, paired with the wordmark span. -->
+            <svg viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect x="0"    y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+              <rect x="4"    y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+              <rect x="9"    y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+              <rect x="14.5" y="1"    width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+              <rect x="15"   y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+              <rect x="15"   y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+              <rect x="21.5" y="2"    width="5" height="3" rx="1" fill="#FF6B35"/>
+              <rect x="21.5" y="6.5"  width="5" height="3" rx="1" fill="#FF6B35"/>
+              <rect x="28"   y="2"    width="5" height="3" rx="1" fill="#86EFAC"/>
+              <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+              <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+              <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
             </svg>
             <span class="wordmark">homefit.studio</span>
           </div>

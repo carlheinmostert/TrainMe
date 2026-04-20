@@ -66,6 +66,25 @@ class _HomeScreenState extends State<HomeScreen> {
   /// empty state instead of the generic "No clients yet" card.
   bool _cacheEmptyAndOffline = false;
 
+  /// True when the most recent background sync hit an RPC-level error
+  /// while the device was ONLINE. Drives the inline "Couldn't refresh.
+  /// Tap to retry." banner above the clients list. Deliberately
+  /// distinct from [_cacheEmptyAndOffline] — offline is expected and
+  /// silent, online-RPC-failure is surprising and must be surfaced
+  /// (otherwise the cache looks empty and Carl thinks his data was
+  /// wiped).
+  bool _syncFailed = false;
+
+  /// Running count of consecutive retries against a failed sync. Resets
+  /// on success. Shown in parentheses on the banner after the first
+  /// failed retry so it's obvious the retries are landing (or not).
+  int _syncRetryCount = 0;
+
+  /// True while a retry from the banner is in flight — disables the
+  /// banner's tap gesture so double-taps don't queue two overlapping
+  /// pullAll calls.
+  bool _retrying = false;
+
   /// Epoch-ms timestamp of the most recent successful background
   /// pullAll. Drives the "Updated X min ago" hint.
   int? _lastSyncedMs;
@@ -163,9 +182,12 @@ class _HomeScreenState extends State<HomeScreen> {
   /// cache. Swallows errors — the UI keeps showing whatever we already
   /// had. Sets [_cacheEmptyAndOffline] if the pull finishes and we
   /// still have no clients AND we're offline, so the empty state can
-  /// say so plainly.
+  /// say so plainly. Sets [_syncFailed] if the pull hit an RPC error
+  /// while we had connectivity — that's the case where Carl's cache
+  /// WOULD have looked empty in the old code path, so we now surface
+  /// a banner + retry affordance.
   Future<void> _backgroundSync(String practiceId) async {
-    final ok = await SyncService.instance.pullAll(practiceId);
+    final outcome = await SyncService.instance.pullAll(practiceId);
     if (!mounted) return;
     final cached = await widget.storage.getCachedClientsForPractice(practiceId);
     final clients = cached.map((c) => c.toPracticeClient()).toList(growable: false);
@@ -173,15 +195,46 @@ class _HomeScreenState extends State<HomeScreen> {
     final sessions = await widget.storage.getSessionsForUser(userId);
     final stats = _computeStats(clients, sessions);
     if (!mounted) return;
+    final offlineNow = SyncService.instance.offline.value;
+    final syncFailed = outcome.hadError && !offlineNow;
     setState(() {
       _clients = clients;
       _stats = stats;
-      if (ok) {
+      if (outcome.anySucceeded) {
         _lastSyncedMs = DateTime.now().millisecondsSinceEpoch;
       }
-      _cacheEmptyAndOffline =
-          clients.isEmpty && SyncService.instance.offline.value;
+      _cacheEmptyAndOffline = clients.isEmpty && offlineNow;
+      _syncFailed = syncFailed;
+      if (!syncFailed) {
+        // A clean sync (even if offline) resets the retry counter so
+        // the next failure starts from "(Tap to retry.)" not
+        // "(5 tries.)".
+        _syncRetryCount = 0;
+      }
     });
+  }
+
+  /// Retry handler for the "Couldn't refresh" banner. Fires another
+  /// [SyncService.pullAll] for the current practice and updates the
+  /// banner state based on whether the retry landed.
+  Future<void> _retrySync() async {
+    if (_retrying) return;
+    final practiceId = AuthService.instance.currentPracticeId.value;
+    if (practiceId == null || practiceId.isEmpty) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _retrying = true;
+      _syncRetryCount += 1;
+    });
+    try {
+      await _backgroundSync(practiceId);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _retrying = false;
+        });
+      }
+    }
   }
 
   /// Bucket local sessions by client. Matches first by [Session.clientId]
@@ -347,6 +400,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
+            // Inline sync-failure banner. Only shown when we're online
+            // AND the most recent pullAll hit an RPC error. The clients
+            // list (if any) stays visible behind it, so Carl's mental
+            // model is preserved: "I have N clients cached, I see them,
+            // the banner tells me we can't reach the cloud right now,
+            // nothing is broken." We only suppress it when the list is
+            // empty — that case falls through to the bigger "Couldn't
+            // load your clients" empty state which carries the same
+            // retry affordance.
+            if (_syncFailed && !_loading && _clients.isNotEmpty)
+              _SyncFailedBanner(
+                retryCount: _syncRetryCount,
+                retrying: _retrying,
+                onTap: _retrying ? null : _retrySync,
+              ),
             const SizedBox(height: 8),
             ValueListenableBuilder<String?>(
               valueListenable: AuthService.instance.bootstrapError,
@@ -425,16 +493,32 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildEmptyState() {
-    // Distinguish "first-run, online — invite to add a client" from
-    // "offline with no cache yet — explain the state plainly". The
-    // offline path suppresses the coral CTA because creating a client
-    // locally is fine, but users coming from a fresh install with no
-    // cache have nothing to compare against.
+    // Three flavours of empty:
+    //   1. Online, sync worked, truly no clients → coral CTA.
+    //   2. Offline with an empty cache → "you're offline", no CTA.
+    //   3. Online but sync failed + empty cache → "couldn't load your
+    //      clients" with a retry button. This is the pathological case
+    //      that silently rendered "No clients yet" in the old code and
+    //      made it look like Carl's data was wiped.
     final offlineNoCache = _cacheEmptyAndOffline;
-    final title = offlineNoCache ? "You're offline" : 'No clients yet';
-    final body = offlineNoCache
-        ? "We'll fill in your clients the moment you reconnect."
-        : 'Add your first client to start capturing plans.';
+    final syncFailedEmpty = _syncFailed && !offlineNoCache;
+
+    final String title;
+    final String body;
+    final IconData icon;
+    if (syncFailedEmpty) {
+      title = "Couldn't load your clients";
+      body = 'Check your connection and try again.';
+      icon = Icons.cloud_sync_outlined;
+    } else if (offlineNoCache) {
+      title = "You're offline";
+      body = "We'll fill in your clients the moment you reconnect.";
+      icon = Icons.cloud_off_outlined;
+    } else {
+      title = 'No clients yet';
+      body = 'Add your first client to start capturing plans.';
+      icon = Icons.people_alt_outlined;
+    }
     return LayoutBuilder(
       builder: (context, c) => SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -447,9 +531,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 const SizedBox(height: 32),
                 Icon(
-                  offlineNoCache
-                      ? Icons.cloud_off_outlined
-                      : Icons.people_alt_outlined,
+                  icon,
                   size: 64,
                   color: AppColors.grey600,
                 ),
@@ -475,7 +557,42 @@ class _HomeScreenState extends State<HomeScreen> {
                     height: 1.4,
                   ),
                 ),
-                if (!offlineNoCache) ...[
+                if (syncFailedEmpty) ...[
+                  const SizedBox(height: 22),
+                  SizedBox(
+                    width: 260,
+                    child: FilledButton.icon(
+                      onPressed: _retrying ? null : _retrySync,
+                      icon: _retrying
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            )
+                          : const Icon(Icons.refresh_rounded),
+                      label: Text(_retrying ? 'Retrying…' : 'Try again'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(AppTheme.radiusMd),
+                        ),
+                        textStyle: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ] else if (!offlineNoCache) ...[
                   const SizedBox(height: 22),
                   SizedBox(
                     width: 260,
@@ -615,6 +732,99 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Inline "Couldn't refresh. Tap to retry." banner that renders
+/// between the practice chip and the clients list when the most recent
+/// background sync hit an RPC error while online. Deliberately subtle —
+/// dark surface with a thin coral accent on the left, matching the
+/// [OfflineSyncChip]'s muted aesthetic so it doesn't feel alarming.
+/// The cached clients are still visible underneath, so Carl can keep
+/// working while we figure out what the cloud is doing.
+class _SyncFailedBanner extends StatelessWidget {
+  final int retryCount;
+  final bool retrying;
+  final VoidCallback? onTap;
+
+  const _SyncFailedBanner({
+    required this.retryCount,
+    required this.retrying,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // retryCount==0: first failure, no count yet.
+    // retryCount==1+: we've already tried N times since the first fail.
+    final String message;
+    if (retrying) {
+      message = 'Retrying…';
+    } else if (retryCount <= 1) {
+      message = "Couldn't refresh. Tap to retry.";
+    } else {
+      message = "Couldn't refresh ($retryCount tries). Tap to retry.";
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceRaised,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.45),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: retrying
+                      ? const CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppColors.primary,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.cloud_sync_outlined,
+                          size: 16,
+                          color: AppColors.primary,
+                        ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textOnDark,
+                    ),
+                  ),
+                ),
+                if (!retrying)
+                  const Icon(
+                    Icons.refresh_rounded,
+                    size: 18,
+                    color: AppColors.textSecondaryOnDark,
+                  ),
+              ],
+            ),
           ),
         ),
       ),
