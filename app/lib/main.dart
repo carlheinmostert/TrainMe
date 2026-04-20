@@ -10,6 +10,7 @@ import 'services/local_storage_service.dart';
 import 'services/conversion_service.dart';
 import 'services/path_resolver.dart';
 import 'services/sync_service.dart';
+import 'services/unified_preview_scheme_bridge.dart';
 import 'screens/auth_gate.dart';
 
 /// TrainMe — Exercise plan capture and sharing for biokineticists.
@@ -59,6 +60,12 @@ void main() async {
     // notifier — nothing waits on the network.
     SyncService.configure(storage);
     unawaited(SyncService.instance.start());
+
+    // Wave 4 Phase 2 — install the method-call handler for the native
+    // `homefit-local://` scheme. The Swift handler will call into Dart
+    // as soon as the WebView starts resolving its bundle; the channel
+    // must be wired up BEFORE the first UnifiedPreviewScreen mounts.
+    UnifiedPreviewSchemeBridge.instance.install();
 
     runApp(TrainMeApp(storage: storage));
   } catch (e, stack) {

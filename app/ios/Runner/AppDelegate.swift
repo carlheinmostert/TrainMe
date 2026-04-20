@@ -198,6 +198,15 @@ import AVFoundation
     // treatment real audio tracks.
     unifiedPreviewAudio = UnifiedPreviewAudioChannel(messenger: messenger)
 
+    // Wave 4 Phase 2 — custom URL scheme handler. Installs a one-shot
+    // swizzle on `-[WKWebViewConfiguration init]` so every
+    // configuration created by `webview_flutter_wkwebview` picks up
+    // the `homefit-local://` handler before the WKWebView consumes
+    // the config. See UnifiedPlayerSchemeHandler.swift.
+    if #available(iOS 11.0, *) {
+      UnifiedPreviewSchemeRegistrar.register(messenger: messenger)
+    }
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }

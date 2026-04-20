@@ -12,6 +12,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart'
 import '../models/session.dart';
 import '../services/local_player_server.dart';
 import '../services/local_storage_service.dart';
+import '../services/unified_preview_scheme_bridge.dart';
 import '../theme.dart';
 
 /// Wave 4 Phase 2 — transport toggle.
@@ -101,6 +102,12 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
         );
         uri = LocalPlayerServer.instance.buildPlayerUrl();
       } else {
+        // Bind the Dart-side resolver so the Swift scheme handler can
+        // answer plan-JSON + media-path requests against this session.
+        UnifiedPreviewSchemeBridge.instance.bind(
+          session: widget.session,
+          storage: widget.storage,
+        );
         uri = Uri(
           scheme: 'homefit-local',
           host: 'plan',
@@ -208,6 +215,8 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
     // stays synchronous.
     if (kUseShelfFallback) {
       unawaited(LocalPlayerServer.instance.stop());
+    } else {
+      UnifiedPreviewSchemeBridge.instance.unbind();
     }
     super.dispose();
   }
