@@ -56,6 +56,11 @@ import AVFoundation
         // frame natively + crop tight around the person. See
         // VideoConverterChannel.pickMotionPeakTime for the heuristic.
         let autoPick = args["autoPick"] as? Bool ?? false
+        // Optional: when true, recolour the extracted frame to
+        // luminance (B&W) before JPEG encoding. Used by practitioner-
+        // facing list thumbnails where the grayscale frame is more
+        // legible at small sizes than the body-masked line-drawing look.
+        let grayscale = args["grayscale"] as? Bool ?? false
 
         let url = URL(fileURLWithPath: inputPath)
         let asset = AVURLAsset(url: url)
@@ -99,14 +104,28 @@ import AVFoundation
           // the body-only look of the line-drawing video pipeline. Any
           // failure falls through to the un-masked source image. With
           // autoPick we also crop tight around the person for readability
-          // at Studio-list / Camera-peek sizes.
+          // at Studio-list / Camera-peek sizes. When `grayscale` is true
+          // the two-zone blend is skipped and the whole frame is
+          // recoloured to luminance — practitioner-facing surfaces use
+          // this path so the client reads clearly at small sizes.
           var finalImage: CGImage = cgImage
           if #available(iOS 15.0, *) {
             if let masked = VideoConverterChannel.applySegmentationToThumbnail(
               cgImage: cgImage,
-              cropToPerson: autoPick
+              cropToPerson: autoPick,
+              grayscale: grayscale
             ) {
               finalImage = masked
+            } else if grayscale {
+              // Segmentation bailed (no person detected) but the caller
+              // still asked for B&W — honour the contract.
+              if let gray = VideoConverterChannel.grayscaleCGImage(cgImage) {
+                finalImage = gray
+              }
+            }
+          } else if grayscale {
+            if let gray = VideoConverterChannel.grayscaleCGImage(cgImage) {
+              finalImage = gray
             }
           }
           let uiImage = UIImage(cgImage: finalImage)
