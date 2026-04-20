@@ -1117,22 +1117,57 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // being missed on-device.
     return Padding(
       padding: const EdgeInsets.only(bottom: 24, top: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Listener(
-            behavior: HitTestBehavior.opaque,
-            onPointerUp: (_) => _onShutterReleased(),
-            onPointerCancel: (_) => _onShutterReleased(),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _isRecording ? null : _capturePhoto,
-              onLongPressDown: (_) => _onShutterPressDown(),
-              onLongPressStart: (_) => _startVideoRecording(),
-              onLongPressEnd: (_) => _onShutterReleased(),
-              onLongPressCancel: _onShutterReleased,
-              child: _buildShutterButton(),
+          // Unobtrusive hint that long-press records video. Carl's Q1
+          // polish note: first-time users see the shutter and assume
+          // it's tap-only (iOS camera convention); the long-press
+          // video gesture is discoverable but needs a nudge. Low
+          // opacity keeps it quiet; hidden while recording so it
+          // doesn't fight with the countdown overlay for attention.
+          AnimatedOpacity(
+            opacity: _isRecording ? 0.0 : 0.55,
+            duration: const Duration(milliseconds: 160),
+            child: const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                'Hold for video',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0.4,
+                  color: Colors.white,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black54,
+                      blurRadius: 4,
+                      offset: Offset(0, 1),
+                    ),
+                  ],
+                ),
+              ),
             ),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Listener(
+                behavior: HitTestBehavior.opaque,
+                onPointerUp: (_) => _onShutterReleased(),
+                onPointerCancel: (_) => _onShutterReleased(),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _isRecording ? null : _capturePhoto,
+                  onLongPressDown: (_) => _onShutterPressDown(),
+                  onLongPressStart: (_) => _startVideoRecording(),
+                  onLongPressEnd: (_) => _onShutterReleased(),
+                  onLongPressCancel: _onShutterReleased,
+                  child: _buildShutterButton(),
+                ),
+              ),
+            ],
           ),
         ],
       ),
