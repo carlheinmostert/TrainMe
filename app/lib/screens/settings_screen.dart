@@ -160,6 +160,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ],
                   ),
+                  // Faint build-SHA marker. Relocated from the Home
+                  // footer (Wave 3 #16) — Home is now a brand-forward
+                  // surface and doesn't carry the "powered by" footer
+                  // anymore. The marker lives here so we can still
+                  // confirm at a glance which commit is on device
+                  // after a rebuild. Same treatment as the old
+                  // PoweredByFooter SHA region: 35% opacity,
+                  // JetBrainsMono, ~10px, centred.
+                  const SizedBox(height: 24),
+                  Center(
+                    child: Opacity(
+                      opacity: 0.35,
+                      child: Text(
+                        AppConfig.buildSha,
+                        style: const TextStyle(
+                          fontFamily: 'JetBrainsMono',
+                          fontFamilyFallback: ['Menlo', 'Courier'],
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondaryOnDark,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                 ],
               ),
             ),
