@@ -28,6 +28,20 @@ class Session {
   /// modification times to detect unpublished changes.
   final DateTime? lastPublishedAt;
 
+  /// Timestamp of the most recent content edit (reps / sets / hold /
+  /// notes / name / custom duration / treatment / prep / muted / add /
+  /// delete / reorder / circuit change / session title).
+  ///
+  /// Pure-UI state (scroll position, expand/collapse) does NOT stamp this
+  /// — only mutations that would change what the client sees. Compared
+  /// against [sentAt] by the session-card indicator:
+  ///   - `isPublished && lastContentEditAt ≤ sentAt` → clean (sage ✓).
+  ///   - `isPublished && lastContentEditAt > sentAt`  → dirty (coral
+  ///     cloud-sync icon, tap re-publishes).
+  /// Legacy rows with a null timestamp are treated as clean (pre-feature
+  /// edits we have no record of).
+  final DateTime? lastContentEditAt;
+
   /// Last error message from a failed publish attempt (null when the most
   /// recent attempt succeeded, or no publish has been attempted yet).
   /// Column: `last_publish_error`. Set by upload_service.
@@ -92,6 +106,7 @@ class Session {
     this.planUrl,
     this.version = 0,
     this.lastPublishedAt,
+    this.lastContentEditAt,
     this.lastPublishError,
     this.publishAttemptCount = 0,
     this.circuitCycles = const {},
@@ -168,6 +183,10 @@ class Session {
       lastPublishedAt: map['last_published_at'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['last_published_at'] as int)
           : null,
+      lastContentEditAt: map['last_content_edit_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(
+              map['last_content_edit_at'] as int)
+          : null,
       lastPublishError: map['last_publish_error'] as String?,
       publishAttemptCount: (map['publish_attempt_count'] as int?) ?? 0,
       circuitCycles: cycles,
@@ -210,6 +229,7 @@ class Session {
       'plan_url': planUrl,
       'version': version,
       'last_published_at': lastPublishedAt?.millisecondsSinceEpoch,
+      'last_content_edit_at': lastContentEditAt?.millisecondsSinceEpoch,
       'last_publish_error': lastPublishError,
       'publish_attempt_count': publishAttemptCount,
       'circuit_cycles': circuitCycles.isEmpty
@@ -230,6 +250,7 @@ class Session {
     String? planUrl,
     int? version,
     DateTime? lastPublishedAt,
+    DateTime? lastContentEditAt,
     String? lastPublishError,
     bool clearLastPublishError = false,
     int? publishAttemptCount,
@@ -251,6 +272,7 @@ class Session {
       planUrl: planUrl ?? this.planUrl,
       version: version ?? this.version,
       lastPublishedAt: lastPublishedAt ?? this.lastPublishedAt,
+      lastContentEditAt: lastContentEditAt ?? this.lastContentEditAt,
       lastPublishError: clearLastPublishError
           ? null
           : (lastPublishError ?? this.lastPublishError),
@@ -287,6 +309,27 @@ class Session {
 
   /// Whether this plan has been published at least once.
   bool get isPublished => version > 0 && planUrl != null;
+
+  /// True when [isPublished] AND the most recent content edit is newer
+  /// than the last publish stamp ([sentAt]).
+  ///
+  /// Legacy rows with null [lastContentEditAt] are treated as clean — we
+  /// have no record of pre-feature edits, so defaulting to "dirty" would
+  /// make every historic session re-prompt the trainer on upgrade, which
+  /// is noisier than the eventual value of the indicator warrants.
+  ///
+  /// Pre-publish drafts return false — the card already renders the
+  /// coral "cloud_upload" glyph based on [isPublished] alone, so
+  /// dirty-vs-clean is only a distinction once a plan has been sent at
+  /// least once.
+  bool get hasUnpublishedContentChanges {
+    if (!isPublished) return false;
+    final edited = lastContentEditAt;
+    if (edited == null) return false;
+    final sent = sentAt;
+    if (sent == null) return true;
+    return edited.isAfter(sent);
+  }
 
   /// Whether all captures in this session have finished converting.
   bool get allConversionsComplete =>

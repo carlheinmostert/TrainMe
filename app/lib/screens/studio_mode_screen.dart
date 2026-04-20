@@ -124,6 +124,27 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     widget.onSessionChanged(next);
   }
 
+  /// Wraps [_pushSession] and stamps [Session.lastContentEditAt] to
+  /// `DateTime.now()` so the session-card indicator can flip from "sage
+  /// check" to "coral cloud-sync" when the plan drifts past its last
+  /// publish.
+  ///
+  /// Use this for every content mutation that would change what the
+  /// CLIENT sees on the published plan:
+  ///   reps, sets, hold, notes, name, custom duration, treatment,
+  ///   prep seconds, muted flag, session title, add / delete / reorder,
+  ///   circuit link / break / cycles.
+  ///
+  /// Do NOT use it for:
+  ///   - conversion progress updates (line-drawing pipeline progress is
+  ///     not a user edit),
+  ///   - [_refreshSession] / load-from-storage (that's restoring state,
+  ///     not mutating it),
+  ///   - pure-UI state (scroll, expand/collapse, `_expandedIndex`).
+  void _touchAndPush(Session next) {
+    _pushSession(next.copyWith(lastContentEditAt: DateTime.now()));
+  }
+
   Future<void> _refreshSession() async {
     final refreshed = await widget.storage.getSession(_session.id);
     if (refreshed != null && mounted) {
@@ -156,7 +177,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final currentDisplay = _displayTitle(_session);
     if (trimmed.isEmpty || trimmed == currentDisplay) return;
     setState(() {
-      _pushSession(_session.copyWith(title: trimmed));
+      _touchAndPush(_session.copyWith(title: trimmed));
     });
     unawaited(widget.storage.saveSession(_session).catchError((e, st) {
       debugPrint('saveSession failed: $e');
@@ -276,7 +297,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
     if (mounted) {
       setState(() {
-        _pushSession(_session.copyWith(exercises: exercises));
+        _touchAndPush(_session.copyWith(exercises: exercises));
       });
     }
     _conversionService.queueConversion(exercise);
@@ -311,7 +332,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       );
       exercises[dataIndex] = replaced;
       setState(() {
-        _pushSession(_session.copyWith(exercises: exercises));
+        _touchAndPush(_session.copyWith(exercises: exercises));
       });
       await widget.storage.saveExercise(replaced);
       _conversionService.queueConversion(replaced);
@@ -357,7 +378,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       exercises[i] = exercises[i].copyWith(position: i);
     }
     setState(() {
-      _pushSession(_session.copyWith(exercises: exercises));
+      _touchAndPush(_session.copyWith(exercises: exercises));
       if (_expandedIndex != null && _expandedIndex! >= insertIndex) {
         _expandedIndex = _expandedIndex! + 1;
       }
@@ -404,7 +425,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       exercises[i] = exercises[i].copyWith(position: i);
     }
     setState(() {
-      _pushSession(_session.copyWith(exercises: exercises));
+      _touchAndPush(_session.copyWith(exercises: exercises));
     });
     _saveExerciseOrder();
   }
@@ -423,7 +444,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     setState(() {
       final exercises = List<ExerciseCapture>.from(_session.exercises);
       exercises[index] = updated;
-      _pushSession(_session.copyWith(exercises: exercises));
+      _touchAndPush(_session.copyWith(exercises: exercises));
     });
     unawaited(widget.storage.saveExercise(updated).catchError((e, st) {
       debugPrint('saveExercise failed: $e');
@@ -438,7 +459,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       exercises[i] = exercises[i].copyWith(position: i);
     }
     setState(() {
-      _pushSession(_session.copyWith(exercises: exercises));
+      _touchAndPush(_session.copyWith(exercises: exercises));
       if (_expandedIndex == index) {
         _expandedIndex = null;
       } else if (_expandedIndex != null && _expandedIndex! > index) {
@@ -498,7 +519,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       _pushSession(_session.copyWith(circuitCycles: updatedCycles));
     }
     setState(() {
-      _pushSession(_session.copyWith(exercises: exercises));
+      _touchAndPush(_session.copyWith(exercises: exercises));
     });
     _saveAllExercises(exercises);
     unawaited(widget.storage.saveSession(_session).catchError((e, st) {
@@ -520,7 +541,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final updatedCycles = Map<String, int>.from(_session.circuitCycles);
     updatedCycles.remove(circuitId);
     setState(() {
-      _pushSession(_session.copyWith(
+      _touchAndPush(_session.copyWith(
         exercises: exercises,
         circuitCycles: updatedCycles,
       ));
@@ -534,7 +555,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       label: 'Circuit broken',
       onUndo: () async {
         setState(() {
-          _pushSession(_session.copyWith(
+          // Undoing is itself a content mutation — stamp so the dirty
+          // indicator settles against the restored state, not the
+          // pre-break state.
+          _touchAndPush(_session.copyWith(
             exercises: originalExercises,
             circuitCycles: originalCycles,
           ));
@@ -609,7 +633,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
 
     setState(() {
-      _pushSession(_session.copyWith(
+      _touchAndPush(_session.copyWith(
         exercises: exercises,
         circuitCycles: updatedCycles,
       ));
@@ -622,7 +646,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
   void _setCircuitCycles(String circuitId, int cycles) {
     setState(() {
-      _pushSession(_session.setCircuitCycles(circuitId, cycles));
+      _touchAndPush(_session.setCircuitCycles(circuitId, cycles));
     });
     unawaited(widget.storage.saveSession(_session).catchError((e, st) {
       debugPrint('saveSession failed: $e');
@@ -740,7 +764,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         }
       }
 
-      _pushSession(_session.copyWith(exercises: exercises));
+      _touchAndPush(_session.copyWith(exercises: exercises));
     });
     _saveExerciseOrder();
     HapticFeedback.selectionClick();
