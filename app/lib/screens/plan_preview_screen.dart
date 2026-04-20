@@ -13,6 +13,7 @@ import '../services/auth_service.dart';
 import '../theme.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/progress_pill_matrix.dart';
+import '../widgets/treatment_segmented_control.dart';
 
 /// Returns true when a video exercise's converted output is a still image
 /// (i.e. the fallback frame-extraction path produced a .jpg/.png instead
@@ -880,7 +881,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
               const SizedBox(height: 6),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _TreatmentSegmentedControl(
+                child: TreatmentSegmentedControl(
                   active: _treatment,
                   grayscaleAvailable: _isTreatmentAvailable(Treatment.grayscale),
                   originalAvailable: _isTreatmentAvailable(Treatment.original),
@@ -1609,7 +1610,7 @@ class _ExercisePageState extends State<_ExercisePage> {
     );
     if (widget.treatment == Treatment.grayscale) {
       videoView = ColorFiltered(
-        colorFilter: _grayscaleColorFilter,
+        colorFilter: grayscaleColorFilter,
         child: videoView,
       );
     }
@@ -1989,138 +1990,7 @@ class _TimerRingPainter extends CustomPainter {
 }
 
 // =============================================================================
-// Treatment segmented control (line / B&W / original)
+// Treatment segmented control extracted to widgets/treatment_segmented_control.dart
+// so the studio fullscreen MediaViewer can reuse it. The grayscale ColorFilter
+// (`grayscaleColorFilter`) lives there too.
 // =============================================================================
-
-/// Saturation-zero colour matrix used to render the grayscale treatment
-/// from the original colour file. Luminance weights follow the ITU-R
-/// BT.709 recipe (matches the task brief).
-const ColorFilter _grayscaleColorFilter = ColorFilter.matrix(<double>[
-  0.2126, 0.7152, 0.0722, 0, 0,
-  0.2126, 0.7152, 0.0722, 0, 0,
-  0.2126, 0.7152, 0.0722, 0, 0,
-  0,      0,      0,      1, 0,
-]);
-
-/// Three-segment control sitting under the top bar — coral-accented
-/// selected segment, muted unselected. Disabled segments carry a small
-/// lock glyph and tap into a tooltip that routes to the Your-clients
-/// screen (R-09: the lock tells you why, the tap takes you to the fix).
-///
-/// Copy omits "consent" / "legal" deliberately — see voice.md.
-class _TreatmentSegmentedControl extends StatelessWidget {
-  final Treatment active;
-  final bool grayscaleAvailable;
-  final bool originalAvailable;
-  final ValueChanged<Treatment> onChanged;
-  final VoidCallback onLockTap;
-
-  const _TreatmentSegmentedControl({
-    required this.active,
-    required this.grayscaleAvailable,
-    required this.originalAvailable,
-    required this.onChanged,
-    required this.onLockTap,
-  });
-
-  bool _available(Treatment t) {
-    switch (t) {
-      case Treatment.line:
-        return true;
-      case Treatment.grayscale:
-        return grayscaleAvailable;
-      case Treatment.original:
-        return originalAvailable;
-    }
-  }
-
-  String _lockedMessage(Treatment t) {
-    switch (t) {
-      case Treatment.grayscale:
-        return "Client hasn't said yes to grayscale yet — tap to manage.";
-      case Treatment.original:
-        return "Client hasn't said yes to colour yet — tap to manage.";
-      case Treatment.line:
-        return '';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 34,
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(9999),
-        border: Border.all(color: AppColors.surfaceBorder),
-      ),
-      child: Row(
-        children: [
-          _segment(context, Treatment.line),
-          _segment(context, Treatment.grayscale),
-          _segment(context, Treatment.original),
-        ],
-      ),
-    );
-  }
-
-  Widget _segment(BuildContext context, Treatment t) {
-    final selected = active == t;
-    final available = _available(t);
-    return Expanded(
-      child: Tooltip(
-        message: available ? '' : _lockedMessage(t),
-        triggerMode: TooltipTriggerMode.tap,
-        child: GestureDetector(
-          onTap: () {
-            if (available) {
-              onChanged(t);
-            } else {
-              onLockTap();
-            }
-          },
-          behavior: HitTestBehavior.opaque,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            curve: Curves.easeOut,
-            margin: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              color: selected ? AppColors.primary : Colors.transparent,
-              borderRadius: BorderRadius.circular(9999),
-            ),
-            alignment: Alignment.center,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (!available)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: Icon(
-                      Icons.lock_outline,
-                      size: 12,
-                      color: AppColors.textSecondaryOnDark.withValues(alpha: 0.7),
-                    ),
-                  ),
-                Text(
-                  t.shortLabel,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.2,
-                    color: selected
-                        ? Colors.white
-                        : (available
-                            ? AppColors.textOnDark
-                            : AppColors.textSecondaryOnDark
-                                .withValues(alpha: 0.6)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

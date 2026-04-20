@@ -41,6 +41,19 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
 
 4. **Large-plan publish path** — circuits + videos + rests combo, verify the raw-archive cloud upload (step 7.5 in `upload_service.dart`) doesn't regress primary publish on failure.
 
+5. **Studio MediaViewer — treatment cycling + inline consent** (branch `feat/studio-mediaviewer-treatments`):
+   - Long-press a Studio thumbnail → "Open full-screen"
+   - Verify top-left segmented control renders: Line · B&W · Original
+   - Swipe up — cycles Line → B&W → Original → Line with a 220ms crossfade, per-step haptic
+   - Swipe down — reverse cycle
+   - Tap a segment directly — jumps, same crossfade
+   - Active treatment != Line AND client exists → consent chip shows below control ("✓ {Name} can see this" or "Tap to allow")
+   - Tap chip → flips state immediately (R-01 no-modal), SyncService queues the write
+   - On a pre-archive capture (old session) → B&W + Original segments are greyed out with a lock glyph and tooltip "Older capture — re-record to enable."
+   - Horizontal swipe between exercises — page changes, treatment resets to Line (intended)
+   - Tap video — play/pause still works
+   - Close button returns to Studio
+
 ### Things to actively watch for
 - **iOS 26.4 SDK gap** — any sub-agent build will fail in their sandbox on this; only Carl's main machine has the SDK installed. Not a code issue.
 - **`sessions.client_id` backfill** — runs on every Home load; should be a no-op after first run per practice.
