@@ -589,13 +589,23 @@ class VideoConverterChannel {
         // Drain the audio track after all video frames are written. Audio
         // samples are small and fast to copy, so a simple serial loop is fine.
         // (Same busy-wait caveat applies — pending requestMediaDataWhenReady refactor.)
+        //
+        // `audioSamplesWritten` is logged after `finishWriting` so a future
+        // debugger can tell at a glance whether audio made it into the output.
+        // Zero here means either the source had no audio track, the gate was
+        // disabled from Dart (`includeAudio: false`), or the reader failed
+        // to produce samples. Non-zero means audio was appended — if playback
+        // is still silent, the bug has moved downstream (player, codec mux).
+        var audioSamplesWritten = 0
         if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
             while let audioSample = audioOutput.copyNextSampleBuffer() {
                 autoreleasepool {
                     while !audioInput.isReadyForMoreMediaData {
                         Thread.sleep(forTimeInterval: 0.01)
                     }
-                    audioInput.append(audioSample)
+                    if audioInput.append(audioSample) {
+                        audioSamplesWritten += 1
+                    }
                 }
             }
             audioInput.markAsFinished()
@@ -624,11 +634,28 @@ class VideoConverterChannel {
 
         reader.cancelReading()
 
+        // Surface audio + error state in the device log so we can verify
+        // on the next capture whether audio samples actually made it into
+        // the output. A silent Line-treatment playback with
+        // `audioSamplesWritten > 0` here means the issue is downstream
+        // (player volume, mux, or decoder); zero means it's upstream
+        // (gate disabled, reader failed, or source had no audio track).
+        NSLog(
+            "[VideoConverter] convert done — frames=\(framesProcessed) " +
+            "audioIncluded=\(includeAudio) audioInputAttached=\(audioWriterInput != nil) " +
+            "audioSamplesWritten=\(audioSamplesWritten) " +
+            "writerStatus=\(writer.status.rawValue) " +
+            "writerError=\(writer.error?.localizedDescription ?? "nil") " +
+            "readerStatus=\(reader.status.rawValue) " +
+            "readerError=\(reader.error?.localizedDescription ?? "nil")"
+        )
+
         if writer.status == .completed {
             DispatchQueue.main.async {
                 result([
                     "success": true,
                     "framesProcessed": framesProcessed,
+                    "audioSamplesWritten": audioSamplesWritten,
                     "outputPath": outputPath,
                 ])
                 endBackgroundTask()

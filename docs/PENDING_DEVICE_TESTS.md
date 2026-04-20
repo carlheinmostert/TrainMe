@@ -151,3 +151,14 @@ Pre-2026-04-20 pending items that are now all complete. Kept here for reference 
     - Portal `/clients/[id]` → Delete button in the header → click → navigates to `/clients` + the list page surfaces the Undo toast via sessionStorage handshake
     - Confirm in DB after a delete: `SELECT deleted_at FROM clients WHERE id=...` is non-null, `SELECT id, deleted_at FROM plans WHERE client_id=...` mirrors the same timestamp
     - Confirm after Undo: both `deleted_at` back to null on the client AND the cascaded plans
+
+13. **Line-drawing audio — actually restored** (branch `fix/line-drawing-audio-actually`):
+    - PR #29 fixed the Swift `sourceFormatHint` path correctly, but the Dart pipeline was collapsing `includeAudio` to `false` for every fresh capture: `ExerciseCapture.includeAudio` defaults to `false` in the model (intentional — the flag is a SHARE-time concern per its docstring + the "Include audio on share" Studio toggle label), and `conversion_service.dart` was threading that default through to the native converter. Result: the Swift gate skipped the audio track setup entirely, the output mp4 was video-only, and Line treatment played silent — even on a brand-new capture. This follow-up unconditionally passes `includeAudio: true` into the converter (the model flag stays a playback/share concern — `plan_preview_screen.dart:425` already uses it to set player volume; web player uses it for the `muted` attribute).
+    - Capture a new video exercise with voice-over after installing this build.
+    - Wait for conversion to complete (Studio card leaves the spinner).
+    - Xcode device log or `xcrun devicectl device process console --device 00008150-001A31D40E88401C` should show a line: `[VideoConverter] convert done — frames=… audioIncluded=true audioInputAttached=true audioSamplesWritten=N …` where N > 0. If `audioSamplesWritten=0`, the bug has moved — not fixed.
+    - Open plan preview → Line treatment → audio plays.
+    - Cross-check B&W / Original tabs — should sound identical (they already worked; pulled from raw archive).
+    - Optional `ffprobe` round-trip: pull the converted file off the device via Xcode → `ffprobe -v error -show_streams <file>` → expect both a `codec_type=video` AND a `codec_type=audio` stream.
+    - Toggle per-exercise mic icon OFF in Studio → preview the same exercise → video plays **muted** via the player's volume=0 (audio is still in the file; we no longer gate at convert time — acceptable regression for the simpler model. The ffprobe output will still show an audio stream).
+    - Regression: pre-existing captures converted before this build remain silent. Expected — old files on disk aren't retroactively re-muxed.
