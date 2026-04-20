@@ -197,7 +197,20 @@
         <a>
           <div class="row">
             <div>
-              <div class="name">Wave 4 — Sticky per-client defaults</div>
+              <div class="name">Wave 4 — Unified player (Flutter + Web share one codebase)</div>
+              <div class="scope">Pre-MVP. Host the web player inside a WKWebView on iOS with local file resolution via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">WKURLSchemeHandler</code> (or local Dart HTTP server prototype first). Retires R-10 parity as a rule — same code for mobile preview + web player = no more drift. Native bits (Taptic haptics, iOS audio session) stay in Dart and bridge via message channel. 1–2 focused weeks. Spec: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">docs/BACKLOG.md</code>.</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip planned">Next</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li class="planned">
+        <a>
+          <div class="row">
+            <div>
+              <div class="name">Wave 5 — Sticky per-client defaults</div>
               <div class="scope">JSONB <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">client_exercise_defaults</code> on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">clients</code> + SQLite mirror. Propagates 7 fields forward-only on every edit: reps · sets · hold · muted · preferred treatment · prep seconds · custom duration. Invisible UX — practitioner just sees pre-filled values on the next new exercise. Also: landscape capture + "long-press to record video" hint.</div>
             </div>
             <div style="text-align: right;">
@@ -210,8 +223,21 @@
         <a>
           <div class="row">
             <div>
-              <div class="name">Wave 5 — Network share-kit</div>
+              <div class="name">Wave 6 — Network share-kit</div>
               <div class="scope">Practitioner shares homefit.studio on the company's behalf: WhatsApp 1:1, WhatsApp broadcast, email with subject/body/signature, plus a PNG share-card with QR. Phased: copy-to-clipboard → <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">wa.me</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">mailto:</code> intents → PNG + QR. Spec: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">docs/design/mockups/network-share-kit.html</code> (1540 lines, merged in PR #27).</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip planned">Planned</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li class="planned">
+        <a>
+          <div class="row">
+            <div>
+              <div class="name">Wave 7 — Silent-failure observability</div>
+              <div class="scope">Architectural. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">error_logs</code> table + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">_loudSwallow</code> helper + pre-commit lint banning bare catch blocks + boot-time Diagnostics screen with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">signed_url_self_check()</code> probe + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">publish_health</code> SQL view with daily WhatsApp ping via the CallMeBot skill. Would have caught the 2026-04-20 raw-archive / vault / client_id bleeders on first launch. Design: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">docs/design-reviews/silent-failures-2026-04-20.md</code>.</div>
             </div>
             <div style="text-align: right;">
               <span class="chip planned">Planned</span>
