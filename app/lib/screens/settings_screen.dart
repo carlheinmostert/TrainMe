@@ -829,8 +829,10 @@ class _DiagRow extends StatelessWidget {
 //
 // Voice constraint (per docs/design/project/voice.md):
 //   - peer-to-peer ONLY. Never "earn rewards / commission / cash / payout
-//     / downline". Positioning: "grow your practitioner network → grow
-//     your free publishing capacity".
+//     / downline". Positioning: "grow your practitioner network → earn
+//     free credits on their spend". Bought credits + free credits are
+//     the SAME unit — one currency called "credits", so practitioners
+//     connect what they buy with what they get for free.
 //   - Stats are credits-as-publishes, not ZAR. Qualifying spend shown in
 //     ZAR because that's what the network actually transacted, and
 //     surfacing it is load-bearing context for "my network is real".
@@ -942,7 +944,7 @@ class _NetworkSectionState extends State<_NetworkSection> {
               const SizedBox(height: 6),
               const Text(
                 'Invite a colleague — both of you get +10 credits when '
-                'they make their first purchase. Plus 5% in free publishes '
+                'they make their first purchase. Plus 5% in free credits '
                 'for every plan they ever publish, forever.',
                 style: TextStyle(
                   fontFamily: 'Inter',

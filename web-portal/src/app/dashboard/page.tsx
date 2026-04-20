@@ -150,6 +150,13 @@ export default async function DashboardPage({
           <PracticeSwitcher practices={practices} selectedId={selected.id} />
         </div>
 
+        {/*
+          Tile order is load-bearing. Network MUST sit next to Credits so
+          the two forms of the same currency (bought credits + free
+          credits earned from the network) are scannable together. This
+          reinforces the single-currency mental model: you BUY credits,
+          you EARN free credits on your network's spend.
+        */}
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <DashboardTile
             href={`/credits${qs}`}
@@ -160,17 +167,17 @@ export default async function DashboardPage({
           />
 
           <DashboardTile
-            href={`/clients${qs}`}
-            label="Clients"
-            headline={clientsHeadline}
-            subtitle={clientsSubtitle}
-          />
-
-          <DashboardTile
             href={`/network${qs}`}
             label="Network"
             headline={networkHeadline}
             subtitle={networkSubtitle}
+          />
+
+          <DashboardTile
+            href={`/clients${qs}`}
+            label="Clients"
+            headline={clientsHeadline}
+            subtitle={clientsSubtitle}
           />
 
           <DashboardTile

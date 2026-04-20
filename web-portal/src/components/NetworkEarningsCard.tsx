@@ -12,8 +12,9 @@ type Props = {
 //
 // Voice constraint: peer-to-peer. NEVER "earn rewards", "commission",
 // "cash", "payout". Labels below use the user-friendly framing:
-//   - "Free publishes available" (not "credits earned")
-//   - "Free publishes banked" (not "lifetime earned")
+//   - "Free credits available" (bought credits + free credits share the
+//     same mental model — one currency called "credits")
+//   - "Free credits banked" (lifetime total earned via the network)
 //   - "Practitioners in your network" (not "referrals", not "downline")
 //   - "Their PayFast spend" (neutral, observational)
 //
@@ -39,12 +40,12 @@ export function NetworkEarningsCard({ stats, referees }: Props) {
 
       <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile
-          label="Free publishes available"
+          label="Free credits available"
           value={fmtCredits(stats.rebate_balance_credits)}
           emphasis
         />
         <StatTile
-          label="Free publishes banked"
+          label="Free credits banked"
           value={fmtCredits(stats.lifetime_rebate_credits)}
         />
         <StatTile
