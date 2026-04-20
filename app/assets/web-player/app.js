@@ -10,6 +10,82 @@
  */
 
 // ============================================================
+// Native bridge (Wave 4 Phase 2)
+// ============================================================
+//
+// When the bundle is loaded inside the Flutter-embedded WebView, the Dart
+// side injects a `JavaScriptChannel` named `HomefitBridge` that accepts
+// JSON-encoded messages. `window.homefitBridge` below is a thin facade
+// over that channel — it lets the rest of app.js request native
+// capabilities (haptic feedback, iOS audio-session category) without
+// caring whether it's running in the trainer app or at
+// session.homefit.studio.
+//
+// The facade is a NO-OP when the channel is absent — the production web
+// player path never sees `HomefitBridge`, so every call below silently
+// becomes a tree-shaken-in-spirit pass-through. Do NOT rely on a return
+// value; these are fire-and-forget signals.
+//
+// Haptic kinds recognised by the Dart dispatcher:
+//   'selection'      — HapticFeedback.selectionClick  (1-per-second prep tick)
+//   'mediumImpact'   — HapticFeedback.mediumImpact    (prep→run transition)
+//   'heavyImpact'    — HapticFeedback.heavyImpact     (reserved; slide jump)
+//
+// `setAudioPlayback(active)` flips the iOS AVAudioSession category to
+// `.playback` so the Silent-mode switch doesn't mute the preview. The
+// trainer hits this switch often mid-session and the existing native
+// preview respects it — the WebView needs an explicit override to match.
+(function installHomefitBridge() {
+  function postBridge(payload) {
+    try {
+      const ch = window.HomefitBridge;
+      if (!ch || typeof ch.postMessage !== 'function') return;
+      ch.postMessage(JSON.stringify(payload));
+    } catch (err) {
+      // Swallow — the bridge is best-effort. Logging here would spam the
+      // production web player (no bridge present) and the embedded one
+      // (where the channel exists but the OS might reject a call).
+    }
+  }
+
+  const bridge = {
+    requestHaptic: function (kind) {
+      if (typeof kind !== 'string' || !kind) return;
+      postBridge({ type: 'haptic', kind: kind });
+    },
+    setAudioPlayback: function (active) {
+      postBridge({ type: 'audio', active: !!active });
+    },
+  };
+
+  window.homefitBridge = bridge;
+  window.isHomefitEmbedded = function () {
+    try {
+      return !!(window.HomefitBridge && typeof window.HomefitBridge.postMessage === 'function');
+    } catch (_) {
+      return false;
+    }
+  };
+
+  // Delegated `video.play` listener — the first time any <video> element
+  // kicks off playback, flip the audio session to `.playback` so the
+  // Silent switch stops muting the preview. `capture: true` lets us
+  // observe the event at the document level before the video's own
+  // handlers fire. One-shot — after the first success we remove the
+  // listener so the bridge isn't spammed on every slide change.
+  let audioActivated = false;
+  function onFirstVideoPlay(evt) {
+    if (audioActivated) return;
+    const tgt = evt && evt.target;
+    if (!tgt || tgt.tagName !== 'VIDEO') return;
+    audioActivated = true;
+    bridge.setAudioPlayback(true);
+    document.removeEventListener('play', onFirstVideoPlay, true);
+  }
+  document.addEventListener('play', onFirstVideoPlay, true);
+})();
+
+// ============================================================
 // State
 // ============================================================
 
@@ -1466,6 +1542,10 @@ function onPrepTick() {
   if (!isPrepPhase) return;
   prepRemainingSeconds--;
 
+  // Wave 4 Phase 2 — haptic tick every prep second when embedded in the
+  // Flutter WebView. No-op on the public web player (bridge absent).
+  if (window.homefitBridge) window.homefitBridge.requestHaptic('selection');
+
   if (prepRemainingSeconds <= 0) {
     finishPrepPhase();
     return;
@@ -1480,6 +1560,10 @@ function finishPrepPhase() {
   clearPrepTimer();
   // Hide the prep overlay, drop the flash.
   updatePrepOverlay();
+  // Wave 4 Phase 2 — medium haptic on the prep→run transition so the
+  // trainer feels the handoff without looking at the screen. No-op on
+  // the public web player.
+  if (window.homefitBridge) window.homefitBridge.requestHaptic('mediumImpact');
   startTimer();
 }
 
