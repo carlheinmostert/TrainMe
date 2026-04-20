@@ -77,7 +77,7 @@ export default async function ClientDetailPage({
 
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut practiceId={practiceId} />
+      <BrandHeader showSignOut practiceId={practiceId} isOwner={isOwner} />
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link
