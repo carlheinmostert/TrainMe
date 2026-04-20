@@ -1,9 +1,11 @@
 'use client';
 
 import { CopyButton } from './CopyButton';
+import { OpenInAppButton, SendGlyph } from './OpenInAppButton';
 import {
   buildEmailBody,
   buildEmailFullCopy,
+  buildEmailMailtoUrl,
   buildEmailSubject,
   type ShareKitSlots,
 } from '@/lib/share-kit/templates';
@@ -14,10 +16,11 @@ import {
  *
  * Visually mirrors the mockup's `.email-block`: a two-column grid of
  * `To / Subject / Body` labels + values, followed by an action row.
- * Phase 1 ships one action — "Copy full email" — that drops a
+ * Phase 1 shipped "Copy full email" — dropping a
  * `Subject: ...\n\n...body...` block onto the clipboard. Phase 2 adds
- * the "Open in mail client" button that fires a real mailto: intent
- * with subject + body pre-filled.
+ * the "Open in mail client" button that fires a real `mailto:` intent
+ * with subject + body pre-filled (no recipient — the practitioner
+ * picks the contact on-device).
  *
  * `{Colleague}` / `{Colleague email}` slots are preserved literally in
  * both the display and clipboard output so the practitioner can
@@ -118,6 +121,12 @@ export function EmailCard({ slots }: { slots: ShareKitSlots }) {
           label="Copy full email"
           copiedLabel="Copied!"
           ariaLabel="Copy full email (subject + body)"
+        />
+        <OpenInAppButton
+          getHref={() => buildEmailMailtoUrl(slots)}
+          label="Open in mail client"
+          ariaLabel="Open mail client with subject and body pre-filled"
+          glyph={<SendGlyph />}
         />
         <span className="font-mono text-[11px] uppercase tracking-wider text-ink-dim">
           Includes subject + body + signature

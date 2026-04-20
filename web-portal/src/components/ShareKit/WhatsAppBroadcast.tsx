@@ -3,7 +3,12 @@
 import { CopyButton } from './CopyButton';
 import { OgPreview } from './OgPreview';
 import {
+  OpenInAppButton,
+  WhatsAppOutboundGlyph,
+} from './OpenInAppButton';
+import {
   buildWhatsAppBroadcast,
+  buildWhatsAppBroadcastUrl,
   type ShareKitSlots,
 } from '@/lib/share-kit/templates';
 
@@ -15,6 +20,11 @@ import {
  * Visually mirrors the one-to-one card so the /network grid reads as
  * a set. The OG unfurl preview is shared with the one-to-one variant
  * but with a different kicker/title pair.
+ *
+ * **Phase 2 addition** — a secondary "Open in WhatsApp" CTA sits
+ * beside the copy button. It fires `wa.me/?text=…` with the broadcast
+ * body pre-filled; the practitioner picks the destination (status
+ * caption / broadcast list / group) on-device.
  */
 export function WhatsAppBroadcast({ slots }: { slots: ShareKitSlots }) {
   const rendered = buildWhatsAppBroadcast(slots);
@@ -49,6 +59,14 @@ export function WhatsAppBroadcast({ slots }: { slots: ShareKitSlots }) {
           label="Copy message"
           copiedLabel="Copied!"
           ariaLabel="Copy WhatsApp broadcast message"
+        />
+        <OpenInAppButton
+          getHref={() => buildWhatsAppBroadcastUrl(slots)}
+          label="Open in WhatsApp"
+          ariaLabel="Open WhatsApp with this message pre-filled"
+          glyph={<WhatsAppOutboundGlyph />}
+          target="_blank"
+          rel="noopener noreferrer"
         />
       </div>
 

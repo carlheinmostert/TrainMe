@@ -117,10 +117,92 @@ export function buildEmailBody(slots: ShareKitSlots): string {
  * with a `Subject:` header at the top. The practitioner can split once
  * pasted.
  *
- * Phase 2 will add an "Open in mail client" button that fires a real
- * `mailto:?subject=...&body=...` intent — that path bypasses this
- * string entirely and encodes subject + body separately.
+ * The Phase 2 "Open in mail client" button fires a real
+ * `mailto:?subject=...&body=...` intent via `buildEmailMailtoUrl` — that
+ * path bypasses this string entirely and encodes subject + body
+ * separately.
  */
 export function buildEmailFullCopy(slots: ShareKitSlots): string {
   return `Subject: ${buildEmailSubject()}\n\n${buildEmailBody(slots)}`;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Phase 2 — intent URL builders                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Substitute the literal `{Colleague}` slot in a body with a real first
+ * name. If `name` is empty / whitespace / undefined, the placeholder is
+ * preserved verbatim so the practitioner can edit post-paste (or the
+ * live preview keeps showing the slot chip).
+ *
+ * Exported so UI surfaces can mirror the substitution in rendered
+ * previews — not a primary public API.
+ */
+export function substituteColleagueName(body: string, name?: string): string {
+  const trimmed = name?.trim() ?? '';
+  if (trimmed.length === 0) return body;
+  return body.split('{Colleague}').join(trimmed);
+}
+
+/**
+ * WhatsApp · one-to-one intent URL.
+ *
+ * Produces `https://wa.me/?text=<encoded body>`. No phone number: the
+ * `wa.me` contact picker lets the practitioner pick the colleague
+ * on-device, so the intent is agnostic to which conversation receives
+ * the message.
+ *
+ * If `colleagueName` is passed, the `{Colleague}` placeholder in the
+ * body is substituted before URL-encoding — the intent lands fully
+ * personalised. When it's empty / absent, the literal placeholder
+ * remains in the encoded body so the practitioner can edit in-app.
+ *
+ * We deliberately use `wa.me` rather than the
+ * `https://api.whatsapp.com/send?text=…` variant — `api.whatsapp.com`
+ * routes through a web splash page on desktop browsers that feels
+ * sluggish next to the native-app hand-off `wa.me` gives us.
+ */
+export function buildWhatsAppOneToOneUrl(
+  slots: ShareKitSlots,
+  colleagueName?: string,
+): string {
+  const body = substituteColleagueName(
+    buildWhatsAppOneToOne(slots),
+    colleagueName,
+  );
+  return `https://wa.me/?text=${encodeURIComponent(body)}`;
+}
+
+/**
+ * WhatsApp · status / broadcast intent URL.
+ *
+ * Same `wa.me/?text=...` shape as the one-to-one variant. The broadcast
+ * body has no name slot so no substitution is needed.
+ *
+ * The caller may paste this into a WhatsApp status caption after the
+ * contact picker, or into a broadcast list. Either way the body is the
+ * payload.
+ */
+export function buildWhatsAppBroadcastUrl(slots: ShareKitSlots): string {
+  const body = buildWhatsAppBroadcast(slots);
+  return `https://wa.me/?text=${encodeURIComponent(body)}`;
+}
+
+/**
+ * Email · `mailto:` intent URL with subject + body pre-filled.
+ *
+ * Shape: `mailto:?subject=<enc subject>&body=<enc body>`. No recipient
+ * is populated — the practitioner picks the contact on-device.
+ *
+ * Subject and body are URL-encoded separately (not as one combined
+ * `?subject=…&body=…` string) because `encodeURIComponent` would
+ * otherwise double-encode the `&` delimiter and the `=` signs. Newlines
+ * survive via `%0A` which every mail client reconstructs into real
+ * line breaks.
+ */
+export function buildEmailMailtoUrl(slots: ShareKitSlots): string {
+  const subject = encodeURIComponent(buildEmailSubject());
+  const body = encodeURIComponent(buildEmailBody(slots));
+  return `mailto:?subject=${subject}&body=${body}`;
 }
