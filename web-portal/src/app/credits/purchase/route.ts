@@ -66,13 +66,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'practice required' }, { status: 400 });
   }
 
-  // Verify the user actually belongs to this practice before we spend a
-  // pending_payments row on them. RLS on practice_members means the lookup
-  // silently returns null if they don't — perfect for this guard.
+  // Verify the user is an OWNER of this practice before we spend a
+  // pending_payments row on them. Per CLAUDE.md tenancy model: owners
+  // buy credits, practitioners consume them. Practitioner-or-null role
+  // both fall through to 403.
+  //
+  // /credits/page.tsx gates the UI so the Buy buttons don't render for
+  // practitioners; this is belt-and-braces against direct POSTs (or
+  // a Buy-button click that survived a server render race).
   const api = createPortalApi(supabase);
-  const isMember = await api.isUserInPractice(practiceId, user.id);
-  if (!isMember) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const role = await api.getCurrentUserRole(practiceId, user.id);
+  if (role !== 'owner') {
+    return NextResponse.json({ error: 'owner role required' }, { status: 403 });
   }
 
   // Record intent server-side using the service role. The anon key can't
