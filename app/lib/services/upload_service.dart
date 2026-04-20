@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import '../config.dart';
 import '../models/session.dart';
 import '../models/exercise_capture.dart';
+import '../models/treatment.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'local_storage_service.dart';
@@ -461,6 +462,13 @@ class UploadService {
                 'circuit_id': e.circuitId,
                 'include_audio': e.includeAudio,
                 'custom_duration_seconds': e.customDurationSeconds,
+                // Sticky treatment preference (Milestone O). null is
+                // "default = line"; non-null is the practitioner's
+                // explicit choice persisted from the Studio card tiles
+                // / plan preview / _MediaViewer. Round-trips through the
+                // exercises.preferred_treatment column; get_plan_full
+                // is expected to surface it on subsequent reads.
+                'preferred_treatment': e.preferredTreatment?.wireValue,
               })
           .toList();
 

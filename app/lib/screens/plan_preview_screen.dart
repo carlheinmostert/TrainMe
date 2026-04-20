@@ -10,6 +10,7 @@ import '../models/session.dart';
 import '../models/treatment.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/progress_pill_matrix.dart';
@@ -249,6 +250,14 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
         : widget.initialSlideIndex.clamp(0, _slides.length - 1);
     _currentPage = initial;
     _pageController = PageController(initialPage: initial);
+    // Seed from the initial slide's stored preference so the preview
+    // lands on the treatment the practitioner last chose for this
+    // exercise. Falls back to Line (the default) when preferredTreatment
+    // is null.
+    if (_slides.isNotEmpty) {
+      _treatment = _slides[initial].exercise.preferredTreatment ??
+          Treatment.line;
+    }
     // Prepare the initial page's video if it is one
     _prepareVideo(initial);
     // Fetch remote treatment URLs for this plan — best-effort.
@@ -301,7 +310,8 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
 
   /// Practitioner tapped a segment. If the target treatment is available
   /// switch to it and reset media state for the active slide so the
-  /// source swaps cleanly.
+  /// source swaps cleanly. Persists the choice on the current slide's
+  /// exercise so next open defaults to this treatment.
   void _onTreatmentChanged(Treatment t) {
     if (_treatment == t) return;
     if (!_isTreatmentAvailable(t)) {
@@ -309,6 +319,7 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
       return;
     }
     setState(() => _treatment = t);
+    _persistPreferredTreatmentForCurrent(t);
     // Every existing controller points at the *previous* treatment's
     // source. Dispose them all so the lazy _prepareVideo pass rebuilds
     // with the new URL. For grayscale↔original the underlying network
@@ -323,6 +334,48 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
     // Re-prepare the active slide immediately; neighbours are prepared
     // lazily via _onPageChanged.
     _prepareVideo(_currentPage);
+  }
+
+  /// Persist [t] as the current slide's exercise `preferredTreatment`.
+  ///
+  /// Writes to local SQLite via the shared
+  /// [SyncService.instance.storage] handle and mutates the in-memory
+  /// [PreviewSlide.exercise] so a page-back-and-forth reads the new
+  /// value without a disk round-trip.
+  ///
+  /// Fire-and-forget: the user has already seen the optimistic state
+  /// change on the segmented control, so a DB hiccup doesn't need a UI
+  /// surface. Logged via [debugPrint] for diagnostics.
+  ///
+  /// Idempotent per R-09: flipping back to Line re-writes Line as the
+  /// explicit choice — an explicit user decision, not a silent reset
+  /// to the implicit default.
+  void _persistPreferredTreatmentForCurrent(Treatment t) {
+    if (_slides.isEmpty) return;
+    final page = _currentPage.clamp(0, _slides.length - 1);
+    final slide = _slides[page];
+    final original = slide.exercise;
+    final updated = original.copyWith(preferredTreatment: t);
+
+    // Rebuild the slide list with this one entry swapped out. A fresh
+    // list (same length + ordering) keeps every other slide's
+    // PreviewSlide metadata intact without any deep copy.
+    _slides[page] = PreviewSlide(
+      exercise: updated,
+      originalIndex: slide.originalIndex,
+      circuitRound: slide.circuitRound,
+      circuitTotalRounds: slide.circuitTotalRounds,
+      positionInCircuit: slide.positionInCircuit,
+      circuitSize: slide.circuitSize,
+    );
+
+    unawaited(
+      SyncService.instance.storage.saveExercise(updated).catchError((e, _) {
+        debugPrint(
+          'PlanPreview: saveExercise(preferred_treatment) failed: $e',
+        );
+      }),
+    );
   }
 
   /// Open the client-consent bottom sheet so the practitioner can
@@ -489,7 +542,30 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
     // Pause the outgoing page's video
     _videoControllers[_currentPage]?.pause();
 
-    setState(() => _currentPage = index);
+    // Each slide reads its OWN exercise's preferredTreatment — moving
+    // to a neighbour does NOT carry the prior treatment forward. If the
+    // new slide's exercise has no stored preference (null), fall back
+    // to Line (the safe default).
+    final previousTreatment = _treatment;
+    Treatment nextTreatment = _treatment;
+    if (index >= 0 && index < _slides.length) {
+      nextTreatment =
+          _slides[index].exercise.preferredTreatment ?? Treatment.line;
+    }
+
+    setState(() {
+      _currentPage = index;
+      _treatment = nextTreatment;
+    });
+
+    // If the treatment changed due to per-exercise preference, dispose
+    // existing controllers so _prepareVideo rebuilds with the new URL.
+    if (nextTreatment != previousTreatment) {
+      final allIndices = _videoControllers.keys.toList();
+      for (final i in allIndices) {
+        _disposeVideo(i);
+      }
+    }
 
     // Prepare and auto-play the incoming page's video
     _prepareVideo(index);

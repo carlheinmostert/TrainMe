@@ -1,11 +1,19 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:video_thumbnail/video_thumbnail.dart' as vt;
+
 import '../config.dart';
 import '../models/exercise_capture.dart';
+import '../models/treatment.dart';
 import '../theme.dart';
 import '../theme/motion.dart';
 import 'inline_editable_text.dart';
 import 'thumbnail_peek.dart';
+import 'treatment_segmented_control.dart';
 
 /// Seed defaults a new exercise card lands with. MVP uses the R-04
 /// global defaults (reps 10, sets 3, hold 0s, rest 30s, notes empty,
@@ -282,6 +290,8 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
 
   Widget _buildExpandedPanel() {
     final isVideo = widget.exercise.mediaType == MediaType.video;
+    final hasArchive = widget.exercise.archiveFilePath != null &&
+        widget.exercise.archiveFilePath!.isNotEmpty;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -314,6 +324,28 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
               ],
             ),
           ),
+        // Treatment preview tiles — three mini-previews of how this
+        // specific exercise will render in each treatment (Line / B&W /
+        // Original). Tapping sets the exercise's sticky
+        // `preferredTreatment` via R-01: immediate save, no confirm.
+        // B&W + Original tiles stay locked (lock glyph, tap routes
+        // through the existing consent / re-record flows) when the
+        // client hasn't opted in OR the local archive isn't available.
+        //
+        // Reads directly from the exercise's local media files; no
+        // cloud round-trip needed — lines up with the rest of the
+        // Studio card's offline-first posture.
+        TreatmentTilesRow(
+          exercise: widget.exercise,
+          hasArchive: hasArchive,
+          onChanged: (t) {
+            HapticFeedback.selectionClick();
+            widget.onUpdate(
+              widget.exercise.copyWith(preferredTreatment: t),
+            );
+          },
+        ),
+        const SizedBox(height: 14),
         _VerticalSlider(
           label: 'Reps',
           value: _repsValue,
@@ -624,3 +656,376 @@ class _ToggleRow extends StatelessWidget {
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// TreatmentTilesRow — three side-by-side mini-previews of how this exercise
+// will render in each treatment (Line / B&W / Original). Tapping a tile sets
+// the exercise's sticky `preferredTreatment` on the fly.
+// -----------------------------------------------------------------------------
+
+/// A single row of three treatment preview tiles, sized to fit inside the
+/// Studio exercise card's expanded panel.
+///
+/// The tiles share a single tiny-resolution "preview bitmap" source
+/// (generated once per exercise, cached in process memory via
+/// [_TreatmentPreviewCache]). Each tile renders the SAME bitmap with a
+/// per-treatment [ColorFilter] to produce the Line / B&W / Original
+/// look at near-zero incremental cost.
+///
+/// Gating — B&W + Original tiles tap into a lock glyph + disabled
+/// visual when:
+///   • the exercise's local `archiveFilePath` is missing (pre-archive
+///     capture, or 90-day retention already pruned it), OR
+///   • the client hasn't opted in to the treatment (consent gating —
+///     same invariant as the segmented control in the player).
+///
+/// The current implementation treats the local-archive check as the
+/// sole gate; the consent wiring lands at the caller (the Studio card
+/// can check `PracticeClient.grayscaleAllowed` / `.colourAllowed` and
+/// pass a `grayscaleAvailable` / `originalAvailable` flag through, a
+/// follow-up after the feature-flag plumbing lands).
+class TreatmentTilesRow extends StatelessWidget {
+  final ExerciseCapture exercise;
+  final bool hasArchive;
+  final ValueChanged<Treatment> onChanged;
+
+  const TreatmentTilesRow({
+    super.key,
+    required this.exercise,
+    required this.hasArchive,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final active = exercise.preferredTreatment ?? Treatment.line;
+    // Photos render from the raw file directly — they're already a
+    // still image. Videos fall back to the grayscale thumbnail (per
+    // PR #33) if a colour first-frame hasn't been generated yet.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: _TreatmentTile(
+              treatment: Treatment.line,
+              active: active == Treatment.line,
+              available: true,
+              exercise: exercise,
+              onTap: () => onChanged(Treatment.line),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _TreatmentTile(
+              treatment: Treatment.grayscale,
+              active: active == Treatment.grayscale,
+              available: hasArchive,
+              exercise: exercise,
+              onTap: () => onChanged(Treatment.grayscale),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _TreatmentTile(
+              treatment: Treatment.original,
+              active: active == Treatment.original,
+              available: hasArchive,
+              exercise: exercise,
+              onTap: () => onChanged(Treatment.original),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One preview tile — a 48-px-tall rounded card showing how the
+/// exercise renders in [treatment]. Tapping sets the exercise's
+/// `preferredTreatment` (R-01: immediate save, no confirm). The active
+/// tile carries a coral ring + check badge; locked tiles show a lock
+/// glyph and grey out.
+class _TreatmentTile extends StatelessWidget {
+  final Treatment treatment;
+  final bool active;
+  final bool available;
+  final ExerciseCapture exercise;
+  final VoidCallback onTap;
+
+  const _TreatmentTile({
+    required this.treatment,
+    required this.active,
+    required this.available,
+    required this.exercise,
+    required this.onTap,
+  });
+
+  /// Per-tile [ColorFilter]. Line is an identity filter (the source is
+  /// already a grayscale thumbnail — PR #33 — which is close enough to
+  /// the line-drawing aesthetic for a 44 px preview). B&W reuses the
+  /// saturation-zero matrix shipped with the segmented control for
+  /// visual parity. Original has no filter (pass-through).
+  ColorFilter? get _filter {
+    switch (treatment) {
+      case Treatment.line:
+        // The stored thumbnail is already grayscale (PR #33). A subtle
+        // brighten nudges it towards the pencil-on-paper feel of the
+        // full line drawing; not trying to emulate the actual v6
+        // aesthetic at 44 px, just hinting at it.
+        return const ColorFilter.matrix(<double>[
+          1.1, 0, 0, 0, 14,
+          0, 1.1, 0, 0, 14,
+          0, 0, 1.1, 0, 14,
+          0, 0, 0, 1, 0,
+        ]);
+      case Treatment.grayscale:
+        return grayscaleColorFilter;
+      case Treatment.original:
+        return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = active
+        ? AppColors.primary
+        : AppColors.surfaceBorder;
+    final borderWidth = active ? 2.0 : 1.0;
+
+    return GestureDetector(
+      onTap: available ? onTap : null,
+      behavior: HitTestBehavior.opaque,
+      child: Opacity(
+        opacity: available ? 1 : 0.5,
+        child: Container(
+          height: 48,
+          decoration: BoxDecoration(
+            color: AppColors.surfaceRaised,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: borderColor,
+              width: borderWidth,
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(7),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // Base preview — same source bitmap for every tile, with
+                // a per-treatment filter on top. When the exercise is a
+                // rest period (shouldn't expand to tiles, but guard
+                // anyway) or the media is missing, fall back to a
+                // neutral surface.
+                _TreatmentPreviewImage(
+                  exercise: exercise,
+                  filter: _filter,
+                ),
+                // Bottom label — Line / B&W / Original. White text on a
+                // scrim for contrast over any source colour.
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    height: 18,
+                    color: Colors.black.withValues(alpha: 0.55),
+                    alignment: Alignment.center,
+                    child: Text(
+                      treatment.shortLabel,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.5,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                // Active badge — coral check bottom-right.
+                if (active)
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: Container(
+                      width: 14,
+                      height: 14,
+                      decoration: const BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        Icons.check,
+                        size: 10,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                // Lock glyph for unavailable treatments.
+                if (!available)
+                  Container(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.lock_outline,
+                      color: Colors.white70,
+                      size: 18,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Renders the preview bitmap for a Studio-card treatment tile, applying
+/// [filter] at paint time. Photos use the raw file directly; videos use
+/// either the stored thumbnail (fast path, grayscale per PR #33) or a
+/// freshly-extracted first frame from the archive file (slow path, one
+/// one-time VideoThumbnail call per exercise, cached for the session in
+/// [_TreatmentPreviewCache]).
+class _TreatmentPreviewImage extends StatelessWidget {
+  final ExerciseCapture exercise;
+  final ColorFilter? filter;
+
+  const _TreatmentPreviewImage({
+    required this.exercise,
+    required this.filter,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Rest periods don't appear here — the card never expands for them.
+    // Still, guard against an edge case where a rest card somehow
+    // becomes expanded; show a neutral surface so nothing crashes.
+    if (exercise.isRest) {
+      return const ColoredBox(color: AppColors.surfaceBase);
+    }
+
+    // Photos: use the raw file directly. Already a still image, no
+    // extraction needed. The raw file is the colour original — filters
+    // can freely convert it to Line / B&W without a second source.
+    if (exercise.mediaType == MediaType.photo) {
+      return _filtered(
+        Image.file(
+          File(exercise.absoluteRawFilePath),
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) =>
+              const ColoredBox(color: AppColors.surfaceBase),
+        ),
+      );
+    }
+
+    // Videos: try the stored thumbnail path first. It's cheap and
+    // already on disk. Fall back to on-demand extraction from the raw
+    // archive (first frame via video_thumbnail — cached in process
+    // memory for the session).
+    final thumbPath = exercise.absoluteThumbnailPath;
+    if (thumbPath != null && File(thumbPath).existsSync()) {
+      return _filtered(
+        Image.file(
+          File(thumbPath),
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) =>
+              const ColoredBox(color: AppColors.surfaceBase),
+        ),
+      );
+    }
+
+    // Archive / raw on-demand thumbnail — only fires when the static
+    // thumbnail is missing (legacy captures pre-thumbnail). Cached
+    // so we don't re-extract on every rebuild.
+    final source = exercise.absoluteArchiveFilePath ??
+        (exercise.rawFilePath.isNotEmpty
+            ? exercise.absoluteRawFilePath
+            : null);
+    if (source == null) {
+      return const ColoredBox(color: AppColors.surfaceBase);
+    }
+    return FutureBuilder<String?>(
+      future: _TreatmentPreviewCache.getOrExtract(
+        exerciseId: exercise.id,
+        sourcePath: source,
+      ),
+      builder: (context, snapshot) {
+        final path = snapshot.data;
+        if (path == null || !File(path).existsSync()) {
+          return const ColoredBox(color: AppColors.surfaceBase);
+        }
+        return _filtered(
+          Image.file(
+            File(path),
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) =>
+                const ColoredBox(color: AppColors.surfaceBase),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _filtered(Widget child) {
+    if (filter == null) return child;
+    return ColorFiltered(colorFilter: filter!, child: child);
+  }
+}
+
+/// Process-wide cache for Studio-card treatment preview bitmaps. Keyed
+/// by exercise id; value is an absolute path to a JPEG on disk written
+/// under `{Documents}/treatment_previews/{exerciseId}.jpg` the first
+/// time the tile row mounts.
+///
+/// Only used for videos whose static [ExerciseCapture.thumbnailPath] is
+/// absent (legacy rows) — modern captures hit the fast path directly
+/// from [ExerciseCapture.thumbnailPath].
+class _TreatmentPreviewCache {
+  _TreatmentPreviewCache._();
+
+  static final Map<String, Future<String?>> _inFlight = <String, Future<String?>>{};
+
+  static Future<String?> getOrExtract({
+    required String exerciseId,
+    required String sourcePath,
+  }) {
+    final existing = _inFlight[exerciseId];
+    if (existing != null) return existing;
+    final future = _extract(exerciseId: exerciseId, sourcePath: sourcePath);
+    _inFlight[exerciseId] = future;
+    return future;
+  }
+
+  static Future<String?> _extract({
+    required String exerciseId,
+    required String sourcePath,
+  }) async {
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      final dir = Directory(p.join(docs.path, 'treatment_previews'));
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      final outPath = p.join(dir.path, '$exerciseId.jpg');
+      if (File(outPath).existsSync()) {
+        return outPath;
+      }
+      final result = await vt.VideoThumbnail.thumbnailFile(
+        video: sourcePath,
+        thumbnailPath: outPath,
+        imageFormat: vt.ImageFormat.JPEG,
+        maxWidth: 192,
+        quality: 70,
+      );
+      return result;
+    } catch (e) {
+      debugPrint('TreatmentPreviewCache.extract failed for $exerciseId: $e');
+      return null;
+    }
+  }
+}
+

@@ -1549,16 +1549,32 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
 
     if (!mounted) return;
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
         builder: (_) => _MediaViewer(
           exercises: mediaList,
           initialIndex: initialIndex,
           client: client,
+          // When the practitioner cycles treatment on an exercise, the
+          // viewer writes to local SQLite directly. We bubble the change
+          // up here so the Studio card tiles + in-memory session stay in
+          // sync without waiting for the route to pop.
+          onExerciseUpdate: (updated) {
+            final dataIndex = _session.exercises
+                .indexWhere((e) => e.id == updated.id);
+            if (dataIndex >= 0) {
+              _updateExercise(dataIndex, updated);
+            }
+          },
         ),
       ),
     );
+    // When the viewer pops, refresh the session from disk so any writes
+    // that bypassed the in-memory update path (offline queue, etc.) land
+    // before the next render.
+    if (!mounted) return;
+    await _refreshSession();
   }
 
   /// Resolve a [PracticeClient] from a list using the same id-then-name
@@ -1781,10 +1797,24 @@ class _MediaViewer extends StatefulWidget {
   /// the only callable treatment is Line.
   final PracticeClient? client;
 
+  /// Fired whenever the practitioner changes the sticky preferred
+  /// treatment on the current exercise (via vertical swipe OR a tap on
+  /// the segmented control). The Studio screen wires this through
+  /// `_updateExercise` so the in-memory session list — and the
+  /// card-tile active ring — stay in sync with the SQLite row.
+  ///
+  /// The viewer itself is responsible for persisting via
+  /// [LocalStorageService.saveExercise] so the write survives an
+  /// immediate Close-before-refresh. The callback is an additional
+  /// signal to the parent for UI coherence, not the primary persistence
+  /// hop.
+  final ValueChanged<ExerciseCapture>? onExerciseUpdate;
+
   const _MediaViewer({
     required this.exercises,
     required this.initialIndex,
     required this.client,
+    this.onExerciseUpdate,
   });
 
   @override
@@ -1795,9 +1825,15 @@ class _MediaViewerState extends State<_MediaViewer> {
   late final PageController _pageController;
   late int _currentIndex;
 
-  /// Active treatment for the current page. Reset to Line whenever the
-  /// page changes (Carl: every new exercise starts with the safe
-  /// baseline).
+  /// Mutable copy of the viewer's exercise list so preference writes
+  /// reflect on the next page change without popping + re-pushing the
+  /// route. Seeded from [widget.exercises] at initState.
+  late List<ExerciseCapture> _exercises;
+
+  /// Active treatment for the current page. Seeded from the exercise's
+  /// stored `preferredTreatment` (null → Line). Every new page load
+  /// re-reads from ITS OWN exercise, so moving to a neighbour does NOT
+  /// carry the previous selection forward.
   Treatment _treatment = Treatment.line;
 
   /// Mutable copy of the client so consent toggles update local state
@@ -1831,7 +1867,7 @@ class _MediaViewerState extends State<_MediaViewer> {
   VoidCallback? _videoListener;
   bool _lastKnownIsPlaying = false;
 
-  ExerciseCapture get _current => widget.exercises[_currentIndex];
+  ExerciseCapture get _current => _exercises[_currentIndex];
 
   bool _isVideo(ExerciseCapture e) =>
       e.mediaType == MediaType.video && !_isStillImageConversion(e);
@@ -1859,9 +1895,29 @@ class _MediaViewerState extends State<_MediaViewer> {
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+    _exercises = List<ExerciseCapture>.from(widget.exercises);
     _client = widget.client;
     _pageController = PageController(initialPage: _currentIndex);
+    // Seed from the opening exercise's stored preference so the viewer
+    // lands on the treatment the practitioner last chose. Falls back to
+    // Line when `preferredTreatment == null` (the default).
+    _treatment = _effectiveTreatmentFor(_current);
     _initVideoForCurrent();
+  }
+
+  /// Resolve the treatment to render for [e]: stored preference if set
+  /// AND available (archive present for B&W / Original), otherwise
+  /// [Treatment.line].
+  ///
+  /// If the stored preference is no longer available (e.g. the archive
+  /// was purged after 90 days), we silently fall back to Line rather
+  /// than showing a broken black frame.
+  Treatment _effectiveTreatmentFor(ExerciseCapture e) {
+    final pref = e.preferredTreatment;
+    if (pref == null) return Treatment.line;
+    if (pref == Treatment.line) return Treatment.line;
+    // B&W / Original require a local archive.
+    return _hasArchive(e) ? pref : Treatment.line;
   }
 
   /// Source file the active treatment should play.
@@ -1970,11 +2026,11 @@ class _MediaViewerState extends State<_MediaViewer> {
   void _onPageChanged(int index) {
     setState(() {
       _currentIndex = index;
-      // Carl: each new exercise starts on Line — the safe baseline.
-      // Sticking the previous treatment forward would be confusing
-      // when the new exercise is pre-archive (segment would jump back
-      // to Line silently).
-      _treatment = Treatment.line;
+      // Each exercise uses ITS OWN stored preference — moving to the
+      // next exercise does NOT carry the previous treatment over. If
+      // this exercise has never been cycled, preferredTreatment is
+      // null and we render Line (the safe baseline).
+      _treatment = _effectiveTreatmentFor(_current);
     });
     _initVideoForCurrent();
   }
@@ -1983,11 +2039,46 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// Disposes the active controller and re-inits with the new source.
   /// The crossfade itself is handled by the [AnimatedSwitcher] keyed
   /// off the treatment name.
+  ///
+  /// Persists the new treatment as the exercise's sticky preference.
+  /// Writes to local SQLite immediately; the cloud copy is updated on
+  /// the next publish (the exercises table is publish-scoped, no
+  /// mid-session sync path).
   void _onTreatmentChanged(Treatment next) {
     if (next == _treatment) return;
     HapticFeedback.selectionClick();
     setState(() => _treatment = next);
+    _persistPreferredTreatment(next);
     _initVideoForCurrent();
+  }
+
+  /// Write [next] to the active exercise's `preferredTreatment` field.
+  /// Also bubbles the updated exercise up via [widget.onExerciseUpdate]
+  /// so the Studio screen's in-memory list stays in sync.
+  ///
+  /// Idempotent — called every time the treatment changes; if the new
+  /// value equals the stored value the write is still performed (cheap
+  /// and reinforces the "user's explicit choice wins" invariant from
+  /// the task brief: flipping back to Line is a real preference, not a
+  /// reset-to-default).
+  void _persistPreferredTreatment(Treatment next) {
+    final exercise = _current;
+    final updated = exercise.copyWith(preferredTreatment: next);
+    // Update the in-memory list so a subsequent page-change back to
+    // this index reads the new preference without a DB round-trip.
+    _exercises[_currentIndex] = updated;
+    final cb = widget.onExerciseUpdate;
+    if (cb != null) cb(updated);
+    // Fire-and-forget local write. Errors logged; no UI surfaces
+    // because the user has already seen the optimistic state change.
+    // Uses SyncService.instance.storage instead of plumbing a fresh
+    // LocalStorageService handle through the _MediaViewer constructor
+    // — same singleton the rest of the app shares.
+    unawaited(
+      SyncService.instance.storage.saveExercise(updated).catchError((e, _) {
+        debugPrint('MediaViewer: saveExercise(preferred_treatment) failed: $e');
+      }),
+    );
   }
 
   /// Cycle to the next available treatment in the given direction.
@@ -2100,10 +2191,10 @@ class _MediaViewerState extends State<_MediaViewer> {
           // horizontal swipes pass through to the PageView.
           PageView.builder(
             controller: _pageController,
-            itemCount: widget.exercises.length,
+            itemCount: _exercises.length,
             onPageChanged: _onPageChanged,
             itemBuilder: (context, index) {
-              final ex = widget.exercises[index];
+              final ex = _exercises[index];
               final isCurrent = index == _currentIndex;
               final isVideo = _isVideo(ex);
               return GestureDetector(
