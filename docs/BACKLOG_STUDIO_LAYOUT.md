@@ -1,7 +1,16 @@
-# Studio layout blow-out — 3 failed attempts, pick up here
+# Studio layout blow-out — RESOLVED
 
-**Status:** Open. Critical MVP blocker.
-**Last update:** 2026-04-18 end-of-session.
+**Status:** ✅ **FIXED on 2026-04-19.** Kept as a post-mortem.
+
+**Root cause (attempt 4):** `CrossAxisAlignment.stretch` on a Row inside a `ReorderableListView.builder` with unbounded vertical constraints. The stretch alignment asked children to fill the available height, and the list's implicit "unbounded" vertical sizing meant "as tall as you want", producing the multi-viewport stacking. Fixed by changing the Row's `crossAxisAlignment` from `stretch` to `center`.
+
+Lesson: `CrossAxisAlignment.stretch` requires a bounded parent. This is the exact trap Flutter's docs warn about but reads subtle in real code.
+
+Original record below for historic reference.
+
+---
+
+**Last update:** 2026-04-18 end-of-session (pre-fix).
 **Target file:** `app/lib/screens/studio_mode_screen.dart` + `app/lib/widgets/studio_exercise_card.dart` + `app/lib/widgets/gutter_rail.dart`.
 
 ## Symptom
