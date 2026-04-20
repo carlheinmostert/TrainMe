@@ -18,20 +18,21 @@ echo "▸ Pulling latest main..."
 cd /Users/chm/dev/TrainMe
 git pull origin main
 
-echo "▸ Building Flutter app for physical device in RELEASE mode (first run ≈ 5-8 min)..."
-# Release build is required for physical-device standalone launch — iOS 14+
-# rejects debug-mode Flutter binaries launched outside of `flutter run`
-# ("Cannot create a FlutterEngine instance in debug mode without Flutter
-#  tooling or Xcode"). Release strips debug symbols, compiles AOT, and
-# produces a binary the device can launch from the home screen on its own.
+echo "▸ Building Flutter app for physical device in PROFILE mode (first run ≈ 5-8 min)..."
+# Profile mode — not release — during QA. Debug mode is rejected by iOS
+# 14+ for standalone launch ("Cannot create a FlutterEngine instance in
+# debug mode without Flutter tooling or Xcode"), but PROFILE is AOT-
+# compiled AND retains `debugPrint` / stdout so logs still show up via
+# `idevicesyslog`. Release mode strips those, which made us blind when
+# diagnosing the raw-archive silent upload failure (2026-04-20).
 #
 # Passing the current short git SHA via --dart-define bakes it into
-# AppConfig.buildSha, which the Pulse Mark footer renders as a tiny
-# muted label in the bottom-right. Confirms at a glance which commit
-# is on-device after a rebuild.
+# AppConfig.buildSha, which the Settings footer (post-Wave-3) renders
+# as a tiny muted label. Confirms at a glance which commit is on-device
+# after a rebuild.
 cd /Users/chm/dev/TrainMe/app
 GIT_SHA=$(git -C /Users/chm/dev/TrainMe rev-parse --short HEAD)
-LC_ALL=en_US.UTF-8 flutter build ios --release --dart-define=GIT_SHA="$GIT_SHA"
+LC_ALL=en_US.UTF-8 flutter build ios --profile --dart-define=GIT_SHA="$GIT_SHA"
 
 echo "▸ Installing to iPhone CHM..."
 xcrun devicectl device install app --device "$DEVICE" "$APP_PATH"

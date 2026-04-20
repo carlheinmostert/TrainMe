@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import '../config.dart';
 import '../models/session.dart';
 import '../models/exercise_capture.dart';
@@ -670,7 +671,7 @@ class UploadService {
             'but local stamp failed: $dbErr',
           );
         }
-      } catch (e) {
+      } catch (e, st) {
         // Bucket missing (404) / RLS rejection / transient network — all
         // non-fatal. Next publish retries. Keep the log terse so a large
         // plan with a vanished bucket doesn't flood debugPrint.
@@ -678,7 +679,35 @@ class UploadService {
           'UploadService: raw-archive upload failed for ${exercise.id} '
           '→ $storagePath (continuing): $e',
         );
+        // Also persist to a local log so release-build failures leave a
+        // breadcrumb — release strips debugPrint, which made diagnosis
+        // of this exact code path silent for weeks.
+        await _logRawArchiveFailure(exercise.id, storagePath, e, st);
       }
+    }
+  }
+
+  /// Append a raw-archive upload failure to `{Documents}/raw_archive_error.log`.
+  /// Swallows its own errors — this is a best-effort breadcrumb, never
+  /// block publish on its behalf.
+  Future<void> _logRawArchiveFailure(
+    String exerciseId,
+    String storagePath,
+    Object error,
+    StackTrace st,
+  ) async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final logFile = File(p.join(dir.path, 'raw_archive_error.log'));
+      await logFile.writeAsString(
+        '${DateTime.now().toIso8601String()}  exercise=$exerciseId  path=$storagePath\n'
+        '  $error\n'
+        '  ${st.toString().split('\n').take(4).join('\n  ')}\n\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {
+      // Swallow. Log-of-log isn't worth the complexity.
     }
   }
 
