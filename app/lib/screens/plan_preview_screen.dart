@@ -313,26 +313,15 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
     return _treatmentUrls[exercise.id];
   }
 
-  /// True when a source for [t] exists on the active slide — either a
-  /// remote signed URL (published plan) OR a local archive file
-  /// (pre-publish preview; 720p H.264 export kept on-device for 90d).
-  /// Line is always considered available — falls back to the local
-  /// converted file when the remote URL is absent.
+  /// True when a local source for [t] exists on the active slide. Line
+  /// always has a converted file; B&W + Original need the 720p H.264
+  /// archive (kept for 90d post-capture). Remote URLs are irrelevant
+  /// here — the mobile preview is a local, offline-first surface.
   bool _isTreatmentAvailable(Treatment t) {
     if (t == Treatment.line) return true;
     if (_slides.isEmpty) return false;
     final exercise =
         _slides[_currentPage.clamp(0, _slides.length - 1)].exercise;
-    final urls = _treatmentUrls[exercise.id];
-    final hasRemote = switch (t) {
-      Treatment.line => false, // handled above
-      Treatment.grayscale => urls?.grayscaleUrl != null,
-      Treatment.original => urls?.originalUrl != null,
-    };
-    if (hasRemote) return true;
-    // Pre-publish fallback: B&W + Original both play from the local
-    // archive file (the 720p H.264 export). Grayscale adds a
-    // ColorFilter matrix at render time; Original is pass-through.
     final localPath = exercise.absoluteArchiveFilePath;
     return localPath != null && File(localPath).existsSync();
   }
@@ -500,31 +489,14 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
 
     final controller = _controllerForTreatment(exercise);
     if (controller == null) {
-      // No source at all — neither a remote signed URL nor a local
-      // archive file. Happens on legacy captures whose 90-day archive
-      // was pruned + the plan was never published. Fall back to Line
-      // with a SnackBar so the user understands why the view changed.
+      // No local source — legacy capture whose 90-day archive was
+      // pruned, or a fresh-install scenario where the file never
+      // existed on this device. Fall back to Line (the converted file
+      // persists regardless) with a SnackBar explaining.
       if (_treatment != Treatment.line) {
         _fallbackToLine(index, showSnack: true);
       }
       return;
-    }
-
-    // HEAD-probe remote sources ONLY — file-backed controllers init
-    // instantly and don't hang. The probe catches the case where a
-    // published plan has a signed URL pointing at an absent raw-archive
-    // object (upload_service.dart _uploadRawArchives is best-effort
-    // at publish time). Without the probe, AVPlayer waits its full
-    // ~30s network timeout before rejecting; with it, we fall back
-    // in ~200ms.
-    if (controller.dataSourceType == DataSourceType.network &&
-        _treatment != Treatment.line) {
-      final ok = await _probeUrl(controller.dataSource);
-      if (!mounted) return;
-      if (!ok) {
-        _fallbackToLine(index, showSnack: true);
-        return;
-      }
     }
 
     _videoControllers[index] = controller;
@@ -568,37 +540,14 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
       });
   }
 
-  /// HEAD-probe [url] with a 3s timeout. Returns true on 2xx, false on
-  /// any other status, error, or timeout. Used to short-circuit the
-  /// AVPlayer hang when the raw-archive object is missing.
-  Future<bool> _probeUrl(String url) async {
-    HttpClient? client;
-    try {
-      client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 3);
-      final req = await client
-          .headUrl(Uri.parse(url))
-          .timeout(const Duration(seconds: 3));
-      final resp = await req.close().timeout(const Duration(seconds: 3));
-      await resp.drain<void>();
-      return resp.statusCode >= 200 && resp.statusCode < 300;
-    } catch (e) {
-      debugPrint('HEAD probe failed for $url: $e');
-      return false;
-    } finally {
-      client?.close(force: true);
-    }
-  }
-
   /// Fall back to Line treatment when a B&W / Original source is
-  /// unavailable. Used by the HEAD-probe path, the init-error path, and
-  /// the "URL not loaded / plan unpublished" path.
+  /// unavailable. Used when the local archive file is missing (pruned
+  /// past 90d, or never existed on this device) and from the init-error
+  /// safety net in [_prepareVideo].
   ///
-  /// [showSnack] is true when the user actively tried to view B&W /
-  /// Original and the source is confirmed missing (404). It's false for
-  /// the silent case where URLs simply haven't loaded yet (the race at
-  /// initState) or the plan was never published — nothing to explain
-  /// because the user didn't ask to switch treatments.
+  /// [showSnack] surfaces a brief "not available yet" toast when the
+  /// local archive is genuinely missing; caller sets it to false when
+  /// silent recovery is preferred.
   void _fallbackToLine(int index, {required bool showSnack}) {
     setState(() => _treatment = Treatment.line);
     _prepareVideo(index);
@@ -622,51 +571,32 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
 
   /// Build the right [VideoPlayerController] for the active [_treatment].
   ///
-  /// Remote URLs win when present; falls back to the local converted
-  /// file for Treatment.line so plans that were never published (or the
-  /// pre-publish preview) still work. Returns null when the treatment's
-  /// source is unavailable — the caller treats that as a disabled
-  /// segment (which shouldn't fire since the segmented control itself
-  /// is gated).
+  /// **Local-only.** The mobile preview is the practitioner's offline-
+  /// first surface — everything must play from files on the phone, both
+  /// pre- and post-publish. Remote signed URLs are for the web player
+  /// (client-facing), never for this screen. Earlier "prefer remote"
+  /// code was incorrect: it introduced latency, bandwidth waste, and
+  /// fragility (the raw-archive 404 / AVPlayer-hang cascade that bit
+  /// us through PRs #50, #51, #52 before inversion).
+  ///
+  /// Source resolution:
+  ///   - Line      → `displayFilePath` (converted line-drawing file).
+  ///   - Grayscale → `absoluteArchiveFilePath` (720p H.264 archive);
+  ///                 desaturated at render time via ColorFilter matrix.
+  ///   - Original  → `absoluteArchiveFilePath` (same archive).
+  ///
+  /// Returns null only when the local file is genuinely missing (legacy
+  /// capture whose 90-day archive was pruned). Callers treat that as
+  /// "fall back to Line with a SnackBar".
   VideoPlayerController? _controllerForTreatment(ExerciseCapture exercise) {
-    final urls = _treatmentUrls[exercise.id];
     switch (_treatment) {
       case Treatment.line:
-        // Prefer the remote line URL (parity with the web player), fall
-        // back to the local converted file when offline / unpublished.
-        final remote = urls?.lineDrawingUrl;
-        if (remote != null) {
-          return VideoPlayerController.networkUrl(Uri.parse(remote));
-        }
         return VideoPlayerController.file(File(exercise.displayFilePath));
       case Treatment.grayscale:
-        // Grayscale is the ORIGINAL source with a ColorFilter matrix
-        // applied at the widget layer (saturation = 0). The backend
-        // returns the colour video under `grayscale_url` for this
-        // reason — see the task brief.
-        final remote = urls?.grayscaleUrl;
-        if (remote != null) {
-          return VideoPlayerController.networkUrl(Uri.parse(remote));
-        }
-        // Pre-publish preview: play the local 720p H.264 archive
-        // directly. Same source as Original; ColorFilter applied at
-        // render time by _buildVideoPlayer.
-        final localPath = exercise.absoluteArchiveFilePath;
-        if (localPath != null && File(localPath).existsSync()) {
-          return VideoPlayerController.file(File(localPath));
-        }
-        return null;
       case Treatment.original:
-        final remote = urls?.originalUrl;
-        if (remote != null) {
-          return VideoPlayerController.networkUrl(Uri.parse(remote));
-        }
-        // Pre-publish fallback — same local archive as grayscale.
         final localPath = exercise.absoluteArchiveFilePath;
-        if (localPath != null && File(localPath).existsSync()) {
-          return VideoPlayerController.file(File(localPath));
-        }
-        return null;
+        if (localPath == null || !File(localPath).existsSync()) return null;
+        return VideoPlayerController.file(File(localPath));
     }
   }
 
