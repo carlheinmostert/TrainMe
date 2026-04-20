@@ -4,6 +4,7 @@ import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { AccountPanel } from '@/components/AccountPanel';
+import { PracticeNameField } from '@/components/PracticeNameField';
 
 type SearchParams = { practice?: string };
 
@@ -37,11 +38,28 @@ export default async function AccountPage({
   // Resolve role so the header can surface the owner-only Members link
   // while the caller is on /account. No practice in the qs → default to
   // false (the Members link hides, matching the practitioner fallback).
+  //
+  // Also load every practice the caller belongs to + pick the one that
+  // matches `?practice=`. This powers the Practice-name field below
+  // (owner-gated rename). We fall back to the caller's first membership
+  // when the qs is missing — consistent with the dashboard's default.
   const api = createPortalApi(supabase);
-  const role = practiceId
-    ? await api.getCurrentUserRole(practiceId, user.id)
-    : null;
+  const [role, practices] = await Promise.all([
+    practiceId ? api.getCurrentUserRole(practiceId, user.id) : Promise.resolve(null),
+    api.listMyPractices(),
+  ]);
   const isOwner = role === 'owner';
+
+  const activePracticeId =
+    practiceId || practices[0]?.id || '';
+  const activePractice =
+    practices.find((p) => p.id === activePracticeId) ?? practices[0] ?? null;
+
+  // Practitioners on the active practice can't rename it. Default to
+  // false when there's no membership (edge case — user w/ no practices).
+  const canRenamePractice = activePractice
+    ? (practices.find((p) => p.id === activePractice.id)?.role === 'owner')
+    : false;
 
   return (
     <main className="flex min-h-screen flex-col">
@@ -61,6 +79,23 @@ export default async function AccountPage({
           Signed in as{' '}
           <span className="text-ink">{user.email ?? 'unknown'}</span>.
         </p>
+
+        {/*
+          Practice name — sits ABOVE the password + sign-out panel so
+          owners find it first when landing on Account. Practitioners
+          see a read-only rendering with a one-liner explanation. Using
+          the membership-resolved role (not a server-side 401) because
+          the practice is implicit context, not a permission boundary.
+        */}
+        {activePractice && (
+          <div className="mt-8">
+            <PracticeNameField
+              practiceId={activePractice.id}
+              initialName={activePractice.name}
+              canEdit={canRenamePractice}
+            />
+          </div>
+        )}
 
         <AccountPanel email={user.email ?? ''} />
 

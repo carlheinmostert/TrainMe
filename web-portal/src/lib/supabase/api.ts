@@ -222,6 +222,45 @@ export class PortalApi {
   }
 
   /**
+   * Rename a practice. Wraps the `rename_practice(p_practice_id, p_new_name)`
+   * SECURITY DEFINER RPC from milestone N. Owner-only inside the RPC —
+   * practitioners surface as 42501 here.
+   *
+   * Throws a typed error so the caller (dashboard inline rename + Account
+   * Settings field) can map to nice copy:
+   *   - `RenamePracticeError.NotOwner` — caller isn't the practice owner (42501).
+   *   - `RenamePracticeError.NotFound` — practice id doesn't exist (P0002).
+   *   - `RenamePracticeError.Empty`    — blank name after trim (22023, "name required").
+   *   - `RenamePracticeError.TooLong`  — >60 chars after trim (22023, "name too long...").
+   *   - Generic Error otherwise.
+   */
+  async renamePractice(practiceId: string, newName: string): Promise<void> {
+    const { error } = await this.supabase.rpc('rename_practice', {
+      p_practice_id: practiceId,
+      p_new_name: newName,
+    });
+    if (!error) return;
+    const code = (error as { code?: string }).code;
+    const message = error.message ?? '';
+    if (code === '42501') {
+      throw new RenamePracticeError('not-owner', message);
+    }
+    if (code === 'P0002') {
+      throw new RenamePracticeError('not-found', message);
+    }
+    if (code === '22023') {
+      // Distinguish empty vs. too-long via message text. Both carry the
+      // same SQLSTATE (22023 invalid_parameter_value) — the RPC surfaces
+      // "name required" vs. "name too long (max 60 chars)".
+      if (/too long/i.test(message)) {
+        throw new RenamePracticeError('too-long', message);
+      }
+      throw new RenamePracticeError('empty', message);
+    }
+    throw new Error(message);
+  }
+
+  /**
    * Membership check for the current user on a specific practice. Used
    * by the members page to decide whether to show the Invite UI, and by
    * the purchase route to gate `pending_payments` inserts.
@@ -528,6 +567,24 @@ export class RenameClientError extends Error {
   ) {
     super(message);
     this.name = 'RenameClientError';
+  }
+}
+
+/**
+ * Typed failure from [PortalApi.renamePractice]. Mirrors the
+ * [RenameClientError] shape (kind = SQLSTATE bucket) so the two inline-
+ * rename flows present the same error-mapper shape to callers.
+ *
+ * `not-owner` replaces `not-member` because the DB check is the stricter
+ * owner role, not general membership.
+ */
+export class RenamePracticeError extends Error {
+  constructor(
+    public readonly kind: 'not-owner' | 'not-found' | 'empty' | 'too-long',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'RenamePracticeError';
   }
 }
 
