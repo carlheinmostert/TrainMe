@@ -1227,16 +1227,24 @@ private class LineDrawingProcessor {
             rowBytes: outBytesPerRow
         )
 
-        // vImage only exposes a Planar8 -> ARGB8888 assembler. Since the three
-        // colour channels here all hold the same gray value, the resulting
-        // byte order (B=G=R=gray, A=255) is visually identical whether the
-        // buffer is interpreted as ARGB or BGRA — so we use the ARGB variant
-        // and feed the pre-filled 255 plane as the A/first channel.
+        // vImage only exposes a Planar8 -> ARGB8888 assembler. The function
+        // writes the FOUR planar inputs into memory in the order given —
+        // the trailing "ARGB" in the name is the byte order written, not a
+        // semantic label on the inputs. So we remap the args to produce
+        // BGRA byte order, which matches `kCVPixelFormatType_32BGRA` above.
+        //
+        // Previous (buggy) mapping wrote [A=255, R=g, G=g, B=g] into a buffer
+        // iOS reads as [B, G, R, A] → blue channel pinned at 255, alpha
+        // varying with gray. Dark lines composited onto a white background
+        // read as ≈(222, 222, 255) → the "purple-blue tint on dark parts"
+        // Carl reported on the hand-drawn treatment.
+        //
+        // Correct mapping: write bytes [B=g, G=g, R=g, A=255].
         _ = vImageConvert_Planar8toARGB8888(
-            &alphaPlaneBuffer,   // A / first byte
-            &outputGrayBuffer,   // R (same gray)
-            &outputGrayBuffer,   // G
-            &outputGrayBuffer,   // B
+            &outputGrayBuffer,   // 1st byte (semantically "A") → iOS reads as B
+            &outputGrayBuffer,   // 2nd byte ("R") → iOS reads as G
+            &outputGrayBuffer,   // 3rd byte ("G") → iOS reads as R
+            &alphaPlaneBuffer,   // 4th byte ("B") → iOS reads as A (255 = opaque)
             &outBGRA,
             vImage_Flags(kvImageNoFlags)
         )
