@@ -1801,82 +1801,88 @@ function exitWorkout() {
 }
 
 // ============================================================
-// HomefitLogo (item 10)
+// HomefitLogo (item 10) — canonical v2 system
 // ------------------------------------------------------------
-// Mini-plan glyph built entirely from pill primitives:
-//   col 1..2  — 2-exercise circuit × 2 rounds (coral pills, coral tint band)
-//   col 3     — 1 standalone exercise (coral pill, top row only)
-//   col 4     — 1 rest (sage pill, top row only)
-// Rail entry stub enters at (band left, top-row mid-y). Rail exit stub
-// leaves at (band right, bottom-row mid-y). Coral accents, sage for rest.
-// Rendered proportionally via inline SVG.
+// A slice of the progress-pill matrix that IS the product:
+//   3 ghost pills (outer → inner, tapering larger + lighter) →
+//   2-cycle circuit in a coral-tint band (2 exercises × 2 cycles) →
+//   1 sage rest pill →
+//   3 ghost pills (mirror on the right)
+//
+// Two variants share the same 11-element matrix geometry:
+//   - buildHomefitLogoSvg()        matrix only, 48×9.5 viewBox.
+//                                  Default — used in the footer next to
+//                                  the wordmark span, favicons, tight
+//                                  chrome.
+//   - buildHomefitLogoLockupSvg()  matrix + wordmark stacked, 48×14.
+//                                  For hero surfaces / marketing /
+//                                  single-mark slots.
+//
+// Geometry canon is duplicated verbatim in
+// `web-portal/src/components/HomefitLogo.tsx` and
+// `app/lib/widgets/homefit_logo.dart`. Signed off at
+// `docs/design/mockups/logo-ghost-outer.html`.
 // ============================================================
 
-function buildHomefitLogoSvg() {
-  // Mini-pill metrics — 5×3 per cell with 1.5 gaps.
-  const cell = 5;
-  const rowGap = 1.5;
-  const colGap = 1.5;
-  const rows = 2;
-  const cols = 4;
-  const bandCols = 2;         // circuit spans cols 0 and 1
-  const railStubLen = 3;
-  const padX = 2;
-  const padY = 2;
-
-  const bandX = padX + railStubLen - 0.5;
-  const bandY = padY - 0.5;
-  const bandW = bandCols * cell + (bandCols - 1) * colGap + 1;
-  const bandH = rows * 3 + (rows - 1) * rowGap + 1;
-
-  const cellX = (c) => padX + railStubLen + c * (cell + colGap);
-  const cellY = (r) => padY + r * (3 + rowGap);
-
-  const width = padX + railStubLen + cols * cell + (cols - 1) * colGap
-    + railStubLen + padX;
-  const height = padY + rows * 3 + (rows - 1) * rowGap + padY;
+// Shared 11-pill matrix SVG body. Returns rects only; caller wraps in
+// <svg>. `yOffset` is applied to every Y so the same body can be reused
+// by the lockup (which shifts the matrix down to make room for the
+// wordmark row).
+function _homefitMatrixBody(yOffset) {
+  const dy = yOffset || 0;
+  const y = (n) => (n + dy).toFixed(3).replace(/\.?0+$/, '');
 
   const coral = '#FF6B35';
   const coralTint = 'rgba(255, 107, 53, 0.15)';
   const sage = '#86EFAC';
-  const railColor = 'rgba(255, 107, 53, 0.7)';
+  const ghostOuter = '#4B5563';
+  const ghostMid = '#6B7280';
+  const ghostInner = '#9CA3AF';
 
-  let svg = `<svg class="homefit-logo" viewBox="0 0 ${width} ${height}"`
-    + ` xmlns="http://www.w3.org/2000/svg" aria-hidden="true">`;
+  return (
+    // Left ghost pills: outer→inner, progressively larger + lighter.
+    `<rect x="0" y="${y(2.75)}" width="2.5" height="1.5" rx="0.5" fill="${ghostOuter}"/>` +
+    `<rect x="4" y="${y(2.45)}" width="3.5" height="2.1" rx="0.7" fill="${ghostMid}"/>` +
+    `<rect x="9" y="${y(2.15)}" width="4.5" height="2.7" rx="0.9" fill="${ghostInner}"/>` +
+    // Coral tint band behind the 2×2 circuit.
+    `<rect x="14.5" y="${y(1)}" width="12.5" height="8.5" rx="1.2" fill="${coral}" opacity="0.15"/>` +
+    // Ex2 / Ex3 — 2×2 grid (2 exercises × 2 cycles), solid coral.
+    `<rect x="15" y="${y(2)}" width="5" height="3" rx="1" fill="${coral}"/>` +
+    `<rect x="15" y="${y(6.5)}" width="5" height="3" rx="1" fill="${coral}"/>` +
+    `<rect x="21.5" y="${y(2)}" width="5" height="3" rx="1" fill="${coral}"/>` +
+    `<rect x="21.5" y="${y(6.5)}" width="5" height="3" rx="1" fill="${coral}"/>` +
+    // Rest — sage.
+    `<rect x="28" y="${y(2)}" width="5" height="3" rx="1" fill="${sage}"/>` +
+    // Right ghost pills: inner→outer, mirror of left.
+    `<rect x="34.5" y="${y(2.15)}" width="4.5" height="2.7" rx="0.9" fill="${ghostInner}"/>` +
+    `<rect x="40.5" y="${y(2.45)}" width="3.5" height="2.1" rx="0.7" fill="${ghostMid}"/>` +
+    `<rect x="45.5" y="${y(2.75)}" width="2.5" height="1.5" rx="0.5" fill="${ghostOuter}"/>`
+  );
+}
 
-  // Rail entry stub — top row, just before band.
-  const topY = cellY(0) + 3 / 2;
-  svg += `<path d="M0 ${topY} L${bandX} ${topY}" stroke="${railColor}"`
-    + ` stroke-width="0.7" stroke-linecap="round"/>`;
+function buildHomefitLogoSvg() {
+  return (
+    `<svg class="homefit-logo" viewBox="0 0 48 9.5"` +
+    ` xmlns="http://www.w3.org/2000/svg" aria-hidden="true">` +
+    _homefitMatrixBody(0) +
+    `</svg>`
+  );
+}
 
-  // Coral tint band behind circuit columns.
-  svg += `<rect x="${bandX}" y="${bandY}" width="${bandW}" height="${bandH}"`
-    + ` rx="1.5" fill="${coralTint}"/>`;
-
-  // Circuit pills (cols 0,1 × rows 0,1) — coral.
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < bandCols; c++) {
-      svg += `<rect x="${cellX(c)}" y="${cellY(r)}" width="${cell}" height="3"`
-        + ` rx="1" fill="${coral}"/>`;
-    }
-  }
-
-  // Standalone coral pill — col 2, row 0 only.
-  svg += `<rect x="${cellX(2)}" y="${cellY(0)}" width="${cell}" height="3"`
-    + ` rx="1" fill="${coral}"/>`;
-
-  // Rest sage pill — col 3, row 0 only.
-  svg += `<rect x="${cellX(3)}" y="${cellY(0)}" width="${cell}" height="3"`
-    + ` rx="1" fill="${sage}"/>`;
-
-  // Rail exit stub — bottom row, just after the last col.
-  const botY = cellY(1) + 3 / 2;
-  const exitX = cellX(cols - 1) + cell;
-  svg += `<path d="M${exitX} ${botY} L${width} ${botY}" stroke="${railColor}"`
-    + ` stroke-width="0.7" stroke-linecap="round"/>`;
-
-  svg += `</svg>`;
-  return svg;
+function buildHomefitLogoLockupSvg() {
+  // Lockup variant — wordmark row + matrix translated +4.5 on Y.
+  // Wordmark uses Montserrat 600, stretched via textLength so it
+  // aligns to the 48-unit matrix width at any render size.
+  return (
+    `<svg class="homefit-logo homefit-logo--lockup" viewBox="0 -2 48 16"` +
+    ` xmlns="http://www.w3.org/2000/svg" aria-hidden="true">` +
+    `<text x="24" y="4.6" text-anchor="middle" textLength="48"` +
+    ` lengthAdjust="spacingAndGlyphs"` +
+    ` font-family="Montserrat, sans-serif" font-weight="600"` +
+    ` font-size="6.5" fill="#F0F0F5" letter-spacing="-0.1">homefit.studio</text>` +
+    _homefitMatrixBody(4.5) +
+    `</svg>`
+  );
 }
 
 function renderFooterLogo() {

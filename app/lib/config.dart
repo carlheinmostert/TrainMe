@@ -62,10 +62,17 @@ class AppConfig {
   static const String oauthRedirectUrl =
       'com.raidme.raidme://login-callback';
 
-  /// Welcome-bonus credits granted to a brand-new practice (user who signs in
-  /// after the sentinel has already been claimed). Lets them publish a couple
-  /// of plans before needing to buy credits.
-  static const int welcomeBonusCredits = 5;
+  /// Signup-bonus credits granted to a brand-new practice by the
+  /// `bootstrap_practice_for_user` RPC when the user signs up organically
+  /// (no referral code claimed). Lets them try a couple of publishes
+  /// before hitting the paywall. Referral-code claimants get +5 more on
+  /// top via `claim_referral_code` → 8 total.
+  static const int organicSignupBonusCredits = 3;
+
+  /// The bonus a referee gets on top of the organic signup bonus when
+  /// they claim a referral code via `/r/{code}`. Matches the +5 inserted
+  /// by `claim_referral_code` (see schema_milestone_m_credit_model.sql).
+  static const int referralSignupBonusCredits = 5;
 
   /// Credit cost by plan size (non-rest exercise count).
   /// 1-8 exercises  → 1 credit

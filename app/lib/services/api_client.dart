@@ -145,8 +145,8 @@ class ApiClient {
   /// `bootstrap_practice_for_user()` — SECURITY DEFINER RPC that either
   /// (a) returns the caller's existing practice, (b) claims the Carl-
   /// sentinel practice, or (c) creates a fresh personal practice + owner
-  /// membership + 5-credit welcome bonus. Idempotent; safe to call on
-  /// every `onAuthStateChange` event.
+  /// membership + 3-credit organic signup bonus (Milestone M). Idempotent;
+  /// safe to call on every `onAuthStateChange` event.
   ///
   /// Returns the practice id (uuid as string). Raises `AuthException`
   /// from the underlying client on DB errors — callers own the try/catch.
@@ -574,21 +574,40 @@ class ApiClient {
   /// List the clients belonging to a practice. Used by the Your-clients
   /// screen. Returns an empty list on any error so the UI can render an
   /// empty state rather than crash.
+  ///
+  /// ⚠️  Historically this swallowed every exception and returned `[]`,
+  /// which made it impossible for callers to tell "this practice has no
+  /// clients" from "the RPC blew up and we silently pretended nothing
+  /// was wrong" — Carl's data looked like it had been wiped. New callers
+  /// that need to distinguish those two states should use
+  /// [listPracticeClientsOrThrow] instead; this wrapper exists for the
+  /// legacy callers (consent sheets / media-viewer fallback) that
+  /// genuinely just want a best-effort list.
   Future<List<PracticeClient>> listPracticeClients(String practiceId) async {
     try {
-      final result = await raw.rpc(
-        'list_practice_clients',
-        params: {'p_practice_id': practiceId},
-      );
-      if (result is! List) return const [];
-      return result
-          .whereType<Map>()
-          .map((m) => PracticeClient.fromJson(Map<String, dynamic>.from(m)))
-          .toList(growable: false);
+      return await listPracticeClientsOrThrow(practiceId);
     } catch (e) {
       debugPrint('ApiClient.listPracticeClients failed: $e');
       return const [];
     }
+  }
+
+  /// Throwing variant of [listPracticeClients]. Use this from the sync
+  /// layer where "RPC exploded" needs to be distinguished from "practice
+  /// is empty". The UI can then surface a banner instead of silently
+  /// rendering an empty list.
+  Future<List<PracticeClient>> listPracticeClientsOrThrow(
+    String practiceId,
+  ) async {
+    final result = await raw.rpc(
+      'list_practice_clients',
+      params: {'p_practice_id': practiceId},
+    );
+    if (result is! List) return const [];
+    return result
+        .whereType<Map>()
+        .map((m) => PracticeClient.fromJson(Map<String, dynamic>.from(m)))
+        .toList(growable: false);
   }
 
   /// Write the client's video-viewing preferences.

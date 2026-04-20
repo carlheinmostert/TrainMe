@@ -628,8 +628,8 @@ export class AdminApi {
    * Sandbox-optimistic credit apply with referral rebate awareness.
    * Mirrors the PayFast ITN webhook by routing through the
    * `record_purchase_with_rebates` SECURITY DEFINER RPC, so the sandbox
-   * path also produces the +10/+10 signup bonus on first purchase and
-   * the 5% lifetime credit rebate on every subsequent purchase —
+   * path produces the 5% lifetime credit rebate (with a 1-credit
+   * goodwill floor on the referrer's FIRST rebate from each referee) —
    * atomically with the purchase row, in a single DB transaction.
    *
    * Use this in place of `applyPendingPayment` whenever the referral

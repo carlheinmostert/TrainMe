@@ -33,11 +33,12 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Open same plan in web player → B&W tab active → confirm CSS filter renders
    - Consent-revoke: toggle `grayscale: false` → reload preview → B&W tab disabled with lock
 
-3. **Referral loop e2e**:
-   - Create a new account via `/r/{existing-code}` with the POPIA consent checkbox on
-   - Make a sandbox purchase
-   - Verify in DB: `referral_rebate_ledger` has signup-bonus rows for both sides + lifetime rebate
-   - Portal `/network` shows updated stats
+3. **Referral loop e2e** (updated for Milestone M credit model):
+   - **Organic signup:** sign up WITHOUT a referral code. Immediately after bootstrap, the credit balance tile should show **3** (not 5). Query `credit_ledger` for that practice and expect exactly one row: `type='signup_bonus', delta=3`.
+   - **Referral signup:** sign up via `/r/{existing-code}` with the POPIA consent checkbox on. Immediately after bootstrap + claim, the credit balance should show **8** (3 + 5). Query `credit_ledger` and expect TWO rows: `signup_bonus:3`, `referral_signup_bonus:5`.
+   - **First (small) purchase by the referee — goodwill floor:** make a R250 / 10-credit starter-bundle sandbox purchase. Referrer's `/network` rebate balance should jump by exactly **1 credit** (raw 5% of R250 = 0.5 credits → floor clamps to 1). `referral_rebate_ledger` should have a `kind='lifetime_rebate', credits=1.0000` row, and `practice_referrals.goodwill_floor_applied` flipped to `true`.
+   - **Second (larger) purchase by the referee — no floor:** make a R1000 / 40-credit clinic-bundle sandbox purchase. Referrer's rebate balance should jump by **2 credits** (raw 5% of R1000 = 2.0). `referral_rebate_ledger` should have another row: `kind='lifetime_rebate', credits=2.0000`. Goodwill flag stays `true`; no re-clamp.
+   - Portal `/network` stats should reflect all three rows (1 credit + 2 credits = 3 credits banked; R1250 qualifying spend total).
 
 4. **Large-plan publish path** — circuits + videos + rests combo, verify the raw-archive cloud upload (step 7.5 in `upload_service.dart`) doesn't regress primary publish on failure.
 
@@ -48,21 +49,14 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Edge case: capture a stationary shot (practitioner standing still). Motion-peak should fall back gracefully to midpoint; person-crop should still tighten.
    - Edge case: capture a video without a person in frame (e.g. pointing at equipment). Person-segmentation will return nil → thumbnail falls through to the un-cropped masked image (same look as before).
 
-7. **Delete client + cascade undo** (branch `feat/delete-client`, Milestone L):
-   - Home → swipe-left on a client row → red "Delete" reveals → card slides out
-   - UndoSnackBar appears at the bottom with a 7-second window
-   - Tap Undo → the client row comes back; every session that was cascaded lands back under ClientSessions
-   - Swipe + don't tap Undo → wait 7s → row stays gone
-   - Open the per-client screen → overflow menu (top-right `⋮`) → "Delete client" — fires immediately, pops to Home, SnackBar with Undo appears
-   - Offline path: airplane mode + swipe-delete → "N pending" chip bumps by 1 → toggle online → drains; cloud rows now tombstoned
-   - Offline path: airplane mode + swipe-delete + Undo during the 7s window → both ops queue + cancel out server-side (delete lands, restore lands right after)
-   - Resurrection check: create a new client with the SAME name as a just-deleted one → `upsert_client_with_id` RPC returns a 23505 "a deleted client already uses that name" — surface the error cleanly
-   - Portal `/clients` page → hover the row (desktop) → delete icon fades in bottom-right → click → row vanishes + bottom-centre toast with Undo for 7s → Undo reinstates
-   - Portal `/clients/[id]` → Delete button in the header → click → navigates to `/clients` + the list page surfaces the Undo toast via sessionStorage handshake
-   - Confirm in DB after a delete: `SELECT deleted_at FROM clients WHERE id=...` is non-null, `SELECT id, deleted_at FROM plans WHERE client_id=...` mirrors the same timestamp
-   - Confirm after Undo: both `deleted_at` back to null on the client AND the cascaded plans
+5a. **Grayscale practitioner thumbnails** (`feat/grayscale-practitioner-thumbnails`) — follow-up to #5. PR #22's person-crop alone wasn't enough: the line-drawing medium itself stayed illegible at list sizes. Now practitioner-facing thumbnails extract from the raw capture + recolour to luminance (B&W). Client-facing surfaces (web player) are unchanged — line drawing stays there. On device:
+   - **New capture → B&W thumbnail**: capture a fresh video exercise. Home client list, ClientSessions, Studio list, Thumbnail Peek, and the Camera peek box should all show a grayscale frame with the person centred and readable. No line-drawing strokes.
+   - **Old captures unchanged**: captures that existed before installing this build should keep their old line-drawing thumbnail on disk. We intentionally skipped retroactive regeneration to avoid storage churn — re-capture to refresh.
+   - **Web player unchanged**: publish the new capture → open the client URL in a browser. The exercise video should play the line-drawing treatment by default (coral `line_drawing_url`). The B&W treatment is still reachable via the segmented control only when the client has consent.
+   - **Thumbnail is practitioner-only**: the web player does not expose the thumbnail JPEG. It renders the video frame live and reads `line_drawing_url` / `grayscale_url` / `original_url` from `get_plan_full` — not the client-side thumbnail. Quick check: network tab in the browser should never load `{id}_thumb.jpg`.
+   - Edge case: capture where person-segmentation misses (no person in frame) → still produces a grayscale thumbnail of the full frame (no crop), which is still readable, just wider context.
 
-8. **Studio MediaViewer — treatment cycling + inline consent** (branch `feat/studio-mediaviewer-treatments`):
+6. **Studio MediaViewer — treatment cycling + inline consent** (branch `feat/studio-mediaviewer-treatments`):
    - Long-press a Studio thumbnail → "Open full-screen"
    - Verify top-left segmented control renders: Line · B&W · Original
    - Swipe up — cycles Line → B&W → Original → Line with a 220ms crossfade, per-step haptic
@@ -74,6 +68,55 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Horizontal swipe between exercises — page changes, treatment resets to Line (intended)
    - Tap video — play/pause still works
    - Close button returns to Studio
+
+7. **Studio MediaViewer — vertical treatment control** (branch `feat/vertical-treatment-control`):
+   - Long-press a Studio thumbnail → "Open full-screen"
+   - Verify the treatment segmented control now renders **vertically** on the left edge of the screen (centered in the safe area): Line on top, B&W in the middle, Original on the bottom. Orientation matches the vertical-swipe gesture that cycles treatments.
+   - Tap each segment directly — should still jump to that treatment with the 220ms crossfade + selection haptic.
+   - Tap a locked segment (pre-archive capture where B&W + Original are disabled) — lock glyph shows, tooltip reads "Older capture — re-record to enable."; consent bottom sheet still opens correctly where applicable.
+   - Vertical swipe up/down on the video — still cycles treatments exactly as before.
+   - Horizontal swipe left/right — still pages between exercises; treatment resets to Line.
+   - Active treatment is B&W or Original AND client exists → the `Show {Name}` consent toggle now renders **directly below the vertical pill** (same left-edge stack). Flip it — instant, no modal; SyncService queues the write.
+   - Exercise-name pill stays top-centered; close button stays top-right; page dots stay bottom-center. None of these collide with the left-edge vertical stack.
+   - Regression: the plan preview screen (`plan_preview_screen.dart`) still renders the treatment control **horizontally** — no UX change there.
+
+8. **Home sync-failure banner** (branch `fix/surface-sync-errors`):
+   - **Happy path (online + healthy cloud):** open the app with good signal → clients list populates as before → no banner, no empty-state → `Updated Xm ago` hint renders as today. Verify nothing regressed.
+   - **Airplane-mode path (offline with cached clients):** toggle airplane mode on → pull-to-refresh the Home list → clients stay visible → offline chip appears next to the practice chip → **no red/coral sync-failure banner** (the offline state is expected, not surfaced as an error).
+   - **Online + RPC failure path (the bug Carl hit):** force an RPC failure while online. Easiest reproduction:
+     - Sign in, then in Supabase SQL editor run `revoke execute on function public.list_practice_clients(uuid) from authenticated;` for ~30s.
+     - Relaunch the app or trigger a practice switch.
+     - Expected: cached clients STILL visible on Home; a coral-bordered banner appears above the list: "Couldn't refresh. Tap to retry." Tapping it shows a spinner; while the RPC is still revoked, another tap increments the counter ("Couldn't refresh (2 tries). Tap to retry.").
+     - Restore permissions: `grant execute on function public.list_practice_clients(uuid) to authenticated;` Tap retry → banner dismisses, `Updated just now` hint returns.
+   - **Cache-empty + RPC failure** (the really nasty case): fresh install + online + RPC failure → empty-state card renders with a prominent "Try again" button instead of the old silent "No clients yet" that made Carl think his data was gone. Tap → retries; on success, normal empty-state (or populated list) appears.
+
+9. **Studio MediaViewer polish — consent switch + swipe affordance** (branch `feat/mediaviewer-polish`):
+   - Long-press a Studio thumbnail → "Open full-screen"
+   - Active treatment is B&W or Original AND client exists → the consent affordance now renders as a dark pill with `Show {Name}` + an iOS-style Switch on the right (coral when on). Verify the Switch reads as a "setting you're tweaking", not an ack button. Flip it — immediate, no modal; SyncService queues the write. Toggle back — same.
+   - Verify the Switch styling matches `ClientConsentSheet` (coral `activeTrackColor`, white thumb when on). Scale is slightly smaller (`Transform.scale 0.82`) to fit the compact pill.
+   - "Exercise N of M" counter appears as a second line inside the name pill — confirm it stays pinned on swipe and that the count updates correctly.
+   - Page dots at the bottom of the viewer — appear when the session has 2-10 exercises. Active dot grows to a short coral-free white capsule; inactive dots are small + translucent. Confirm they animate when swiping horizontally.
+   - Plans with >10 exercises: dots hide (same pattern as `plan_preview_screen.dart`); the name-pill counter is the only where-are-we signal. Confirm behaviour.
+   - Regression check: pre-archive captures still show locked B&W + Original segments; the consent row stays hidden when the archive is missing.
+
+10. **Line-drawing audio restored** (branch `fix/line-drawing-audio`):
+    - Capture a new video exercise with your voice talking over the movement (e.g. "squat, hold, up" while demoing).
+    - Wait for the native line-drawing conversion to complete (Studio card leaves the spinner state).
+    - Open the plan preview → Line treatment active → play the video → **verify the voiceover is audible**.
+    - Cross-check with Treatment.original (raw archive) — should sound identical, same volume curve.
+    - Toggle the per-exercise mic icon OFF on the Studio card → re-record the exercise → Line treatment must now play **silently** (no audio track muxed into the converted file at all, not just muted). Confirm with `ffprobe` on the converted file under `Documents/converted/{id}_line.*` if you want to be thorough: `Stream #0:0 Video`, no `Stream #0:1 Audio`.
+    - Publish the plan → open on the web player at `session.homefit.studio/p/{uuid}` → Line tab → confirm audio plays there too (the published `line_drawing_url` is the same converted file that now has audio).
+    - Regression: pre-existing captures (converted BEFORE this fix) remain silent until the practitioner re-captures them. This is expected — old files on disk aren't retroactively re-converted.
+
+11. **Studio MediaViewer — coral bottom-right play/pause** (branch `fix/mediaviewer-play-pause-overlay`):
+    - Long-press a Studio thumbnail → "Open full-screen" on a video exercise
+    - Video auto-starts; coral circular **pause** button appears bottom-right immediately (~85% opacity, white glyph, 56-px touch target, sitting above the bottom page-dots row with no overlap)
+    - Wait ~2 seconds: button fades to 0 over ~300 ms so it no longer overlays the demo-to-client view
+    - Tap the video body anywhere: button reappears and toggles state (playing → paused). While paused the button stays visible indefinitely as a **play** glyph.
+    - Tap the coral button directly: it toggles state. This is the bug-2 regression check — a direct tap on the icon *must* actually call the toggle (the old centred white icon absorbed taps with no action).
+    - Resume with another direct button tap: glyph flips to pause, idle timer re-arms, fade kicks in ~2s later.
+    - Swipe horizontally to the next video exercise: button stays wired + fade restarts for the new video. Vertical treatment swipes also preserve behaviour.
+    - No "Play video" / "Pause video" visible text (R-06 voice).
 
 ### Things to actively watch for
 - **iOS 26.4 SDK gap** — any sub-agent build will fail in their sandbox on this; only Carl's main machine has the SDK installed. Not a code issue.
@@ -94,3 +137,17 @@ Pre-2026-04-20 pending items that are now all complete. Kept here for reference 
 - Mobile + portal Settings/Account pair — shipped
 - Logo redesign to HomefitLogo — shipped on all surfaces
 - PayFast sandbox smoke test — verified + signed off
+
+12. **Delete client + cascade undo** (branch `feat/delete-client`, Milestone L):
+    - Home → swipe-left on a client row → red "Delete" reveals → card slides out
+    - UndoSnackBar appears at the bottom with a 7-second window
+    - Tap Undo → the client row comes back; every session that was cascaded lands back under ClientSessions
+    - Swipe + don't tap Undo → wait 7s → row stays gone
+    - Open the per-client screen → overflow menu (top-right `⋮`) → "Delete client" — fires immediately, pops to Home, SnackBar with Undo appears
+    - Offline path: airplane mode + swipe-delete → "N pending" chip bumps by 1 → toggle online → drains; cloud rows now tombstoned
+    - Offline path: airplane mode + swipe-delete + Undo during the 7s window → both ops queue + cancel out server-side (delete lands, restore lands right after)
+    - Resurrection check: create a new client with the SAME name as a just-deleted one → `upsert_client_with_id` RPC returns a 23505 "a deleted client already uses that name" — surface the error cleanly
+    - Portal `/clients` page → hover the row (desktop) → delete icon fades in bottom-right → click → row vanishes + bottom-centre toast with Undo for 7s → Undo reinstates
+    - Portal `/clients/[id]` → Delete button in the header → click → navigates to `/clients` + the list page surfaces the Undo toast via sessionStorage handshake
+    - Confirm in DB after a delete: `SELECT deleted_at FROM clients WHERE id=...` is non-null, `SELECT id, deleted_at FROM plans WHERE client_id=...` mirrors the same timestamp
+    - Confirm after Undo: both `deleted_at` back to null on the client AND the cascaded plans

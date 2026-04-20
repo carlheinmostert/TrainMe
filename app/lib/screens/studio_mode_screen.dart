@@ -1758,13 +1758,15 @@ bool _isStillImageConversion(ExerciseCapture exercise) {
 ///   • Vertical swipe cycles the active treatment with a 220ms crossfade.
 ///     Up = next (Line → B&W → Original → Line), Down = previous.
 ///     Disabled treatments are skipped over.
-///   • Top-anchored [TreatmentSegmentedControl] mirrors the gesture and
-///     lets the practitioner jump directly. Locked segments (no archive
-///     OR client said no) tap into the inline consent toggle.
-///   • Inline consent toggle below the control — only when the active
-///     treatment is B&W or Original and a client row is resolvable. One
-///     tap fires immediately (R-01: no confirmation modals); writes go
-///     through [SyncService.queueSetConsent] (offline-first).
+///   • Left-edge vertical [TreatmentSegmentedControl] — orientation
+///     matches the vertical-swipe gesture so the visual control reads
+///     the same axis as the gesture it represents. Locked segments (no
+///     archive OR client said no) tap into the inline consent toggle.
+///   • Inline consent toggle directly below the vertical pill — only
+///     when the active treatment is B&W or Original and a client row is
+///     resolvable. One tap fires immediately (R-01: no confirmation
+///     modals); writes go through [SyncService.queueSetConsent]
+///     (offline-first).
 ///   • Pre-archive captures (no `archiveFilePath`) keep B&W + Original
 ///     greyed out — Carl's call: don't fall back silently to Line, that
 ///     would mislead the practitioner during a "show me the difference"
@@ -1811,6 +1813,23 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// Token used to ignore stale `initialize()` callbacks when the user
   /// swipes through treatments faster than a controller can come up.
   int _initToken = 0;
+
+  /// Whether the bottom-right play/pause control is currently visible.
+  /// When paused, always true. When playing, true for ~2s after the last
+  /// user interaction or state change, then fades out so the button
+  /// doesn't clutter the demo-to-client view. Presence in the tree is
+  /// unchanged — we only animate opacity so taps always hit.
+  bool _controlsVisible = true;
+
+  /// Auto-fade timer. Armed only while playing; cancelled on pause /
+  /// user interaction / dispose.
+  Timer? _controlsIdleTimer;
+
+  /// Listener attached to the active [VideoPlayerController] so the
+  /// button icon tracks play/pause transitions that don't originate
+  /// from `_togglePlayPause` (e.g. looping, buffering stalls).
+  VoidCallback? _videoListener;
+  bool _lastKnownIsPlaying = false;
 
   ExerciseCapture get _current => widget.exercises[_currentIndex];
 
@@ -1863,8 +1882,14 @@ class _MediaViewerState extends State<_MediaViewer> {
   }
 
   void _initVideoForCurrent() {
-    _videoController?.dispose();
+    final previous = _videoController;
+    final previousListener = _videoListener;
+    if (previous != null && previousListener != null) {
+      previous.removeListener(previousListener);
+    }
+    previous?.dispose();
     _videoController = null;
+    _videoListener = null;
     _videoInitialized = false;
     if (!_isVideo(_current)) return;
     final path = _sourcePathForTreatment(_current, _treatment);
@@ -1879,17 +1904,65 @@ class _MediaViewerState extends State<_MediaViewer> {
         controller.dispose();
         return;
       }
-      setState(() => _videoInitialized = true);
+      setState(() {
+        _videoInitialized = true;
+        _lastKnownIsPlaying = false;
+      });
       controller.setLooping(true);
+      // Attach a listener so the play/pause button icon stays in sync
+      // with the controller even when the transition didn't go through
+      // `_togglePlayPause` (e.g. programmatic pause on end-of-media).
+      void listener() => _onVideoStateChanged(controller, token);
+      controller.addListener(listener);
+      _videoListener = listener;
       controller.play();
+      // Controller will flip to `isPlaying == true` shortly after play().
+      // Show controls immediately so the user sees the pause affordance,
+      // then arm the idle fade.
+      _showControlsThenMaybeIdleFade();
     }).catchError((e) {
       debugPrint('MediaViewer: video init failed for $path — $e');
     });
   }
 
+  /// Called via the video controller's listener. Triggers a rebuild
+  /// whenever the playing state flips so the button icon + fade state
+  /// stay in sync with the actual controller.
+  void _onVideoStateChanged(VideoPlayerController controller, int token) {
+    if (!mounted || token != _initToken) return;
+    final isPlaying = controller.value.isPlaying;
+    if (isPlaying == _lastKnownIsPlaying) return;
+    _lastKnownIsPlaying = isPlaying;
+    _showControlsThenMaybeIdleFade();
+  }
+
+  /// Bring the button to full opacity, then (only if playing) arm a
+  /// 2-second timer to fade it away. When paused the button stays
+  /// visible indefinitely.
+  void _showControlsThenMaybeIdleFade() {
+    _controlsIdleTimer?.cancel();
+    if (!mounted) return;
+    setState(() => _controlsVisible = true);
+    final c = _videoController;
+    if (c == null || !_videoInitialized) return;
+    if (!c.value.isPlaying) return;
+    _controlsIdleTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      final controller = _videoController;
+      if (controller == null || !controller.value.isPlaying) return;
+      setState(() => _controlsVisible = false);
+    });
+  }
+
   @override
   void dispose() {
-    _videoController?.dispose();
+    _controlsIdleTimer?.cancel();
+    final controller = _videoController;
+    final listener = _videoListener;
+    if (controller != null && listener != null) {
+      controller.removeListener(listener);
+    }
+    controller?.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -1946,6 +2019,10 @@ class _MediaViewerState extends State<_MediaViewer> {
         c.play();
       }
     });
+    // Any tap — on the video body or the overlay button — resets the
+    // idle timer. If we paused, the button stays visible; if we started
+    // playing, it fades after 2s.
+    _showControlsThenMaybeIdleFade();
   }
 
   /// Flip the consent bit for the active treatment and persist via the
@@ -2012,10 +2089,6 @@ class _MediaViewerState extends State<_MediaViewer> {
 
   @override
   Widget build(BuildContext context) {
-    final showPausedPlayIcon = _isVideo(_current) &&
-        _videoInitialized &&
-        _videoController != null &&
-        !_videoController!.value.isPlaying;
     final hasArchive = _hasArchive(_current);
     return Scaffold(
       backgroundColor: AppColors.surfaceBg,
@@ -2063,56 +2136,78 @@ class _MediaViewerState extends State<_MediaViewer> {
             },
           ),
 
-          // Top stack — segmented control + (optional) consent toggle.
-          // Sits ABOVE the close button row visually but to its left so
-          // the X stays in the corner. Only renders when the current
-          // exercise is a video — for stills there's nothing to switch
-          // between. Wrapped in a SafeArea so it clears the notch.
+          // Left-edge vertical stack — segmented control + (optional)
+          // consent toggle. Lives on the left side, vertically centered,
+          // so the control's orientation mirrors the vertical-swipe
+          // gesture that cycles treatments. Horizontal layouts were
+          // incoherent with the gesture axis (Carl's QA call). The
+          // consent toggle sits directly below the pill so the "show
+          // {Name}" affordance stays adjacent to the treatment it gates.
+          // Only renders when the current exercise is a video — stills
+          // have nothing to switch between.
           if (_isVideo(_current))
             Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              left: 16,
-              right: 56, // leaves room for the close button
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TreatmentSegmentedControl(
-                    active: _treatment,
-                    grayscaleAvailable: hasArchive,
-                    originalAvailable: hasArchive,
-                    onChanged: _onTreatmentChanged,
-                    onLockTap: _onLockedSegmentTap,
-                    lockedMessages: hasArchive
-                        ? null
-                        : const {
-                            Treatment.grayscale:
-                                'Older capture — re-record to enable.',
-                            Treatment.original:
-                                'Older capture — re-record to enable.',
-                          },
+              left: 12,
+              top: 0,
+              bottom: 0,
+              child: SafeArea(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TreatmentSegmentedControl(
+                        orientation: Axis.vertical,
+                        active: _treatment,
+                        grayscaleAvailable: hasArchive,
+                        originalAvailable: hasArchive,
+                        onChanged: _onTreatmentChanged,
+                        onLockTap: _onLockedSegmentTap,
+                        lockedMessages: hasArchive
+                            ? null
+                            : const {
+                                Treatment.grayscale:
+                                    'Older capture — re-record to enable.',
+                                Treatment.original:
+                                    'Older capture — re-record to enable.',
+                              },
+                      ),
+                      if (_shouldShowConsentRow()) ...[
+                        const SizedBox(height: 10),
+                        // Constrain the consent pill so a long client name
+                        // can't push it off the screen — it's a short
+                        // horizontal row sitting next to the vertical
+                        // treatment pill and needs to breathe around the
+                        // centred exercise-name pill.
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth:
+                                MediaQuery.of(context).size.width * 0.55,
+                          ),
+                          child: _ConsentToggleRow(
+                            clientName: _client!.name,
+                            allowed: _treatment == Treatment.grayscale
+                                ? _client!.grayscaleAllowed
+                                : _client!.colourAllowed,
+                            onChanged: (_) =>
+                                _toggleConsentForActiveTreatment(),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  if (_shouldShowConsentRow()) ...[
-                    const SizedBox(height: 8),
-                    _ConsentToggleRow(
-                      clientName: _client!.name,
-                      allowed: _treatment == Treatment.grayscale
-                          ? _client!.grayscaleAllowed
-                          : _client!.colourAllowed,
-                      onTap: _toggleConsentForActiveTreatment,
-                    ),
-                  ],
-                ],
+                ),
               ),
             ),
 
-          // Exercise-name pill — sits BELOW the segmented control so
-          // the practitioner reads "what treatment" then "which exercise"
-          // top-to-bottom.
+          // Exercise-name pill — stays top-centered. The vertical
+          // treatment control is on the left edge now, so this pill has
+          // the top strip free from the close button's right-edge
+          // territory. Second line inside the pill is the swipe
+          // affordance: "Exercise N of M".
           Positioned(
-            top: _isVideo(_current)
-                ? MediaQuery.of(context).padding.top +
-                    (_shouldShowConsentRow() ? 110 : 60)
-                : MediaQuery.of(context).padding.top + 12,
+            top: MediaQuery.of(context).padding.top + 12,
             left: 0,
             right: 0,
             child: IgnorePointer(
@@ -2129,28 +2224,74 @@ class _MediaViewerState extends State<_MediaViewer> {
                     color: Colors.black.withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Text(
-                    _headerLabel(_current, _currentIndex),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _headerLabel(_current, _currentIndex),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Exercise ${_currentIndex + 1} of ${widget.exercises.length}',
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.3,
+                          color: AppColors.textSecondaryOnDark,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
           ),
-          if (showPausedPlayIcon)
-            const Center(
-              child: Icon(
-                Icons.play_arrow,
-                size: 72,
-                color: Colors.white54,
+          // Bottom-right play/pause affordance. Always in the tree for
+          // videos so taps always hit — visibility is opacity-driven.
+          // When paused it stays at 100%; when playing it fades to 0
+          // after a 2s idle so it doesn't overlay demo-to-client view.
+          // Sits above the bottom dot-indicator row to avoid overlap.
+          if (_isVideo(_current) && _videoInitialized)
+            Positioned(
+              right: 20,
+              bottom: MediaQuery.of(context).padding.bottom +
+                  ((widget.exercises.length > 1 &&
+                          widget.exercises.length <= 10)
+                      ? 48
+                      : 20),
+              child: _PlayPauseOverlayButton(
+                isPlaying: _videoController?.value.isPlaying ?? false,
+                visible: _controlsVisible,
+                onTap: _togglePlayPause,
+              ),
+            ),
+          // Page dots — swipe affordance at the bottom. Hidden past 10
+          // slides (matches the pattern in `plan_preview_screen.dart`);
+          // the counter inside the name pill above carries the
+          // where-are-we signal at larger plan sizes.
+          if (widget.exercises.length > 1 && widget.exercises.length <= 10)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: MediaQuery.of(context).padding.bottom + 16,
+              child: IgnorePointer(
+                child: _MediaViewerDotIndicator(
+                  total: widget.exercises.length,
+                  activeIndex: _currentIndex,
+                ),
               ),
             ),
           Positioned(
@@ -2227,79 +2368,167 @@ class _MediaViewerState extends State<_MediaViewer> {
   }
 }
 
-/// Inline consent affordance shown below the segmented control when the
-/// active treatment is B&W or Original.
+/// Coral, circular, bottom-right play/pause button on top of the
+/// [_MediaViewer]. Presence in the tree is stable whenever the current
+/// page is a video — it's opacity that swings (via [AnimatedOpacity]) so
+/// taps always hit, even during a fade. Caller is responsible for
+/// scheduling the fade (see `_showControlsThenMaybeIdleFade`).
 ///
-/// Voice: peer-to-peer (R-06 + voice.md). Never "consent" / "POPIA" /
-/// "withdraw" / "rights". Allowed = "✓ {Name} can see this". Not
-/// allowed = "Tap to allow". One tap toggles; no confirmation modal
-/// (R-01). Updates fire through [SyncService.queueSetConsent].
-class _ConsentToggleRow extends StatelessWidget {
-  final String clientName;
-  final bool allowed;
+/// Icon glyph morphs: `play_arrow_rounded` when paused,
+/// `pause_rounded` when playing. 56-px touch target, coral
+/// [AppColors.primary] fill at 85% alpha (enough to read, still lets
+/// a sliver of video tone through), white glyph.
+class _PlayPauseOverlayButton extends StatelessWidget {
+  final bool isPlaying;
+  final bool visible;
   final VoidCallback onTap;
 
-  const _ConsentToggleRow({
-    required this.clientName,
-    required this.allowed,
+  const _PlayPauseOverlayButton({
+    required this.isPlaying,
+    required this.visible,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final name = clientName.trim().isEmpty ? 'your client' : clientName;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(9999),
-        child: Container(
-          height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: allowed
-                ? AppColors.primary.withValues(alpha: 0.15)
-                : Colors.black.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(9999),
-            border: Border.all(
-              color: allowed
-                  ? AppColors.primary
-                  : AppColors.surfaceBorder,
-              width: 1,
+    // IgnorePointer when fully faded so a "ghost" button doesn't eat
+    // swipes. AnimatedOpacity keeps the transition smooth.
+    return IgnorePointer(
+      ignoring: !visible,
+      child: AnimatedOpacity(
+        opacity: visible ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+        child: Material(
+          shape: const CircleBorder(),
+          color: AppColors.primary.withValues(alpha: 0.85),
+          elevation: 4,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: SizedBox(
+              width: 56,
+              height: 56,
+              child: Icon(
+                isPlaying
+                    ? Icons.pause_rounded
+                    : Icons.play_arrow_rounded,
+                color: Colors.white,
+                size: 32,
+              ),
             ),
-          ),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                allowed ? Icons.check_circle : Icons.touch_app_outlined,
-                size: 14,
-                color: allowed
-                    ? AppColors.primary
-                    : AppColors.textSecondaryOnDark,
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  allowed ? '$name can see this' : 'Tap to allow',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.2,
-                    color: allowed
-                        ? AppColors.primary
-                        : AppColors.textOnDark,
-                  ),
-                ),
-              ),
-            ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Inline consent affordance shown below the segmented control when the
+/// active treatment is B&W or Original.
+///
+/// Voice: peer-to-peer (R-06 + voice.md). Never "consent" / "POPIA" /
+/// "withdraw" / "rights". Rendered as a short label + a real iOS-style
+/// [Switch] — Carl's feedback: the pillbox reads unambiguously as a
+/// "setting" the practitioner is tweaking, not an ack button they keep
+/// pressing. Switch styling mirrors `client_consent_sheet.dart`.
+///
+/// One flip fires immediately; no confirmation modal (R-01). Writes go
+/// through [SyncService.queueSetConsent] offline-first at the call site.
+class _ConsentToggleRow extends StatelessWidget {
+  final String clientName;
+  final bool allowed;
+  final ValueChanged<bool> onChanged;
+
+  const _ConsentToggleRow({
+    required this.clientName,
+    required this.allowed,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = clientName.trim().isEmpty ? 'your client' : clientName;
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.only(left: 14, right: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(9999),
+        border: Border.all(
+          color: AppColors.surfaceBorder,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              'Show $name',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.2,
+                color: AppColors.textOnDark,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Shrink the standard Switch footprint so the pill reads as a
+          // compact row and doesn't dominate the top-left stack.
+          Transform.scale(
+            scale: 0.82,
+            child: Switch(
+              value: allowed,
+              onChanged: onChanged,
+              activeThumbColor: Colors.white,
+              activeTrackColor: AppColors.primary,
+              inactiveThumbColor: AppColors.textSecondaryOnDark,
+              inactiveTrackColor: AppColors.surfaceBorder,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom-of-viewer dot row that tells the practitioner "horizontal
+/// swipe moves between exercises". Mirrors the style established in
+/// `plan_preview_screen.dart` — active dot grows to a short capsule;
+/// inactive dots are small + translucent. Caller guards on slide
+/// count <= 10; past that the name-pill counter carries the signal.
+class _MediaViewerDotIndicator extends StatelessWidget {
+  final int total;
+  final int activeIndex;
+
+  const _MediaViewerDotIndicator({
+    required this.total,
+    required this.activeIndex,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(total, (index) {
+        final isActive = index == activeIndex;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          width: isActive ? 24 : 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: isActive ? Colors.white : Colors.white30,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        );
+      }),
     );
   }
 }

@@ -179,25 +179,33 @@ class SyncService {
   /// still useful.
   ///
   /// Returns when all branches complete (success OR swallowed error).
-  /// The boolean indicates whether at least one branch succeeded — UIs
-  /// can use it to dim the "updated X min ago" hint on total failure,
-  /// but today HomeScreen just re-reads the cache regardless.
-  Future<bool> pullAll(String practiceId) async {
+  /// See [SyncPullOutcome] for the two signals the UI cares about:
+  ///
+  /// * [SyncPullOutcome.anySucceeded] — at least one branch landed; UIs
+  ///   can use it to refresh the "updated X min ago" hint.
+  /// * [SyncPullOutcome.hadError] — at least one branch threw an RPC
+  ///   error (i.e. the device is online but the cloud rejected us).
+  ///   Drives the "Couldn't refresh. Tap to retry." banner on Home so
+  ///   a silent RPC failure never masquerades as "you have no clients".
+  Future<SyncPullOutcome> pullAll(String practiceId) async {
     _lastPracticeId = practiceId;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
     // Fire all four in parallel. Each catches its own errors so a
     // single failure doesn't poison the others.
-    final results = await Future.wait<bool>([
+    final results = await Future.wait<_BranchOutcome>([
       _pullPractices(),
       _pullClients(practiceId, nowMs),
       _pullCreditBalance(practiceId, nowMs),
       _backfillSessionClientIds(practiceId),
     ]);
-    return results.any((ok) => ok);
+    return SyncPullOutcome(
+      anySucceeded: results.any((r) => r == _BranchOutcome.ok),
+      hadError: results.any((r) => r == _BranchOutcome.error),
+    );
   }
 
-  Future<bool> _pullPractices() async {
+  Future<_BranchOutcome> _pullPractices() async {
     try {
       final memberships = await ApiClient.instance.listMyPractices();
       // listMyPractices doesn't carry joined_at — we re-fetch via the
@@ -243,16 +251,21 @@ class SyncService {
               ))
           .toList(growable: false);
       await _storage.replaceCachedPractices(cached);
-      return true;
+      return _BranchOutcome.ok;
     } catch (e) {
       debugPrint('SyncService._pullPractices: $e');
-      return false;
+      return _BranchOutcome.error;
     }
   }
 
-  Future<bool> _pullClients(String practiceId, int nowMs) async {
+  Future<_BranchOutcome> _pullClients(String practiceId, int nowMs) async {
     try {
-      final clients = await ApiClient.instance.listPracticeClients(practiceId);
+      // Use the throwing variant so an RPC failure bubbles up here
+      // instead of silently returning `[]` and making it look like the
+      // practice has no clients. The Home screen reads [hadError] from
+      // the outcome and shows a "Couldn't refresh" banner.
+      final clients = await ApiClient.instance
+          .listPracticeClientsOrThrow(practiceId);
       final cached = clients
           .map((c) => CachedClient(
                 id: c.id,
@@ -268,43 +281,51 @@ class SyncService {
         practiceId: practiceId,
         clients: cached,
       );
-      return true;
+      return _BranchOutcome.ok;
     } catch (e) {
       debugPrint('SyncService._pullClients: $e');
-      return false;
+      return _BranchOutcome.error;
     }
   }
 
-  Future<bool> _pullCreditBalance(String practiceId, int nowMs) async {
+  Future<_BranchOutcome> _pullCreditBalance(
+    String practiceId,
+    int nowMs,
+  ) async {
     try {
       final balance = await ApiClient.instance
           .practiceCreditBalance(practiceId: practiceId);
-      if (balance == null) return false;
+      if (balance == null) {
+        // A null balance isn't an error per se (RPC responded but had
+        // nothing to say) — treat as "no-op" so we don't flash the
+        // error banner on a perfectly healthy empty response.
+        return _BranchOutcome.noop;
+      }
       await _storage.upsertCachedCreditBalance(
         practiceId: practiceId,
         balance: balance,
         nowMs: nowMs,
       );
-      return true;
+      return _BranchOutcome.ok;
     } catch (e) {
       debugPrint('SyncService._pullCreditBalance: $e');
-      return false;
+      return _BranchOutcome.error;
     }
   }
 
-  Future<bool> _backfillSessionClientIds(String practiceId) async {
+  Future<_BranchOutcome> _backfillSessionClientIds(String practiceId) async {
     try {
       final links = await ApiClient.instance.listPlanClientLinks(practiceId);
-      if (links.isEmpty) return true;
+      if (links.isEmpty) return _BranchOutcome.ok;
       await _storage.backfillSessionClientIds(
         links
             .map((l) => (planId: l.planId, clientId: l.clientId))
             .toList(growable: false),
       );
-      return true;
+      return _BranchOutcome.ok;
     } catch (e) {
       debugPrint('SyncService._backfillSessionClientIds: $e');
-      return false;
+      return _BranchOutcome.error;
     }
   }
 
@@ -668,4 +689,42 @@ class SyncService {
     if (e is PostgrestException) return e.code;
     return null;
   }
+}
+
+/// Outcome of a single [SyncService.pullAll] branch.
+enum _BranchOutcome {
+  /// The branch completed and committed new data to the cache.
+  ok,
+
+  /// The branch completed but had nothing useful to commit (e.g. the
+  /// RPC returned null / empty). Not an error — still a clean round-
+  /// trip with the cloud.
+  noop,
+
+  /// The branch threw — either the RPC errored server-side or the
+  /// network failed mid-request. Either way the cache was NOT updated
+  /// and the UI should treat this as "we couldn't talk to the cloud
+  /// right now".
+  error,
+}
+
+/// Result of a [SyncService.pullAll] invocation. Carries two signals:
+///
+/// * [anySucceeded] — at least one branch landed fresh data.
+/// * [hadError] — at least one branch threw. Connectivity is checked
+///   separately via [SyncService.offline]; the caller should combine
+///   the two to tell "offline, expected" (silent) from "online but RPC
+///   failed" (surface to user).
+///
+/// This replaces the plain `bool` that [pullAll] used to return, which
+/// couldn't distinguish "partial success" from "total silent failure".
+@immutable
+class SyncPullOutcome {
+  final bool anySucceeded;
+  final bool hadError;
+
+  const SyncPullOutcome({
+    required this.anySucceeded,
+    required this.hadError,
+  });
 }

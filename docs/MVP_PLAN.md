@@ -25,17 +25,18 @@ POV passed. The system captures → converts → publishes → shares end-to-end
 - **Healthcare context matters.** POPIA, client confidentiality, brand integrity all have to be tight. Referral language stays peer-to-peer ("practitioner network"), never consumer-coupon ("earn rewards!").
 - Planned onboarding date: **mid-Week 2** (around 2026-04-27).
 
-## Referral / affiliate model (signed off)
+## Referral / affiliate model (updated Milestone M, 2026-04-20)
 
-- **Code shape:** opaque short random code, 6–8 chars (e.g. `m7xk3q`). No practice name or owner email leaked.
-- **Signup URL:** `https://manage.homefit.studio/join/{code}` (captures `code` into a cookie or pending-signup row until sign-in completes).
-- **Trigger:** referee's **first paid purchase** (not signup — signup is cheap signal).
-- **Reward:** both-sided, credits only.
-  - Referrer gets **+10 credits** (≈ R250 of value at starter bundle pricing).
-  - Referee gets **+10 bonus credits** at the moment their first bundle lands.
-- **Cap:** one-time per referee. No ongoing commission — PayFast revenue-share is out of scope for MVP.
-- **Visible on:** `/dashboard` — "Share with colleagues" card with copyable link + current referral stats (how many practices joined, how many credits earned).
-- **Integration point:** PayFast webhook (`payfast-webhook` edge function) extends to check for pending referral on first `credit_ledger` insert of type `purchase` for a practice, and emits the bonus rows atomically.
+- **Code shape:** opaque 7-char code from an unambiguous alphabet (no i/l/o/0/1). No practice name or owner email leaked.
+- **Signup URL:** `https://session.homefit.studio/r/{code}` (captures `code` into a cookie until sign-in completes via Google OAuth).
+- **Signup bonuses (at signup, NOT first purchase):**
+  - Organic signup: **+3 credits** (`signup_bonus` ledger kind) — lets new practitioners try a publish or two before paying.
+  - Referral claim: **+5 credits** on top (`referral_signup_bonus`) — net 8 total for referees.
+- **Lifetime rebate (on every referee purchase):** **5%** of purchase amount, in credits, to the referrer. Fractional — stored as `numeric(10,4)` in `referral_rebate_ledger`.
+- **Goodwill floor (first rebate only):** if `5% × purchase < 1`, round UP to 1 credit. Tracked via `practice_referrals.goodwill_floor_applied`. Covers the tiny-first-bundle case so a R250 starter bundle still pays the referrer something meaningful.
+- **Cap:** single-tier only (A→B→C pays A nothing from C), enforced by DB trigger.
+- **Visible on:** `/network` — "Share kit" card with copyable link + `/r/{code}` pitches + `Network rebate` stats.
+- **Integration point:** PayFast webhook routes through `record_purchase_with_rebates` SECURITY DEFINER RPC, which wraps the `credit_ledger` purchase row + any `referral_rebate_ledger` rows in one transaction.
 
 ## Cross-cutting workstream — design polish
 
