@@ -162,26 +162,47 @@ class ConversionService extends ChangeNotifier {
           conversionStatus: ConversionStatus.done,
         );
 
-        // Replace the raw-video thumbnail with a frame from the CONVERTED
-        // line-drawing video so the UI shows the line-art style everywhere.
+        // Regenerate the stored thumbnail now that conversion is done.
+        //
+        // Design (2026-04-20): practitioner-facing lists (Home clients,
+        // ClientSessions, Studio exercise cards, Thumbnail Peek, Camera
+        // peek box) all read this single thumbnail asset. Line-drawing
+        // thumbnails weren't functional at small sizes even after PR #22's
+        // motion-peak + person-crop rescue, so we:
+        //
+        //   1. Extract from the RAW capture (not the line-drawing video).
+        //      The client's face/body appears in B&W inside the trainer
+        //      app only. The web player (client-facing) keeps the line
+        //      drawing via `line_drawing_url` — unchanged.
+        //   2. Ask the native side to recolour to luminance via
+        //      grayscale:true. Keeps the motion-peak + person-crop
+        //      heuristics from PR #22 intact.
+        //   3. Fall back to the 720p H.264 archive if the raw is missing
+        //      (long-lived installs where cleanup has run), and finally
+        //      to the converted line-drawing as a last resort — rather
+        //      than leaving the UI with a stale frame.
         if (exercise.mediaType == MediaType.video) {
           try {
             final dir = await getApplicationDocumentsDirectory();
             final thumbPath =
                 p.join(dir.path, 'thumbnails', '${exercise.id}_thumb.jpg');
-            await _thumbChannel.invokeMethod<String>('extractFrame', {
-              'inputPath': PathResolver.resolve(done.convertedFilePath!),
-              'outputPath': thumbPath,
-              // `timeMs` ignored when autoPick=true; the native side samples
-              // a motion-peak frame and crops tight around the person. Gives
-              // a more readable thumbnail at Studio-list sizes.
-              'timeMs': 0,
-              'autoPick': true,
-            });
-            done = done.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
+            final sourcePath = await _pickThumbnailSource(done);
+            if (sourcePath != null) {
+              await _thumbChannel.invokeMethod<String>('extractFrame', {
+                'inputPath': sourcePath,
+                'outputPath': thumbPath,
+                // `timeMs` ignored when autoPick=true; the native side samples
+                // a motion-peak frame and crops tight around the person. Gives
+                // a more readable thumbnail at Studio-list sizes.
+                'timeMs': 0,
+                'autoPick': true,
+                'grayscale': true,
+              });
+              done = done.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
+            }
           } catch (e) {
             debugPrint('Post-conversion thumbnail update failed: $e');
-            // Non-fatal — keep the raw thumbnail
+            // Non-fatal — keep the pre-conversion thumbnail
           }
 
           // Probe the raw video duration via AVURLAsset so the "one rep" in
@@ -317,6 +338,34 @@ class ConversionService extends ChangeNotifier {
     }
   }
 
+  /// Pick the best available source file to extract a practitioner-facing
+  /// thumbnail from, falling back in readability-preference order:
+  ///
+  ///   1. Raw capture (`rawFilePath`) — what the camera actually recorded.
+  ///      Grayscales cleanly and gives the most legible "this is Client A
+  ///      doing a squat" frame.
+  ///   2. 720p H.264 archive (`archiveFilePath`) — still a real-person
+  ///      frame, just smaller. Safe fallback for long-lived installs where
+  ///      the raw got pruned.
+  ///   3. Converted line-drawing (`convertedFilePath`) — last resort. Worse
+  ///      legibility at small sizes but strictly better than leaving the
+  ///      old thumbnail untouched.
+  ///
+  /// Returns null if none of the candidates exist on disk (shouldn't
+  /// happen in practice — caller will skip the thumbnail regen step).
+  Future<String?> _pickThumbnailSource(ExerciseCapture exercise) async {
+    final candidates = <String?>[
+      exercise.rawFilePath.isNotEmpty ? exercise.absoluteRawFilePath : null,
+      exercise.absoluteArchiveFilePath,
+      exercise.absoluteConvertedFilePath,
+    ];
+    for (final candidate in candidates) {
+      if (candidate == null || candidate.isEmpty) continue;
+      if (await File(candidate).exists()) return candidate;
+    }
+    return null;
+  }
+
   /// Extract a video frame and save it as a JPEG thumbnail.
   /// Returns the thumbnail path, or null if extraction fails.
   ///
@@ -331,6 +380,9 @@ class ConversionService extends ChangeNotifier {
     final thumbPath = p.join(thumbDir.path, '${exerciseId}_thumb.jpg');
 
     // Attempt 0: Simple native frame extraction (most reliable on iOS).
+    // `grayscale:true` — practitioner-facing lists render the B&W frame so
+    // the client is readable at small sizes. The line-drawing treatment
+    // is preserved on the client-facing web player only.
     try {
       final result = await _thumbChannel.invokeMethod<String>(
         'extractFrame',
@@ -341,6 +393,7 @@ class ConversionService extends ChangeNotifier {
           // frame and crops tight around the person.
           'timeMs': 0,
           'autoPick': true,
+          'grayscale': true,
         },
       );
       if (result != null && await File(thumbPath).exists()) {
@@ -370,6 +423,7 @@ class ConversionService extends ChangeNotifier {
           // frame and crops tight around the person.
           'timeMs': 0,
           'autoPick': true,
+          'grayscale': true,
         },
       );
       if (result != null && result['success'] == true) {

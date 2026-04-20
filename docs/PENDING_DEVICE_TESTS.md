@@ -48,6 +48,13 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Edge case: capture a stationary shot (practitioner standing still). Motion-peak should fall back gracefully to midpoint; person-crop should still tighten.
    - Edge case: capture a video without a person in frame (e.g. pointing at equipment). Person-segmentation will return nil → thumbnail falls through to the un-cropped masked image (same look as before).
 
+5a. **Grayscale practitioner thumbnails** (`feat/grayscale-practitioner-thumbnails`) — follow-up to #5. PR #22's person-crop alone wasn't enough: the line-drawing medium itself stayed illegible at list sizes. Now practitioner-facing thumbnails extract from the raw capture + recolour to luminance (B&W). Client-facing surfaces (web player) are unchanged — line drawing stays there. On device:
+   - **New capture → B&W thumbnail**: capture a fresh video exercise. Home client list, ClientSessions, Studio list, Thumbnail Peek, and the Camera peek box should all show a grayscale frame with the person centred and readable. No line-drawing strokes.
+   - **Old captures unchanged**: captures that existed before installing this build should keep their old line-drawing thumbnail on disk. We intentionally skipped retroactive regeneration to avoid storage churn — re-capture to refresh.
+   - **Web player unchanged**: publish the new capture → open the client URL in a browser. The exercise video should play the line-drawing treatment by default (coral `line_drawing_url`). The B&W treatment is still reachable via the segmented control only when the client has consent.
+   - **Thumbnail is practitioner-only**: the web player does not expose the thumbnail JPEG. It renders the video frame live and reads `line_drawing_url` / `grayscale_url` / `original_url` from `get_plan_full` — not the client-side thumbnail. Quick check: network tab in the browser should never load `{id}_thumb.jpg`.
+   - Edge case: capture where person-segmentation misses (no person in frame) → still produces a grayscale thumbnail of the full frame (no crop), which is still readable, just wider context.
+
 6. **Studio MediaViewer — treatment cycling + inline consent** (branch `feat/studio-mediaviewer-treatments`):
    - Long-press a Studio thumbnail → "Open full-screen"
    - Verify top-left segmented control renders: Line · B&W · Original
