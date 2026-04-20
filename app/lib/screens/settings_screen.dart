@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/powered_by_footer.dart';
 import '../widgets/set_password_sheet.dart';
@@ -393,6 +394,12 @@ class _CreditBalanceRow extends StatefulWidget {
 class _CreditBalanceRowState extends State<_CreditBalanceRow> {
   int? _balance;
   bool _loading = false;
+
+  /// Epoch-ms stamp on the cached balance, if any. Drives the "Last
+  /// synced X ago" hint that surfaces when the cache is more than 5
+  /// minutes old.
+  int? _cachedSyncedAt;
+
   String? _loadedForPracticeId;
 
   @override
@@ -415,27 +422,67 @@ class _CreditBalanceRowState extends State<_CreditBalanceRow> {
       setState(() {
         _balance = null;
         _loading = false;
+        _cachedSyncedAt = null;
         _loadedForPracticeId = null;
       });
       return;
     }
-    setState(() {
-      _loading = true;
-      _loadedForPracticeId = practiceId;
-    });
+
+    // Seed from the local cache so the row renders an actual number
+    // even offline / before the live fetch resolves.
+    try {
+      final cached =
+          await SyncService.instance.storage.getCachedCreditBalance(practiceId);
+      if (!mounted) return;
+      if (cached != null) {
+        setState(() {
+          _balance = cached.balance;
+          _cachedSyncedAt = cached.syncedAt;
+          _loading = false;
+          _loadedForPracticeId = practiceId;
+        });
+      } else {
+        setState(() {
+          _loading = true;
+          _loadedForPracticeId = practiceId;
+        });
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = true;
+        _loadedForPracticeId = practiceId;
+      });
+    }
+
+    // Live fetch. On success, cache + display both update. On failure
+    // the cached value (if any) stays on screen.
     try {
       final result = await ApiClient.instance.practiceCreditBalance(
         practiceId: practiceId,
       );
       if (!mounted || _loadedForPracticeId != practiceId) return;
-      setState(() {
-        _balance = result;
-        _loading = false;
-      });
+      if (result != null) {
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        await SyncService.instance.storage.upsertCachedCreditBalance(
+          practiceId: practiceId,
+          balance: result,
+          nowMs: nowMs,
+        );
+        if (!mounted || _loadedForPracticeId != practiceId) return;
+        setState(() {
+          _balance = result;
+          _cachedSyncedAt = nowMs;
+          _loading = false;
+        });
+      } else {
+        setState(() {
+          _loading = false;
+        });
+      }
     } catch (_) {
       if (!mounted || _loadedForPracticeId != practiceId) return;
       setState(() {
-        _balance = null;
         _loading = false;
       });
     }
@@ -444,20 +491,103 @@ class _CreditBalanceRowState extends State<_CreditBalanceRow> {
   @override
   Widget build(BuildContext context) {
     String valueText;
-    if (_loading || widget.practiceId == null) {
+    if (_loading && _balance == null) {
       valueText = '—';
     } else if (_balance == null) {
-      valueText = 'Couldn\'t load — tap to retry';
+      valueText = "Couldn't load — tap to retry";
     } else {
       valueText = _balance == 1 ? '1 credit' : '$_balance credits';
     }
+
     final retryable = !_loading && _balance == null && widget.practiceId != null;
-    final row = _ReadOnlyRow(label: 'Credit balance', value: valueText);
+
+    // Staleness hint: show "Last synced X ago" if we're rendering a
+    // cached value and it's older than 5 minutes.
+    String? staleHint;
+    if (_balance != null && _cachedSyncedAt != null) {
+      final diffMs =
+          DateTime.now().millisecondsSinceEpoch - _cachedSyncedAt!;
+      if (diffMs > const Duration(minutes: 5).inMilliseconds) {
+        staleHint = 'Last synced ${_relativeAge(_cachedSyncedAt!)}';
+      }
+    }
+
+    final row = staleHint == null
+        ? _ReadOnlyRow(label: 'Credit balance', value: valueText)
+        : _ReadOnlyRowWithHint(
+            label: 'Credit balance',
+            value: valueText,
+            hint: staleHint,
+          );
     if (!retryable) return row;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _refresh,
       child: row,
+    );
+  }
+
+  static String _relativeAge(int epochMs) {
+    final diff = DateTime.now()
+        .difference(DateTime.fromMillisecondsSinceEpoch(epochMs));
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+}
+
+/// Variant of [_ReadOnlyRow] that shows a muted hint line beneath the
+/// value (e.g. "Last synced 2h ago" for a stale cache).
+class _ReadOnlyRowWithHint extends StatelessWidget {
+  final String label;
+  final String value;
+  final String hint;
+
+  const _ReadOnlyRowWithHint({
+    required this.label,
+    required this.value,
+    required this.hint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+              color: AppColors.textSecondaryOnDark,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textOnDark,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 3),
+          Text(
+            hint,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              color: AppColors.textSecondaryOnDark,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -506,9 +636,38 @@ class _PracticeRowState extends State<_PracticeRow> {
       _errored = false;
       _loadedForPracticeId = practiceId;
     });
+
+    // Seed from cache.
+    try {
+      final cached = await SyncService.instance.storage.getCachedPractices();
+      if (!mounted || _loadedForPracticeId != practiceId) return;
+      if (cached.isNotEmpty) {
+        final match = cached.firstWhere(
+          (m) => m.id == practiceId,
+          orElse: () => cached.first,
+        );
+        setState(() {
+          _name = match.name.isNotEmpty ? match.name : null;
+          _loading = false;
+          _errored = false;
+        });
+      }
+    } catch (_) {
+      // Cache miss — fall through to network.
+    }
+
     try {
       final memberships = await ApiClient.instance.listMyPractices();
       if (!mounted || _loadedForPracticeId != practiceId) return;
+      if (memberships.isEmpty) {
+        // No network, no cache. Keep loading indicator if we never
+        // got cache; otherwise leave cached value on screen.
+        setState(() {
+          _loading = false;
+          _errored = _name == null;
+        });
+        return;
+      }
       final match = memberships.firstWhere(
         (m) => m.id == practiceId,
         orElse: () => memberships.isNotEmpty
@@ -520,16 +679,16 @@ class _PracticeRowState extends State<_PracticeRow> {
               ),
       );
       setState(() {
-        _name = match.name.isNotEmpty ? match.name : null;
+        _name = match.name.isNotEmpty ? match.name : _name;
         _loading = false;
         _errored = false;
       });
     } catch (_) {
       if (!mounted || _loadedForPracticeId != practiceId) return;
       setState(() {
-        _name = null;
         _loading = false;
-        _errored = true;
+        // Only flag error if we have no cached value to fall back on.
+        _errored = _name == null;
       });
     }
   }

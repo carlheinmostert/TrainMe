@@ -53,6 +53,7 @@ All RPCs live in the `public` schema.
 | `bootstrap_practice_for_user`    | —                                            | `uuid`           | authed only   | app               | `schema_milestone_e_safe_rpcs.sql`              |
 | `user_practice_ids`              | —                                            | `uuid[]`         | authed only   | RLS helpers       | `schema_milestone_c_recursion_fix.sql`          |
 | `user_is_practice_owner`         | `pid uuid`                                   | `boolean`        | authed only   | RLS helpers       | `schema_milestone_c_recursion_fix.sql`          |
+| `upsert_client_with_id`          | `p_id uuid`, `p_practice_id uuid`, `p_name text` | `uuid`       | authed only   | app (offline sync) | `schema_milestone_k_upsert_client_with_id.sql` |
 
 `user_practice_ids` / `user_is_practice_owner` are RLS internals — they
 exist to break the policy-recursion trap. Client code never calls them

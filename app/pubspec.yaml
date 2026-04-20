@@ -58,6 +58,15 @@ dependencies:
   # explicit declaration here makes the Dart-side dep discoverable.
   shared_preferences: ^2.3.3
 
+  # Offline-first foundation. SyncService subscribes to
+  # `onConnectivityChanged` so the pending-op queue drains the moment
+  # the device regains network. If the plugin ever fails to initialise
+  # (simulator oddity, plugin registration quirk) the service treats
+  # the device as online-optimistic — RPC calls fail normally and
+  # retry on the next boot. No feature regressions if this package is
+  # unavailable.
+  connectivity_plus: ^6.1.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

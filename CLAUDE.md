@@ -199,6 +199,7 @@ Surfaces required to match:
 - **VPN interference:** resolved 2026-04-18 — Carl confirms `install-device.sh` now runs with NordVPN on. `xcrun devicectl` + Claude API coexist fine. Keep the split-tunneling note in case it recurs after a NordVPN / iOS update.
 - **Google Sign-In nonce mismatch:** iOS `GoogleSignIn` 8.x auto-injects a nonce claim into the id_token; Flutter `google_sign_in` v6/v7 never exposes the raw nonce to Dart; Supabase `signInWithIdToken` rejects. Parked — MVP ships with email + password + magic link. See `docs/BACKLOG_GOOGLE_SIGNIN.md` for the full post-mortem and re-enablement options.
 - **Claude Code operations note:** Running agents in background (`run_in_background: true`) lets Claude respond while long builds run. Never use `flutter run` — it's interactive and spawns lldb processes that don't clean up. Use `flutter build ios --debug --simulator` + `xcrun simctl install` + `xcrun simctl launch` instead.
+- **Offline-first guarantee (2026-04-19):** Home / ClientSessions / PracticeChip / Settings credit-balance all read from SQLite cache first (`cached_clients`, `cached_practices`, `cached_credit_balance`). Client create / rename / consent operations queue into `pending_ops` and flush the moment connectivity returns. Publish stays online-only by design — credit consumption is load-bearing. See `app/lib/services/sync_service.dart` for the orchestrator.
 
 ## Business Case (validated)
 

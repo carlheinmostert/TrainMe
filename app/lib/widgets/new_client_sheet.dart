@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../services/api_client.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 
 /// Bottom sheet for minting a new client from the Clients-as-Home spine.
@@ -51,38 +50,33 @@ class _NewClientSheetState extends State<NewClientSheet> {
       _error = null;
     });
 
+    // Offline-first: write the client to the local cache + enqueue
+    // the cloud upsert, then pop immediately. The UI doesn't wait on
+    // the network — a slow or absent connection becomes invisible to
+    // the practitioner.
     try {
-      final clientId = await ApiClient.instance.upsertClient(
+      final cached = await SyncService.instance.queueCreateClient(
         practiceId: widget.practiceId,
         name: name,
       );
       if (!mounted) return;
-      if (clientId == null) {
-        setState(() {
-          _saving = false;
-          _error = "Couldn't create — tap to retry";
-        });
-        return;
-      }
-      Navigator.of(context).pop(NewClientResult(id: clientId, name: name));
-    } on PostgrestException catch (e) {
+      Navigator.of(context).pop(
+        NewClientResult(id: cached.id, name: cached.name),
+      );
+    } catch (e) {
+      // The cache write itself errored (e.g. UNIQUE(practice_id,name)
+      // collision from a previously-created local row). Surface the
+      // duplicate inline; for other shapes fall back to generic retry
+      // copy.
       if (!mounted) return;
-      if (e.code == '23505') {
-        setState(() {
-          _saving = false;
-          _error = 'A client with that name already exists.';
-        });
-      } else {
-        setState(() {
-          _saving = false;
-          _error = "Couldn't create — tap to retry";
-        });
-      }
-    } catch (_) {
-      if (!mounted) return;
+      final msg = e.toString();
+      final isDuplicate =
+          msg.contains('UNIQUE') || msg.contains('unique') || msg.contains('2067');
       setState(() {
         _saving = false;
-        _error = "Couldn't create — tap to retry";
+        _error = isDuplicate
+            ? 'A client with that name already exists.'
+            : "Couldn't create — tap to retry";
       });
     }
   }

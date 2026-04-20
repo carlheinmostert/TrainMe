@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -5,12 +6,13 @@ import 'package:flutter/services.dart';
 
 import '../models/client.dart';
 import '../models/session.dart';
-import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/bootstrap_error_banner.dart';
 import '../widgets/new_client_sheet.dart';
+import '../widgets/offline_sync_chip.dart';
 import '../widgets/powered_by_footer.dart';
 import '../widgets/practice_chip.dart';
 import 'client_sessions_screen.dart';
@@ -58,6 +60,16 @@ class _HomeScreenState extends State<HomeScreen> {
   /// the build() swaps the list for an error card with a retry button.
   String? _loadError;
 
+  /// True when the local cache is empty AND the device is offline AND
+  /// a cloud pull has been attempted at least once this session.
+  /// Triggers the specific "you're offline; reconnect to see clients"
+  /// empty state instead of the generic "No clients yet" card.
+  bool _cacheEmptyAndOffline = false;
+
+  /// Epoch-ms timestamp of the most recent successful background
+  /// pullAll. Drives the "Updated X min ago" hint.
+  int? _lastSyncedMs;
+
   String? _lastPracticeId;
 
   @override
@@ -85,6 +97,10 @@ class _HomeScreenState extends State<HomeScreen> {
   // Data
   // ---------------------------------------------------------------------------
 
+  /// Cache-first load. Reads clients + sessions from local SQLite,
+  /// renders immediately, then kicks off a background [SyncService.pullAll]
+  /// to refresh the cache (non-blocking). The user sees something
+  /// instantly even offline.
   Future<void> _load() async {
     if (_loadError != null || !_loading) {
       setState(() {
@@ -99,24 +115,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
       List<PracticeClient> clients = const [];
       if (practiceId != null && practiceId.isNotEmpty) {
-        clients =
-            await ApiClient.instance.listPracticeClients(practiceId);
-
-        // Backfill local SQLite `sessions.client_id` from the cloud's
-        // `plans.client_id` for any pre-v16 legacy sessions that still
-        // carry a null client_id. This keeps the name-match fallback in
-        // _computeStats from breaking when a client is renamed (cloud
-        // updates the client name, but the legacy session's clientName
-        // stays stale). One-shot per load; idempotent; cheap.
-        final links =
-            await ApiClient.instance.listPlanClientLinks(practiceId);
-        if (links.isNotEmpty) {
-          await widget.storage.backfillSessionClientIds(
-            links
-                .map((l) => (planId: l.planId, clientId: l.clientId))
-                .toList(growable: false),
-          );
-        }
+        // Read clients from the local cache. This is the offline-first
+        // path — the list renders instantly regardless of connectivity.
+        final cached = await widget.storage
+            .getCachedClientsForPractice(practiceId);
+        clients = cached.map((c) => c.toPracticeClient()).toList(growable: false);
       }
 
       // Claim any orphan sessions for the current user before counting.
@@ -135,6 +138,14 @@ class _HomeScreenState extends State<HomeScreen> {
         _loading = false;
         _loadError = null;
       });
+
+      // Non-blocking background sync. When it completes we re-read
+      // the cache and update the list — the user sees fresh data roll
+      // in without having to wait on the initial render. Offline-safe:
+      // pullAll swallows all failures.
+      if (practiceId != null && practiceId.isNotEmpty) {
+        unawaited(_backgroundSync(practiceId));
+      }
     } catch (e) {
       final text = e.toString();
       final truncated = text.substring(0, min(200, text.length));
@@ -146,6 +157,31 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadError = truncated;
       });
     }
+  }
+
+  /// Run a cloud pull, then re-hydrate the local list from the fresh
+  /// cache. Swallows errors — the UI keeps showing whatever we already
+  /// had. Sets [_cacheEmptyAndOffline] if the pull finishes and we
+  /// still have no clients AND we're offline, so the empty state can
+  /// say so plainly.
+  Future<void> _backgroundSync(String practiceId) async {
+    final ok = await SyncService.instance.pullAll(practiceId);
+    if (!mounted) return;
+    final cached = await widget.storage.getCachedClientsForPractice(practiceId);
+    final clients = cached.map((c) => c.toPracticeClient()).toList(growable: false);
+    final userId = AuthService.instance.currentUserId;
+    final sessions = await widget.storage.getSessionsForUser(userId);
+    final stats = _computeStats(clients, sessions);
+    if (!mounted) return;
+    setState(() {
+      _clients = clients;
+      _stats = stats;
+      if (ok) {
+        _lastSyncedMs = DateTime.now().millisecondsSinceEpoch;
+      }
+      _cacheEmptyAndOffline =
+          clients.isEmpty && SyncService.instance.offline.value;
+    });
   }
 
   /// Bucket local sessions by client. Matches first by [Session.clientId]
@@ -214,8 +250,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final result = await showNewClientSheet(context, practiceId: practiceId);
     if (result == null) return;
 
-    // Optimistic local entry so the drilldown lands on a populated
-    // screen even if the refresh round-trip is slow.
+    // NewClientSheet already wrote the local cached_clients row +
+    // enqueued the upsert_client_with_id op via SyncService. Surface
+    // the freshly created client in the local state without waiting
+    // on the cache round-trip so the drilldown lands instantly.
     final freshClient = PracticeClient(
       id: result.id,
       practiceId: practiceId,
@@ -269,6 +307,11 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Row(
                 children: [
                   const PracticeChip(),
+                  const SizedBox(width: 8),
+                  // Offline / pending-ops chip. Hidden when online +
+                  // queue empty; subtle ink-muted when there's
+                  // something to say.
+                  const OfflineSyncChip(),
                   const Spacer(),
                   IconButton(
                     onPressed: _openSettings,
@@ -282,6 +325,28 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
+            // "Updated N min ago" hint, only when we have a successful
+            // sync to report AND the body is the clients list (not
+            // loading / error / empty).
+            if (_lastSyncedMs != null &&
+                !_loading &&
+                _loadError == null &&
+                _clients.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+                child: Row(
+                  children: [
+                    Text(
+                      'Updated ${_relativeAge(_lastSyncedMs!)}',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        color: AppColors.textSecondaryOnDark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: 8),
             ValueListenableBuilder<String?>(
               valueListenable: AuthService.instance.bootstrapError,
@@ -360,6 +425,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildEmptyState() {
+    // Distinguish "first-run, online — invite to add a client" from
+    // "offline with no cache yet — explain the state plainly". The
+    // offline path suppresses the coral CTA because creating a client
+    // locally is fine, but users coming from a fresh install with no
+    // cache have nothing to compare against.
+    final offlineNoCache = _cacheEmptyAndOffline;
+    final title = offlineNoCache ? "You're offline" : 'No clients yet';
+    final body = offlineNoCache
+        ? "We'll fill in your clients the moment you reconnect."
+        : 'Add your first client to start capturing plans.';
     return LayoutBuilder(
       builder: (context, c) => SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -371,16 +446,18 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const SizedBox(height: 32),
-                const Icon(
-                  Icons.people_alt_outlined,
+                Icon(
+                  offlineNoCache
+                      ? Icons.cloud_off_outlined
+                      : Icons.people_alt_outlined,
                   size: 64,
                   color: AppColors.grey600,
                 ),
                 const SizedBox(height: 18),
-                const Text(
-                  'No clients yet',
+                Text(
+                  title,
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontFamily: 'Montserrat',
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
@@ -388,39 +465,41 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Add your first client to start capturing plans.',
+                Text(
+                  body,
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 14,
                     color: AppColors.textSecondaryOnDark,
                     height: 1.4,
                   ),
                 ),
-                const SizedBox(height: 22),
-                SizedBox(
-                  width: 260,
-                  child: FilledButton.icon(
-                    onPressed: _addClient,
-                    icon: const Icon(Icons.person_add_alt_1_rounded),
-                    label: const Text('Add your first client'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(AppTheme.radiusMd),
-                      ),
-                      textStyle: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                if (!offlineNoCache) ...[
+                  const SizedBox(height: 22),
+                  SizedBox(
+                    width: 260,
+                    child: FilledButton.icon(
+                      onPressed: _addClient,
+                      icon: const Icon(Icons.person_add_alt_1_rounded),
+                      label: const Text('Add your first client'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(AppTheme.radiusMd),
+                        ),
+                        textStyle: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 32),
               ],
             ),
@@ -428,6 +507,17 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  /// Relative age string used for the "Updated X min ago" hint.
+  static String _relativeAge(int epochMs) {
+    final diff = DateTime.now()
+        .difference(DateTime.fromMillisecondsSinceEpoch(epochMs));
+    if (diff.inSeconds < 30) return 'just now';
+    if (diff.inMinutes < 1) return '${diff.inSeconds}s ago';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 
   Widget _buildShimmer() {
