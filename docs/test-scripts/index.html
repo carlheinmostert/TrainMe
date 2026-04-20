@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — test scripts</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+    --sage-bg: rgba(134,239,172,0.12);
+    --red: #EF4444;
+    --red-bg: rgba(239,68,68,0.12);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  .lede {
+    color: var(--text-mute); margin: 0 0 32px;
+  }
+
+  .active-card {
+    display: block;
+    background: linear-gradient(180deg, rgba(255,107,53,0.10), rgba(255,107,53,0.02));
+    border: 1.5px solid rgba(255,107,53,0.45);
+    border-radius: 14px;
+    padding: 24px 28px;
+    text-decoration: none; color: inherit;
+    transition: all 180ms ease;
+    margin-bottom: 32px;
+  }
+  .active-card:hover {
+    border-color: var(--coral);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 32px rgba(255,107,53,0.15);
+  }
+  .active-card .label {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 8px;
+  }
+  .active-card .title {
+    font-family: Montserrat, sans-serif; font-weight: 700;
+    font-size: 22px; margin: 0 0 6px; letter-spacing: -0.3px;
+  }
+  .active-card .sub {
+    color: var(--text-mute); font-size: 13px; margin: 0;
+  }
+  .active-card .arrow {
+    float: right; color: var(--coral); font-size: 20px; margin-top: 4px;
+  }
+
+  h2 {
+    font-family: Montserrat, sans-serif; font-weight: 600;
+    font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-dim);
+    margin: 0 0 14px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .wave-list { list-style: none; padding: 0; margin: 0; }
+  .wave-list li { margin: 6px 0; }
+  .wave-list a {
+    display: block; padding: 14px 18px;
+    background: var(--raised); border: 1px solid var(--border);
+    border-radius: 10px; text-decoration: none; color: inherit;
+    transition: all 120ms ease;
+  }
+  .wave-list a:hover {
+    border-color: rgba(255,107,53,0.3);
+    background: rgba(255,107,53,0.03);
+  }
+  .wave-list .row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+  }
+  .wave-list .name {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+  }
+  .wave-list .date {
+    color: var(--text-dim); font-size: 12px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    margin-top: 2px;
+  }
+  .chip {
+    display: inline-block; padding: 3px 10px; border-radius: 9999px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.6px;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .chip.active { background: var(--coral-bg); color: var(--coral); border: 1px solid rgba(255,107,53,0.3); }
+  .chip.complete { background: var(--sage-bg); color: var(--sage); border: 1px solid rgba(134,239,172,0.3); }
+  .chip.historic { background: var(--raised); color: var(--text-dim); border: 1px solid var(--border); }
+  .chip.planned { background: transparent; color: var(--text-dim); border: 1px dashed var(--text-dim); }
+
+  .wave-list li.planned a {
+    background: transparent;
+    border: 1px dashed var(--border);
+    cursor: default;
+    opacity: 0.75;
+  }
+  .wave-list li.planned a:hover {
+    border-color: var(--border);
+    background: transparent;
+  }
+  .wave-list li.planned .name { color: var(--text-mute); }
+  .wave-list li.planned .scope {
+    color: var(--text-dim); font-size: 12px; margin-top: 4px;
+    font-family: Inter, sans-serif; font-weight: 400;
+  }
+
+  .results {
+    color: var(--text-dim); font-size: 12px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    margin-top: 6px;
+  }
+  .results .pass { color: var(--sage); }
+  .results .fail { color: var(--red); }
+  .results .pending { color: var(--text-dim); }
+
+  footer {
+    margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+  footer code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px; color: var(--coral);
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">homefit.studio · device QA</div>
+    <h1>Test scripts</h1>
+    <p class="lede">Single landing page for all device QA waves. The active wave is pinned at the top; older waves are archived below.</p>
+
+    <a class="active-card" href="./2026-04-20-wave3-device-qa.html">
+      <div class="label">Active wave</div>
+      <span class="arrow">→</span>
+      <h3 class="title">Wave 3 — 2026-04-20</h3>
+      <p class="sub">Wave 2 feedback (mute/prep/chip/long-press) + rats-and-mice from session walk-through.</p>
+      <div class="results" id="wave3-results">Loading results…</div>
+    </a>
+
+    <h2>Archive</h2>
+    <ul class="wave-list">
+      <li>
+        <a href="./2026-04-20-wave2-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 2 — Device QA</div>
+              <div class="date">2026-04-20</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Complete</span>
+              <div class="results" id="wave2-results">Loading…</div>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
+        <a href="./2026-04-20-post-merge-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">Post-merge sanity pass</div>
+              <div class="date">2026-04-20</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip historic">Historic</span>
+            </div>
+          </div>
+        </a>
+      </li>
+    </ul>
+
+    <h2 style="margin-top: 36px;">Coming up</h2>
+    <ul class="wave-list">
+      <li class="planned">
+        <a>
+          <div class="row">
+            <div>
+              <div class="name">Wave 4 — Sticky per-client defaults</div>
+              <div class="scope">JSONB <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">client_exercise_defaults</code> on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">clients</code> + SQLite mirror. Propagates 7 fields forward-only on every edit: reps · sets · hold · muted · preferred treatment · prep seconds · custom duration. Invisible UX — practitioner just sees pre-filled values on the next new exercise. Also: landscape capture + "long-press to record video" hint.</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip planned">Planned</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li class="planned">
+        <a>
+          <div class="row">
+            <div>
+              <div class="name">Wave 5 — Network share-kit</div>
+              <div class="scope">Practitioner shares homefit.studio on the company's behalf: WhatsApp 1:1, WhatsApp broadcast, email with subject/body/signature, plus a PNG share-card with QR. Phased: copy-to-clipboard → <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">wa.me</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">mailto:</code> intents → PNG + QR. Spec: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">docs/design/mockups/network-share-kit.html</code> (1540 lines, merged in PR #27).</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip planned">Planned</span>
+            </div>
+          </div>
+        </a>
+      </li>
+    </ul>
+
+    <footer>
+      Served via <code>_server.py</code> on port 3457. State persists via POST to <code>/api/test-results/{slug}.json</code>. Bookmark <code>http://localhost:3457/test-scripts/</code>.
+    </footer>
+  </div>
+
+  <script>
+    // Pull live tallies from the results JSON files written by each wave.
+    (function() {
+      function renderCounts(el, state) {
+        if (!state || !state.items) { el.textContent = 'No results yet.'; return; }
+        var pass = 0, fail = 0, total = 0;
+        Object.keys(state.items).forEach(function(k) {
+          total++;
+          if (state.items[k].status === 'pass') pass++;
+          else if (state.items[k].status === 'fail') fail++;
+        });
+        el.innerHTML =
+          '<span class="pass">' + pass + ' pass</span> · ' +
+          '<span class="fail">' + fail + ' fail</span> · ' +
+          '<span class="pending">' + total + ' logged</span>';
+      }
+
+      function load(slug, elId) {
+        var el = document.getElementById(elId);
+        if (!el) return;
+        // Static path — the server's /api/test-results endpoint is
+        // POST-only (write sink); GETs served by SimpleHTTPRequestHandler
+        // from the test-scripts dir directly.
+        fetch('/test-scripts/' + slug, {cache: 'no-store'})
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(data) { renderCounts(el, data); })
+          .catch(function() { el.textContent = 'No results yet.'; });
+      }
+
+      load('2026-04-20-wave3-device-qa.results.json', 'wave3-results');
+      load('2026-04-20-wave2-device-qa.results.json', 'wave2-results');
+    })();
+  </script>
+</body>
+</html>
