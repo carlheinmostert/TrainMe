@@ -89,6 +89,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         value: email,
                       ),
                       _Divider(),
+                      // Current practice name. Even when a practitioner is
+                      // only in one practice, surfacing the name at a glance
+                      // catches the "wait, which account am I in?" failure
+                      // mode. Cross-surface, too: if mobile shows
+                      // @icloud/"carlhein Practice" while the portal shows
+                      // @me.com/"carlhein Practice" there's nothing in the UI
+                      // to distinguish. Will need a switcher (D2 backlog)
+                      // once practitioners span multiple practices.
+                      ValueListenableBuilder<String?>(
+                        valueListenable:
+                            AuthService.instance.currentPracticeId,
+                        builder: (context, practiceId, _) =>
+                            _PracticeRow(practiceId: practiceId),
+                      ),
+                      _Divider(),
                       // Regular credit balance (purchases + welcome bonus −
                       // consumed). Distinct from the "Network rebate" stat
                       // in the Network section below, which shows referral
@@ -455,6 +470,99 @@ class _CreditBalanceRowState extends State<_CreditBalanceRow> {
     }
     final retryable = !_loading && _balance == null && widget.practiceId != null;
     final row = _ReadOnlyRow(label: 'Credit balance', value: valueText);
+    if (!retryable) return row;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _refresh,
+      child: row,
+    );
+  }
+}
+
+/// Live-fetched current-practice label. Reads from `listMyPractices`
+/// and picks the membership whose id matches the cached current
+/// practice. Falls back to the first membership if the cache is empty
+/// (bootstrap path — AuthService runs `bootstrap_practice_for_user` on
+/// first sign-in which returns exactly one id). Tap-to-retry on error.
+///
+/// For now every practitioner is in at most one practice, but the
+/// widget is stateful so a future practice-switcher (D2) can swap in
+/// without restructuring the Settings screen.
+class _PracticeRow extends StatefulWidget {
+  final String? practiceId;
+  const _PracticeRow({required this.practiceId});
+
+  @override
+  State<_PracticeRow> createState() => _PracticeRowState();
+}
+
+class _PracticeRowState extends State<_PracticeRow> {
+  String? _name;
+  bool _loading = false;
+  bool _errored = false;
+  String? _loadedForPracticeId;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PracticeRow old) {
+    super.didUpdateWidget(old);
+    if (widget.practiceId != old.practiceId) {
+      _refresh();
+    }
+  }
+
+  Future<void> _refresh() async {
+    final practiceId = widget.practiceId;
+    setState(() {
+      _loading = true;
+      _errored = false;
+      _loadedForPracticeId = practiceId;
+    });
+    try {
+      final memberships = await ApiClient.instance.listMyPractices();
+      if (!mounted || _loadedForPracticeId != practiceId) return;
+      final match = memberships.firstWhere(
+        (m) => m.id == practiceId,
+        orElse: () => memberships.isNotEmpty
+            ? memberships.first
+            : const PracticeMembership(
+                id: '',
+                name: '',
+                role: PracticeRole.practitioner,
+              ),
+      );
+      setState(() {
+        _name = match.name.isNotEmpty ? match.name : null;
+        _loading = false;
+        _errored = false;
+      });
+    } catch (_) {
+      if (!mounted || _loadedForPracticeId != practiceId) return;
+      setState(() {
+        _name = null;
+        _loading = false;
+        _errored = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    String valueText;
+    if (_loading || widget.practiceId == null) {
+      valueText = '—';
+    } else if (_errored) {
+      valueText = 'Couldn\'t load — tap to retry';
+    } else {
+      valueText = _name ?? '—';
+    }
+    final retryable = _errored && widget.practiceId != null;
+    final row = _ReadOnlyRow(label: 'Practice', value: valueText);
     if (!retryable) return row;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,

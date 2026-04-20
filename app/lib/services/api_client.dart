@@ -156,6 +156,47 @@ class ApiClient {
     return result is String ? result : result.toString();
   }
 
+  /// List the practices the signed-in user is a member of.
+  ///
+  /// Mirrors the portal's `PortalApi.listMyPractices()`. RLS
+  /// (Milestone C helper-fn rewrite) scopes `practice_members` to rows
+  /// where `trainer_id = auth.uid()`, so this always returns only the
+  /// caller's memberships. Ordered by `joined_at` so [0] is the first
+  /// practice the user joined (the Carl-sentinel / bootstrap one).
+  ///
+  /// Returns `[]` on any error so UI can render a shell without crashing.
+  Future<List<PracticeMembership>> listMyPractices() async {
+    try {
+      final response = await raw
+          .from('practice_members')
+          .select('role, practice_id, practices:practice_id ( id, name )')
+          .order('joined_at', ascending: true);
+      if (response is! List) return const [];
+      return response
+          .whereType<Map>()
+          .map((r) {
+            final practiceRaw = r['practices'];
+            final practice = practiceRaw is List
+                ? (practiceRaw.isNotEmpty ? practiceRaw.first : null)
+                : practiceRaw;
+            if (practice is! Map) return null;
+            final id = practice['id'];
+            final name = practice['name'];
+            if (id is! String || name is! String) return null;
+            final role = r['role'] is String ? r['role'] as String : 'practitioner';
+            return PracticeMembership(
+              id: id,
+              name: name,
+              role: role == 'owner' ? PracticeRole.owner : PracticeRole.practitioner,
+            );
+          })
+          .whereType<PracticeMembership>()
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// `practice_credit_balance(p_practice_id)` — SECURITY DEFINER fn that
   /// returns `SUM(delta)` over `credit_ledger` rows for the practice.
   ///
@@ -593,5 +634,25 @@ class ExerciseTreatmentUrls {
     this.lineDrawingUrl,
     this.grayscaleUrl,
     this.originalUrl,
+  });
+}
+
+/// Role within a practice. Owners can invite members + buy credits;
+/// practitioners consume credits to publish. Mirrors the portal's
+/// `PracticeWithRole.role` shape.
+enum PracticeRole { owner, practitioner }
+
+/// One membership row: the practice id + its display name + the caller's
+/// role in it. Returned by [ApiClient.listMyPractices].
+@immutable
+class PracticeMembership {
+  final String id;
+  final String name;
+  final PracticeRole role;
+
+  const PracticeMembership({
+    required this.id,
+    required this.name,
+    required this.role,
   });
 }
