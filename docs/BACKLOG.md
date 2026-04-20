@@ -4,6 +4,49 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+## Network share-kit Phase 3 — PNG + QR + analytics (Wave 10)
+
+**Status:** Scheduled **Wave 10** (after Phase 2 intents land). Design already exists at [`docs/design/mockups/network-share-kit.html`](design/mockups/network-share-kit.html) (PNG card section around line 1410).
+
+**Scope:**
+- Server-side or client-side PNG render of the 1080×1350 share card. Source of truth is the mockup — practitioner name, practice name, share code, QR, tagline (`"Plans your client will love and follow. Ready before they leave."`).
+- Real scannable QR for `session.homefit.studio/r/{code}` — replace the CSS stand-in at `.qr`. Use a headless QR lib (e.g. `qrcode` npm package, zero deps).
+- `Download PNG` button → binary download; filename `homefit-share-{kebab-case-practitioner}.png`.
+- `Copy to clipboard` → image blob via `navigator.clipboard.write([new ClipboardItem({'image/png': blob})])`. Safari support is the constraint — verify on iOS Safari + desktop Safari before shipping.
+- Analytics event on each share action (Copy / Open-in-app / Download-PNG) → append to `plan_issuances`-style table (propose new `share_events` append-only table, indexed by `practice_id`, `channel`, `occurred_at`).
+- Sharing telemetry surfaces on `/network` below-the-fold or on `/audit` — defer the UI decision to design review.
+
+**Decisions not yet locked:**
+- Render location (server Edge Function vs client Canvas) — client is simpler, but server is cacheable + consistent across browsers. Lean server.
+- Font embedding — server-side Canvas needs the Montserrat + Inter fonts bundled; add to Vercel build.
+
+---
+
+## Mobile R-11 twin for Network share-kit (Wave 11)
+
+**Status:** Scheduled **Wave 11** (after Wave 10 PNG/QR — share card needs to exist before mobile renders it). Depends on Wave 5 Members for consistent identity surfaces if the input hints at a "colleague picker".
+
+**Scope:** mobile Settings → Network currently exposes only the share code + referral link. Port the portal's three-template + PNG share card to the Flutter Settings Network screen to honour R-11.
+- New widget: `NetworkShareKitScreen` or a sheet from Settings → "Share homefit.studio".
+- Three cards (WhatsApp 1:1, broadcast, email) matching portal visuals. Copy-to-clipboard via `Clipboard.setData`.
+- Native intent launchers — `url_launcher` package with `wa.me` + `mailto:` URLs. Mirrors Wave 10 Phase 2 URL-builder helpers (port templates.ts → Dart).
+- PNG share card: if Wave 10 settles on server-render, mobile just fetches and offers iOS share sheet. If client-render, mobile needs its own rasteriser (Flutter `RepaintBoundary.toImage`).
+
+**Decisions not yet locked:**
+- Should mobile deep-link into the portal `/network` page instead of duplicating the UI? Likely no — offline-first principle says the practitioner needs to share without a signal. But port minimum viable instead of full parity.
+
+---
+
+## Network share-kit experiments (Wave 12+, not yet locked)
+
+**Status:** Deferred ideas. Each could stand alone as a future wave; not yet triaged.
+
+- **Template A/B** — swap WhatsApp 1:1 copy via a flag, measure referral conversion per variant.
+- **Personalised pitch** — pull the practitioner's highest-opened plan as social proof inside the email body.
+- **Share-funnel dashboard** — "who opened your share card but didn't sign up" on `/network` below the fold; depends on Wave 10 analytics events landing first.
+
+---
+
 ## Audit expansion — full event log with filters + CSV export (Wave 9)
 
 **Status:** Scheduled **Wave 9** (after Wave 5 Members lands — several event kinds originate there). Design locked 2026-04-20.
