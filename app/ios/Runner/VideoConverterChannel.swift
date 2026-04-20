@@ -65,6 +65,12 @@ import CoreVideo
 //     instead of mid grey. Expect the equipment + environment sketches
 //     to feel substantially darker now.
 //
+//   ✅ LOCKED at v6 by Carl on 2026-04-20. Do NOT change these constants
+//      without an explicit Carl-sign-off — they're the product's
+//      signature visual identity and aesthetic signoff is a bar that
+//      shouldn't be crossed by a stray refactor. If a future agent has
+//      a thesis for adjusting them, open a separate discussion first.
+//
 // Safe tuning ranges (if you want to experiment on device):
 //   edgeThresholdLo  : 0 … 4   (int)
 //   edgeThresholdHi  : 0.5 … 1.0
