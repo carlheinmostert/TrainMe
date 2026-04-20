@@ -294,6 +294,7 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 
 - Favour speed and validation over perfection — MVP ship window is 2 weeks
 - Use sub-agents in background for heavy implementation work; stay available for conversation
+- **Sub-agent isolation + relative paths.** When spawning an agent with `isolation: "worktree"`, brief it with REPO-RELATIVE paths (`app/lib/foo.dart`, `docs/CHECKPOINT_2026-04-20.md`), not absolute `/Users/chm/dev/TrainMe/...` paths. Absolute paths seduce agents into writing to the main repo's working tree instead of their isolated worktree — that caused 4 parallel agents to leak stale state into main in a single session. A `PreToolUse` hook at `.claude/hooks/rewrite-agent-prompts.py` (wired in `.claude/settings.json`) strips the prefix + prepends a worktree-isolation banner as a backstop, but briefs should still be clean at authorship time.
 - Never use `flutter run` (R-08) — use build + `simctl install` instead
 - Simulator: `./install-sim.sh` (builds with SHA marker, uninstalls for a fresh Sign-In screen, relaunches on iPhone 16e)
 - Physical device: `./install-device.sh` (pulls main, release build, installs to iPhone CHM; runs with VPN on)
