@@ -18,7 +18,7 @@ type SearchParams = { practice?: string };
  * home for network features.
  *
  * Voice: peer-to-peer. NEVER "referral rewards", "commission", "cash",
- * "payout", "downline". Labels below use "free publishes", "rebate",
+ * "payout", "downline". Labels below use "free credits", "rebate",
  * "your network".
  *
  * R-11 twin: the mobile app surfaces the same capabilities from
@@ -73,7 +73,7 @@ export default async function NetworkPage({
 
         <h1 className="font-heading text-3xl font-bold">Your network</h1>
         <p className="mt-2 max-w-2xl text-sm text-ink-muted">
-          Share your code with colleagues. Both of you get free publishes
+          Share your code with colleagues. Both of you get free credits
           when they make their first purchase, plus a lifetime rebate on
           theirs.
         </p>
