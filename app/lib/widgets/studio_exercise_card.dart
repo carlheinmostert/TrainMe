@@ -127,12 +127,27 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
   }
 
   void _pushUpdate() {
+    // If a custom duration is set (video-length-as-1-rep), keep the
+    // TOTAL in sync when reps changes: totalCustom = perRep × reps.
+    // perRep is derived from the PREVIOUS reps so the edit round-trips
+    // cleanly.
+    final newReps = _repsValue.round();
+    final currentCustom = widget.exercise.customDurationSeconds;
+    int? nextCustom = currentCustom;
+    if (currentCustom != null) {
+      final oldReps = widget.exercise.reps ?? StudioDefaults.reps;
+      if (oldReps > 0) {
+        final perRep = (currentCustom / oldReps).round();
+        nextCustom = perRep * newReps;
+      }
+    }
     widget.onUpdate(widget.exercise.copyWith(
-      reps: _repsValue.round(),
+      reps: newReps,
       sets: _setsValue.round(),
       holdSeconds: _holdValue.round(),
       notes:
           _notesController.text.isEmpty ? null : _notesController.text,
+      customDurationSeconds: nextCustom,
     ));
   }
 
@@ -187,9 +202,14 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           decoration: BoxDecoration(
             color: AppColors.surfaceBase,
             borderRadius: BorderRadius.circular(12),
+            // Expanded card carries a coral perimeter — a quiet signal
+            // that this is the card currently being edited (item 32).
+            // AnimatedContainer tweens width + color in AppMotion.fast.
             border: Border.all(
-              color: AppColors.surfaceBorder,
-              width: 1,
+              color: widget.isExpanded
+                  ? AppColors.primary
+                  : AppColors.surfaceBorder,
+              width: widget.isExpanded ? 2 : 1,
             ),
           ),
           child: Stack(
@@ -292,10 +312,14 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     final isVideo = widget.exercise.mediaType == MediaType.video;
     final hasArchive = widget.exercise.archiveFilePath != null &&
         widget.exercise.archiveFilePath!.isNotEmpty;
+    final hasVideoLength =
+        isVideo && (widget.exercise.videoDurationMs ?? 0) > 0;
+    final customOn = widget.exercise.customDurationSeconds != null;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // 1. Failure banner — unchanged position at the top.
         if (widget.exercise.conversionStatus == ConversionStatus.failed)
           Container(
             padding: const EdgeInsets.all(12),
@@ -324,17 +348,9 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
               ],
             ),
           ),
-        // Treatment preview tiles — three mini-previews of how this
-        // specific exercise will render in each treatment (Line / B&W /
-        // Original). Tapping sets the exercise's sticky
-        // `preferredTreatment` via R-01: immediate save, no confirm.
-        // B&W + Original tiles stay locked (lock glyph, tap routes
-        // through the existing consent / re-record flows) when the
-        // client hasn't opted in OR the local archive isn't available.
-        //
-        // Reads directly from the exercise's local media files; no
-        // cloud round-trip needed — lines up with the rest of the
-        // Studio card's offline-first posture.
+        // 2. Treatment tiles — three mini-previews of how this specific
+        // exercise will render in each treatment. Tapping sets the sticky
+        // `preferredTreatment` via R-01 (immediate save, no confirm).
         TreatmentTilesRow(
           exercise: widget.exercise,
           hasArchive: hasArchive,
@@ -345,7 +361,28 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
             );
           },
         ),
-        const SizedBox(height: 14),
+        // 3. Muted toggle — lives in the Treatment section. Storage
+        // stays `includeAudio`; the UI inverts at the boundary so
+        // "Muted = true" means `includeAudio = false`. Default state
+        // is muted (safer for shared plans). Always rendered for video
+        // exercises; photos have no audio.
+        if (isVideo) ...[
+          const SizedBox(height: 4),
+          _ToggleRow(
+            label: 'Muted',
+            value: !widget.exercise.includeAudio,
+            onChanged: (muted) {
+              widget.onUpdate(
+                widget.exercise.copyWith(includeAudio: !muted),
+              );
+            },
+          ),
+        ],
+        // 4. Hairline divider.
+        const SizedBox(height: 12),
+        const Divider(height: 1, color: AppColors.surfaceBorder),
+        const SizedBox(height: 12),
+        // 5. Reps slider.
         _VerticalSlider(
           label: 'Reps',
           value: _repsValue,
@@ -358,6 +395,45 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
             _pushUpdate();
           },
         ),
+        // 6. Use video length as 1 rep — directly under the Reps slider
+        // per design feedback. Only rendered for video exercises with a
+        // probed duration.
+        if (hasVideoLength)
+          _ToggleRow(
+            label: 'Use video length as 1 rep',
+            value: customOn,
+            onChanged: (on) {
+              if (on) {
+                final perRep =
+                    (widget.exercise.videoDurationMs! / 1000).round();
+                widget.onUpdate(widget.exercise.copyWith(
+                  customDurationSeconds: perRep * _repsValue.round(),
+                ));
+              } else {
+                widget.onUpdate(widget.exercise
+                    .copyWith(clearCustomDuration: true));
+              }
+            },
+          ),
+        // 7. Inline-editable custom duration — only when the toggle is
+        // ON. Stores TOTAL (perRep × reps); editing updates perRep and
+        // rewrites the total.
+        if (hasVideoLength && customOn)
+          _CustomDurationRow(
+            perRep: _perRepFromCustom(),
+            reps: _repsValue.round(),
+            onChanged: (newPerRep) {
+              final reps = _repsValue.round();
+              widget.onUpdate(widget.exercise.copyWith(
+                customDurationSeconds: newPerRep * reps,
+              ));
+            },
+          ),
+        // 8. Hairline divider.
+        const SizedBox(height: 8),
+        const Divider(height: 1, color: AppColors.surfaceBorder),
+        const SizedBox(height: 12),
+        // 9. Sets slider — skipped inside circuits (cycles replace sets).
         if (!widget.isInCircuit)
           _VerticalSlider(
             label: 'Sets',
@@ -371,6 +447,7 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
               _pushUpdate();
             },
           ),
+        // 10. Hold slider.
         _VerticalSlider(
           label: 'Hold',
           value: _holdValue,
@@ -385,36 +462,7 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
             _pushUpdate();
           },
         ),
-        if (isVideo &&
-            (widget.exercise.videoDurationMs ?? 0) > 0)
-          _ToggleRow(
-            label: 'Use video length as 1 rep',
-            helper: widget.exercise.customDurationSeconds != null
-                ? 'Custom: ${_formatSecs(widget.exercise.effectiveDurationSeconds)}'
-                : null,
-            value: widget.exercise.customDurationSeconds != null,
-            onChanged: (on) {
-              if (on) {
-                final perRep =
-                    (widget.exercise.videoDurationMs! / 1000).round();
-                widget.onUpdate(widget.exercise.copyWith(
-                  customDurationSeconds: perRep * _repsValue.round(),
-                ));
-              } else {
-                widget.onUpdate(widget.exercise
-                    .copyWith(clearCustomDuration: true));
-              }
-            },
-          ),
-        if (isVideo)
-          _ToggleRow(
-            label: 'Include audio on share',
-            value: widget.exercise.includeAudio,
-            onChanged: (on) {
-              widget.onUpdate(
-                  widget.exercise.copyWith(includeAudio: on));
-            },
-          ),
+        // 11. Notes — unchanged.
         const SizedBox(height: 8),
         GestureDetector(
           onTap: () => setState(() => _notesOpen = !_notesOpen),
@@ -472,6 +520,184 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
             ),
           ),
       ],
+    );
+  }
+
+  /// Derive perRep seconds from the stored total. Used by the
+  /// inline-editable custom-duration row.
+  int _perRepFromCustom() {
+    final total = widget.exercise.customDurationSeconds ?? 0;
+    final reps = _repsValue.round();
+    if (reps <= 0) return total;
+    return (total / reps).round();
+  }
+}
+
+/// Inline-editable "Custom duration [Ns] per rep" row. Tap the pill to
+/// edit the integer seconds; commits on submit or when focus is lost.
+/// Stores per-rep; parent multiplies by reps before persisting.
+class _CustomDurationRow extends StatefulWidget {
+  final int perRep;
+  final int reps;
+  final ValueChanged<int> onChanged;
+
+  const _CustomDurationRow({
+    required this.perRep,
+    required this.reps,
+    required this.onChanged,
+  });
+
+  @override
+  State<_CustomDurationRow> createState() => _CustomDurationRowState();
+}
+
+class _CustomDurationRowState extends State<_CustomDurationRow> {
+  late final TextEditingController _controller;
+  final FocusNode _focusNode = FocusNode();
+  bool _isEditing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '${widget.perRep}');
+    _focusNode.addListener(_onFocusChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CustomDurationRow old) {
+    super.didUpdateWidget(old);
+    if (!_isEditing && old.perRep != widget.perRep) {
+      _controller.text = '${widget.perRep}';
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode.removeListener(_onFocusChange);
+    _focusNode.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChange() {
+    if (!_focusNode.hasFocus && _isEditing) {
+      _commit();
+    }
+  }
+
+  void _startEditing() {
+    _controller.text = '${widget.perRep}';
+    setState(() => _isEditing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+      _controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _controller.text.length,
+      );
+    });
+  }
+
+  void _commit() {
+    final raw = _controller.text.trim();
+    final parsed = int.tryParse(raw);
+    if (parsed != null && parsed > 0 && parsed != widget.perRep) {
+      widget.onChanged(parsed);
+    } else {
+      _controller.text = '${widget.perRep}';
+    }
+    setState(() => _isEditing = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const labelStyle = TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 13,
+      fontWeight: FontWeight.w500,
+      color: AppColors.textOnDark,
+    );
+    const helperStyle = TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 12,
+      color: AppColors.textSecondaryOnDark,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          const Text('Custom duration', style: labelStyle),
+          const SizedBox(width: 10),
+          // Editable pill — integer seconds, tap to edit.
+          _isEditing
+              ? SizedBox(
+                  width: 56,
+                  child: TextField(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: 'JetBrainsMono',
+                      fontFamilyFallback: ['Menlo', 'Courier'],
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textOnDark,
+                    ),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      filled: true,
+                      fillColor: AppColors.brandTintBg,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(
+                            color: AppColors.primary, width: 1),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(
+                            color: AppColors.primary, width: 2),
+                      ),
+                    ),
+                    onSubmitted: (_) => _commit(),
+                  ),
+                )
+              : GestureDetector(
+                  onTap: _startEditing,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.brandTintBg,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.45),
+                        width: 1,
+                      ),
+                    ),
+                    child: Text(
+                      '${widget.perRep}s',
+                      style: const TextStyle(
+                        fontFamily: 'JetBrainsMono',
+                        fontFamilyFallback: ['Menlo', 'Courier'],
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                ),
+          const SizedBox(width: 8),
+          const Text('per rep', style: helperStyle),
+        ],
+      ),
     );
   }
 }
@@ -604,13 +830,11 @@ class _VerticalSlider extends StatelessWidget {
 
 class _ToggleRow extends StatelessWidget {
   final String label;
-  final String? helper;
   final bool value;
   final ValueChanged<bool> onChanged;
 
   const _ToggleRow({
     required this.label,
-    this.helper,
     required this.value,
     required this.onChanged,
   });
@@ -622,28 +846,14 @@ class _ToggleRow extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textOnDark,
-                  ),
-                ),
-                if (helper != null)
-                  Text(
-                    helper!,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 12,
-                      color: AppColors.textSecondaryOnDark,
-                    ),
-                  ),
-              ],
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textOnDark,
+              ),
             ),
           ),
           Switch.adaptive(
