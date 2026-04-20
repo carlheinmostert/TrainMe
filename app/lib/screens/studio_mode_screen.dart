@@ -2098,7 +2098,7 @@ class _MediaViewerState extends State<_MediaViewer> {
                       allowed: _treatment == Treatment.grayscale
                           ? _client!.grayscaleAllowed
                           : _client!.colourAllowed,
-                      onTap: _toggleConsentForActiveTreatment,
+                      onChanged: (_) => _toggleConsentForActiveTreatment(),
                     ),
                   ],
                 ],
@@ -2107,11 +2107,14 @@ class _MediaViewerState extends State<_MediaViewer> {
 
           // Exercise-name pill — sits BELOW the segmented control so
           // the practitioner reads "what treatment" then "which exercise"
-          // top-to-bottom.
+          // top-to-bottom. Second line inside the pill is the swipe
+          // affordance: "Exercise N of M" so the practitioner (and the
+          // client they're demo-ing to) always has immediate
+          // where-are-we context.
           Positioned(
             top: _isVideo(_current)
                 ? MediaQuery.of(context).padding.top +
-                    (_shouldShowConsentRow() ? 110 : 60)
+                    (_shouldShowConsentRow() ? 120 : 60)
                 : MediaQuery.of(context).padding.top + 12,
             left: 0,
             right: 0,
@@ -2129,17 +2132,36 @@ class _MediaViewerState extends State<_MediaViewer> {
                     color: Colors.black.withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Text(
-                    _headerLabel(_current, _currentIndex),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _headerLabel(_current, _currentIndex),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Exercise ${_currentIndex + 1} of ${widget.exercises.length}',
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.3,
+                          color: AppColors.textSecondaryOnDark,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -2151,6 +2173,22 @@ class _MediaViewerState extends State<_MediaViewer> {
                 Icons.play_arrow,
                 size: 72,
                 color: Colors.white54,
+              ),
+            ),
+          // Page dots — swipe affordance at the bottom. Hidden past 10
+          // slides (matches the pattern in `plan_preview_screen.dart`);
+          // the counter inside the name pill above carries the
+          // where-are-we signal at larger plan sizes.
+          if (widget.exercises.length > 1 && widget.exercises.length <= 10)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: MediaQuery.of(context).padding.bottom + 16,
+              child: IgnorePointer(
+                child: _MediaViewerDotIndicator(
+                  total: widget.exercises.length,
+                  activeIndex: _currentIndex,
+                ),
               ),
             ),
           Positioned(
@@ -2231,75 +2269,107 @@ class _MediaViewerState extends State<_MediaViewer> {
 /// active treatment is B&W or Original.
 ///
 /// Voice: peer-to-peer (R-06 + voice.md). Never "consent" / "POPIA" /
-/// "withdraw" / "rights". Allowed = "✓ {Name} can see this". Not
-/// allowed = "Tap to allow". One tap toggles; no confirmation modal
-/// (R-01). Updates fire through [SyncService.queueSetConsent].
+/// "withdraw" / "rights". Rendered as a short label + a real iOS-style
+/// [Switch] — Carl's feedback: the pillbox reads unambiguously as a
+/// "setting" the practitioner is tweaking, not an ack button they keep
+/// pressing. Switch styling mirrors `client_consent_sheet.dart`.
+///
+/// One flip fires immediately; no confirmation modal (R-01). Writes go
+/// through [SyncService.queueSetConsent] offline-first at the call site.
 class _ConsentToggleRow extends StatelessWidget {
   final String clientName;
   final bool allowed;
-  final VoidCallback onTap;
+  final ValueChanged<bool> onChanged;
 
   const _ConsentToggleRow({
     required this.clientName,
     required this.allowed,
-    required this.onTap,
+    required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     final name = clientName.trim().isEmpty ? 'your client' : clientName;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.only(left: 14, right: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(9999),
-        child: Container(
-          height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: allowed
-                ? AppColors.primary.withValues(alpha: 0.15)
-                : Colors.black.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(9999),
-            border: Border.all(
-              color: allowed
-                  ? AppColors.primary
-                  : AppColors.surfaceBorder,
-              width: 1,
-            ),
-          ),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                allowed ? Icons.check_circle : Icons.touch_app_outlined,
-                size: 14,
-                color: allowed
-                    ? AppColors.primary
-                    : AppColors.textSecondaryOnDark,
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  allowed ? '$name can see this' : 'Tap to allow',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.2,
-                    color: allowed
-                        ? AppColors.primary
-                        : AppColors.textOnDark,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        border: Border.all(
+          color: AppColors.surfaceBorder,
+          width: 1,
         ),
       ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              'Show $name',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.2,
+                color: AppColors.textOnDark,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Shrink the standard Switch footprint so the pill reads as a
+          // compact row and doesn't dominate the top-left stack.
+          Transform.scale(
+            scale: 0.82,
+            child: Switch(
+              value: allowed,
+              onChanged: onChanged,
+              activeThumbColor: Colors.white,
+              activeTrackColor: AppColors.primary,
+              inactiveThumbColor: AppColors.textSecondaryOnDark,
+              inactiveTrackColor: AppColors.surfaceBorder,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom-of-viewer dot row that tells the practitioner "horizontal
+/// swipe moves between exercises". Mirrors the style established in
+/// `plan_preview_screen.dart` — active dot grows to a short capsule;
+/// inactive dots are small + translucent. Caller guards on slide
+/// count <= 10; past that the name-pill counter carries the signal.
+class _MediaViewerDotIndicator extends StatelessWidget {
+  final int total;
+  final int activeIndex;
+
+  const _MediaViewerDotIndicator({
+    required this.total,
+    required this.activeIndex,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(total, (index) {
+        final isActive = index == activeIndex;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          width: isActive ? 24 : 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: isActive ? Colors.white : Colors.white30,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        );
+      }),
     );
   }
 }
