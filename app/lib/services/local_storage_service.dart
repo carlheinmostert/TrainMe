@@ -3,7 +3,10 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../config.dart';
+import '../models/cached_client.dart';
+import '../models/cached_practice.dart';
 import '../models/exercise_capture.dart';
+import '../models/pending_op.dart';
 import '../models/session.dart';
 import 'auth_service.dart';
 import 'path_resolver.dart';
@@ -15,7 +18,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 16;
+  static const _dbVersion = 17;
 
   Database? _db;
 
@@ -94,6 +97,85 @@ class LocalStorageService {
     await db.execute('''
       CREATE INDEX idx_exercises_session
       ON exercises(session_id, position)
+    ''');
+
+    // Offline-first cache tables (schema v17). See docs/CLAUDE.md and
+    // the SyncService for how these are populated / drained. Keep the
+    // CREATE + ALTER migration paths in lockstep — fresh installs get
+    // these directly; upgrading installs run the v17 branch in
+    // [_migrateTables].
+    await _createOfflineFirstTables(db);
+  }
+
+  /// Shared DDL for the v17 cache tables. Called from both
+  /// [_createTables] (fresh installs) and [_migrateTables] (existing
+  /// installs crossing v16 → v17).
+  Future<void> _createOfflineFirstTables(Database db) async {
+    // cached_clients — mirror of cloud `clients` + sync metadata.
+    //
+    // `video_consent` is stored as a JSON string (sqlite has no native
+    // jsonb), decoded at read time by CachedClient.fromMap. The UNIQUE
+    // constraint on (practice_id, name) mirrors the cloud constraint so
+    // an offline-create that collides with an existing local row fails
+    // fast (the UI surfaces the duplicate-name error before the sync
+    // queue even runs).
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_clients (
+        id TEXT PRIMARY KEY,
+        practice_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        video_consent TEXT NOT NULL,
+        synced_at INTEGER,
+        dirty INTEGER NOT NULL DEFAULT 0,
+        deleted INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(practice_id, name)
+      )
+    ''');
+    // Index for the most common read: "all clients under this practice".
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_cached_clients_practice
+      ON cached_clients(practice_id)
+    ''');
+
+    // cached_practices — mirror of cloud practice_members + practice
+    // name + joined_at. One row per membership. Pull deletes stale rows
+    // so the switcher doesn't list practices the user left.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_practices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        joined_at INTEGER NOT NULL,
+        synced_at INTEGER NOT NULL
+      )
+    ''');
+
+    // cached_credit_balance — per-practice last-known balance. One row
+    // per practice the user is in. `synced_at` anchors the "last synced
+    // X ago" hint in Settings.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cached_credit_balance (
+        practice_id TEXT PRIMARY KEY,
+        balance INTEGER NOT NULL,
+        synced_at INTEGER NOT NULL
+      )
+    ''');
+
+    // pending_ops — FIFO queue of writes awaiting sync.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS pending_ops (
+        id TEXT PRIMARY KEY,
+        op_type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_attempt_at INTEGER,
+        last_error TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_pending_ops_created
+      ON pending_ops(created_at)
     ''');
   }
 
@@ -248,6 +330,15 @@ class LocalStorageService {
       await db.execute(
         'ALTER TABLE sessions ADD COLUMN client_id TEXT',
       );
+    }
+    if (oldVersion < 17) {
+      // Offline-first foundation: cache tables + pending-op queue.
+      // Creates cached_clients, cached_practices, cached_credit_balance,
+      // and pending_ops. All four are safe to add empty — SyncService
+      // populates them on the next successful pullAll and no read path
+      // breaks if they're empty (callers always fall through to an
+      // empty list).
+      await _createOfflineFirstTables(db);
     }
   }
 
@@ -616,9 +707,238 @@ class LocalStorageService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Offline-first — cached_clients
+  // ---------------------------------------------------------------------------
+
+  /// All non-deleted cached clients for a practice. Read by HomeScreen
+  /// to render the clients list without touching the network. Returns
+  /// rows in alphabetical name order (insertion order would leak the
+  /// offline-create tail at the bottom, which would be confusing).
+  Future<List<CachedClient>> getCachedClientsForPractice(String practiceId) async {
+    final rows = await db.query(
+      'cached_clients',
+      where: 'practice_id = ? AND deleted = 0',
+      whereArgs: [practiceId],
+      orderBy: 'LOWER(name) ASC',
+    );
+    return rows.map((r) => CachedClient.fromMap(r)).toList(growable: false);
+  }
+
+  /// Upsert a single cached client row. Used by SyncService on both
+  /// cloud pulls (`dirty=0`) and local mutations (`dirty=1`).
+  Future<void> upsertCachedClient(CachedClient client) async {
+    await db.insert(
+      'cached_clients',
+      client.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Replace every cached client for a practice with [clients]. Used
+  /// by the full-refresh pull path: any row not in [clients] is deleted,
+  /// so clients removed cloud-side disappear locally too.
+  ///
+  /// DIRTY rows are preserved — they're mid-sync and haven't been
+  /// written to the cloud yet; the pull would incorrectly remove them.
+  Future<void> replaceCachedClientsForPractice({
+    required String practiceId,
+    required Iterable<CachedClient> clients,
+  }) async {
+    await db.transaction((txn) async {
+      // Gather dirty ids under this practice so the DELETE-then-replace
+      // doesn't nuke offline-created rows that haven't synced yet.
+      final dirtyRows = await txn.query(
+        'cached_clients',
+        columns: ['id'],
+        where: 'practice_id = ? AND dirty = 1',
+        whereArgs: [practiceId],
+      );
+      final dirtyIds = dirtyRows
+          .map((r) => r['id'] as String)
+          .toSet();
+
+      // Delete all non-dirty rows for this practice. Dirty rows survive
+      // and get re-upserted if the cloud has them (otherwise they
+      // remain as local-only + will flush on next drain).
+      await txn.delete(
+        'cached_clients',
+        where: 'practice_id = ? AND dirty = 0',
+        whereArgs: [practiceId],
+      );
+
+      final batch = txn.batch();
+      for (final c in clients) {
+        if (dirtyIds.contains(c.id)) {
+          // Row is mid-sync locally — don't clobber the user's pending
+          // edit with the server's stale view. SyncService will flush
+          // and then another pull will overwrite cleanly.
+          continue;
+        }
+        batch.insert(
+          'cached_clients',
+          c.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  /// Delete a cached_clients row outright. Used when SyncService
+  /// rewires after a server-side name conflict (the local id loses —
+  /// references move to the server-side id, and this one is purged).
+  Future<void> deleteCachedClient(String id) async {
+    await db.delete('cached_clients', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Offline-first — cached_practices
+  // ---------------------------------------------------------------------------
+
+  /// All cached practice memberships for the current user, ordered by
+  /// joined_at ascending so the first practice joined is [0] (matches
+  /// the cloud's `listMyPractices` ordering for R-11 parity).
+  Future<List<CachedPractice>> getCachedPractices() async {
+    final rows = await db.query(
+      'cached_practices',
+      orderBy: 'joined_at ASC',
+    );
+    return rows.map((r) => CachedPractice.fromMap(r)).toList(growable: false);
+  }
+
+  /// Replace every cached practice with [practices]. Rows the cloud no
+  /// longer returns are removed, so the switcher sheet doesn't
+  /// surface practices the user left or was removed from.
+  Future<void> replaceCachedPractices(Iterable<CachedPractice> practices) async {
+    await db.transaction((txn) async {
+      await txn.delete('cached_practices');
+      final batch = txn.batch();
+      for (final pr in practices) {
+        batch.insert(
+          'cached_practices',
+          pr.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Offline-first — cached_credit_balance
+  // ---------------------------------------------------------------------------
+
+  /// Get the last-known credit balance for [practiceId], or null if
+  /// the cache is cold for this practice.
+  Future<CachedCreditBalance?> getCachedCreditBalance(String practiceId) async {
+    final rows = await db.query(
+      'cached_credit_balance',
+      where: 'practice_id = ?',
+      whereArgs: [practiceId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return CachedCreditBalance._fromMap(rows.first);
+  }
+
+  /// Upsert the credit balance for [practiceId]. Stamps `synced_at` to
+  /// [nowMs] so the UI can render "last synced X ago".
+  Future<void> upsertCachedCreditBalance({
+    required String practiceId,
+    required int balance,
+    required int nowMs,
+  }) async {
+    await db.insert(
+      'cached_credit_balance',
+      <String, Object?>{
+        'practice_id': practiceId,
+        'balance': balance,
+        'synced_at': nowMs,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Offline-first — pending_ops
+  // ---------------------------------------------------------------------------
+
+  /// Insert a new pending op. Caller has already constructed the op
+  /// via one of [PendingOp]'s factory helpers.
+  Future<void> enqueuePendingOp(PendingOp op) async {
+    await db.insert(
+      'pending_ops',
+      op.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// FIFO read of every pending op, oldest first. Used by SyncService
+  /// to drain the queue.
+  Future<List<PendingOp>> getPendingOps() async {
+    final rows = await db.query(
+      'pending_ops',
+      orderBy: 'created_at ASC',
+    );
+    return rows.map((r) => PendingOp.fromMap(r)).toList(growable: false);
+  }
+
+  /// Count of pending ops. Cheap scalar used for the "N pending" chip
+  /// on Home without loading the full queue.
+  Future<int> countPendingOps() async {
+    final rows = await db.rawQuery('SELECT COUNT(*) AS c FROM pending_ops');
+    if (rows.isEmpty) return 0;
+    final c = rows.first['c'];
+    if (c is int) return c;
+    if (c is num) return c.toInt();
+    return 0;
+  }
+
+  /// Delete a pending op after a successful flush.
+  Future<void> deletePendingOp(String id) async {
+    await db.delete('pending_ops', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Persist a failed-attempt bump (increment `attempts`, set
+  /// `last_attempt_at`, stash `last_error`). Leaves the op in place so
+  /// the next flush retries it.
+  Future<void> markPendingOpFailed({
+    required String id,
+    required String error,
+    required int nowMs,
+  }) async {
+    await db.rawUpdate(
+      '''
+      UPDATE pending_ops
+      SET attempts = attempts + 1,
+          last_attempt_at = ?,
+          last_error = ?
+      WHERE id = ?
+      ''',
+      [nowMs, error, id],
+    );
+  }
+
   /// Close the database. Call on app dispose if needed.
   Future<void> close() async {
     await _db?.close();
     _db = null;
+  }
+}
+
+/// Row shape returned by [LocalStorageService.getCachedCreditBalance].
+/// Kept trivial — just the balance + staleness stamp.
+class CachedCreditBalance {
+  final int balance;
+  final int syncedAt;
+
+  const CachedCreditBalance({required this.balance, required this.syncedAt});
+
+  static CachedCreditBalance _fromMap(Map<String, dynamic> row) {
+    return CachedCreditBalance(
+      balance: row['balance'] as int,
+      syncedAt: row['synced_at'] as int,
+    );
   }
 }
