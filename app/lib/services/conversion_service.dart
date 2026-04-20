@@ -172,7 +172,11 @@ class ConversionService extends ChangeNotifier {
             await _thumbChannel.invokeMethod<String>('extractFrame', {
               'inputPath': PathResolver.resolve(done.convertedFilePath!),
               'outputPath': thumbPath,
+              // `timeMs` ignored when autoPick=true; the native side samples
+              // a motion-peak frame and crops tight around the person. Gives
+              // a more readable thumbnail at Studio-list sizes.
               'timeMs': 0,
+              'autoPick': true,
             });
             done = done.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
           } catch (e) {
@@ -333,7 +337,10 @@ class ConversionService extends ChangeNotifier {
         {
           'inputPath': videoPath,
           'outputPath': thumbPath,
+          // `timeMs` ignored when autoPick=true; native picks a motion-peak
+          // frame and crops tight around the person.
           'timeMs': 0,
+          'autoPick': true,
         },
       );
       if (result != null && await File(thumbPath).exists()) {
@@ -359,7 +366,10 @@ class ConversionService extends ChangeNotifier {
         {
           'inputPath': videoPath,
           'outputPath': thumbPath,
+          // `timeMs` ignored when autoPick=true; native picks a motion-peak
+          // frame and crops tight around the person.
           'timeMs': 0,
+          'autoPick': true,
         },
       );
       if (result != null && result['success'] == true) {

@@ -154,11 +154,17 @@ class VideoConverterChannel {
                 ))
                 return
             }
+            // Optional: when true, ignore `timeMs` and pick a motion-peak
+            // frame natively (samples at ~33/50/67% and picks the one with
+            // the largest pixel-diff vs frame 0). Falls back to midpoint if
+            // motion sampling fails.
+            let autoPick = args["autoPick"] as? Bool ?? false
             processingQueue.async { [weak self] in
                 self?.extractThumbnail(
                     inputPath: inputPath,
                     outputPath: outputPath,
                     timeMs: timeMs,
+                    autoPick: autoPick,
                     result: result
                 )
             }
@@ -737,6 +743,7 @@ class VideoConverterChannel {
         inputPath: String,
         outputPath: String,
         timeMs: Int,
+        autoPick: Bool,
         result: @escaping FlutterResult
     ) {
         // Defense in depth: verify the input file exists and is readable.
@@ -766,7 +773,19 @@ class VideoConverterChannel {
             generator.dynamicRangePolicy = .forceSDR
         }
 
-        let time = CMTime(value: CMTimeValue(timeMs), timescale: 1000)
+        // Target time selection:
+        //   - autoPick:false → use the caller-supplied `timeMs` verbatim
+        //     (preserves the legacy contract).
+        //   - autoPick:true  → pick the motion-peak of a 3-frame sample
+        //     against frame 0, falling back to midpoint if sampling fails.
+        //     This produces a more representative thumbnail for the trainer
+        //     surfaces (Studio list, session cards, Camera peek).
+        let targetTime: CMTime = {
+            if !autoPick {
+                return CMTime(value: CMTimeValue(timeMs), timescale: 1000)
+            }
+            return Self.pickMotionPeakTime(asset: asset, generator: generator)
+        }()
 
         let handleImage: (CGImage?, Error?) -> Void = { cgImage, error in
             if let error = error {
@@ -791,9 +810,15 @@ class VideoConverterChannel {
             }
             // Apply person segmentation to the thumbnail (iOS 15+). If it
             // fails or is unavailable, fall through to the un-masked image.
+            // On autoPick:true we also crop tight around the person using
+            // the mask's bounding box for a more readable small-surface
+            // thumbnail.
             var finalImage: CGImage = cgImage
             if #available(iOS 15.0, *) {
-                if let masked = Self.applySegmentationToThumbnail(cgImage: cgImage) {
+                if let masked = Self.applySegmentationToThumbnail(
+                    cgImage: cgImage,
+                    cropToPerson: autoPick
+                ) {
                     finalImage = masked
                 }
             }
@@ -833,19 +858,113 @@ class VideoConverterChannel {
         }
 
         if #available(iOS 16.0, *) {
-            generator.generateCGImageAsynchronously(for: time) { cgImage, _, error in
+            generator.generateCGImageAsynchronously(for: targetTime) { cgImage, _, error in
                 handleImage(cgImage, error)
             }
         } else {
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
+                    let cgImage = try generator.copyCGImage(at: targetTime, actualTime: nil)
                     handleImage(cgImage, nil)
                 } catch {
                     handleImage(nil, error)
                 }
             }
         }
+    }
+
+    // MARK: - Motion-Peak Frame Selection
+
+    /// Pick a representative frame inside `asset` by sampling three
+    /// candidates (at 33%, 50%, 67% of the duration), measuring their
+    /// grayscale mean absolute difference against frame 0, and returning
+    /// the time of the candidate with the largest diff. Falls back to
+    /// the midpoint if anything goes wrong or the asset has no duration.
+    ///
+    /// This is a heuristic — the goal is to avoid frame 0 for videos that
+    /// start with the practitioner walking into position or a static
+    /// prep pose. Cheap: pulls one baseline frame + three candidates at
+    /// ~128 px downscales each, so total work is ~4 AVAssetImageGenerator
+    /// calls. Still synchronous from the caller's point of view because
+    /// we're already on the background processingQueue.
+    static func pickMotionPeakTime(
+        asset: AVAsset,
+        generator: AVAssetImageGenerator
+    ) -> CMTime {
+        let duration = asset.duration
+        let totalSeconds = CMTimeGetSeconds(duration)
+        // Sanity: < ~0.3s of footage → just return midpoint (or zero).
+        guard totalSeconds.isFinite, totalSeconds > 0.3 else {
+            if totalSeconds.isFinite, totalSeconds > 0 {
+                return CMTime(seconds: totalSeconds / 2.0, preferredTimescale: 600)
+            }
+            return .zero
+        }
+
+        // Baseline frame @ 0s.
+        guard let baseline = try? generator.copyCGImage(
+            at: .zero,
+            actualTime: nil
+        ) else {
+            return CMTime(seconds: totalSeconds / 2.0, preferredTimescale: 600)
+        }
+        guard let baselineLuma = grayscaleFingerprint(from: baseline) else {
+            return CMTime(seconds: totalSeconds / 2.0, preferredTimescale: 600)
+        }
+
+        let sampleFractions: [Double] = [0.33, 0.50, 0.67]
+        var bestTime = CMTime(seconds: totalSeconds / 2.0, preferredTimescale: 600)
+        var bestDiff: Double = -1
+
+        for frac in sampleFractions {
+            let t = CMTime(seconds: totalSeconds * frac, preferredTimescale: 600)
+            guard let candidate = try? generator.copyCGImage(at: t, actualTime: nil),
+                  let candidateLuma = grayscaleFingerprint(from: candidate),
+                  candidateLuma.count == baselineLuma.count else {
+                continue
+            }
+            var acc: Int = 0
+            for i in 0..<candidateLuma.count {
+                acc += abs(Int(candidateLuma[i]) - Int(baselineLuma[i]))
+            }
+            let diff = Double(acc) / Double(candidateLuma.count)
+            if diff > bestDiff {
+                bestDiff = diff
+                bestTime = t
+            }
+        }
+
+        // If every candidate failed, bestDiff is still -1 → bestTime is
+        // midpoint, which is our fallback anyway.
+        return bestTime
+    }
+
+    /// Downscale a CGImage to 64×64 grayscale and return the raw pixel
+    /// bytes. Used as a cheap motion fingerprint (mean abs diff vs
+    /// baseline). Nil on any allocation/context failure.
+    private static func grayscaleFingerprint(from cgImage: CGImage) -> [UInt8]? {
+        let size = 64
+        let byteCount = size * size
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: byteCount)
+        defer { buffer.deallocate() }
+        buffer.initialize(repeating: 0, count: byteCount)
+        let colorSpace = CGColorSpaceCreateDeviceGray()
+        guard let ctx = CGContext(
+            data: buffer,
+            width: size,
+            height: size,
+            bitsPerComponent: 8,
+            bytesPerRow: size,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else {
+            return nil
+        }
+        ctx.interpolationQuality = .low
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: size, height: size))
+        // Copy out into a Swift-managed array so the caller doesn't
+        // outlive our deferred deallocation.
+        return Array(UnsafeBufferPointer(start: buffer, count: byteCount))
     }
 
     // MARK: - Thumbnail Segmentation Helper
@@ -857,8 +976,17 @@ class VideoConverterChannel {
     /// Used by both the VideoConverterChannel thumbnail path and the
     /// AppDelegate native_thumb channel, so both surfaces get body-only
     /// previews that match the video look.
+    ///
+    /// When `cropToPerson` is true and segmentation succeeds, the output
+    /// is additionally cropped to the person's mask bounding box with
+    /// ~10% padding. Improves readability at small sizes (Studio list,
+    /// Camera peek). Falls back gracefully to the un-cropped masked image
+    /// if the bounding box is degenerate.
     @available(iOS 15.0, *)
-    static func applySegmentationToThumbnail(cgImage: CGImage) -> CGImage? {
+    static func applySegmentationToThumbnail(
+        cgImage: CGImage,
+        cropToPerson: Bool = false
+    ) -> CGImage? {
         let width = cgImage.width
         let height = cgImage.height
         guard width > 0, height > 0 else { return nil }
@@ -981,7 +1109,62 @@ class VideoConverterChannel {
             }
         }
 
-        return ctx.makeImage()
+        guard let finalImage = ctx.makeImage() else {
+            return nil
+        }
+
+        // Optional person-centred crop. We compute the bounding box of
+        // mask pixels above a mid-threshold (128) and pad by ~10% before
+        // cropping. If the bbox is degenerate (no person detected, or
+        // covers ~the whole frame already) we return the un-cropped image.
+        if cropToPerson {
+            let maskThreshold: UInt8 = 128
+            var minX = width, minY = height, maxX = -1, maxY = -1
+            for y in 0..<height {
+                let row = y * width
+                for x in 0..<width {
+                    if softMaskPtr[row + x] >= maskThreshold {
+                        if x < minX { minX = x }
+                        if x > maxX { maxX = x }
+                        if y < minY { minY = y }
+                        if y > maxY { maxY = y }
+                    }
+                }
+            }
+
+            let hasBox = maxX > minX && maxY > minY
+            if hasBox {
+                let bboxW = maxX - minX + 1
+                let bboxH = maxY - minY + 1
+                // Require the bbox to cover less than ~90% of the frame
+                // in both dimensions — otherwise a crop is a no-op and
+                // we'd just lose precision by round-tripping.
+                let tightEnough = bboxW < Int(Double(width) * 0.9) ||
+                                  bboxH < Int(Double(height) * 0.9)
+                if tightEnough {
+                    // 10% pad around the bbox on each axis.
+                    let padX = Int(Double(bboxW) * 0.10)
+                    let padY = Int(Double(bboxH) * 0.10)
+                    let cropMinX = max(0, minX - padX)
+                    let cropMinY = max(0, minY - padY)
+                    let cropMaxX = min(width - 1, maxX + padX)
+                    let cropMaxY = min(height - 1, maxY + padY)
+                    let cropW = cropMaxX - cropMinX + 1
+                    let cropH = cropMaxY - cropMinY + 1
+                    let cropRect = CGRect(
+                        x: cropMinX,
+                        y: cropMinY,
+                        width: cropW,
+                        height: cropH
+                    )
+                    if let cropped = finalImage.cropping(to: cropRect) {
+                        return cropped
+                    }
+                }
+            }
+        }
+
+        return finalImage
     }
 }
 
