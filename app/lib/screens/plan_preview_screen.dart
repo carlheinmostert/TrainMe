@@ -519,7 +519,31 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
           controller.play();
         }
       }).catchError((e) {
-        debugPrint('Video init failed for slide $index: $e');
+        // Initialization failed — typically a 404 on the raw-archive
+        // signed URL (publish-time upload is best-effort; plans
+        // published before the upload landed will have signed URLs
+        // pointing at absent objects). Without cleanup here the dead
+        // controller lingers in the map and the UI shows a spinner
+        // forever. Remove it, then — if this was a B&W / Original
+        // request — fall back to Line so the user isn't stuck.
+        debugPrint('Video init failed for slide $index ($_treatment): $e');
+        if (!mounted) return;
+        if (_videoControllers[index] == controller) {
+          _videoControllers.remove(index);
+          controller.dispose();
+        }
+        if (_treatment != Treatment.line) {
+          setState(() => _treatment = Treatment.line);
+          _prepareVideo(index);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'This treatment isn\'t available yet — showing line drawing.',
+              ),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
       });
   }
 
