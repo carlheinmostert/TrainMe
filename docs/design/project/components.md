@@ -530,3 +530,20 @@ Before implementing any account / billing / settings / referral
 feature, explicitly call out which surfaces it touches. Default to
 "both", justify "one" only if the action is fundamentally tied to the
 device (e.g. iOS share sheet, Camera mode).
+
+### R-12 · Portal dashboard hygiene
+
+1. **Every tile has a destination.** No pure-display tiles. A stat
+   tile is a link-tile that clicks through to its deep-dive page.
+2. **No orphaned functionality.** If a feature exists only on the
+   dashboard, promote it to a dedicated page; the dashboard tile
+   becomes a summary-plus-click-through.
+3. **Primary nav covers every destination.** If a page isn't
+   reachable from the nav, it's orphaned (fix the nav) or shouldn't
+   exist (delete the page). Exceptions: quick/public pages like
+   `/r/[code]`, `/sign-up`, `/auth/*`.
+4. **Dashboard is a summary, not a workspace.** Key number + one tap
+   to drill in. No inline forms, no long lists, no nested actions.
+5. **One affordance style per card type.** Clickable tiles have a
+   consistent hover state + arrow/chevron. Stat-only cards (rare)
+   look obviously non-interactive.
