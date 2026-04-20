@@ -7,23 +7,18 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
-import '../models/client.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/path_resolver.dart';
 import '../theme.dart';
-import '../services/api_client.dart';
-import '../services/auth_service.dart';
 import '../models/treatment.dart';
 import '../services/sync_service.dart';
 import '../widgets/circuit_control_sheet.dart';
-import '../widgets/client_consent_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
-import '../widgets/practice_chip.dart';
 import '../widgets/shell_pull_tab.dart';
 import '../widgets/studio_exercise_card.dart';
 import '../widgets/treatment_segmented_control.dart';
@@ -815,19 +810,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             tooltip: 'Preview plan',
           ),
       ],
-      // Thin strip below the app-bar hosting the practice chip — shows
-      // which practice will own the next publish but rendered
-      // non-interactive (R-09: dimmed affordance) because switching
-      // practice mid-session is a footgun (session state stays bound
-      // to the practice it was created under).
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(36),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          alignment: Alignment.centerLeft,
-          child: const PracticeChip(enabled: false),
-        ),
-      ),
     );
   }
 
@@ -896,66 +878,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           if (totalDuration > 0)
             _Chip(label: '~${formatDuration(totalDuration)}'),
           const Spacer(),
-          // Viewing-preferences entry (three-treatment model). Reads as a
-          // subject-utility, not header chrome. Opens the consent sheet
-          // for the session's linked client inline; no detour through
-          // a client list now that Home IS the client list.
-          _ViewingPrefsButton(
-            onTap: _openConsentForSessionClient,
-          ),
-          const SizedBox(width: 8),
+          // Viewing-preferences moved to a client-level chip on
+          // ClientSessionsScreen (Wave 3). The Studio summary row now
+          // carries the publish-lock badge only.
           _buildPublishLockBadge(),
         ],
       ),
     );
-  }
-
-  /// Open the client-consent bottom sheet for the client linked to this
-  /// session. Resolves the client row via [Session.clientId] when set,
-  /// else by [Session.clientName] within the current practice. Shows a
-  /// gentle SnackBar when no match is found (typically the legacy path
-  /// where the quick-flow never minted a client row).
-  Future<void> _openConsentForSessionClient() async {
-    HapticFeedback.selectionClick();
-    final practiceId = AuthService.instance.currentPracticeId.value;
-    if (practiceId == null || practiceId.isEmpty) return;
-
-    final clients =
-        await ApiClient.instance.listPracticeClients(practiceId);
-    if (!mounted) return;
-
-    PracticeClient? match;
-    final cid = _session.clientId;
-    if (cid != null) {
-      for (final c in clients) {
-        if (c.id == cid) {
-          match = c;
-          break;
-        }
-      }
-    }
-    if (match == null) {
-      final lower = _session.clientName.toLowerCase();
-      for (final c in clients) {
-        if (c.name.toLowerCase() == lower) {
-          match = c;
-          break;
-        }
-      }
-    }
-
-    if (match == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Publish first to set viewing preferences.'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    await showClientConsentSheet(context, client: match);
   }
 
   Widget _buildPublishLockBadge() {
@@ -1520,34 +1449,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         mediaList.indexWhere((e) => e.id == exercise.id);
     if (initialIndex < 0) return;
 
-    // Resolve the client linked to this session so the viewer can render
-    // its inline consent toggle and persist changes via SyncService.
-    // Prefer the local cache (instant, offline-friendly) — fall back to
-    // a fresh fetch only when the cache is cold. Identical resolution
-    // strategy to _openConsentForSessionClient: id first, then name.
-    final practiceId = AuthService.instance.currentPracticeId.value;
-    PracticeClient? client;
-    if (practiceId != null && practiceId.isNotEmpty) {
-      final cached =
-          await widget.storage.getCachedClientsForPractice(practiceId);
-      final cachedAsPublic = cached
-          .map((c) => c.toPracticeClient())
-          .toList(growable: false);
-      client = _matchClient(cachedAsPublic, _session);
-      if (client == null) {
-        try {
-          final remote =
-              await ApiClient.instance.listPracticeClients(practiceId);
-          client = _matchClient(remote, _session);
-        } catch (_) {
-          // Offline + cache miss — viewer will gracefully render without
-          // the consent toggle (treatments still cycle / segmented control
-          // still works for Line; B&W + Original are gated by the
-          // pre-archive check anyway).
-        }
-      }
-    }
-
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -1555,7 +1456,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         builder: (_) => _MediaViewer(
           exercises: mediaList,
           initialIndex: initialIndex,
-          client: client,
           // When the practitioner cycles treatment on an exercise, the
           // viewer writes to local SQLite directly. We bubble the change
           // up here so the Studio card tiles + in-memory session stay in
@@ -1575,26 +1475,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // before the next render.
     if (!mounted) return;
     await _refreshSession();
-  }
-
-  /// Resolve a [PracticeClient] from a list using the same id-then-name
-  /// fallback as [_openConsentForSessionClient]. Returns null when no
-  /// row matches — the caller treats that as "no consent affordance".
-  static PracticeClient? _matchClient(
-    List<PracticeClient> clients,
-    Session session,
-  ) {
-    final cid = session.clientId;
-    if (cid != null) {
-      for (final c in clients) {
-        if (c.id == cid) return c;
-      }
-    }
-    final lower = session.clientName.toLowerCase();
-    for (final c in clients) {
-      if (c.name.toLowerCase() == lower) return c;
-    }
-    return null;
   }
 }
 
@@ -1777,12 +1657,8 @@ bool _isStillImageConversion(ExerciseCapture exercise) {
 ///   • Left-edge vertical [TreatmentSegmentedControl] — orientation
 ///     matches the vertical-swipe gesture so the visual control reads
 ///     the same axis as the gesture it represents. Locked segments (no
-///     archive OR client said no) tap into the inline consent toggle.
-///   • Inline consent toggle directly below the vertical pill — only
-///     when the active treatment is B&W or Original and a client row is
-///     resolvable. One tap fires immediately (R-01: no confirmation
-///     modals); writes go through [SyncService.queueSetConsent]
-///     (offline-first).
+///     archive OR client said no) surface a short SnackBar pointing at
+///     the client page, where consent now lives (Wave 3).
 ///   • Pre-archive captures (no `archiveFilePath`) keep B&W + Original
 ///     greyed out — Carl's call: don't fall back silently to Line, that
 ///     would mislead the practitioner during a "show me the difference"
@@ -1790,12 +1666,6 @@ bool _isStillImageConversion(ExerciseCapture exercise) {
 class _MediaViewer extends StatefulWidget {
   final List<ExerciseCapture> exercises;
   final int initialIndex;
-
-  /// The client linked to this session. May be null when the lookup
-  /// missed (legacy plan with no `client_id`, name mismatch, or offline
-  /// + cache cold). Without a client the consent toggle is hidden and
-  /// the only callable treatment is Line.
-  final PracticeClient? client;
 
   /// Fired whenever the practitioner changes the sticky preferred
   /// treatment on the current exercise (via vertical swipe OR a tap on
@@ -1813,7 +1683,6 @@ class _MediaViewer extends StatefulWidget {
   const _MediaViewer({
     required this.exercises,
     required this.initialIndex,
-    required this.client,
     this.onExerciseUpdate,
   });
 
@@ -1835,11 +1704,6 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// re-reads from ITS OWN exercise, so moving to a neighbour does NOT
   /// carry the previous selection forward.
   Treatment _treatment = Treatment.line;
-
-  /// Mutable copy of the client so consent toggles update local state
-  /// without waiting for a round-trip. Mirrors the SyncService cache
-  /// write that fires immediately.
-  PracticeClient? _client;
 
   /// Active video controller (whichever treatment is on screen). One
   /// controller at a time keeps memory + decode budget bounded.
@@ -1896,7 +1760,6 @@ class _MediaViewerState extends State<_MediaViewer> {
     super.initState();
     _currentIndex = widget.initialIndex;
     _exercises = List<ExerciseCapture>.from(widget.exercises);
-    _client = widget.client;
     _pageController = PageController(initialPage: _currentIndex);
     // Seed from the opening exercise's stored preference so the viewer
     // lands on the treatment the practitioner last chose. Falls back to
@@ -2116,51 +1979,6 @@ class _MediaViewerState extends State<_MediaViewer> {
     _showControlsThenMaybeIdleFade();
   }
 
-  /// Flip the consent bit for the active treatment and persist via the
-  /// offline-first queue. Updates the local mirror immediately so the
-  /// affordance reads as "instant" — matches R-01 (no confirmation).
-  ///
-  /// Line drawing has no consent toggle (always allowed); the caller
-  /// only invokes this for B&W / Original.
-  Future<void> _toggleConsentForActiveTreatment() async {
-    final client = _client;
-    if (client == null) return;
-    if (_treatment == Treatment.line) return;
-
-    HapticFeedback.selectionClick();
-    var grayscale = client.grayscaleAllowed;
-    var colour = client.colourAllowed;
-    if (_treatment == Treatment.grayscale) {
-      grayscale = !grayscale;
-    } else {
-      colour = !colour;
-    }
-
-    // Optimistic local update — feels instant. The cache write inside
-    // queueSetConsent confirms it on disk a tick later.
-    setState(() {
-      _client = client.copyWith(
-        grayscaleAllowed: grayscale,
-        colourAllowed: colour,
-      );
-    });
-
-    try {
-      await SyncService.instance.queueSetConsent(
-        clientId: client.id,
-        grayscaleAllowed: grayscale,
-        colourAllowed: colour,
-      );
-    } catch (_) {
-      // Roll the optimistic update back on hard failure — the
-      // SyncService.queueSetConsent does its own SnackBar-via-caller
-      // pattern, but here we fail quietly into the previous state to
-      // avoid surfacing a flapping toggle.
-      if (!mounted) return;
-      setState(() => _client = client);
-    }
-  }
-
   String _headerLabel(ExerciseCapture e, int index) {
     final n = e.name;
     if (n != null && n.trim().isNotEmpty) return n;
@@ -2227,15 +2045,13 @@ class _MediaViewerState extends State<_MediaViewer> {
             },
           ),
 
-          // Left-edge vertical stack — segmented control + (optional)
-          // consent toggle. Lives on the left side, vertically centered,
-          // so the control's orientation mirrors the vertical-swipe
-          // gesture that cycles treatments. Horizontal layouts were
-          // incoherent with the gesture axis (Carl's QA call). The
-          // consent toggle sits directly below the pill so the "show
-          // {Name}" affordance stays adjacent to the treatment it gates.
-          // Only renders when the current exercise is a video — stills
-          // have nothing to switch between.
+          // Left-edge vertical treatment pill. Lives on the left side,
+          // vertically centered, so the control's orientation mirrors
+          // the vertical-swipe gesture that cycles treatments. Only
+          // renders when the current exercise is a video — stills have
+          // nothing to switch between. Consent now lives at the client
+          // level on ClientSessionsScreen (Wave 3), so the inline
+          // toggle that used to sit below this pill is gone.
           if (_isVideo(_current))
             Positioned(
               left: 12,
@@ -2244,49 +2060,21 @@ class _MediaViewerState extends State<_MediaViewer> {
               child: SafeArea(
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TreatmentSegmentedControl(
-                        orientation: Axis.vertical,
-                        active: _treatment,
-                        grayscaleAvailable: hasArchive,
-                        originalAvailable: hasArchive,
-                        onChanged: _onTreatmentChanged,
-                        onLockTap: _onLockedSegmentTap,
-                        lockedMessages: hasArchive
-                            ? null
-                            : const {
-                                Treatment.grayscale:
-                                    'Older capture — re-record to enable.',
-                                Treatment.original:
-                                    'Older capture — re-record to enable.',
-                              },
-                      ),
-                      if (_shouldShowConsentRow()) ...[
-                        const SizedBox(height: 10),
-                        // Constrain the consent pill so a long client name
-                        // can't push it off the screen — it's a short
-                        // horizontal row sitting next to the vertical
-                        // treatment pill and needs to breathe around the
-                        // centred exercise-name pill.
-                        ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth:
-                                MediaQuery.of(context).size.width * 0.55,
-                          ),
-                          child: _ConsentToggleRow(
-                            clientName: _client!.name,
-                            allowed: _treatment == Treatment.grayscale
-                                ? _client!.grayscaleAllowed
-                                : _client!.colourAllowed,
-                            onChanged: (_) =>
-                                _toggleConsentForActiveTreatment(),
-                          ),
-                        ),
-                      ],
-                    ],
+                  child: TreatmentSegmentedControl(
+                    orientation: Axis.vertical,
+                    active: _treatment,
+                    grayscaleAvailable: hasArchive,
+                    originalAvailable: hasArchive,
+                    onChanged: _onTreatmentChanged,
+                    onLockTap: _onLockedSegmentTap,
+                    lockedMessages: hasArchive
+                        ? null
+                        : const {
+                            Treatment.grayscale:
+                                'Older capture — re-record to enable.',
+                            Treatment.original:
+                                'Older capture — re-record to enable.',
+                          },
                   ),
                 ),
               ),
@@ -2406,27 +2194,23 @@ class _MediaViewerState extends State<_MediaViewer> {
     );
   }
 
-  /// True when the consent row should render: the active treatment is
-  /// gated (B&W or Original), we have a real client row, and the
-  /// archive exists (without an archive there's nothing to consent to).
-  bool _shouldShowConsentRow() {
-    if (_treatment == Treatment.line) return false;
-    if (_client == null) return false;
-    if (!_hasArchive(_current)) return false;
-    return true;
-  }
-
   /// Tap handler for a locked segment in the segmented control.
   ///
-  /// When the lock is "no archive" we can't unlock anything from here
-  /// (Carl: re-record path). When the lock is "no consent" the toggle
-  /// row above is the fix — switching there is exactly what the
-  /// segmented control would have done if the segment was available, so
-  /// we behave as if the segment was tapped (showing the toggle in its
-  /// "Tap to allow" state). This keeps the affordance R-09: the lock
-  /// tells you why, the tap takes you to the fix.
+  /// Consent now lives at the client level (ClientSessionsScreen). The
+  /// inline toggle that used to sit below this pill is gone, so when a
+  /// segment is locked we gently point the practitioner at where to go
+  /// grant access. Haptic + short SnackBar; no modal (R-01).
   void _onLockedSegmentTap() {
     HapticFeedback.lightImpact();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Grant consent on the client page to enable this treatment.',
+        ),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   /// Build the active video frame for the AnimatedSwitcher. Keyed off
@@ -2515,80 +2299,6 @@ class _PlayPauseOverlayButton extends StatelessWidget {
   }
 }
 
-/// Inline consent affordance shown below the segmented control when the
-/// active treatment is B&W or Original.
-///
-/// Voice: peer-to-peer (R-06 + voice.md). Never "consent" / "POPIA" /
-/// "withdraw" / "rights". Rendered as a short label + a real iOS-style
-/// [Switch] — Carl's feedback: the pillbox reads unambiguously as a
-/// "setting" the practitioner is tweaking, not an ack button they keep
-/// pressing. Switch styling mirrors `client_consent_sheet.dart`.
-///
-/// One flip fires immediately; no confirmation modal (R-01). Writes go
-/// through [SyncService.queueSetConsent] offline-first at the call site.
-class _ConsentToggleRow extends StatelessWidget {
-  final String clientName;
-  final bool allowed;
-  final ValueChanged<bool> onChanged;
-
-  const _ConsentToggleRow({
-    required this.clientName,
-    required this.allowed,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final name = clientName.trim().isEmpty ? 'your client' : clientName;
-    return Container(
-      height: 40,
-      padding: const EdgeInsets.only(left: 14, right: 6),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(9999),
-        border: Border.all(
-          color: AppColors.surfaceBorder,
-          width: 1,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              'Show $name',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.2,
-                color: AppColors.textOnDark,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // Shrink the standard Switch footprint so the pill reads as a
-          // compact row and doesn't dominate the top-left stack.
-          Transform.scale(
-            scale: 0.82,
-            child: Switch(
-              value: allowed,
-              onChanged: onChanged,
-              activeThumbColor: Colors.white,
-              activeTrackColor: AppColors.primary,
-              inactiveThumbColor: AppColors.textSecondaryOnDark,
-              inactiveTrackColor: AppColors.surfaceBorder,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// Bottom-of-viewer dot row that tells the practitioner "horizontal
 /// swipe moves between exercises". Mirrors the style established in
 /// `plan_preview_screen.dart` — active dot grows to a short capsule;
@@ -2642,50 +2352,3 @@ class _VideoPagePlaceholder extends StatelessWidget {
   }
 }
 
-/// Small "Viewing" chip that routes to the Your-clients screen. Lives in
-/// the studio summary row so the practitioner can jump to the consent
-/// sheet without leaving the session context. Copy is deliberately
-/// peer-to-peer — never "Consent" / "Legal" (R-voice).
-class _ViewingPrefsButton extends StatelessWidget {
-  final VoidCallback onTap;
-
-  const _ViewingPrefsButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        height: 28,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceRaised,
-          borderRadius: BorderRadius.circular(9999),
-          border: Border.all(color: AppColors.surfaceBorder),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.visibility_outlined,
-              size: 14,
-              color: AppColors.textSecondaryOnDark,
-            ),
-            SizedBox(width: 6),
-            Text(
-              'Viewing',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.3,
-                color: AppColors.textSecondaryOnDark,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
