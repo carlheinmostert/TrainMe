@@ -48,6 +48,19 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Edge case: capture a stationary shot (practitioner standing still). Motion-peak should fall back gracefully to midpoint; person-crop should still tighten.
    - Edge case: capture a video without a person in frame (e.g. pointing at equipment). Person-segmentation will return nil → thumbnail falls through to the un-cropped masked image (same look as before).
 
+6. **Studio MediaViewer — treatment cycling + inline consent** (branch `feat/studio-mediaviewer-treatments`):
+   - Long-press a Studio thumbnail → "Open full-screen"
+   - Verify top-left segmented control renders: Line · B&W · Original
+   - Swipe up — cycles Line → B&W → Original → Line with a 220ms crossfade, per-step haptic
+   - Swipe down — reverse cycle
+   - Tap a segment directly — jumps, same crossfade
+   - Active treatment != Line AND client exists → consent chip shows below control ("✓ {Name} can see this" or "Tap to allow")
+   - Tap chip → flips state immediately (R-01 no-modal), SyncService queues the write
+   - On a pre-archive capture (old session) → B&W + Original segments are greyed out with a lock glyph and tooltip "Older capture — re-record to enable."
+   - Horizontal swipe between exercises — page changes, treatment resets to Line (intended)
+   - Tap video — play/pause still works
+   - Close button returns to Studio
+
 ### Things to actively watch for
 - **iOS 26.4 SDK gap** — any sub-agent build will fail in their sandbox on this; only Carl's main machine has the SDK installed. Not a code issue.
 - **`sessions.client_id` backfill** — runs on every Home load; should be a no-op after first run per practice.

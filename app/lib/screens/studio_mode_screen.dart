@@ -16,6 +16,8 @@ import '../services/path_resolver.dart';
 import '../theme.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../models/treatment.dart';
+import '../services/sync_service.dart';
 import '../widgets/circuit_control_sheet.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/gutter_rail.dart';
@@ -24,6 +26,7 @@ import '../widgets/inline_editable_text.dart';
 import '../widgets/practice_chip.dart';
 import '../widgets/shell_pull_tab.dart';
 import '../widgets/studio_exercise_card.dart';
+import '../widgets/treatment_segmented_control.dart';
 import '../widgets/undo_snackbar.dart';
 import 'plan_preview_screen.dart';
 
@@ -1506,7 +1509,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
   }
 
-  void _openMediaViewer(ExerciseCapture exercise) {
+  Future<void> _openMediaViewer(ExerciseCapture exercise) async {
     if (exercise.isRest) return;
     // Build a list of the non-rest exercises so the viewer can page
     // through them. Rests don't have media, so pulling them out keeps
@@ -1516,15 +1519,66 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final initialIndex =
         mediaList.indexWhere((e) => e.id == exercise.id);
     if (initialIndex < 0) return;
+
+    // Resolve the client linked to this session so the viewer can render
+    // its inline consent toggle and persist changes via SyncService.
+    // Prefer the local cache (instant, offline-friendly) — fall back to
+    // a fresh fetch only when the cache is cold. Identical resolution
+    // strategy to _openConsentForSessionClient: id first, then name.
+    final practiceId = AuthService.instance.currentPracticeId.value;
+    PracticeClient? client;
+    if (practiceId != null && practiceId.isNotEmpty) {
+      final cached =
+          await widget.storage.getCachedClientsForPractice(practiceId);
+      final cachedAsPublic = cached
+          .map((c) => c.toPracticeClient())
+          .toList(growable: false);
+      client = _matchClient(cachedAsPublic, _session);
+      if (client == null) {
+        try {
+          final remote =
+              await ApiClient.instance.listPracticeClients(practiceId);
+          client = _matchClient(remote, _session);
+        } catch (_) {
+          // Offline + cache miss — viewer will gracefully render without
+          // the consent toggle (treatments still cycle / segmented control
+          // still works for Line; B&W + Original are gated by the
+          // pre-archive check anyway).
+        }
+      }
+    }
+
+    if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
         builder: (_) => _MediaViewer(
           exercises: mediaList,
           initialIndex: initialIndex,
+          client: client,
         ),
       ),
     );
+  }
+
+  /// Resolve a [PracticeClient] from a list using the same id-then-name
+  /// fallback as [_openConsentForSessionClient]. Returns null when no
+  /// row matches — the caller treats that as "no consent affordance".
+  static PracticeClient? _matchClient(
+    List<PracticeClient> clients,
+    Session session,
+  ) {
+    final cid = session.clientId;
+    if (cid != null) {
+      for (final c in clients) {
+        if (c.id == cid) return c;
+      }
+    }
+    final lower = session.clientName.toLowerCase();
+    for (final c in clients) {
+      if (c.name.toLowerCase() == lower) return c;
+    }
+    return null;
   }
 }
 
@@ -1691,17 +1745,45 @@ bool _isStillImageConversion(ExerciseCapture exercise) {
       ext.endsWith('.png');
 }
 
-/// Full-screen media viewer with horizontal swipe across exercises.
+/// Full-screen media viewer — the practitioner's "stand next to the
+/// client and demo what each treatment looks like" surface.
 ///
-/// Opened from a Studio thumbnail tap. Pages through every non-rest
-/// exercise in the session (rests have no media) via PageView. Each
-/// page is a photo or video; the video controller is lazily created
-/// for the CURRENT page only and disposed when the user swipes away,
-/// so memory stays bounded regardless of plan size.
+/// Opened from a Studio thumbnail long-press → "Open full-screen". Pages
+/// through every non-rest exercise in the session via PageView (rests
+/// have no media). Each page is a photo or video; the video controller
+/// is lazily created for the CURRENT page only and disposed when the
+/// user swipes away, so memory stays bounded regardless of plan size.
+///
+/// Adds (R-10 does NOT apply here — practitioner-only surface):
+///   • Vertical swipe cycles the active treatment with a 220ms crossfade.
+///     Up = next (Line → B&W → Original → Line), Down = previous.
+///     Disabled treatments are skipped over.
+///   • Top-anchored [TreatmentSegmentedControl] mirrors the gesture and
+///     lets the practitioner jump directly. Locked segments (no archive
+///     OR client said no) tap into the inline consent toggle.
+///   • Inline consent toggle below the control — only when the active
+///     treatment is B&W or Original and a client row is resolvable. One
+///     tap fires immediately (R-01: no confirmation modals); writes go
+///     through [SyncService.queueSetConsent] (offline-first).
+///   • Pre-archive captures (no `archiveFilePath`) keep B&W + Original
+///     greyed out — Carl's call: don't fall back silently to Line, that
+///     would mislead the practitioner during a "show me the difference"
+///     demo.
 class _MediaViewer extends StatefulWidget {
   final List<ExerciseCapture> exercises;
   final int initialIndex;
-  const _MediaViewer({required this.exercises, required this.initialIndex});
+
+  /// The client linked to this session. May be null when the lookup
+  /// missed (legacy plan with no `client_id`, name mismatch, or offline
+  /// + cache cold). Without a client the consent toggle is hidden and
+  /// the only callable treatment is Line.
+  final PracticeClient? client;
+
+  const _MediaViewer({
+    required this.exercises,
+    required this.initialIndex,
+    required this.client,
+  });
 
   @override
   State<_MediaViewer> createState() => _MediaViewerState();
@@ -1710,20 +1792,74 @@ class _MediaViewer extends StatefulWidget {
 class _MediaViewerState extends State<_MediaViewer> {
   late final PageController _pageController;
   late int _currentIndex;
+
+  /// Active treatment for the current page. Reset to Line whenever the
+  /// page changes (Carl: every new exercise starts with the safe
+  /// baseline).
+  Treatment _treatment = Treatment.line;
+
+  /// Mutable copy of the client so consent toggles update local state
+  /// without waiting for a round-trip. Mirrors the SyncService cache
+  /// write that fires immediately.
+  PracticeClient? _client;
+
+  /// Active video controller (whichever treatment is on screen). One
+  /// controller at a time keeps memory + decode budget bounded.
   VideoPlayerController? _videoController;
   bool _videoInitialized = false;
+
+  /// Token used to ignore stale `initialize()` callbacks when the user
+  /// swipes through treatments faster than a controller can come up.
+  int _initToken = 0;
 
   ExerciseCapture get _current => widget.exercises[_currentIndex];
 
   bool _isVideo(ExerciseCapture e) =>
       e.mediaType == MediaType.video && !_isStillImageConversion(e);
 
+  /// True when the local raw archive exists for this exercise. The
+  /// pre-archive guard from the brief: B&W + Original segments stay
+  /// disabled until the practitioner re-records.
+  bool _hasArchive(ExerciseCapture e) {
+    final path = e.absoluteArchiveFilePath;
+    if (path == null) return false;
+    return File(path).existsSync();
+  }
+
+  bool _isTreatmentAvailable(Treatment t) {
+    switch (t) {
+      case Treatment.line:
+        return true;
+      case Treatment.grayscale:
+      case Treatment.original:
+        return _hasArchive(_current);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+    _client = widget.client;
     _pageController = PageController(initialPage: _currentIndex);
     _initVideoForCurrent();
+  }
+
+  /// Source file the active treatment should play.
+  ///
+  ///   • [Treatment.line] → the on-device line drawing converted file
+  ///     (stored locally, always present once conversion is done).
+  ///   • [Treatment.grayscale] / [Treatment.original] → the raw archive
+  ///     mp4 (same file for both — the grayscale rendering is a
+  ///     widget-level [ColorFiltered], no second source needed).
+  String? _sourcePathForTreatment(ExerciseCapture e, Treatment t) {
+    switch (t) {
+      case Treatment.line:
+        return e.displayFilePath;
+      case Treatment.grayscale:
+      case Treatment.original:
+        return e.absoluteArchiveFilePath;
+    }
   }
 
   void _initVideoForCurrent() {
@@ -1731,19 +1867,23 @@ class _MediaViewerState extends State<_MediaViewer> {
     _videoController = null;
     _videoInitialized = false;
     if (!_isVideo(_current)) return;
-    final controller = VideoPlayerController.file(
-      File(_current.displayFilePath),
-    );
+    final path = _sourcePathForTreatment(_current, _treatment);
+    if (path == null) return;
+    final token = ++_initToken;
+    final controller = VideoPlayerController.file(File(path));
     _videoController = controller;
     controller.initialize().then((_) {
-      // Page might have changed before init finishes — only adopt the
-      // result if this is still the active controller.
-      if (!mounted || _videoController != controller) return;
+      // Bail when the user swiped away or cycled treatments before init
+      // resolved — adopting a stale controller would leak the new one.
+      if (!mounted || token != _initToken) {
+        controller.dispose();
+        return;
+      }
       setState(() => _videoInitialized = true);
       controller.setLooping(true);
       controller.play();
     }).catchError((e) {
-      debugPrint('Media viewer video init failed: $e');
+      debugPrint('MediaViewer: video init failed for $path — $e');
     });
   }
 
@@ -1755,8 +1895,45 @@ class _MediaViewerState extends State<_MediaViewer> {
   }
 
   void _onPageChanged(int index) {
-    setState(() => _currentIndex = index);
+    setState(() {
+      _currentIndex = index;
+      // Carl: each new exercise starts on Line — the safe baseline.
+      // Sticking the previous treatment forward would be confusing
+      // when the new exercise is pre-archive (segment would jump back
+      // to Line silently).
+      _treatment = Treatment.line;
+    });
     _initVideoForCurrent();
+  }
+
+  /// Switch to [next] — caller has already checked availability.
+  /// Disposes the active controller and re-inits with the new source.
+  /// The crossfade itself is handled by the [AnimatedSwitcher] keyed
+  /// off the treatment name.
+  void _onTreatmentChanged(Treatment next) {
+    if (next == _treatment) return;
+    HapticFeedback.selectionClick();
+    setState(() => _treatment = next);
+    _initVideoForCurrent();
+  }
+
+  /// Cycle to the next available treatment in the given direction.
+  /// `delta = +1` advances (Line → B&W → Original → Line).
+  /// `delta = -1` reverses. Disabled treatments are skipped — if no
+  /// treatment besides Line is available the call is a no-op.
+  void _cycleTreatment(int delta) {
+    const order = Treatment.values; // line, grayscale, original
+    var idx = order.indexOf(_treatment);
+    for (var step = 0; step < order.length; step++) {
+      idx = (idx + delta) % order.length;
+      if (idx < 0) idx += order.length;
+      final candidate = order[idx];
+      if (_isTreatmentAvailable(candidate)) {
+        _onTreatmentChanged(candidate);
+        return;
+      }
+    }
+    // Only Line is available — nothing to cycle to.
   }
 
   void _togglePlayPause() {
@@ -1771,10 +1948,66 @@ class _MediaViewerState extends State<_MediaViewer> {
     });
   }
 
+  /// Flip the consent bit for the active treatment and persist via the
+  /// offline-first queue. Updates the local mirror immediately so the
+  /// affordance reads as "instant" — matches R-01 (no confirmation).
+  ///
+  /// Line drawing has no consent toggle (always allowed); the caller
+  /// only invokes this for B&W / Original.
+  Future<void> _toggleConsentForActiveTreatment() async {
+    final client = _client;
+    if (client == null) return;
+    if (_treatment == Treatment.line) return;
+
+    HapticFeedback.selectionClick();
+    var grayscale = client.grayscaleAllowed;
+    var colour = client.colourAllowed;
+    if (_treatment == Treatment.grayscale) {
+      grayscale = !grayscale;
+    } else {
+      colour = !colour;
+    }
+
+    // Optimistic local update — feels instant. The cache write inside
+    // queueSetConsent confirms it on disk a tick later.
+    setState(() {
+      _client = client.copyWith(
+        grayscaleAllowed: grayscale,
+        colourAllowed: colour,
+      );
+    });
+
+    try {
+      await SyncService.instance.queueSetConsent(
+        clientId: client.id,
+        grayscaleAllowed: grayscale,
+        colourAllowed: colour,
+      );
+    } catch (_) {
+      // Roll the optimistic update back on hard failure — the
+      // SyncService.queueSetConsent does its own SnackBar-via-caller
+      // pattern, but here we fail quietly into the previous state to
+      // avoid surfacing a flapping toggle.
+      if (!mounted) return;
+      setState(() => _client = client);
+    }
+  }
+
   String _headerLabel(ExerciseCapture e, int index) {
     final n = e.name;
     if (n != null && n.trim().isNotEmpty) return n;
     return 'Exercise ${index + 1}';
+  }
+
+  /// Vertical-swipe handler. A flick of >300 px/s in either direction
+  /// cycles the treatment. The threshold is loose enough that a casual
+  /// flick reads, but tight enough that a horizontal swipe (handed off
+  /// to the PageView) doesn't accidentally trigger.
+  void _handleVerticalDragEnd(DragEndDetails details) {
+    final v = details.primaryVelocity ?? 0;
+    if (v.abs() < 300) return;
+    // Negative velocity = upward swipe = next treatment.
+    _cycleTreatment(v < 0 ? 1 : -1);
   }
 
   @override
@@ -1783,15 +2016,15 @@ class _MediaViewerState extends State<_MediaViewer> {
         _videoInitialized &&
         _videoController != null &&
         !_videoController!.value.isPlaying;
+    final hasArchive = _hasArchive(_current);
     return Scaffold(
       backgroundColor: AppColors.surfaceBg,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Pager — one page per non-rest exercise. Video pages show
-          // the VideoPlayer only when the page IS current; otherwise
-          // they render a dark placeholder so adjacent pages don't
-          // spin up extra controllers.
+          // Pager — one page per non-rest exercise. Vertical swipes
+          // tunnelled into the GestureDetector cycle the treatment;
+          // horizontal swipes pass through to the PageView.
           PageView.builder(
             controller: _pageController,
             itemCount: widget.exercises.length,
@@ -1801,22 +2034,21 @@ class _MediaViewerState extends State<_MediaViewer> {
               final isCurrent = index == _currentIndex;
               final isVideo = _isVideo(ex);
               return GestureDetector(
+                // Vertical gestures only fire on the active page — neighbours
+                // would never receive them anyway because they're offscreen.
+                onVerticalDragEnd: isCurrent ? _handleVerticalDragEnd : null,
                 onTap: isCurrent && isVideo ? _togglePlayPause : null,
                 behavior: HitTestBehavior.opaque,
                 child: Center(
                   child: isVideo
-                      ? (isCurrent &&
-                              _videoInitialized &&
-                              _videoController != null
-                          ? AspectRatio(
-                              aspectRatio:
-                                  _videoController!.value.aspectRatio,
-                              child: VideoPlayer(_videoController!),
+                      ? (isCurrent
+                          ? AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 220),
+                              switchInCurve: Curves.easeOut,
+                              switchOutCurve: Curves.easeIn,
+                              child: _buildVideoFrame(),
                             )
-                          : isCurrent
-                              ? const CircularProgressIndicator(
-                                  color: Colors.white54)
-                              : const _VideoPagePlaceholder())
+                          : const _VideoPagePlaceholder())
                       : Image.file(
                           File(ex.displayFilePath),
                           fit: BoxFit.contain,
@@ -1830,10 +2062,57 @@ class _MediaViewerState extends State<_MediaViewer> {
               );
             },
           ),
-          // Exercise-name header — small pill at the top, always visible.
-          // Sits below the safe-area inset so it clears the notch / bar.
+
+          // Top stack — segmented control + (optional) consent toggle.
+          // Sits ABOVE the close button row visually but to its left so
+          // the X stays in the corner. Only renders when the current
+          // exercise is a video — for stills there's nothing to switch
+          // between. Wrapped in a SafeArea so it clears the notch.
+          if (_isVideo(_current))
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              left: 16,
+              right: 56, // leaves room for the close button
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TreatmentSegmentedControl(
+                    active: _treatment,
+                    grayscaleAvailable: hasArchive,
+                    originalAvailable: hasArchive,
+                    onChanged: _onTreatmentChanged,
+                    onLockTap: _onLockedSegmentTap,
+                    lockedMessages: hasArchive
+                        ? null
+                        : const {
+                            Treatment.grayscale:
+                                'Older capture — re-record to enable.',
+                            Treatment.original:
+                                'Older capture — re-record to enable.',
+                          },
+                  ),
+                  if (_shouldShowConsentRow()) ...[
+                    const SizedBox(height: 8),
+                    _ConsentToggleRow(
+                      clientName: _client!.name,
+                      allowed: _treatment == Treatment.grayscale
+                          ? _client!.grayscaleAllowed
+                          : _client!.colourAllowed,
+                      onTap: _toggleConsentForActiveTreatment,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+          // Exercise-name pill — sits BELOW the segmented control so
+          // the practitioner reads "what treatment" then "which exercise"
+          // top-to-bottom.
           Positioned(
-            top: MediaQuery.of(context).padding.top + 12,
+            top: _isVideo(_current)
+                ? MediaQuery.of(context).padding.top +
+                    (_shouldShowConsentRow() ? 110 : 60)
+                : MediaQuery.of(context).padding.top + 12,
             left: 0,
             right: 0,
             child: IgnorePointer(
@@ -1891,6 +2170,135 @@ class _MediaViewerState extends State<_MediaViewer> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// True when the consent row should render: the active treatment is
+  /// gated (B&W or Original), we have a real client row, and the
+  /// archive exists (without an archive there's nothing to consent to).
+  bool _shouldShowConsentRow() {
+    if (_treatment == Treatment.line) return false;
+    if (_client == null) return false;
+    if (!_hasArchive(_current)) return false;
+    return true;
+  }
+
+  /// Tap handler for a locked segment in the segmented control.
+  ///
+  /// When the lock is "no archive" we can't unlock anything from here
+  /// (Carl: re-record path). When the lock is "no consent" the toggle
+  /// row above is the fix — switching there is exactly what the
+  /// segmented control would have done if the segment was available, so
+  /// we behave as if the segment was tapped (showing the toggle in its
+  /// "Tap to allow" state). This keeps the affordance R-09: the lock
+  /// tells you why, the tap takes you to the fix.
+  void _onLockedSegmentTap() {
+    HapticFeedback.lightImpact();
+  }
+
+  /// Build the active video frame for the AnimatedSwitcher. Keyed off
+  /// the treatment so the switcher knows when to crossfade. Wraps in a
+  /// ColorFiltered for grayscale.
+  Widget _buildVideoFrame() {
+    final controller = _videoController;
+    if (controller == null || !_videoInitialized) {
+      return const SizedBox.expand(
+        key: ValueKey('media-viewer-loading'),
+        child: Center(
+          child: CircularProgressIndicator(color: Colors.white54),
+        ),
+      );
+    }
+    Widget videoView = AspectRatio(
+      aspectRatio: controller.value.aspectRatio,
+      child: VideoPlayer(controller),
+    );
+    if (_treatment == Treatment.grayscale) {
+      videoView = ColorFiltered(
+        colorFilter: grayscaleColorFilter,
+        child: videoView,
+      );
+    }
+    return KeyedSubtree(
+      key: ValueKey('media-viewer-${_treatment.name}'),
+      child: videoView,
+    );
+  }
+}
+
+/// Inline consent affordance shown below the segmented control when the
+/// active treatment is B&W or Original.
+///
+/// Voice: peer-to-peer (R-06 + voice.md). Never "consent" / "POPIA" /
+/// "withdraw" / "rights". Allowed = "✓ {Name} can see this". Not
+/// allowed = "Tap to allow". One tap toggles; no confirmation modal
+/// (R-01). Updates fire through [SyncService.queueSetConsent].
+class _ConsentToggleRow extends StatelessWidget {
+  final String clientName;
+  final bool allowed;
+  final VoidCallback onTap;
+
+  const _ConsentToggleRow({
+    required this.clientName,
+    required this.allowed,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = clientName.trim().isEmpty ? 'your client' : clientName;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(9999),
+        child: Container(
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: allowed
+                ? AppColors.primary.withValues(alpha: 0.15)
+                : Colors.black.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(9999),
+            border: Border.all(
+              color: allowed
+                  ? AppColors.primary
+                  : AppColors.surfaceBorder,
+              width: 1,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                allowed ? Icons.check_circle : Icons.touch_app_outlined,
+                size: 14,
+                color: allowed
+                    ? AppColors.primary
+                    : AppColors.textSecondaryOnDark,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  allowed ? '$name can see this' : 'Tap to allow',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                    color: allowed
+                        ? AppColors.primary
+                        : AppColors.textOnDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
