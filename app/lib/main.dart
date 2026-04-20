@@ -9,6 +9,7 @@ import 'theme/flags.dart';
 import 'services/local_storage_service.dart';
 import 'services/conversion_service.dart';
 import 'services/path_resolver.dart';
+import 'services/sync_service.dart';
 import 'screens/auth_gate.dart';
 
 /// TrainMe — Exercise plan capture and sharing for biokineticists.
@@ -50,6 +51,14 @@ void main() async {
     // items from a previous session (crash recovery)
     final conversion = ConversionService.initialize(storage);
     await conversion.restoreQueue();
+
+    // Offline-first sync layer. Reads come from the SQLite cache;
+    // writes land locally first, then the pending-op queue flushes to
+    // the cloud as connectivity permits. Non-blocking: start() only
+    // wires the connectivity listener and seeds the pending-count
+    // notifier — nothing waits on the network.
+    SyncService.configure(storage);
+    unawaited(SyncService.instance.start());
 
     runApp(TrainMeApp(storage: storage));
   } catch (e, stack) {

@@ -464,6 +464,41 @@ class ApiClient {
     }
   }
 
+  /// `upsert_client_with_id(p_id, p_practice_id, p_name)` — offline-first
+  /// variant of [upsertClient]. Caller supplies a client-generated uuid
+  /// so the row persisted locally BEFORE contact with the cloud can
+  /// survive the sync round-trip without the UI having to re-address
+  /// anything.
+  ///
+  /// Three return shapes (see milestone-K migration):
+  ///   1. Fresh insert — returns the caller's [clientId] unchanged.
+  ///   2. Idempotent replay (row with this id already exists) — returns
+  ///      [clientId] unchanged.
+  ///   3. Name conflict — returns the id of the OTHER row in this
+  ///      practice that already uses [name]. Caller (SyncService) is
+  ///      expected to detect `returnedId != clientId` and rewire local
+  ///      references from [clientId] to the returned id.
+  ///
+  /// Throws on network / membership / auth failures. Caller owns the
+  /// try/catch; SyncService treats most errors as retryable but surfaces
+  /// unrecoverable SQLSTATEs (42501 / P0002) via `PendingOp.attempts`.
+  Future<String?> upsertClientWithId({
+    required String clientId,
+    required String practiceId,
+    required String name,
+  }) async {
+    final result = await raw.rpc(
+      'upsert_client_with_id',
+      params: {
+        'p_id': clientId,
+        'p_practice_id': practiceId,
+        'p_name': name,
+      },
+    );
+    if (result is String && result.isNotEmpty) return result;
+    return null;
+  }
+
   /// `rename_client(p_client_id, p_new_name)` — mirrors the portal's
   /// `PortalApi.renameClient`. Raises a typed [RenameClientError] so
   /// callers (editable client name header on [ClientSessionsScreen])
