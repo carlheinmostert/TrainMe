@@ -217,7 +217,18 @@ export function ClientDetailPanel({
           full colour for plans where {clientName} prefers the real footage.
         </p>
 
-        <ul className="mt-5 space-y-3">
+        {/*
+         * VIDEO TREATMENT group (R-11 parity with the mobile sheet's
+         * grouped layout). Mobile's ClientConsentSheet was restructured
+         * in PR #44 with an uppercase section header + grouped toggles
+         * so that future consent groups (data sharing, communications,
+         * etc.) slot in without relabelling the surface. Portal mirrors
+         * that shape here.
+         */}
+        <p className="mt-5 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
+          Video treatment
+        </p>
+        <ul className="mt-2 space-y-3">
           <ToggleRow
             label="Line drawing"
             helper="Always available — de-identifies the client."
@@ -237,6 +248,9 @@ export function ClientDetailPanel({
             onChange={setOriginal}
           />
         </ul>
+        {/* Future consent groups slot in here — e.g. Data sharing,
+         * Communications. Keep the pattern: uppercase subheading +
+         * grouped ToggleRows. */}
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <button
