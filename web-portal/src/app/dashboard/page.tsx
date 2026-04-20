@@ -108,14 +108,14 @@ export default async function DashboardPage({
         : 'No activity this week';
 
   // Network — surface rebate-balance + referee count. Peer-to-peer
-  // language: "free publishes banked", "in your network". Never
+  // language: "free credits", "in your network". Never
   // "earned", "commission", "reward", "payout".
   const rebateBalance = referralStats.rebate_balance_credits;
   const refereeCount = referralStats.referee_count;
   const networkHeadline =
     rebateBalance > 0
-      ? `+${fmtCredits(rebateBalance)} free publishes`
-      : 'Free publishes banked';
+      ? `${fmtCredits(rebateBalance)} free credits`
+      : 'Earn Free Credits';
   const networkSubtitle =
     refereeCount === 0
       ? 'Share your code to start'
