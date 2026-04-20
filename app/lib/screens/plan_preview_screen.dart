@@ -1,3 +1,13 @@
+// TODO(wave4-phase2+): Retire this screen once Wave 4 Phase 2+ has
+// shipped to Carl's iPhone and parity with `UnifiedPreviewScreen` holds
+// for one week of device QA. Until then this remains reachable via a
+// long-press on the Studio slideshow icon as an escape hatch — the
+// regular tap opens the unified preview (web-player bundle inside a
+// WebView, served by the native `homefit-local://` URL scheme handler).
+// Tracking note: file shares `plan_preview_screen.dart` filename with
+// portal UI — when deleting, also drop the import from
+// `studio_mode_screen.dart` and scrub the long-press branch.
+
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
