@@ -15,6 +15,11 @@ import '../theme.dart';
 /// Line drawing is the platform baseline and always on; the row renders
 /// disabled so the practitioner knows there's nothing to decide there.
 ///
+/// Layout: grouped sections (Wave 3). The current "Video treatment"
+/// group holds the three treatment toggles. Future consent groups
+/// (e.g. outcome-tracking, data sharing) slot in below — see the
+/// comment at the bottom of the build method.
+///
 /// Opens via [showClientConsentSheet].
 class ClientConsentSheet extends StatefulWidget {
   final PracticeClient client;
@@ -134,6 +139,8 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
                 ),
               ),
               const SizedBox(height: 20),
+              _sectionHeader('Video treatment'),
+              const SizedBox(height: 4),
               _row(
                 icon: Icons.brush_outlined,
                 title: 'Line drawing',
@@ -157,6 +164,11 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
                 value: _colourAllowed,
                 onChanged: (v) => setState(() => _colourAllowed = v),
               ),
+              // Future consent groups slot in below this line — e.g.
+              // outcome-tracking, data sharing, reminder messaging.
+              // Each new group: _sectionHeader('<title>') + its rows,
+              // preceded by a SizedBox(height: 20) spacer. Keep the
+              // Save button the last child of this Column.
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: _saving ? null : _save,
@@ -189,6 +201,26 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Small section header for the sheet's grouped layout. Use for every
+  /// consent category — "Video treatment" today, outcome-tracking /
+  /// reminders tomorrow. Typography matches the app's other group
+  /// labels (uppercase Inter 11, coral-tinged text-secondary).
+  Widget _sectionHeader(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Text(
+        label.toUpperCase(),
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+          color: AppColors.textSecondaryOnDark,
         ),
       ),
     );

@@ -300,19 +300,6 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
       );
   }
 
-  Future<void> _copyLink(Session session) async {
-    final url = session.planUrl;
-    if (url == null) return;
-    await Clipboard.setData(ClipboardData(text: url));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Link copied'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
   Future<void> _shareSession(Session session) async {
     final url = session.planUrl;
     if (url == null) return;
@@ -587,7 +574,6 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   }
 
   Widget _buildHeader() {
-    final consentLabel = _consentSummary(_client);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
       child: Column(
@@ -597,7 +583,7 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
           const SizedBox(height: 10),
           Row(
             children: [
-              _ConsentChip(label: consentLabel, onTap: _openConsent),
+              _ConsentChip(label: 'Client consent', onTap: _openConsent),
               const SizedBox(width: 10),
               Text(
                 '${_sessions.length} session${_sessions.length == 1 ? '' : 's'}',
@@ -795,8 +781,6 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
             onOpen: () => _openSession(session),
             onDelete: () => _deleteSession(session),
             onPublish: () => _publishSession(session),
-            onCopyLink:
-                session.isPublished ? () => _copyLink(session) : null,
             onShare: session.isPublished ? () => _shareSession(session) : null,
             onShowPublishError: () => _showPublishErrorSnackBar(
               session,
@@ -924,17 +908,6 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
     final t = session.title;
     if (t != null && t.trim().isNotEmpty) return t;
     return session.clientName;
-  }
-
-  /// One-line summary of the client's viewing preferences. Used as the
-  /// label for the consent chip in the header.
-  static String _consentSummary(PracticeClient client) {
-    if (client.grayscaleAllowed && client.colourAllowed) {
-      return 'Line + B&W + Original';
-    }
-    if (client.grayscaleAllowed) return 'Line + B&W';
-    if (client.colourAllowed) return 'Line + Original';
-    return 'Line only';
   }
 }
 

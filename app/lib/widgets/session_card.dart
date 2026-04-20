@@ -17,7 +17,9 @@ import '../theme.dart';
 /// - Horizontal swipe (left) fires a soft-delete with an Undo SnackBar.
 ///   Per R-01 the delete runs immediately; the parent supplies the
 ///   [onDelete] handler that owns the SnackBar dance.
-/// - Right-side action row: Publish / Copy-link / Share / chevron.
+/// - Right-side action row: Publish / Share / chevron. (Copy-link icon
+///   retired in Wave 3 — Share covers the same intent without the
+///   silent-clipboard ambiguity.)
 /// - Failed-conversion retry pill under the subtitle.
 ///
 /// All network / storage side-effects are pushed up to the parent via
@@ -31,7 +33,6 @@ class SessionCard extends StatelessWidget {
   final VoidCallback onOpen;
   final VoidCallback onDelete;
   final VoidCallback onPublish;
-  final VoidCallback? onCopyLink;
   final VoidCallback? onShare;
   final VoidCallback onShowPublishError;
 
@@ -44,7 +45,6 @@ class SessionCard extends StatelessWidget {
     required this.onDelete,
     required this.onPublish,
     required this.onShowPublishError,
-    this.onCopyLink,
     this.onShare,
   });
 
@@ -224,24 +224,6 @@ class SessionCard extends StatelessWidget {
                           ],
                         ),
                       ),
-                    SizedBox(
-                      width: 34,
-                      height: 34,
-                      child: IconButton(
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        iconSize: 20,
-                        onPressed: session.isPublished ? onCopyLink : null,
-                        icon: Icon(
-                          Icons.link,
-                          color: session.isPublished
-                              ? AppColors.textOnDark
-                              : AppColors.grey600,
-                          size: 20,
-                        ),
-                        tooltip: 'Copy link',
-                      ),
-                    ),
                     SizedBox(
                       width: 34,
                       height: 34,
