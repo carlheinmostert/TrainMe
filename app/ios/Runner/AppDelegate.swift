@@ -52,20 +52,31 @@ import AVFoundation
         }
 
         let timeMs = args["timeMs"] as? Int ?? 0
+        // Optional: when true, ignore `timeMs` and pick a motion-peak
+        // frame natively + crop tight around the person. See
+        // VideoConverterChannel.pickMotionPeakTime for the heuristic.
+        let autoPick = args["autoPick"] as? Bool ?? false
 
         let url = URL(fileURLWithPath: inputPath)
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        generator.requestedTimeToleranceBefore = .zero
-        generator.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
+        // autoPick needs slack on both sides — Vision frames land between
+        // keyframes and requestedTimeToleranceBefore=.zero forces a full
+        // decode to the exact time, which can fail or return nil on some
+        // HEVC captures. Mirror the tolerances used in VideoConverterChannel.
+        if autoPick {
+          generator.requestedTimeToleranceBefore = CMTime(seconds: 0.5, preferredTimescale: 600)
+          generator.requestedTimeToleranceAfter = CMTime(seconds: 0.5, preferredTimescale: 600)
+        } else {
+          generator.requestedTimeToleranceBefore = .zero
+          generator.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
+        }
         // Tone-map HDR/Dolby Vision (iPhone 15 Pro+ default) to SDR so thumbnail
         // extraction succeeds on newer iOS. dynamicRangePolicy is iOS 18+.
         if #available(iOS 18.0, *) {
           generator.dynamicRangePolicy = .forceSDR
         }
-
-        let time = CMTime(value: CMTimeValue(timeMs), timescale: 1000)
 
         let handleImage: (CGImage?, Error?) -> Void = { cgImage, error in
           if let error = error {
@@ -86,10 +97,15 @@ import AVFoundation
           }
           // Apply Vision person segmentation (iOS 15+) so thumbnails match
           // the body-only look of the line-drawing video pipeline. Any
-          // failure falls through to the un-masked source image.
+          // failure falls through to the un-masked source image. With
+          // autoPick we also crop tight around the person for readability
+          // at Studio-list / Camera-peek sizes.
           var finalImage: CGImage = cgImage
           if #available(iOS 15.0, *) {
-            if let masked = VideoConverterChannel.applySegmentationToThumbnail(cgImage: cgImage) {
+            if let masked = VideoConverterChannel.applySegmentationToThumbnail(
+              cgImage: cgImage,
+              cropToPerson: autoPick
+            ) {
               finalImage = masked
             }
           }
@@ -121,12 +137,20 @@ import AVFoundation
           }
         }
 
-        if #available(iOS 16.0, *) {
-          generator.generateCGImageAsynchronously(for: time) { cgImage, _, error in
-            handleImage(cgImage, error)
-          }
-        } else {
-          DispatchQueue.global(qos: .userInitiated).async {
+        // autoPick work (motion-peak sampling) must run off-main — it
+        // makes several synchronous copyCGImage calls that would otherwise
+        // janky the caller's queue. Non-autoPick path preserves the old
+        // behaviour (CMTime construction is trivial).
+        DispatchQueue.global(qos: .userInitiated).async {
+          let time: CMTime = autoPick
+            ? VideoConverterChannel.pickMotionPeakTime(asset: asset, generator: generator)
+            : CMTime(value: CMTimeValue(timeMs), timescale: 1000)
+
+          if #available(iOS 16.0, *) {
+            generator.generateCGImageAsynchronously(for: time) { cgImage, _, error in
+              handleImage(cgImage, error)
+            }
+          } else {
             do {
               let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
               handleImage(cgImage, nil)

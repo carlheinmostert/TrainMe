@@ -41,6 +41,13 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
 
 4. **Large-plan publish path** — circuits + videos + rests combo, verify the raw-archive cloud upload (step 7.5 in `upload_service.dart`) doesn't regress primary publish on failure.
 
+5. **Thumbnail readability (`feat/thumbnail-readability`)** — motion-peak frame pick + person-centred crop for video thumbnails. Landed via PR, but only visually validated is what the simulator can offer (synthetic camera has no person → crop falls back to un-cropped masked image). On device:
+   - Capture a short video of yourself moving (squats, arm raises, anything with torso motion).
+   - Check the Studio list thumbnail: should frame the body tightly with ~10% padding, not show empty floor/ceiling.
+   - Compare against an older thumbnail on the device — it should be readable at the small list size.
+   - Edge case: capture a stationary shot (practitioner standing still). Motion-peak should fall back gracefully to midpoint; person-crop should still tighten.
+   - Edge case: capture a video without a person in frame (e.g. pointing at equipment). Person-segmentation will return nil → thumbnail falls through to the un-cropped masked image (same look as before).
+
 ### Things to actively watch for
 - **iOS 26.4 SDK gap** — any sub-agent build will fail in their sandbox on this; only Carl's main machine has the SDK installed. Not a code issue.
 - **`sessions.client_id` backfill** — runs on every Home load; should be a no-op after first run per practice.
