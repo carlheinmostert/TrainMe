@@ -73,6 +73,15 @@ class Session {
   ///     NULL until the next Home load claims it.
   final String? createdByUserId;
 
+  /// Supabase `clients.id` this session belongs to. Null for legacy sessions
+  /// created before the Clients-as-Home-spine shift (those are resolved by
+  /// the ClientSessionsScreen via `clientName == client.name` fallback).
+  ///
+  /// Populated at session-creation time by `ClientSessionsScreen._startNewSession`
+  /// (from the `clients` row the practitioner drilled into) and round-trips
+  /// through SQLite schema v16 (`client_id TEXT`).
+  final String? clientId;
+
   const Session({
     required this.id,
     required this.clientName,
@@ -90,6 +99,7 @@ class Session {
     this.practiceId,
     this.firstOpenedAt,
     this.createdByUserId,
+    this.clientId,
   });
 
   /// Create a new session with a generated UUID.
@@ -103,6 +113,7 @@ class Session {
   factory Session.create({
     required String clientName,
     String? title,
+    String? clientId,
   }) {
     return Session(
       id: const Uuid().v4(),
@@ -111,6 +122,7 @@ class Session {
       createdAt: DateTime.now(),
       circuitCycles: {},
       createdByUserId: AuthService.instance.currentUserId,
+      clientId: clientId,
     );
   }
 
@@ -166,6 +178,7 @@ class Session {
       practiceId: map['practice_id'] as String?,
       firstOpenedAt: _parseTimestamp(map['first_opened_at']),
       createdByUserId: map['created_by_user_id'] as String?,
+      clientId: map['client_id'] as String?,
     );
   }
 
@@ -204,6 +217,7 @@ class Session {
           : json.encode(circuitCycles),
       'preferred_rest_interval': preferredRestIntervalSeconds,
       'created_by_user_id': createdByUserId,
+      'client_id': clientId,
     };
   }
 
@@ -225,6 +239,7 @@ class Session {
     String? practiceId,
     DateTime? firstOpenedAt,
     String? createdByUserId,
+    String? clientId,
   }) {
     return Session(
       id: id,
@@ -247,6 +262,7 @@ class Session {
       practiceId: practiceId ?? this.practiceId,
       firstOpenedAt: firstOpenedAt ?? this.firstOpenedAt,
       createdByUserId: createdByUserId ?? this.createdByUserId,
+      clientId: clientId ?? this.clientId,
     );
   }
 

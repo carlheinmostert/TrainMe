@@ -431,6 +431,47 @@ class ApiClient {
     }
   }
 
+  /// `rename_client(p_client_id, p_new_name)` — mirrors the portal's
+  /// `PortalApi.renameClient`. Raises a typed [RenameClientError] so
+  /// callers (editable client name header on [ClientSessionsScreen])
+  /// can surface specific inline messages:
+  ///
+  /// * `duplicate` (PostgreSQL 23505) — another client in the practice
+  ///   already uses the target name.
+  /// * `notFound` (P0002) — client id doesn't exist.
+  /// * `notMember` (42501) — caller isn't a member of the client's
+  ///   practice.
+  /// * `empty` (22023) — blank name. Caller typically validates client-
+  ///   side first, but the RPC enforces it server-side too.
+  ///
+  /// Any other [PostgrestException] surfaces as an [Exception] with the
+  /// server message so the caller doesn't lose signal on unanticipated
+  /// failures.
+  Future<void> renameClient({
+    required String clientId,
+    required String newName,
+  }) async {
+    try {
+      await raw.rpc(
+        'rename_client',
+        params: {'p_client_id': clientId, 'p_new_name': newName},
+      );
+    } on PostgrestException catch (e) {
+      switch (e.code) {
+        case '23505':
+          throw const RenameClientError(RenameClientErrorKind.duplicate);
+        case 'P0002':
+          throw const RenameClientError(RenameClientErrorKind.notFound);
+        case '42501':
+          throw const RenameClientError(RenameClientErrorKind.notMember);
+        case '22023':
+          throw const RenameClientError(RenameClientErrorKind.empty);
+        default:
+          rethrow;
+      }
+    }
+  }
+
   /// List the clients belonging to a practice. Used by the Your-clients
   /// screen. Returns an empty list on any error so the UI can render an
   /// empty state rather than crash.
@@ -643,6 +684,24 @@ class ExerciseTreatmentUrls {
     this.grayscaleUrl,
     this.originalUrl,
   });
+}
+
+/// Categorised failure from [ApiClient.renameClient]. Maps 1:1 to the
+/// portal's `RenameClientError` so mobile + portal surface identical
+/// messaging to the practitioner (R-11 twin).
+enum RenameClientErrorKind { duplicate, notFound, notMember, empty }
+
+/// Thrown by [ApiClient.renameClient] when the RPC raises a known
+/// SQLSTATE. Carries the [kind] so the caller can pick the matching
+/// inline message without parsing server strings.
+@immutable
+class RenameClientError implements Exception {
+  final RenameClientErrorKind kind;
+
+  const RenameClientError(this.kind);
+
+  @override
+  String toString() => 'RenameClientError(${kind.name})';
 }
 
 /// Role within a practice. Owners can invite members + buy credits;
