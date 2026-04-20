@@ -219,17 +219,31 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   }
 
   Future<void> _publishSession(Session session) async {
+    // Block publish while line-drawing conversion OR raw-archive
+    // compression is still in flight. Without the archive-readiness
+    // check, a publish can run with exercise.archiveFilePath still
+    // null (conversion done, archive compression running as a separate
+    // async pass in ConversionService._archiveRawVideo). That makes
+    // UploadService._uploadRawArchives silently skip the exercise, the
+    // raw-archive bucket never gets the file, and the web player shows
+    // only the line drawing — no B&W / Original treatment available.
     final hasConversionsRunning = session.exercises.any((e) =>
         !e.isRest &&
         (e.conversionStatus == ConversionStatus.pending ||
             e.conversionStatus == ConversionStatus.converting));
-    if (hasConversionsRunning) {
+    final hasArchiveInFlight = session.exercises.any((e) =>
+        !e.isRest &&
+        e.mediaType == MediaType.video &&
+        e.conversionStatus == ConversionStatus.done &&
+        (e.archiveFilePath == null || e.archiveFilePath!.isEmpty));
+    if (hasConversionsRunning || hasArchiveInFlight) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content:
-                Text('Wait for conversions to finish before publishing'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(hasArchiveInFlight
+                ? 'Still archiving videos — one moment…'
+                : 'Wait for conversions to finish before publishing'),
+            duration: const Duration(seconds: 2),
           ),
         );
       }

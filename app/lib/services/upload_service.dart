@@ -338,7 +338,19 @@ class UploadService {
       // Step 4 after consume_credit succeeds.
       // ----------------------------------------------------------------
 
-      // Step 3a: ensure a plan row exists so consume_credit's FK is
+      // Step 3a: resolve (or create) the clients row for this plan's
+      // clientName. Without this, plans.client_id stays null, which
+      // blocks get_plan_full from issuing the grayscale / original
+      // signed URLs (the RPC needs a client to check video_consent
+      // against). Best-effort: if the upsert fails we continue with a
+      // null client_id — the plan still publishes, but cloud B&W /
+      // Original won't work until a subsequent publish links it.
+      final clientId = await _api.upsertClient(
+        practiceId: practiceId,
+        name: session.clientName,
+      );
+
+      // Step 3b: ensure a plan row exists so consume_credit's FK is
       // satisfied on first-ever publish. On re-publish this is a no-op
       // `ON CONFLICT DO NOTHING` (implemented as an upsert that omits
       // every mutable column — PostgREST writes back the same values on
@@ -346,6 +358,7 @@ class UploadService {
       await _api.upsertPlan({
         'id': session.id,
         'client_name': session.clientName,
+        'client_id': clientId,
         'title': session.displayTitle,
         // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
         'circuit_cycles': session.circuitCycles,
@@ -396,6 +409,7 @@ class UploadService {
       await _api.upsertPlan({
         'id': session.id,
         'client_name': session.clientName,
+        'client_id': clientId,
         'title': session.displayTitle,
         'circuit_cycles': session.circuitCycles,
         'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
