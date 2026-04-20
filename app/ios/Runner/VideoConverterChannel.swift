@@ -47,24 +47,40 @@ import CoreVideo
 //         v2:    0.85  (subtle softening — blacks still read as black)
 //
 // Tuning history:
-//   v0 (pre-2026-04-19) original:      lo=2, hi=1.0,  alpha=1.0
-//   v1 (2026-04-19 "less intense"):    lo=1, hi=0.70, alpha=0.65  ← overexposed
-//   v2 (2026-04-20):                   lo=1, hi=0.88, alpha=0.85
-//   v3 (2026-04-20 post BGRA fix):     lo=1, hi=0.88, alpha=0.90
-//   v4 (2026-04-20 "+20% darker"):     lo=1, hi=0.88, alpha=0.92
-//   v5 (2026-04-20 "+50% darker"):     lo=1, hi=0.88, alpha=0.96
-//     ↑ Carl asked for another +50%. Reduced lift-from-black by 50%:
-//     v4 pure-black rendered at ~20; v5 drops it to ~10 out of 255.
-//     Deep graphite territory — close to full-black without being
-//     the original stark v0.
+//   v0 (pre-2026-04-19) original:      lo=2, hi=1.0,  alpha=1.0,  bgDim=0.35
+//   v1 (2026-04-19 "less intense"):    lo=1, hi=0.70, alpha=0.65, bgDim=0.35  ← overexposed
+//   v2 (2026-04-20):                   lo=1, hi=0.88, alpha=0.85, bgDim=0.35
+//   v3 (2026-04-20 post BGRA fix):     lo=1, hi=0.88, alpha=0.90, bgDim=0.35
+//   v4 (2026-04-20 "+20% darker"):     lo=1, hi=0.88, alpha=0.92, bgDim=0.35
+//   v5 (2026-04-20 "+50% darker"):     lo=1, hi=0.88, alpha=0.96, bgDim=0.35
+//   v6 (2026-04-20 "no progression"):  lo=1, hi=0.88, alpha=0.96, bgDim=0.70
+//     ↑ Carl reported no visible darkness progression from v3..v5 even
+//     though lineAlpha increased significantly. Root cause: lineAlpha
+//     only darkens the BODY-zone pixels (person silhouette from Vision
+//     segmentation). The background zone (floor, walls, equipment —
+//     the majority of a typical gym frame) gets its own hardcoded
+//     0.35 dim factor in applyMaskedDim. bgDim=0.35 clamps background
+//     lines at ~166/255 regardless of lineAlpha. v6 doubles bgDim to
+//     0.70 so background black pixels now land at ~76/255 — dark grey
+//     instead of mid grey. Expect the equipment + environment sketches
+//     to feel substantially darker now.
 //
 // Safe tuning ranges (if you want to experiment on device):
-//   edgeThresholdLo : 0 … 4   (int)
-//   edgeThresholdHi : 0.5 … 1.0
-//   lineAlpha       : 0.3 … 1.0
+//   edgeThresholdLo  : 0 … 4   (int)
+//   edgeThresholdHi  : 0.5 … 1.0
+//   lineAlpha        : 0.3 … 1.0    (darkens BODY zone only)
+//   backgroundDim    : 0.2 … 1.0    (darkens BACKGROUND zone; 1.0 removes
+//                                    the two-zone effect entirely)
 private let edgeThresholdLo: Int = 1
 private let edgeThresholdHi: Double = 0.88
 private let lineAlpha: Double = 0.96
+
+/// Two-zone dim applied to non-body (background) pixels after the main
+/// line-drawing pipeline. Uses the same lift-from-black formula as
+/// `lineAlpha` (`out = 255 - (255 - v) * bgDim`). Value of 1.0 would
+/// mean "no dim" (background equal-strength to body). The 0.35 baseline
+/// kept body popping but crushed equipment sketches to near-white.
+private let backgroundDim: Double = 0.70
 
 /// Native iOS platform channel for video-to-line-drawing conversion.
 ///
@@ -1379,11 +1395,13 @@ private class LineDrawingProcessor {
         }
 
         // --- Step 2: Precompute the dim LUT. ---
-        // dim[v] = round(255 - (255 - v) * 0.35)
-        // Near-white stays near-white, black drops to ~90 (dark-grey ghost).
+        // dim[v] = round(255 - (255 - v) * backgroundDim)
+        // White stays white, black drops to `255 * (1 - backgroundDim)`.
+        // Previously hardcoded at 0.35 — now exposed as the file-level
+        // `backgroundDim` constant (see tuning history at top of file).
         var dimLUT = [UInt8](repeating: 0, count: 256)
         for v in 0...255 {
-            let dimmed = 255.0 - (255.0 - Double(v)) * 0.35
+            let dimmed = 255.0 - (255.0 - Double(v)) * backgroundDim
             dimLUT[v] = UInt8(max(0, min(255, Int(dimmed.rounded()))))
         }
 
