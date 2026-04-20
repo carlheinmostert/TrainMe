@@ -17,6 +17,7 @@ import '../widgets/circuit_control_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
+import '../widgets/practice_chip.dart';
 import '../widgets/shell_pull_tab.dart';
 import '../widgets/studio_exercise_card.dart';
 import '../widgets/undo_snackbar.dart';
@@ -790,6 +791,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             tooltip: 'Preview plan',
           ),
       ],
+      // Thin strip below the app-bar hosting the practice chip — shows
+      // which practice will own the next publish but rendered
+      // non-interactive (R-09: dimmed affordance) because switching
+      // practice mid-session is a footgun (session state stays bound
+      // to the practice it was created under).
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(36),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          alignment: Alignment.centerLeft,
+          child: const PracticeChip(enabled: false),
+        ),
+      ),
     );
   }
 

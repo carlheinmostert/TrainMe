@@ -12,6 +12,7 @@ import '../services/local_storage_service.dart';
 import '../services/upload_service.dart';
 import '../theme.dart';
 import '../widgets/powered_by_footer.dart';
+import '../widgets/practice_chip.dart';
 import 'session_shell_screen.dart';
 import 'settings_screen.dart';
 
@@ -435,24 +436,27 @@ class _HomeScreenState extends State<HomeScreen> {
     //   translated dataIndex so semantics are unchanged.
     return Column(
       children: [
-        // Minimal top bar — just the account affordance. No AppBar widget,
-        // since the brand-design session is about to reshape this screen
-        // and we don't want to bake in a title / chrome that's about to
-        // change. The icon sits flush right so the full-screen session
-        // list still feels airy.
+        // Minimal top bar — practice chip on the left as an identity
+        // anchor, settings gear on the right. R-02: the chip is
+        // identity (who is paying for the next publish?) not
+        // navigation, so it's allowed to coexist with the gear in the
+        // header slot without competing for a page title.
         Padding(
-          padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: IconButton(
-              onPressed: _openSettings,
-              icon: const Icon(
-                Icons.settings_outlined,
-                color: AppColors.textOnDark,
-                size: 26,
+          padding: const EdgeInsets.fromLTRB(12, 4, 8, 0),
+          child: Row(
+            children: [
+              const PracticeChip(),
+              const Spacer(),
+              IconButton(
+                onPressed: _openSettings,
+                icon: const Icon(
+                  Icons.settings_outlined,
+                  color: AppColors.textOnDark,
+                  size: 26,
+                ),
+                tooltip: 'Settings',
               ),
-              tooltip: 'Settings',
-            ),
+            ],
           ),
         ),
 

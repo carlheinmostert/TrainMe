@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 import 'package:supabase_flutter/supabase_flutter.dart' as supa show Session;
@@ -238,6 +239,11 @@ class AuthService {
   /// next app launch will land on the SignInScreen. Also signs out of
   /// the native Google SDK so the next sign-in shows the account picker
   /// fresh (without this, the SDK would silently re-sign the same user).
+  ///
+  /// Also clears the persisted selected-practice id so the next user to
+  /// sign in on this device doesn't inherit the previous user's
+  /// selection (which would silently point them at a practice they
+  /// aren't a member of until bootstrap runs).
   Future<void> signOut() async {
     try {
       await _googleSignIn.signOut();
@@ -249,6 +255,12 @@ class AuthService {
     await _api.signOut();
     currentPracticeId.value = null;
     bootstrapError.value = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_selectedPracticeIdPrefsKey);
+    } catch (e) {
+      debugPrint('AuthService.signOut: clearing selected practice failed: $e');
+    }
   }
 
   /// Notifier for the last bootstrap-membership error, or null on success.
@@ -260,17 +272,54 @@ class AuthService {
   /// why).
   final ValueNotifier<String?> bootstrapError = ValueNotifier<String?>(null);
 
-  /// The signed-in user's primary practice id, as returned by the most
-  /// recent successful [ensurePracticeMembership] call.
+  /// The signed-in user's active practice id.
   ///
-  /// Populated by the `bootstrap_practice_for_user` SECURITY DEFINER RPC,
-  /// so this is always the server's view of the user's own practice (not
-  /// a client-picked tenant). Safe to use as a fallback when a locally
-  /// created Session has no practiceId of its own — e.g. sessions created
-  /// before the practice_id wiring landed, or future flows where the
-  /// session is drafted offline.
+  /// Seeded from the `bootstrap_practice_for_user` SECURITY DEFINER RPC
+  /// on first sign-in, and from `SharedPreferences` on subsequent launches
+  /// (the practitioner's last manual selection wins — see [selectPractice]).
+  /// Always reflects a practice the user is currently a member of; the
+  /// bootstrap path verifies membership server-side, and the persist
+  /// path verifies via [ApiClient.listMyPractices] before adopting a
+  /// stale value.
+  ///
+  /// Used as the publish target (`upload_service._resolvePracticeId`) and
+  /// the anchor for every practice-scoped read elsewhere (Settings credit
+  /// balance, Settings Network section, future publish-screen picker).
   final ValueNotifier<String?> currentPracticeId =
       ValueNotifier<String?>(null);
+
+  /// `SharedPreferences` key for the practitioner's last-chosen practice
+  /// id. Namespaced under `homefit.` to signal "this app's data" and
+  /// survive future multi-profile device-sharing scenarios.
+  static const String _selectedPracticeIdPrefsKey =
+      'homefit.selected_practice_id';
+
+  /// Pick which practice the signed-in user is acting on behalf of.
+  ///
+  /// Updates [currentPracticeId] immediately (so every `ValueListenableBuilder`
+  /// bound to it refetches on the next frame) and persists the choice
+  /// under [_selectedPracticeIdPrefsKey] so it survives app restarts.
+  /// Persistence failures are swallowed — the in-memory value is still
+  /// correct for the current session.
+  ///
+  /// No server-side verification here: the caller (the practice switcher
+  /// sheet) only offers practices returned from [ApiClient.listMyPractices],
+  /// which is already RLS-scoped to the caller's memberships. An
+  /// attacker-with-device scenario would need to forge a call that
+  /// bypasses the UI entirely — in which case `consume_credit` still
+  /// rejects at the database via the same RLS path.
+  Future<void> selectPractice(String practiceId) async {
+    if (practiceId.isEmpty) return;
+    if (currentPracticeId.value != practiceId) {
+      currentPracticeId.value = practiceId;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_selectedPracticeIdPrefsKey, practiceId);
+    } catch (e) {
+      debugPrint('AuthService.selectPractice: persist failed: $e');
+    }
+  }
 
   /// Ensure the signed-in user is a member of at least one practice.
   ///
@@ -280,20 +329,81 @@ class AuthService {
   /// (check membership → claim sentinel → create fresh practice) into a
   /// single atomic server-side call.
   ///
-  /// On success [bootstrapError] is cleared. On failure the exception
-  /// string is surfaced via [bootstrapError] so the HomeScreen banner can
-  /// offer a Retry affordance. We still debugPrint the failure; the
-  /// ValueNotifier is additive, not a replacement.
+  /// Practice-selection order of precedence (winner populates
+  /// [currentPracticeId]):
+  ///   1. The practitioner's last manual selection, if
+  ///      [SharedPreferences] still holds a value AND the caller is a
+  ///      current member of that practice (verified via
+  ///      [ApiClient.listMyPractices]).
+  ///   2. The bootstrap RPC's return value otherwise (fresh sign-in, or
+  ///      the persisted value points at a practice the user no longer
+  ///      belongs to — e.g. they were removed, or switched auth
+  ///      accounts on the same device).
+  ///
+  /// On success [bootstrapError] is cleared and the winning id is
+  /// persisted. On failure the exception string is surfaced via
+  /// [bootstrapError] so the HomeScreen banner can offer a Retry
+  /// affordance. Persistence of the winning id is best-effort; errors
+  /// are swallowed so a misbehaving `SharedPreferences` doesn't break
+  /// first-sign-in publishing.
   Future<void> ensurePracticeMembership() async {
     final userId = _api.currentUserId;
     if (userId == null) return;
 
     try {
-      final practiceId = await _api.bootstrapPracticeForUser();
-      currentPracticeId.value = practiceId;
+      final bootstrapPracticeId = await _api.bootstrapPracticeForUser();
+
+      // Read the persisted value and verify it still corresponds to a
+      // current membership. Kicking this off in parallel with the
+      // bootstrap would shave a round-trip, but sequential is easier to
+      // reason about and the bootstrap itself has to finish before we
+      // could decide the fallback anyway.
+      String? persisted;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        persisted = prefs.getString(_selectedPracticeIdPrefsKey);
+      } catch (e) {
+        debugPrint(
+          'AuthService.ensurePracticeMembership: reading persisted '
+          'practice id failed, falling back to bootstrap: $e',
+        );
+      }
+
+      String? chosen = bootstrapPracticeId;
+      if (persisted != null && persisted.isNotEmpty) {
+        final memberships = await _api.listMyPractices();
+        final stillMember = memberships.any((m) => m.id == persisted);
+        if (stillMember) {
+          chosen = persisted;
+        } else {
+          debugPrint(
+            'AuthService.ensurePracticeMembership: persisted practice '
+            '$persisted is not a current membership, falling back to '
+            'bootstrap ($bootstrapPracticeId)',
+          );
+        }
+      }
+
+      currentPracticeId.value = chosen;
       bootstrapError.value = null;
+
+      // Persist the winner so every surface reads the same id next
+      // launch, even when the bootstrap RPC was the tiebreaker.
+      if (chosen != null && chosen.isNotEmpty) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_selectedPracticeIdPrefsKey, chosen);
+        } catch (e) {
+          debugPrint(
+            'AuthService.ensurePracticeMembership: persisting winner '
+            'failed: $e',
+          );
+        }
+      }
+
       debugPrint(
-        'AuthService: bootstrap returned practice $practiceId for $userId',
+        'AuthService: bootstrap=$bootstrapPracticeId persisted=$persisted '
+        'chosen=$chosen for user=$userId',
       );
     } catch (e, stack) {
       // Best-effort — never block the UI on a membership bootstrap failure,
