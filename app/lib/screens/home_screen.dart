@@ -562,6 +562,25 @@ class _ClientCard extends StatelessWidget {
               const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
+              // Leading person badge — coral on dark. Matches the camera
+              // badge on SessionCard (same 40×40, same coral-tint-bg,
+              // same glyph weight) so the two card types read as the
+              // same visual family on the Clients-as-Home spine.
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.person_outline,
+                  color: AppColors.primary,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

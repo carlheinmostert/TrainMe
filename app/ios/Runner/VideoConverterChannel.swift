@@ -51,9 +51,9 @@ import CoreVideo
 //   v1 (2026-04-19 "less intense"):    lo=1, hi=0.70, alpha=0.65  ← overexposed
 //   v2 (2026-04-20):                   lo=1, hi=0.88, alpha=0.85
 //   v3 (2026-04-20 post BGRA fix):     lo=1, hi=0.88, alpha=0.90
-//     ↑ after the BGRA-byte-order fix revealed the actual pencil-grey
-//     tone, Carl asked to "tune up by 25%" — reducing the remaining
-//     lift-from-black by ~25% (38 → ~29 on pure black input).
+//   v4 (2026-04-20 "+20% darker"):     lo=1, hi=0.88, alpha=0.92
+//     ↑ Carl asked for "another 20% darker". Reduced lift-from-black
+//     by ~20%: v3 pure-black input rendered at ~25; v4 drops it to ~20.
 //
 // Safe tuning ranges (if you want to experiment on device):
 //   edgeThresholdLo : 0 … 4   (int)
@@ -61,7 +61,7 @@ import CoreVideo
 //   lineAlpha       : 0.3 … 1.0
 private let edgeThresholdLo: Int = 1
 private let edgeThresholdHi: Double = 0.88
-private let lineAlpha: Double = 0.90
+private let lineAlpha: Double = 0.92
 
 /// Native iOS platform channel for video-to-line-drawing conversion.
 ///

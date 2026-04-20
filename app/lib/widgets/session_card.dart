@@ -103,6 +103,10 @@ class SessionCard extends StatelessWidget {
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               children: [
+                // Leading camera badge — coral on dark surface, establishes
+                // sessions as capture artefacts at a glance.
+                _LeadingIconBadge(icon: Icons.camera_alt_outlined),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -385,5 +389,30 @@ class _FailedConversionsPill extends StatelessWidget {
           ),
         ),
       );
+  }
+}
+
+/// Small coral-tinted icon badge sat at the leading edge of session
+/// (and client) cards. Colour token + treatment is centralised here
+/// so both surfaces stay in lock-step visually.
+///
+/// Coral at 12% alpha background on the dark surface + a coral-filled
+/// glyph. Size + radius match the app's chip vocabulary (40×40, radius 10).
+class _LeadingIconBadge extends StatelessWidget {
+  final IconData icon;
+  const _LeadingIconBadge({required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      alignment: Alignment.center,
+      child: Icon(icon, color: AppColors.primary, size: 22),
+    );
   }
 }
