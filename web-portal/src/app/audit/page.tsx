@@ -41,11 +41,19 @@ export default async function AuditPage({
   const api = createPortalApi(supabase);
   const params = await searchParams;
   const practiceId = params.practice ?? '';
-  const rows = practiceId ? await api.listRecentIssuances(practiceId) : [];
+  // Resolve role in parallel with the row fetch so the header can hide
+  // the owner-only Members link when the caller is a practitioner.
+  const [rows, role] = await Promise.all([
+    practiceId ? api.listRecentIssuances(practiceId) : Promise.resolve([]),
+    practiceId
+      ? api.getCurrentUserRole(practiceId, user.id)
+      : Promise.resolve(null),
+  ]);
+  const isOwner = role === 'owner';
 
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut practiceId={practiceId} />
+      <BrandHeader showSignOut practiceId={practiceId} isOwner={isOwner} />
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link

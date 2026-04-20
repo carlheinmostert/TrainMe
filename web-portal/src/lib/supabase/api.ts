@@ -304,6 +304,28 @@ export class PortalApi {
     return data as unknown as PlanIssuanceRow[];
   }
 
+  /**
+   * Most recent `plan_issuances.created_at` for a practice. Used by the
+   * dashboard Audit tile to render a "Last publish {relative-date}"
+   * summary without pulling every row.
+   *
+   * Returns null if the practice has never published or the caller
+   * can't see the issuances (RLS / non-member). The tile treats null
+   * as the "Never" state.
+   */
+  async getLastIssuanceAt(practiceId: string): Promise<string | null> {
+    const { data, error } = await this.supabase
+      .from('plan_issuances')
+      .select('created_at')
+      .eq('practice_id', practiceId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return (data as { created_at: string | null }).created_at ?? null;
+  }
+
   // ==========================================================================
   // Sessions
   // ==========================================================================

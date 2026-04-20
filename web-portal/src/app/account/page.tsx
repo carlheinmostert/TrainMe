@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
+import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { AccountPanel } from '@/components/AccountPanel';
 
@@ -33,9 +34,18 @@ export default async function AccountPage({
   const params = await searchParams;
   const practiceId = params.practice ?? '';
 
+  // Resolve role so the header can surface the owner-only Members link
+  // while the caller is on /account. No practice in the qs → default to
+  // false (the Members link hides, matching the practitioner fallback).
+  const api = createPortalApi(supabase);
+  const role = practiceId
+    ? await api.getCurrentUserRole(practiceId, user.id)
+    : null;
+  const isOwner = role === 'owner';
+
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut practiceId={practiceId} />
+      <BrandHeader showSignOut practiceId={practiceId} isOwner={isOwner} />
       <div className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link
