@@ -112,7 +112,18 @@ List<PreviewSlide> _buildUnrolledSlides(Session session) {
 }
 
 /// Prep phase duration (seconds) before each exercise in workout mode.
-const int _kPrepSeconds = 15;
+/// Global default prep-countdown duration (in seconds).
+///
+/// Previously 15s; shrunk to 5s in Wave 3 after device QA feedback
+/// ("15 feels like forever for a focused circuit"). Per-exercise overrides
+/// live on [ExerciseCapture.prepSeconds] and are honoured via
+/// [_prepSecondsFor] below.
+const int _kPrepSeconds = 5;
+
+/// Resolve the effective prep-countdown seconds for a given exercise —
+/// the practitioner's override if set, otherwise the global default.
+int _prepSecondsFor(ExerciseCapture exercise) =>
+    exercise.prepSeconds ?? _kPrepSeconds;
 
 /// Full-screen plan preview — simulates the client experience.
 ///
@@ -232,6 +243,17 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
 
   /// The periodic timer that drives the per-second countdown (exercise or prep).
   Timer? _workoutTimer;
+
+  /// Runtime mute state for the plan-preview video player. Decoupled from
+  /// [ExerciseCapture.includeAudio], which is a publish-time preference
+  /// ("ship audio to the client or not"). This flag is a playback-only
+  /// override that applies across slides for the current preview session.
+  ///
+  /// Toggled via the speaker button in the top-right of every exercise
+  /// page. Tapping it NEVER pauses the video (Wave 3 fix — see test plan
+  /// items 3 / 4 / 5); it only flips volume between 0.0 and the
+  /// exercise's native volume.
+  bool _isMuted = false;
 
   @override
   void initState() {
@@ -473,9 +495,13 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
     if (controller == null) return;
     _videoControllers[index] = controller;
 
-    // Set volume based on the exercise's includeAudio flag.
-    // Audio is always present in the file; this controls playback volume.
-    final volume = exercise.includeAudio ? 1.0 : 0.0;
+    // Set volume based on the exercise's includeAudio flag AND the
+    // runtime mute toggle. Audio is always present in the file:
+    //   * includeAudio=false → publish-time decision to not ship audio
+    //     to the client. Video plays silently in the preview too.
+    //   * _isMuted=true → runtime tap on the speaker button in the
+    //     top-right. Decoupled from play/pause (Wave 3 fix).
+    final volume = (exercise.includeAudio && !_isMuted) ? 1.0 : 0.0;
 
     controller
       ..setLooping(true)
@@ -635,14 +661,17 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
     }
   }
 
-  /// Begin the 15-second prep countdown for the current exercise slide.
-  /// Ticks down once per second; on reaching 0, transitions into the running
-  /// exercise timer. The video loops throughout as a motion reminder.
+  /// Begin the prep countdown for the current exercise slide. Default
+  /// runway is 5s ([_kPrepSeconds]); each exercise can override via
+  /// [ExerciseCapture.prepSeconds]. Ticks down once per second; on
+  /// reaching 0, transitions into the running exercise timer. The video
+  /// loops throughout as a motion reminder.
   void _startPrepPhase() {
     _workoutTimer?.cancel();
+    final exercise = _slides[_currentPage].exercise;
     setState(() {
       _isPrepPhase = true;
-      _prepRemainingSeconds = _kPrepSeconds;
+      _prepRemainingSeconds = _prepSecondsFor(exercise);
       _isTimerRunning = false;
     });
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -717,6 +746,25 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _onTimerTick();
     });
+  }
+
+  /// Toggle the runtime mute state and push the new volume to every
+  /// already-initialised video controller. Decoupled from play/pause —
+  /// tapping the speaker never affects playback state (Wave 3 test
+  /// items 3 / 4 / 5). The new volume is 1.0 when both the exercise's
+  /// `includeAudio` flag is on AND we're not muted; otherwise 0.0.
+  void _toggleMute() {
+    setState(() => _isMuted = !_isMuted);
+    // Push the new volume to every in-memory controller. A controller
+    // with includeAudio=false stays at 0.0 regardless (publish-time
+    // opt-out); the runtime toggle only gates when includeAudio=true.
+    for (final entry in _videoControllers.entries) {
+      final controller = entry.value;
+      if (!controller.value.isInitialized) continue;
+      final exercise = _slides[entry.key].exercise;
+      final volume = (exercise.includeAudio && !_isMuted) ? 1.0 : 0.0;
+      controller.setVolume(volume);
+    }
   }
 
   /// Tap handler for the consolidated timer chip. Dispatches to the correct
@@ -1025,7 +1073,9 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
                             !_isPrepPhase,
                         isPrepPhase: isActivePrep,
                         prepSecondsRemaining: _prepRemainingSeconds,
-                        prepTotalSeconds: _kPrepSeconds,
+                        prepTotalSeconds: _prepSecondsFor(slide.exercise),
+                        isMuted: _isMuted,
+                        onToggleMute: _toggleMute,
                       );
                     },
                   ),
@@ -1422,10 +1472,21 @@ class _ExercisePage extends StatefulWidget {
   /// [isPrepPhase] is true.
   final int prepSecondsRemaining;
 
-  /// Total prep duration (matches `_kPrepSeconds`). Used to drive the
+  /// Total prep duration — the effective value for THIS slide (per-
+  /// exercise override if set, else [_kPrepSeconds]). Used to drive the
   /// fade-out-in-last-200ms easing on the overlay so the number doesn't pop
   /// when prep ends.
   final int prepTotalSeconds;
+
+  /// Runtime mute state owned by the parent. Drives the speaker icon
+  /// glyph (speaker / speaker-off) in the top-right of the media. Tap
+  /// the icon to invoke [onToggleMute]; pause / resume are unaffected.
+  final bool isMuted;
+
+  /// Tap handler for the speaker-icon mute toggle. Fires whenever the
+  /// user taps the top-right volume affordance. DOES NOT pause /
+  /// resume playback (Wave 3 fix — decouple mute from play/pause).
+  final VoidCallback? onToggleMute;
 
   const _ExercisePage({
     required this.slide,
@@ -1437,7 +1498,9 @@ class _ExercisePage extends StatefulWidget {
     this.pausedOverlay = false,
     this.isPrepPhase = false,
     this.prepSecondsRemaining = 0,
-    this.prepTotalSeconds = 15,
+    this.prepTotalSeconds = 5,
+    this.isMuted = false,
+    this.onToggleMute,
   });
 
   @override
@@ -1713,21 +1776,38 @@ class _ExercisePageState extends State<_ExercisePage> {
                 color: Colors.white,
               ),
             ),
-          // Speaker icon overlay when audio is included
+          // Mute toggle — tappable speaker icon in the top-right. Only
+          // surfaces when the exercise ships with audio (publish-time
+          // `includeAudio`). Tapping toggles runtime mute without
+          // pausing playback (Wave 3 fix — test items 3 / 4 / 5).
+          // Glyph morphs: speaker when audible, speaker-off when muted.
           if (_exercise.includeAudio)
             Positioned(
               top: 12,
               right: 12,
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: const BoxDecoration(
-                  color: Colors.black45,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.volume_up_rounded,
-                  size: 20,
-                  color: Colors.white,
+              child: Material(
+                color: Colors.transparent,
+                shape: const CircleBorder(),
+                clipBehavior: Clip.hardEdge,
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: widget.onToggleMute,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: Colors.black45,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      widget.isMuted
+                          ? Icons.volume_off_rounded
+                          : Icons.volume_up_rounded,
+                      size: 20,
+                      color: Colors.white,
+                      semanticLabel:
+                          widget.isMuted ? 'Unmute audio' : 'Mute audio',
+                    ),
+                  ),
                 ),
               ),
             ),

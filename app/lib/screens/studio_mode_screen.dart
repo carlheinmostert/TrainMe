@@ -1731,6 +1731,13 @@ class _MediaViewerState extends State<_MediaViewer> {
   VoidCallback? _videoListener;
   bool _lastKnownIsPlaying = false;
 
+  /// Runtime mute state. Decoupled from play/pause — tapping the
+  /// speaker button toggles volume between 0.0 and 1.0 without
+  /// touching `isPlaying` (Wave 3 fix — test items 3 / 4 / 5).
+  /// Persists across page / treatment switches within the same
+  /// viewer session.
+  bool _isMuted = false;
+
   ExerciseCapture get _current => _exercises[_currentIndex];
 
   bool _isVideo(ExerciseCapture e) =>
@@ -1828,6 +1835,10 @@ class _MediaViewerState extends State<_MediaViewer> {
         _lastKnownIsPlaying = false;
       });
       controller.setLooping(true);
+      // Honour the persistent mute toggle across treatment / page
+      // switches — a new controller inherits the current mute state so
+      // the speaker-icon glyph and the actual audio stay in lockstep.
+      controller.setVolume(_isMuted ? 0.0 : 1.0);
       // Attach a listener so the play/pause button icon stays in sync
       // with the controller even when the transition didn't go through
       // `_togglePlayPause` (e.g. programmatic pause on end-of-media).
@@ -1976,6 +1987,19 @@ class _MediaViewerState extends State<_MediaViewer> {
     // Any tap — on the video body or the overlay button — resets the
     // idle timer. If we paused, the button stays visible; if we started
     // playing, it fades after 2s.
+    _showControlsThenMaybeIdleFade();
+  }
+
+  /// Toggle the runtime mute state. Decoupled from play/pause — the
+  /// video keeps playing through a mute tap (Wave 3 test items 3/4/5).
+  /// Also bumps the control-fade timer so the speaker icon doesn't
+  /// vanish mid-thought.
+  void _toggleMute() {
+    final c = _videoController;
+    setState(() => _isMuted = !_isMuted);
+    if (c != null && _videoInitialized) {
+      c.setVolume(_isMuted ? 0.0 : 1.0);
+    }
     _showControlsThenMaybeIdleFade();
   }
 
@@ -2171,6 +2195,30 @@ class _MediaViewerState extends State<_MediaViewer> {
                   total: widget.exercises.length,
                   activeIndex: _currentIndex,
                 ),
+              ),
+            ),
+          // Mute toggle — sits to the left of the close button. Only
+          // rendered for video exercises (stills have nothing to mute).
+          // Tap flips volume without affecting playback (Wave 3 decouple
+          // of mute from play/pause — test items 3 / 4 / 5).
+          if (_isVideo(_current) && _videoInitialized)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              right: 56,
+              child: IconButton(
+                onPressed: _toggleMute,
+                icon: Icon(
+                  _isMuted
+                      ? Icons.volume_off_rounded
+                      : Icons.volume_up_rounded,
+                  color: Colors.white,
+                  size: 24,
+                  semanticLabel: _isMuted ? 'Unmute audio' : 'Mute audio',
+                ),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black54,
+                ),
+                tooltip: _isMuted ? 'Unmute' : 'Mute',
               ),
             ),
           Positioned(

@@ -48,6 +48,14 @@ class ExerciseCapture {
   /// Nullable — null means "use the auto-calculated value".
   final int? customDurationSeconds;
 
+  /// Per-exercise prep-countdown override in seconds.
+  ///
+  /// When set, the plan-preview + web player use this value for the
+  /// pre-exercise prep phase. When null, the global default (5s) applies.
+  /// Legacy rows pre-migration are null; the new 5s default supersedes the
+  /// previous hard-coded 15s baseline. Rest periods ignore this field.
+  final int? prepSeconds;
+
   /// Duration of the raw video file in milliseconds. Populated by the
   /// conversion service after a successful video conversion using the native
   /// AVURLAsset probe. For video exercises, this is used as "one rep" in the
@@ -133,6 +141,7 @@ class ExerciseCapture {
     this.circuitId,
     this.includeAudio = false,
     this.customDurationSeconds,
+    this.prepSeconds,
     this.videoDurationMs,
     this.archiveFilePath,
     this.archivedAt,
@@ -203,6 +212,7 @@ class ExerciseCapture {
       circuitId: map['circuit_id'] as String?,
       includeAudio: (map['include_audio'] as int?) == 1,
       customDurationSeconds: map['custom_duration'] as int?,
+      prepSeconds: map['prep_seconds'] as int?,
       videoDurationMs: map['video_duration_ms'] as int?,
       archiveFilePath: map['archive_file_path'] as String?,
       archivedAt: map['archived_at'] != null
@@ -236,6 +246,7 @@ class ExerciseCapture {
       'circuit_id': circuitId,
       'include_audio': includeAudio ? 1 : 0,
       'custom_duration': customDurationSeconds,
+      'prep_seconds': prepSeconds,
       'video_duration_ms': videoDurationMs,
       'archive_file_path': archiveFilePath,
       'archived_at': archivedAt?.millisecondsSinceEpoch,
@@ -268,6 +279,8 @@ class ExerciseCapture {
     bool? includeAudio,
     int? customDurationSeconds,
     bool clearCustomDuration = false,
+    int? prepSeconds,
+    bool clearPrepSeconds = false,
     int? videoDurationMs,
     bool clearVideoDurationMs = false,
     String? archiveFilePath,
@@ -305,6 +318,8 @@ class ExerciseCapture {
       customDurationSeconds: clearCustomDuration
           ? null
           : (customDurationSeconds ?? this.customDurationSeconds),
+      prepSeconds:
+          clearPrepSeconds ? null : (prepSeconds ?? this.prepSeconds),
       videoDurationMs: clearVideoDurationMs
           ? null
           : (videoDurationMs ?? this.videoDurationMs),

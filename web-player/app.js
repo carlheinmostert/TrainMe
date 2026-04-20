@@ -46,11 +46,33 @@ let totalSeconds = 0;
 let workoutTimer = null;
 let workoutStartTime = null;
 
-// Prep-countdown state (15s runway before each non-rest exercise)
-const PREP_SECONDS = 15;
+// Prep-countdown state. Default runway is 5s (Wave 3 / Milestone P);
+// each exercise can override via `prep_seconds` on the get_plan_full
+// payload. Resolve per slide via `prepSecondsFor(slide)` rather than
+// reading PREP_SECONDS directly.
+const PREP_SECONDS = 5;
 let isPrepPhase = false;
 let prepRemainingSeconds = 0;
 let prepTimer = null;
+
+/**
+ * Resolve the effective prep-countdown seconds for a given slide.
+ * Honours the per-exercise override when set; otherwise the default.
+ * Non-positive overrides fall back to the default — keeps the UI
+ * from freezing on a zero runway if bad data ever lands.
+ */
+function prepSecondsFor(slide) {
+  const override = slide && slide.prep_seconds;
+  if (typeof override === 'number' && override > 0) return override;
+  return PREP_SECONDS;
+}
+
+// Runtime mute state for the client-facing player. Decoupled from
+// play/pause (Wave 3 fix — test items 3 / 4 / 5). Tapping the speaker
+// icon on any video card flips this flag; we push the new value to
+// every rendered <video> element without touching its paused/playing
+// state. Persists across slide changes within the same session.
+let isMuted = false;
 
 // Timing constants (from config.dart)
 const SECONDS_PER_REP = 3;
@@ -438,8 +460,38 @@ function buildMedia(exercise, index) {
   }
 
   if (exercise.media_type === 'video') {
-    const mutedAttr = exercise.include_audio ? '' : 'muted';
+    // Muted attribute gating:
+    //   * exercise.include_audio === false → always muted (publish-time
+    //     opt-out; the client never hears audio for this exercise).
+    //   * exercise.include_audio === true + runtime isMuted=true → muted
+    //     (Wave 3 decouple — the speaker overlay toggled the runtime flag
+    //     without pausing playback).
+    //   * exercise.include_audio === true + runtime isMuted=false → audio on.
+    const shouldMute = !exercise.include_audio || isMuted;
+    const mutedAttr = shouldMute ? 'muted' : '';
     const posterAttr = exercise.thumbnail_url ? `poster="${escapeHTML(exercise.thumbnail_url)}"` : '';
+    // Mute affordance — only rendered when the exercise ships with
+    // audio (no point showing a mute button on a silent clip). Tap
+    // flips isMuted, re-syncs every live <video> element, redraws the
+    // icon. Lives in its own overlay layer so it's clickable without
+    // competing with the card's tap-to-pause gesture (stopPropagation
+    // in toggleMuteButton).
+    const muteButton = exercise.include_audio ? `
+      <button
+        type="button"
+        class="mute-toggle"
+        data-video-index="${index}"
+        aria-label="${isMuted ? 'Unmute audio' : 'Mute audio'}"
+        aria-pressed="${isMuted ? 'true' : 'false'}"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          ${isMuted
+            ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'
+            : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>'
+          }
+        </svg>
+      </button>
+    ` : '';
     // data-treatment is read back in switchTreatment() so the <video>
     // element can be looked up by index and re-pointed without a full
     // rebuild of the card.
@@ -455,6 +507,7 @@ function buildMedia(exercise, index) {
         preload="auto"
         ${posterAttr}
       ></video>
+      ${muteButton}
     `;
   }
 
@@ -1516,7 +1569,9 @@ function startPrepPhase() {
 
   isPrepPhase = true;
   isTimerRunning = false;
-  prepRemainingSeconds = PREP_SECONDS;
+  // Per-exercise override when present, else the 5s global default.
+  const slide = slides[currentIndex];
+  prepRemainingSeconds = prepSecondsFor(slide);
 
   updatePrepOverlay();
   schedulePrepFade();
@@ -1664,6 +1719,15 @@ function resumeTimer() {
  * touchend doesn't pause/resume by accident.
  */
 function handleMediaTap(e) {
+  // Mute button intercepts first — it's inside .card-media but must NOT
+  // trigger pause/resume. Taking the early return keeps play/pause
+  // decoupled from the mute toggle (Wave 3 — test items 3 / 4 / 5).
+  const muteBtn = e.target.closest ? e.target.closest('.mute-toggle') : null;
+  if (muteBtn) {
+    e.stopPropagation();
+    toggleMute();
+    return;
+  }
   if (!isWorkoutMode) return;
   if (swipeState.didSwipe) {
     swipeState.didSwipe = false;
@@ -1687,6 +1751,47 @@ function handleMediaTap(e) {
     resumeTimer();
   }
   updatePauseOverlay();
+}
+
+/**
+ * Toggle runtime mute across every live <video> element. Decoupled from
+ * playback state (Wave 3 fix — test items 3 / 4 / 5): a tap on the
+ * speaker icon NEVER pauses. Also redraws the mute-toggle glyph so the
+ * icon reflects the current state immediately.
+ *
+ * Respects the publish-time `include_audio` flag — if the exercise
+ * didn't ship with audio, its video stays muted regardless (no button
+ * is rendered for that exercise in the first place).
+ */
+function toggleMute() {
+  isMuted = !isMuted;
+  const videos = $cardTrack ? $cardTrack.querySelectorAll('video') : [];
+  videos.forEach((video) => {
+    // include_audio is encoded on the slide, not the <video> element;
+    // pull it back through the card wrapper's data-media-index.
+    const card = video.closest('.exercise-card');
+    const idx = card ? Number(card.getAttribute('data-index')) : NaN;
+    const slide = Number.isFinite(idx) ? slides[idx] : null;
+    if (!slide || !slide.include_audio) {
+      // Publish-time muted — leave it muted regardless.
+      video.muted = true;
+      return;
+    }
+    video.muted = isMuted;
+  });
+  // Redraw every visible mute button (glyph + a11y state).
+  const buttons = $cardTrack
+    ? $cardTrack.querySelectorAll('.mute-toggle')
+    : [];
+  buttons.forEach((btn) => {
+    btn.setAttribute('aria-pressed', isMuted ? 'true' : 'false');
+    btn.setAttribute('aria-label', isMuted ? 'Unmute audio' : 'Mute audio');
+    const svg = btn.querySelector('svg');
+    if (!svg) return;
+    svg.innerHTML = isMuted
+      ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'
+      : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>';
+  });
 }
 
 /**

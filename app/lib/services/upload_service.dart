@@ -469,6 +469,12 @@ class UploadService {
                 // exercises.preferred_treatment column; get_plan_full
                 // is expected to surface it on subsequent reads.
                 'preferred_treatment': e.preferredTreatment?.wireValue,
+                // Per-exercise prep-countdown override (Milestone P /
+                // Wave 3). null = use global default (5s); positive int
+                // = practitioner override set via the Studio card's
+                // "Prep seconds" inline field. Surfaces on the web
+                // player via get_plan_full (emitted by to_jsonb(e)).
+                'prep_seconds': e.prepSeconds,
               })
           .toList();
 

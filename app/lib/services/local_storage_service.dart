@@ -18,7 +18,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 18;
+  static const _dbVersion = 19;
 
   Database? _db;
 
@@ -90,6 +90,7 @@ class LocalStorageService {
         archived_at INTEGER,
         raw_archive_uploaded_at INTEGER,
         preferred_treatment TEXT,
+        prep_seconds INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -357,6 +358,21 @@ class LocalStorageService {
       // field without any translation layer.
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN preferred_treatment TEXT',
+      );
+    }
+    if (oldVersion < 19) {
+      // Per-exercise prep-countdown override (Wave 3 / Milestone P).
+      //
+      // Global default now shrinks from 15s → 5s (see _kPrepSeconds in
+      // plan_preview_screen.dart + PREP_SECONDS in web-player/app.js).
+      // Practitioners can override per exercise via the Studio card's
+      // "Prep seconds" inline field. NULL = use the 5s default.
+      //
+      // Supabase has a matching column in
+      // schema_milestone_p_prep_seconds.sql — publish round-trips via the
+      // `prep_seconds` column on the `exercises` table.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN prep_seconds INTEGER',
       );
     }
   }
