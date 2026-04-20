@@ -52,8 +52,11 @@ import CoreVideo
 //   v2 (2026-04-20):                   lo=1, hi=0.88, alpha=0.85
 //   v3 (2026-04-20 post BGRA fix):     lo=1, hi=0.88, alpha=0.90
 //   v4 (2026-04-20 "+20% darker"):     lo=1, hi=0.88, alpha=0.92
-//     ↑ Carl asked for "another 20% darker". Reduced lift-from-black
-//     by ~20%: v3 pure-black input rendered at ~25; v4 drops it to ~20.
+//   v5 (2026-04-20 "+50% darker"):     lo=1, hi=0.88, alpha=0.96
+//     ↑ Carl asked for another +50%. Reduced lift-from-black by 50%:
+//     v4 pure-black rendered at ~20; v5 drops it to ~10 out of 255.
+//     Deep graphite territory — close to full-black without being
+//     the original stark v0.
 //
 // Safe tuning ranges (if you want to experiment on device):
 //   edgeThresholdLo : 0 … 4   (int)
@@ -61,7 +64,7 @@ import CoreVideo
 //   lineAlpha       : 0.3 … 1.0
 private let edgeThresholdLo: Int = 1
 private let edgeThresholdHi: Double = 0.88
-private let lineAlpha: Double = 0.92
+private let lineAlpha: Double = 0.96
 
 /// Native iOS platform channel for video-to-line-drawing conversion.
 ///
