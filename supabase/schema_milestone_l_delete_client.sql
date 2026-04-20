@@ -64,8 +64,9 @@
 BEGIN;
 
 -- ============================================================================
--- 1. Tombstone column
+-- 1. Tombstone columns
 -- ============================================================================
+-- clients.deleted_at — tombstones a client row.
 ALTER TABLE public.clients
   ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 
@@ -73,6 +74,27 @@ ALTER TABLE public.clients
 -- nothing in the deleted case.
 CREATE INDEX IF NOT EXISTS idx_clients_active
   ON public.clients (practice_id)
+  WHERE deleted_at IS NULL;
+
+-- plans.deleted_at — tombstones a plan row. Cascade from delete_client
+-- stamps this with the SAME timestamp as the owning client so
+-- restore_client can reverse precisely what we cascaded (plans
+-- soft-deleted at any other timestamp stay deleted).
+--
+-- list_practice_clients / list_sessions_for_client both filter on
+-- `plans.deleted_at IS NULL` so cascaded-deleted plans don't surface
+-- to the trainer app or portal. get_plan_full deliberately stays
+-- unfiltered — if a client has a live link to a plan whose owning
+-- client got soft-deleted, we'd rather serve the plan than 404 (the
+-- 7-day purge is the hard boundary).
+ALTER TABLE public.plans
+  ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+
+-- Partial index — every hot path ("alive plans for this client",
+-- "alive plans for this practice") filters on `deleted_at IS NULL`,
+-- so the partial form is the most compact.
+CREATE INDEX IF NOT EXISTS plans_deleted_at_idx
+  ON public.plans (deleted_at)
   WHERE deleted_at IS NULL;
 
 -- ============================================================================
