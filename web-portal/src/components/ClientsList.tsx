@@ -321,12 +321,9 @@ export function ClientsList({
                 href={`/clients/${c.id}${practiceQs}`}
                 className="flex h-full flex-col rounded-lg border border-surface-border bg-surface-base p-4 transition hover:border-brand hover:shadow-focus-ring focus-visible:border-brand focus-visible:outline-none"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="font-heading text-base font-semibold text-ink">
-                    {c.name}
-                  </h3>
-                  <ConsentChip consent={c.videoConsent} />
-                </div>
+                <h3 className="font-heading text-base font-semibold text-ink">
+                  {c.name}
+                </h3>
 
                 <p className="mt-2 text-xs text-ink-muted">
                   {stats
@@ -433,46 +430,6 @@ type DeleteToast =
       client: PracticeClient;
     }
   | { kind: 'error'; text: string; client: null };
-
-// ----------------------------------------------------------------------------
-// Consent chip — composable "Line drawing only" / "+ Grayscale" / "+ Original"
-// ----------------------------------------------------------------------------
-
-function ConsentChip({
-  consent,
-}: {
-  consent: { grayscale: boolean; original: boolean };
-}) {
-  const parts: { label: string; tone: 'muted' | 'tint' | 'brand' }[] = [
-    { label: 'Line drawing', tone: 'muted' },
-  ];
-  if (consent.grayscale) parts.push({ label: 'B&W', tone: 'tint' });
-  if (consent.original) parts.push({ label: 'Colour', tone: 'brand' });
-
-  // Single-chip rendering with separators. Consent expands rather than
-  // replacing — matches the voice: additive, not paternalistic.
-  const colourClass =
-    parts.some((p) => p.tone === 'brand')
-      ? 'border-brand/60 bg-brand/10 text-brand-light'
-      : parts.some((p) => p.tone === 'tint')
-        ? 'border-brand/30 bg-brand/[0.06] text-ink'
-        : 'border-surface-border bg-surface-raised text-ink-muted';
-
-  const label =
-    parts.length === 1
-      ? 'Line drawing only'
-      : parts
-          .map((p, i) => (i === 0 ? p.label : `+ ${p.label}`))
-          .join(' ');
-
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium tracking-wide ${colourClass}`}
-    >
-      {label}
-    </span>
-  );
-}
 
 // ----------------------------------------------------------------------------
 // Relative-time helper — kept local to avoid a new shared util until it's
