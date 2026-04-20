@@ -61,7 +61,18 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Tap video — play/pause still works
    - Close button returns to Studio
 
-7. **Studio MediaViewer polish — consent switch + swipe affordance** (branch `feat/mediaviewer-polish`):
+7. **Studio MediaViewer — vertical treatment control** (branch `feat/vertical-treatment-control`):
+   - Long-press a Studio thumbnail → "Open full-screen"
+   - Verify the treatment segmented control now renders **vertically** on the left edge of the screen (centered in the safe area): Line on top, B&W in the middle, Original on the bottom. Orientation matches the vertical-swipe gesture that cycles treatments.
+   - Tap each segment directly — should still jump to that treatment with the 220ms crossfade + selection haptic.
+   - Tap a locked segment (pre-archive capture where B&W + Original are disabled) — lock glyph shows, tooltip reads "Older capture — re-record to enable."; consent bottom sheet still opens correctly where applicable.
+   - Vertical swipe up/down on the video — still cycles treatments exactly as before.
+   - Horizontal swipe left/right — still pages between exercises; treatment resets to Line.
+   - Active treatment is B&W or Original AND client exists → the `Show {Name}` consent toggle now renders **directly below the vertical pill** (same left-edge stack). Flip it — instant, no modal; SyncService queues the write.
+   - Exercise-name pill stays top-centered; close button stays top-right; page dots stay bottom-center. None of these collide with the left-edge vertical stack.
+   - Regression: the plan preview screen (`plan_preview_screen.dart`) still renders the treatment control **horizontally** — no UX change there.
+
+8. **Studio MediaViewer polish — consent switch + swipe affordance** (branch `feat/mediaviewer-polish`):
    - Long-press a Studio thumbnail → "Open full-screen"
    - Active treatment is B&W or Original AND client exists → the consent affordance now renders as a dark pill with `Show {Name}` + an iOS-style Switch on the right (coral when on). Verify the Switch reads as a "setting you're tweaking", not an ack button. Flip it — immediate, no modal; SyncService queues the write. Toggle back — same.
    - Verify the Switch styling matches `ClientConsentSheet` (coral `activeTrackColor`, white thumb when on). Scale is slightly smaller (`Transform.scale 0.82`) to fit the compact pill.

@@ -1758,13 +1758,15 @@ bool _isStillImageConversion(ExerciseCapture exercise) {
 ///   • Vertical swipe cycles the active treatment with a 220ms crossfade.
 ///     Up = next (Line → B&W → Original → Line), Down = previous.
 ///     Disabled treatments are skipped over.
-///   • Top-anchored [TreatmentSegmentedControl] mirrors the gesture and
-///     lets the practitioner jump directly. Locked segments (no archive
-///     OR client said no) tap into the inline consent toggle.
-///   • Inline consent toggle below the control — only when the active
-///     treatment is B&W or Original and a client row is resolvable. One
-///     tap fires immediately (R-01: no confirmation modals); writes go
-///     through [SyncService.queueSetConsent] (offline-first).
+///   • Left-edge vertical [TreatmentSegmentedControl] — orientation
+///     matches the vertical-swipe gesture so the visual control reads
+///     the same axis as the gesture it represents. Locked segments (no
+///     archive OR client said no) tap into the inline consent toggle.
+///   • Inline consent toggle directly below the vertical pill — only
+///     when the active treatment is B&W or Original and a client row is
+///     resolvable. One tap fires immediately (R-01: no confirmation
+///     modals); writes go through [SyncService.queueSetConsent]
+///     (offline-first).
 ///   • Pre-archive captures (no `archiveFilePath`) keep B&W + Original
 ///     greyed out — Carl's call: don't fall back silently to Line, that
 ///     would mislead the practitioner during a "show me the difference"
@@ -2063,59 +2065,78 @@ class _MediaViewerState extends State<_MediaViewer> {
             },
           ),
 
-          // Top stack — segmented control + (optional) consent toggle.
-          // Sits ABOVE the close button row visually but to its left so
-          // the X stays in the corner. Only renders when the current
-          // exercise is a video — for stills there's nothing to switch
-          // between. Wrapped in a SafeArea so it clears the notch.
+          // Left-edge vertical stack — segmented control + (optional)
+          // consent toggle. Lives on the left side, vertically centered,
+          // so the control's orientation mirrors the vertical-swipe
+          // gesture that cycles treatments. Horizontal layouts were
+          // incoherent with the gesture axis (Carl's QA call). The
+          // consent toggle sits directly below the pill so the "show
+          // {Name}" affordance stays adjacent to the treatment it gates.
+          // Only renders when the current exercise is a video — stills
+          // have nothing to switch between.
           if (_isVideo(_current))
             Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              left: 16,
-              right: 56, // leaves room for the close button
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TreatmentSegmentedControl(
-                    active: _treatment,
-                    grayscaleAvailable: hasArchive,
-                    originalAvailable: hasArchive,
-                    onChanged: _onTreatmentChanged,
-                    onLockTap: _onLockedSegmentTap,
-                    lockedMessages: hasArchive
-                        ? null
-                        : const {
-                            Treatment.grayscale:
-                                'Older capture — re-record to enable.',
-                            Treatment.original:
-                                'Older capture — re-record to enable.',
-                          },
+              left: 12,
+              top: 0,
+              bottom: 0,
+              child: SafeArea(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TreatmentSegmentedControl(
+                        orientation: Axis.vertical,
+                        active: _treatment,
+                        grayscaleAvailable: hasArchive,
+                        originalAvailable: hasArchive,
+                        onChanged: _onTreatmentChanged,
+                        onLockTap: _onLockedSegmentTap,
+                        lockedMessages: hasArchive
+                            ? null
+                            : const {
+                                Treatment.grayscale:
+                                    'Older capture — re-record to enable.',
+                                Treatment.original:
+                                    'Older capture — re-record to enable.',
+                              },
+                      ),
+                      if (_shouldShowConsentRow()) ...[
+                        const SizedBox(height: 10),
+                        // Constrain the consent pill so a long client name
+                        // can't push it off the screen — it's a short
+                        // horizontal row sitting next to the vertical
+                        // treatment pill and needs to breathe around the
+                        // centred exercise-name pill.
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth:
+                                MediaQuery.of(context).size.width * 0.55,
+                          ),
+                          child: _ConsentToggleRow(
+                            clientName: _client!.name,
+                            allowed: _treatment == Treatment.grayscale
+                                ? _client!.grayscaleAllowed
+                                : _client!.colourAllowed,
+                            onChanged: (_) =>
+                                _toggleConsentForActiveTreatment(),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  if (_shouldShowConsentRow()) ...[
-                    const SizedBox(height: 8),
-                    _ConsentToggleRow(
-                      clientName: _client!.name,
-                      allowed: _treatment == Treatment.grayscale
-                          ? _client!.grayscaleAllowed
-                          : _client!.colourAllowed,
-                      onChanged: (_) => _toggleConsentForActiveTreatment(),
-                    ),
-                  ],
-                ],
+                ),
               ),
             ),
 
-          // Exercise-name pill — sits BELOW the segmented control so
-          // the practitioner reads "what treatment" then "which exercise"
-          // top-to-bottom. Second line inside the pill is the swipe
-          // affordance: "Exercise N of M" so the practitioner (and the
-          // client they're demo-ing to) always has immediate
-          // where-are-we context.
+          // Exercise-name pill — stays top-centered. The vertical
+          // treatment control is on the left edge now, so this pill has
+          // the top strip free from the close button's right-edge
+          // territory. Second line inside the pill is the swipe
+          // affordance: "Exercise N of M".
           Positioned(
-            top: _isVideo(_current)
-                ? MediaQuery.of(context).padding.top +
-                    (_shouldShowConsentRow() ? 120 : 60)
-                : MediaQuery.of(context).padding.top + 12,
+            top: MediaQuery.of(context).padding.top + 12,
             left: 0,
             right: 0,
             child: IgnorePointer(
