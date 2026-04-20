@@ -227,6 +227,39 @@ class ApiClient {
     }
   }
 
+  /// Fetch the `plans.client_id` mapping for every plan in this practice
+  /// that's been linked to a client. Used by HomeScreen to backfill local
+  /// SQLite `sessions.client_id` (which was null for pre-v16 sessions —
+  /// the migration didn't backfill). RLS allows authenticated practice
+  /// members to SELECT their own practice's plans, so this direct read
+  /// is safe.
+  ///
+  /// Returns `[]` on any error so callers render the shell without
+  /// crashing; backfill is purely an optimisation — the name-match
+  /// fallback in the filter keeps sessions visible when the sync fails.
+  Future<List<PlanClientLink>> listPlanClientLinks(String practiceId) async {
+    try {
+      final result = await raw
+          .from('plans')
+          .select('id, client_id')
+          .eq('practice_id', practiceId)
+          .not('client_id', 'is', null);
+      if (result is! List) return const [];
+      return result
+          .whereType<Map>()
+          .map((r) {
+            final id = r['id'];
+            final clientId = r['client_id'];
+            if (id is! String || clientId is! String) return null;
+            return PlanClientLink(planId: id, clientId: clientId);
+          })
+          .whereType<PlanClientLink>()
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// `consume_credit(p_practice_id, p_plan_id, p_credits)` — atomic credit
   /// burn. Returns the RPC's jsonb response as a `Map<String, dynamic>`:
   ///
@@ -722,4 +755,15 @@ class PracticeMembership {
     required this.name,
     required this.role,
   });
+}
+
+/// One cloud-side (plan_id, client_id) pair. Used to backfill local
+/// SQLite `sessions.client_id` for pre-v16 rows whose schema migration
+/// added the column but left existing data null.
+@immutable
+class PlanClientLink {
+  final String planId;
+  final String clientId;
+
+  const PlanClientLink({required this.planId, required this.clientId});
 }

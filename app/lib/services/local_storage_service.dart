@@ -331,6 +331,41 @@ class LocalStorageService {
     );
   }
 
+  /// Backfill `sessions.client_id` from a list of cloud (plan_id, client_id)
+  /// pairs. Pre-v16 sessions had no `client_id` column; the v16 migration
+  /// added it with a null default and did NOT backfill. Legacy sessions
+  /// therefore rely on name-match (`session.clientName == client.name`) to
+  /// connect to their client — which breaks the moment the client is
+  /// renamed. This method is the one-shot fix: for every (plan_id,
+  /// client_id) pair the cloud knows about, find the local session with
+  /// that id and stamp its client_id.
+  ///
+  /// Idempotent — rows whose `client_id` already matches are untouched
+  /// (the WHERE clause on the UPDATE filters by null/mismatch). Safe to
+  /// call on every Home load; runs are O(N) where N is the number of
+  /// pairs passed in.
+  ///
+  /// Returns the number of session rows actually updated — useful for
+  /// diagnostic logs ("synced X legacy sessions to client ids") but
+  /// callers can ignore it.
+  Future<int> backfillSessionClientIds(
+    List<({String planId, String clientId})> pairs,
+  ) async {
+    if (pairs.isEmpty) return 0;
+    var updated = 0;
+    for (final link in pairs) {
+      final rows = await db.update(
+        'sessions',
+        {'client_id': link.clientId},
+        // Only touch rows that are missing or wrong — skip up-to-date rows.
+        where: 'id = ? AND (client_id IS NULL OR client_id != ?)',
+        whereArgs: [link.planId, link.clientId],
+      );
+      updated += rows;
+    }
+    return updated;
+  }
+
   /// Delete a session and all its exercises. Also removes associated media
   /// files from disk.
   Future<void> deleteSession(String id) async {

@@ -101,6 +101,22 @@ class _HomeScreenState extends State<HomeScreen> {
       if (practiceId != null && practiceId.isNotEmpty) {
         clients =
             await ApiClient.instance.listPracticeClients(practiceId);
+
+        // Backfill local SQLite `sessions.client_id` from the cloud's
+        // `plans.client_id` for any pre-v16 legacy sessions that still
+        // carry a null client_id. This keeps the name-match fallback in
+        // _computeStats from breaking when a client is renamed (cloud
+        // updates the client name, but the legacy session's clientName
+        // stays stale). One-shot per load; idempotent; cheap.
+        final links =
+            await ApiClient.instance.listPlanClientLinks(practiceId);
+        if (links.isNotEmpty) {
+          await widget.storage.backfillSessionClientIds(
+            links
+                .map((l) => (planId: l.planId, clientId: l.clientId))
+                .toList(growable: false),
+          );
+        }
       }
 
       // Claim any orphan sessions for the current user before counting.
