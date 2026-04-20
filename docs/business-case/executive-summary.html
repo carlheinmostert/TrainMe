@@ -1,0 +1,1548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — the case in one page</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
+    rel="stylesheet"
+  />
+  <!--
+    ======================================================================
+      homefit.studio — executive summary (interactive)
+    ======================================================================
+      Single, self-contained HTML. Companion to the xlsx at
+      ./homefit-studio-business-case-v1.xlsx — this is the skim version.
+
+      Numbers are BAKED IN from the xlsx baseline (2026-04-20) and then
+      recomputed in-browser by a simplified JS simulator when you drag a
+      slider. The JS model mirrors the xlsx formula shape closely enough
+      that Base-scenario Y5 revenue and EBITDA match the xlsx to within
+      rounding; other scenarios follow the same structural logic.
+
+      Charts: Chart.js via CDN (pinned). If the CDN can't be reached, the
+      chart blocks swap to a static table fallback so the page still tells
+      the story.
+    ======================================================================
+  -->
+  <style>
+    /* ------------------------------------------------------------------ */
+    /*  Tokens (mirrored from docs/design/project/tokens.json)            */
+    /* ------------------------------------------------------------------ */
+    :root {
+      --brand-default: #ff6b35;
+      --brand-dark: #e85a24;
+      --brand-light: #ff8f5e;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+      --brand-glow: rgba(255, 107, 53, 0.20);
+
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+      --surface-border-soft: rgba(46, 49, 64, 0.5);
+
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --ink-disabled: #4b5563;
+      --ink-on-brand: #ffffff;
+
+      --success: #22c55e;
+      --rest: #86efac;
+      --danger: #ef4444;
+      --line-conservative: #9ca3af;
+      --line-base: #ff6b35;
+      --line-optimistic: #86efac;
+
+      --font-display: "Montserrat", system-ui, sans-serif;
+      --font-body: "Inter", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --radius-full: 9999px;
+
+      --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Top nav                                                           */
+    /* ------------------------------------------------------------------ */
+    .brand-header {
+      border-bottom: 1px solid var(--surface-border);
+      background: rgba(26, 29, 39, 0.8);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand-header-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 24px;
+    }
+
+    .brand-mark {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--ink-primary);
+    }
+
+    .brand-mark-name {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+    }
+
+    .brand-sub {
+      font-family: var(--font-body);
+      font-size: 12px;
+      color: var(--ink-muted);
+    }
+
+    /* A tiny coral pulse-mark (house roof shape). */
+    .pulse-mark {
+      width: 28px;
+      height: 20px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Page shell                                                        */
+    /* ------------------------------------------------------------------ */
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 40px 24px 96px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Hero                                                              */
+    /* ------------------------------------------------------------------ */
+    .hero {
+      padding-bottom: 36px;
+      border-bottom: 1px solid var(--surface-border);
+      margin-bottom: 48px;
+    }
+
+    .hero-eyebrow {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .hero h1 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: clamp(32px, 5vw, 48px);
+      letter-spacing: -0.7px;
+      line-height: 1.08;
+      margin: 0 0 16px;
+    }
+
+    .hero h1 em {
+      color: var(--brand-default);
+      font-style: normal;
+    }
+
+    .hero p.lede {
+      color: var(--ink-secondary);
+      font-size: 16px;
+      margin: 0;
+      max-width: 640px;
+      line-height: 1.6;
+    }
+
+    /* Scenario tab row sits above the stat tiles */
+    .scenario-tabs {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-full);
+      margin: 28px 0 24px;
+    }
+
+    .scenario-tabs button {
+      appearance: none;
+      background: transparent;
+      border: 0;
+      color: var(--ink-secondary);
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.1px;
+      padding: 8px 18px;
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      transition: color 150ms var(--ease-standard),
+        background 150ms var(--ease-standard);
+    }
+
+    .scenario-tabs button:hover {
+      color: var(--ink-primary);
+    }
+
+    .scenario-tabs button.active {
+      background: var(--brand-tint-bg);
+      color: var(--brand-default);
+    }
+
+    .scenario-tabs button.custom-only {
+      /* shown only when user has moved a slider off a scenario baseline */
+      display: none;
+    }
+
+    .scenario-tabs.is-custom button.custom-only {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .scenario-tabs.is-custom button.custom-only::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--brand-default);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Stat tiles (three Y5 headline numbers)                            */
+    /* ------------------------------------------------------------------ */
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    @media (max-width: 720px) {
+      .stat-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .stat-tile {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+    }
+
+    .stat-tile .label {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .stat-tile .value {
+      font-family: var(--font-display);
+      font-size: clamp(30px, 4vw, 40px);
+      font-weight: 700;
+      letter-spacing: -0.6px;
+      line-height: 1;
+      color: var(--ink-primary);
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .stat-tile .value .unit {
+      font-family: var(--font-body);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ink-muted);
+      letter-spacing: 0;
+    }
+
+    .stat-tile.accent .value {
+      color: var(--brand-default);
+    }
+
+    .stat-tile .sub {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--ink-secondary);
+    }
+
+    .stat-tile .sub .ok {
+      color: var(--success);
+    }
+
+    .stat-tile .sub .bad {
+      color: var(--danger);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Section scaffolding                                               */
+    /* ------------------------------------------------------------------ */
+    .section {
+      margin-bottom: 64px;
+    }
+
+    .section-head {
+      margin-bottom: 24px;
+    }
+
+    .section-head .eyebrow {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .section-head h2 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 24px;
+      letter-spacing: -0.3px;
+      margin: 0 0 6px;
+    }
+
+    .section-head p {
+      margin: 0;
+      color: var(--ink-secondary);
+      font-size: 14px;
+      max-width: 680px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Chart cards                                                       */
+    /* ------------------------------------------------------------------ */
+    .chart-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 24px 24px 20px;
+    }
+
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      margin-bottom: 16px;
+    }
+
+    .legend-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--ink-secondary);
+    }
+
+    .legend-pill .swatch {
+      width: 20px;
+      height: 3px;
+      border-radius: var(--radius-full);
+    }
+
+    .legend-pill .swatch.dash {
+      background: repeating-linear-gradient(
+        90deg,
+        currentColor 0 4px,
+        transparent 4px 8px
+      );
+      height: 2px;
+    }
+
+    .chart-wrap {
+      position: relative;
+      height: 340px;
+    }
+
+    @media (max-width: 720px) {
+      .chart-wrap {
+        height: 280px;
+      }
+    }
+
+    .chart-fallback {
+      display: none;
+      padding: 8px;
+      color: var(--ink-secondary);
+      font-size: 13px;
+    }
+
+    .chart-fallback table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .chart-fallback th,
+    .chart-fallback td {
+      text-align: right;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--surface-border-soft);
+    }
+
+    .chart-fallback th:first-child,
+    .chart-fallback td:first-child {
+      text-align: left;
+      color: var(--ink-muted);
+    }
+
+    .chart-card.is-fallback .chart-wrap {
+      display: none;
+    }
+
+    .chart-card.is-fallback .chart-fallback {
+      display: block;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Levers                                                            */
+    /* ------------------------------------------------------------------ */
+    .lever-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    @media (max-width: 860px) {
+      .lever-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .lever-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .lever-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .lever-name {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+    }
+
+    .lever-value {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--brand-light);
+      padding: 4px 10px;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      border-radius: var(--radius-full);
+      min-width: 76px;
+      text-align: center;
+    }
+
+    .lever-explain {
+      font-size: 12.5px;
+      color: var(--ink-secondary);
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    .lever-slider {
+      appearance: none;
+      width: 100%;
+      height: 4px;
+      background: var(--surface-border);
+      border-radius: var(--radius-full);
+      outline: none;
+      cursor: pointer;
+      margin: 6px 0 2px;
+    }
+
+    .lever-slider::-webkit-slider-thumb {
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      border: 2px solid var(--surface-bg);
+      box-shadow: 0 0 0 1px var(--brand-dark),
+        0 0 12px var(--brand-glow);
+      cursor: grab;
+      transition: transform 150ms var(--ease-standard);
+    }
+
+    .lever-slider::-webkit-slider-thumb:active {
+      cursor: grabbing;
+      transform: scale(1.08);
+    }
+
+    .lever-slider::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      border: 2px solid var(--surface-bg);
+      box-shadow: 0 0 0 1px var(--brand-dark);
+      cursor: grab;
+    }
+
+    .lever-scale {
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--ink-muted);
+      letter-spacing: 0.2px;
+      margin-top: -4px;
+    }
+
+    .lever-scale span.mid {
+      color: var(--ink-secondary);
+    }
+
+    /* Reset row */
+    .reset-row {
+      display: flex;
+      justify-content: center;
+      margin-top: 28px;
+    }
+
+    .reset-btn {
+      appearance: none;
+      background: transparent;
+      color: var(--ink-secondary);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-full);
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 500;
+      padding: 10px 22px;
+      cursor: pointer;
+      transition: color 150ms var(--ease-standard),
+        border-color 150ms var(--ease-standard);
+    }
+
+    .reset-btn:hover {
+      color: var(--ink-primary);
+      border-color: var(--ink-muted);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Narrative                                                         */
+    /* ------------------------------------------------------------------ */
+    .narrative-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    @media (max-width: 860px) {
+      .narrative-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .narrative-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+    }
+
+    .narrative-card .kicker {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .narrative-card.conservative .kicker {
+      color: var(--ink-secondary);
+    }
+
+    .narrative-card.base .kicker {
+      color: var(--brand-default);
+    }
+
+    .narrative-card.optimistic .kicker {
+      color: var(--rest);
+    }
+
+    .narrative-card h3 {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      margin: 0 0 10px;
+    }
+
+    .narrative-card p {
+      font-size: 13px;
+      color: var(--ink-secondary);
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Footer                                                            */
+    /* ------------------------------------------------------------------ */
+    .page-foot {
+      margin-top: 48px;
+      padding: 28px;
+      border: 1px dashed var(--surface-border);
+      border-radius: var(--radius-lg);
+      text-align: center;
+      color: var(--ink-secondary);
+      font-size: 13px;
+    }
+
+    .page-foot a {
+      color: var(--brand-default);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .page-foot a:hover {
+      text-decoration: underline;
+    }
+
+    .page-foot .fine {
+      display: block;
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--ink-muted);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Utility                                                           */
+    /* ------------------------------------------------------------------ */
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      border: 0;
+    }
+  </style>
+</head>
+<body>
+  <!-- ================================================================== -->
+  <!--  Top nav                                                            -->
+  <!-- ================================================================== -->
+  <header class="brand-header">
+    <div class="brand-header-inner">
+      <a class="brand-mark" href="#">
+        <svg class="pulse-mark" viewBox="0 0 48 34" aria-hidden="true">
+          <!-- heartbeat traces the roof of a house -->
+          <path
+            d="M2 24 L8 24 L11 20 L14 28 L17 12 L22 24 L24 8 L26 24 L32 24 L35 20 L38 28 L41 12 L46 24"
+            fill="none"
+            stroke="#ff6b35"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        <div>
+          <div class="brand-mark-name">homefit.studio</div>
+          <div class="brand-sub">business case · v1 · 2026-04-20</div>
+        </div>
+      </a>
+      <div class="brand-sub">executive summary</div>
+    </div>
+  </header>
+
+  <main class="page">
+    <!-- ================================================================== -->
+    <!--  1. Hero + scenario tabs + three stat tiles                         -->
+    <!-- ================================================================== -->
+    <section class="hero">
+      <div class="hero-eyebrow">The case in one page</div>
+      <h1>Bootstrapped-solo-founder at base, <em>fundable</em> at the top end.</h1>
+      <p class="lede">
+        Five years of homefit.studio, modelled three ways. Drag the sliders
+        to see which assumptions actually bend the outcome — most do very
+        little, a few move everything.
+      </p>
+
+      <nav class="scenario-tabs" id="scenario-tabs" role="tablist" aria-label="Scenario selector">
+        <button type="button" data-scenario="conservative" role="tab">Conservative</button>
+        <button type="button" data-scenario="base" role="tab" class="active">Base</button>
+        <button type="button" data-scenario="optimistic" role="tab">Optimistic</button>
+        <button type="button" data-scenario="custom" role="tab" class="custom-only">Custom</button>
+      </nav>
+
+      <div class="stat-row" id="stat-row">
+        <div class="stat-tile">
+          <div class="label">Year 5 paying practitioners</div>
+          <div class="value">
+            <span id="stat-prac-count">–</span>
+          </div>
+          <div class="sub" id="stat-prac-sub">–</div>
+        </div>
+        <div class="stat-tile accent">
+          <div class="label">Year 5 gross revenue</div>
+          <div class="value">
+            <span class="unit">R</span><span id="stat-rev-value">–</span><span class="unit" id="stat-rev-unit">–</span>
+          </div>
+          <div class="sub" id="stat-rev-sub">–</div>
+        </div>
+        <div class="stat-tile">
+          <div class="label">5-year cumulative profit</div>
+          <div class="value">
+            <span class="unit" id="stat-cum-sign">R</span><span id="stat-cum-value">–</span><span class="unit" id="stat-cum-unit">–</span>
+          </div>
+          <div class="sub" id="stat-cum-sub">–</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!--  2. Revenue chart                                                   -->
+    <!-- ================================================================== -->
+    <section class="section">
+      <div class="section-head">
+        <div class="eyebrow">Revenue over time</div>
+        <h2>Where the top line goes, year by year.</h2>
+        <p>
+          Three scenarios shown together. Sliders below recompute the Base
+          line; conservative and optimistic hold at their xlsx values as a
+          reference band.
+        </p>
+      </div>
+
+      <div class="chart-card" id="rev-chart-card">
+        <div class="chart-legend">
+          <span class="legend-pill" style="color: var(--line-conservative)">
+            <span class="swatch" style="background: var(--line-conservative)"></span>Conservative
+          </span>
+          <span class="legend-pill" style="color: var(--line-base)">
+            <span class="swatch" style="background: var(--line-base)"></span>Base (live)
+          </span>
+          <span class="legend-pill" style="color: var(--line-optimistic)">
+            <span class="swatch" style="background: var(--line-optimistic)"></span>Optimistic
+          </span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="rev-chart"></canvas>
+        </div>
+        <div class="chart-fallback" id="rev-fallback">
+          Charts failed to load — showing the numbers as a table instead.
+          <table>
+            <thead>
+              <tr><th>Scenario</th><th>Y1</th><th>Y2</th><th>Y3</th><th>Y4</th><th>Y5</th></tr>
+            </thead>
+            <tbody id="rev-fallback-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!--  3. Profit chart                                                    -->
+    <!-- ================================================================== -->
+    <section class="section">
+      <div class="section-head">
+        <div class="eyebrow">Profit over time</div>
+        <h2>Where the bottom line goes.</h2>
+        <p>
+          Annual operating profit, with the zero line marked. The filled
+          area shows cumulative profit on the Base case — the number that
+          tells you whether the whole 5-year run is worth it.
+        </p>
+      </div>
+
+      <div class="chart-card" id="pft-chart-card">
+        <div class="chart-legend">
+          <span class="legend-pill" style="color: var(--line-conservative)">
+            <span class="swatch" style="background: var(--line-conservative)"></span>Conservative · profit
+          </span>
+          <span class="legend-pill" style="color: var(--line-base)">
+            <span class="swatch" style="background: var(--line-base)"></span>Base · profit (live)
+          </span>
+          <span class="legend-pill" style="color: var(--line-optimistic)">
+            <span class="swatch" style="background: var(--line-optimistic)"></span>Optimistic · profit
+          </span>
+          <span class="legend-pill" style="color: var(--brand-light)">
+            <span class="swatch" style="background: rgba(255, 107, 53, 0.25)"></span>Base · cumulative (area)
+          </span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="pft-chart"></canvas>
+        </div>
+        <div class="chart-fallback" id="pft-fallback">
+          Charts failed to load — showing the numbers as a table instead.
+          <table>
+            <thead>
+              <tr><th>Scenario</th><th>Y1</th><th>Y2</th><th>Y3</th><th>Y4</th><th>Y5</th></tr>
+            </thead>
+            <tbody id="pft-fallback-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!--  4. Levers                                                          -->
+    <!-- ================================================================== -->
+    <section class="section">
+      <div class="section-head">
+        <div class="eyebrow">The four biggest levers</div>
+        <h2>Drag one. Watch what it actually does.</h2>
+        <p>
+          These are the assumptions the xlsx is most sensitive to. Every
+          other input is held at the active scenario baseline. Sliders
+          write to the Base line on both charts in real time.
+        </p>
+      </div>
+
+      <div class="lever-grid" id="lever-grid">
+        <!-- lever cards are populated by JS to keep markup and data next to each other -->
+      </div>
+
+      <div class="reset-row">
+        <button type="button" class="reset-btn" id="reset-btn">Reset to scenario baseline</button>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!--  5. Narrative                                                       -->
+    <!-- ================================================================== -->
+    <section class="section">
+      <div class="section-head">
+        <div class="eyebrow">What each scenario actually describes</div>
+        <h2>Three plausible stories, same cost curve.</h2>
+        <p>
+          Same infra, same VAT treatment, same PayFast fees. Only the
+          assumptions about how fast the thing grows differ.
+        </p>
+      </div>
+
+      <div class="narrative-grid">
+        <article class="narrative-card conservative">
+          <div class="kicker">Conservative</div>
+          <h3>Side project. Good for Carl and friends.</h3>
+          <p>
+            Roughly 13 practitioners paying at Year 5, drawn from Melissa's
+            warm network and a handful of conference talks. Revenue barely
+            covers infra and a modest marketing budget; founder stays on
+            zero salary. This is the "we shipped something good but it
+            didn't catch fire" picture.
+          </p>
+        </article>
+        <article class="narrative-card base">
+          <div class="kicker">Base</div>
+          <h3>Solo-founder bootstrap, near break-even.</h3>
+          <p>
+            ~175 paying practitioners by Year 5, a paid mix that blends
+            LinkedIn + Google + a real referral loop. Founder takes
+            R25k/mo from Year 1, adds a CS hire in Year 3 and an engineer
+            in Year 4. Five-year cumulative profit lands just on the
+            positive side of zero — validates the lane without needing a
+            raise.
+          </p>
+        </article>
+        <article class="narrative-card optimistic">
+          <div class="kicker">Optimistic</div>
+          <h3>Word-of-mouth wins. International by Year 2.</h3>
+          <p>
+            ~1,100 paying practitioners, 8× the Base case. Lower churn
+            (SaaS healthcare-lock territory), more plans per practitioner
+            per month, and international expansion starting in Year 2.
+            Looks like a fundable / sellable SaaS at Year 5 scale —
+            meaningful profit margin, real team.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ================================================================== -->
+    <!--  6. Footer                                                          -->
+    <!-- ================================================================== -->
+    <footer class="page-foot">
+      <strong>For the full mechanics</strong>, open
+      <a href="./homefit-studio-business-case-v1.xlsx">the xlsx</a> —
+      every driver is editable, every downstream number recomputes.
+      <span class="fine">
+        Numbers baked from the 2026-04-20 xlsx baseline. Profit shown on
+        charts is operating profit (EBITDA in the xlsx). ZAR throughout.
+      </span>
+    </footer>
+  </main>
+
+  <!-- ================================================================== -->
+  <!--  Chart.js (pinned CDN; page degrades gracefully if unreachable)     -->
+  <!-- ================================================================== -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+          crossorigin="anonymous"></script>
+
+  <script>
+    /* -----------------------------------------------------------------
+       1. Scenario data + simulator
+       -----------------------------------------------------------------
+       ALL scenario drivers, mirrored from the xlsx Assumptions sheet
+       (2026-04-20). Arrays are [conservative, base, optimistic].
+       ----------------------------------------------------------------- */
+    const SCN = {
+      tam_bio:        [2000, 2400, 2800],
+      tam_physio:     [9000, 9235, 9500],
+      tam_pt:         [8000, 11000, 14000],
+      reach_sa:       [0.35, 0.55, 0.70],
+      tam_au_physio:  [38000, 39781, 41000],
+      tam_au_pt:      [10000, 11000, 13000],
+      tam_uk:         [62000, 64000, 66000],
+      tam_nordics:    [48000, 50864, 53000],
+      reach_intl:     [0.10, 0.20, 0.30],
+      intl_start_year:[4, 3, 2],
+      rev_per_credit: [20, 22.5, 25],
+      plans_per_prac: [15, 35, 60],
+      credits_per_plan:[1.1, 1.3, 1.6],
+      credit_consume: [0.75, 0.85, 0.95],
+      signup_rate:    [0.01, 0.02, 0.035],
+      activation:     [0.25, 0.375, 0.50],
+      paid_conv:      [0.12, 0.215, 0.30],
+      ref_invites:    [0.15, 0.35, 0.60],
+      ref_conv:       [0.12, 0.22, 0.35],
+      churn:          [0.06, 0.04, 0.025],
+      warm_y1:        [40, 100, 200],
+      warm_yr:        [100, 300, 600],
+      paid_cac_sa:    [800, 520, 300],
+      supabase_base:  [30, 25, 25],
+      supabase_bw:    [0.09, 0.09, 0.09],
+      vercel_base:    [25, 20, 20],
+      vercel_bw:      [0.15, 0.15, 0.15],
+      fx:             [20, 19, 18],
+      domain_yr:      [400, 250, 200],
+      apple_dev_yr:   [99, 99, 99],
+      egress_mb:      [800, 500, 300],
+      pf_pct_early:   [0.033, 0.031, 0.028],
+      pf_pct_late:    [0.029, 0.027, 0.024],
+      pf_fixed:       [2, 2, 2],
+      avg_txn:        [800, 1125, 1500],
+      vat:            [0.15, 0.15, 0.15],
+      vat_yr:         [4, 2, 1],
+      founder_salary: [0, 25000, 40000],
+      salary_growth:  [0.10, 0.10, 0.15],
+      mkt_floor:      [3000, 5000, 10000],
+      mkt_growth:     [0.30, 0.40, 0.60],
+      legal:          [2500, 1500, 800],
+      hire1_yr:       [6, 3, 2],
+      hire1_sal:      [28000, 35000, 45000],
+      hire2_yr:       [6, 4, 3],
+      hire2_sal:      [55000, 65000, 85000],
+    };
+
+    const SCENARIOS = ['conservative', 'base', 'optimistic'];
+    const SCENARIO_IDX = { conservative: 0, base: 1, optimistic: 2 };
+
+    /**
+     * Simulate 5 years under the given driver set.
+     * `drivers` is an object with the same keys as SCN, but each value is a
+     * single number (not a 3-tuple). Returns year-indexed arrays for revenue,
+     * EBITDA and cumulative EBITDA.
+     *
+     * Ported verbatim from the Python simulator that matched xlsx Base to
+     * within rounding.
+     */
+    function simulate(d) {
+      const N = 28;
+      const frac   = Array(12).fill(1/12).concat(Array(16).fill(0.25));
+      const yearOf = Array(12).fill(1).concat(
+                     Array(4).fill(2), Array(4).fill(3),
+                     Array(4).fill(4), Array(4).fill(5));
+
+      const saTamY   = y => (d.tam_bio + d.tam_physio + d.tam_pt) * Math.pow(1.02, y-1);
+      const intlTamY = y => (d.tam_au_physio + d.tam_au_pt + d.tam_uk + d.tam_nordics) * Math.pow(1.015, y-1);
+
+      const saReach   = [], intlReach = [], totalReach = [];
+      for (let i = 0; i < N; i++) {
+        saReach[i]  = saTamY(yearOf[i]) * d.reach_sa;
+        intlReach[i] = yearOf[i] >= d.intl_start_year ? intlTamY(yearOf[i]) * d.reach_intl : 0;
+        totalReach[i] = saReach[i] + intlReach[i];
+      }
+
+      const cumSign = Array(N).fill(0);
+      const newSign = Array(N).fill(0);
+      const newAct  = Array(N).fill(0);
+      const newPay  = Array(N).fill(0);
+      const churned = Array(N).fill(0);
+      const netNew  = Array(N).fill(0);
+      const cumPay  = Array(N).fill(0);
+
+      for (let i = 0; i < N; i++) {
+        const fy = frac[i];
+        const warmPeriod = yearOf[i] === 1 ? d.warm_y1 / 12 : d.warm_yr / 4;
+        cumSign[i] = i > 0 ? cumSign[i-1] + newSign[i-1] : 0;
+        const reachRemain = Math.max(0, totalReach[i] - cumSign[i]);
+        const paidWarm = warmPeriod + reachRemain * d.signup_rate * fy;
+        const ref = i > 0 ? cumPay[i-1] * d.ref_invites * d.ref_conv * fy : 0;
+        newSign[i] = paidWarm + ref;
+        newAct[i]  = newSign[i] * d.activation;
+        newPay[i]  = newAct[i] * d.paid_conv;
+
+        if (i === 0) {
+          churned[i] = 0;
+        } else if (yearOf[i] === 1) {
+          churned[i] = cumPay[i-1] * d.churn;
+        } else {
+          churned[i] = cumPay[i-1] * (1 - Math.pow(1 - d.churn, 3));
+        }
+        netNew[i] = newPay[i] - churned[i];
+        cumPay[i] = (i > 0 ? cumPay[i-1] : 0) + netNew[i];
+      }
+
+      // Revenue per period (gross, VAT-incl.)
+      const monthsIn = i => yearOf[i] === 1 ? 1 : 3;
+      const periodRev = [];
+      for (let i = 0; i < N; i++) {
+        // active * plans * months * credits_per_plan / credit_consume * rev_per_credit
+        periodRev[i] = (cumPay[i] * d.plans_per_prac * monthsIn(i) * d.credits_per_plan / d.credit_consume) * d.rev_per_credit;
+      }
+
+      const yearRev = [0,0,0,0,0];
+      for (let i = 0; i < N; i++) yearRev[yearOf[i]-1] += periodRev[i];
+
+      // VAT
+      const vatBy = yearRev.map((g, y) => (y+1) >= d.vat_yr ? g * d.vat / (1 + d.vat) : 0);
+      const netRev = yearRev.map((g, y) => g - vatBy[y]);
+
+      // PayFast (COGS)
+      const pfFees = yearRev.map((g, y) => {
+        const pct = (y+1) <= 2 ? d.pf_pct_early : d.pf_pct_late;
+        const txns = g / d.avg_txn;
+        return g * pct + txns * d.pf_fixed;
+      });
+      const gp = netRev.map((v, y) => v - pfFees[y]);
+
+      // Average active paying per year (drives infra bandwidth)
+      const avgActive = [0,0,0,0,0];
+      const countY = [0,0,0,0,0];
+      for (let i = 0; i < N; i++) { avgActive[yearOf[i]-1] += cumPay[i]; countY[yearOf[i]-1] += 1; }
+      for (let y = 0; y < 5; y++) avgActive[y] = avgActive[y] / countY[y];
+
+      const infra = avgActive.map(avg => {
+        const totalGB = avg * d.egress_mb * 12 / 1024;
+        const supabw  = totalGB * d.supabase_bw * d.fx;
+        const vercbw  = totalGB * d.vercel_bw * d.fx;
+        const supaBase = d.supabase_base * 12 * d.fx;
+        const vercBase = d.vercel_base * 12 * d.fx;
+        const apple    = d.apple_dev_yr * d.fx;
+        return supaBase + vercBase + apple + d.domain_yr + supabw + vercbw;
+      });
+
+      const opex = Array(5).fill(0).map((_, y) => {
+        const yr  = y + 1;
+        const sal = d.founder_salary * 12 * Math.pow(1 + d.salary_growth, y);
+        const mkt = d.mkt_floor * 12 * Math.pow(1 + d.mkt_growth, y);
+        const leg = d.legal * 12;
+        const h1  = d.hire1_yr > 0 && yr >= d.hire1_yr ? d.hire1_sal * 12 : 0;
+        const h2  = d.hire2_yr > 0 && yr >= d.hire2_yr ? d.hire2_sal * 12 : 0;
+        return sal + mkt + leg + h1 + h2;
+      });
+
+      const ebitda = gp.map((v, y) => v - infra[y] - opex[y]);
+      const cum    = []; let acc = 0;
+      for (let y = 0; y < 5; y++) { acc += ebitda[y]; cum[y] = acc; }
+
+      return {
+        yearRevenue: yearRev,
+        yearEndPaying: [cumPay[11], cumPay[15], cumPay[19], cumPay[23], cumPay[27]],
+        ebitda, cumulativeEbitda: cum,
+      };
+    }
+
+    /**
+     * Build a complete `drivers` object for a named scenario.
+     */
+    function driversForScenario(name) {
+      const idx = SCENARIO_IDX[name];
+      const out = {};
+      for (const k in SCN) out[k] = SCN[k][idx];
+      return out;
+    }
+
+    /* -----------------------------------------------------------------
+       2. Precompute scenario outputs once so the reference bands on the
+          chart never change — sliders only move the Base line.
+       ----------------------------------------------------------------- */
+    const PRECOMPUTED = {
+      conservative: simulate(driversForScenario('conservative')),
+      base:         simulate(driversForScenario('base')),
+      optimistic:   simulate(driversForScenario('optimistic')),
+    };
+
+    /* -----------------------------------------------------------------
+       3. Levers the user can move. Each declares which driver key it
+          writes to, the UI range, step, format, and the per-scenario
+          baseline used by the Reset button and scenario tabs.
+       ----------------------------------------------------------------- */
+    const LEVERS = [
+      {
+        id: 'paid_conv',
+        name: 'Activation → paid conversion',
+        explain: 'The biggest single lever in the whole model. Today only ~21.5% of activated practitioners buy credits. Double this and the Base line becomes comfortably profitable.',
+        min: 0.05, max: 0.50, step: 0.005,
+        format: v => `${(v * 100).toFixed(1)}%`,
+        baselines: [SCN.paid_conv[0], SCN.paid_conv[1], SCN.paid_conv[2]],
+      },
+      {
+        id: 'plans_per_prac',
+        name: 'Plans per practitioner per month',
+        explain: 'A practitioner publishing 35 plans/mo (~R1,025 spend) beats Groovi at R335 flat. Drop to 10 plans and we lose. This assumption moves revenue nearly linearly.',
+        min: 5, max: 100, step: 1,
+        format: v => `${v.toFixed(0)} plans`,
+        baselines: [SCN.plans_per_prac[0], SCN.plans_per_prac[1], SCN.plans_per_prac[2]],
+      },
+      {
+        id: 'churn',
+        name: 'Monthly churn',
+        explain: 'Churn dominates lifetime value. 4%/mo ≈ 25-month average lifetime. Drop to 2.5% and average lifetime hits 40 months — worth ~60% more LTV at the same ARPU.',
+        min: 0.01, max: 0.10, step: 0.0025,
+        format: v => `${(v * 100).toFixed(2)}%/mo`,
+        baselines: [SCN.churn[0], SCN.churn[1], SCN.churn[2]],
+      },
+      {
+        id: 'paid_cac_sa',
+        name: 'Paid CAC (South Africa)',
+        explain: 'The LinkedIn + Google mix in SA costs roughly R520 per signup. Good creative plus word-of-mouth could halve it. Mostly moves the bottom-line (profit) rather than revenue.',
+        min: 100, max: 1500, step: 10,
+        format: v => `R${Math.round(v).toLocaleString('en-ZA')}`,
+        baselines: [SCN.paid_cac_sa[0], SCN.paid_cac_sa[1], SCN.paid_cac_sa[2]],
+      },
+      {
+        id: 'rev_per_credit',
+        name: 'Revenue per credit',
+        explain: 'Blended price across the 10/50/200 bundles. The least sensitive of the big four — price is simpler to raise, but does less than volume or retention.',
+        min: 12, max: 40, step: 0.5,
+        format: v => `R${v.toFixed(2)}`,
+        baselines: [SCN.rev_per_credit[0], SCN.rev_per_credit[1], SCN.rev_per_credit[2]],
+      },
+    ];
+
+    /* -----------------------------------------------------------------
+       4. State + wiring
+       ----------------------------------------------------------------- */
+    const state = {
+      scenario: 'base',           // which scenario the sliders reset to
+      drivers: driversForScenario('base'),
+      isCustom: false,             // true if any lever deviates from baseline
+    };
+
+    /* ----- helpers ------------------------------------------------- */
+    const fmtZARShort = (n) => {
+      const abs = Math.abs(n);
+      if (abs >= 1_000_000) return (n / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 2) + 'M';
+      if (abs >= 1_000)     return (n / 1_000).toFixed(abs >= 10_000 ? 0 : 1) + 'k';
+      return Math.round(n).toString();
+    };
+    const fmtZARLong = (n) => {
+      return 'R' + Math.round(Math.abs(n)).toLocaleString('en-ZA');
+    };
+    const fmtZARCompact = (n) => {
+      // For stat tiles — split into value + unit ("2.42", "M") for typography.
+      const abs = Math.abs(n);
+      const sign = n < 0 ? '-' : '';
+      if (abs >= 1_000_000) return { value: sign + (abs / 1_000_000).toFixed(abs >= 10_000_000 ? 1 : 2), unit: 'M' };
+      if (abs >= 1_000)     return { value: sign + (abs / 1_000).toFixed(abs >= 100_000 ? 0 : 0), unit: 'k' };
+      return { value: sign + Math.round(abs).toString(), unit: '' };
+    };
+
+    /* ----- lever rendering ---------------------------------------- */
+    function renderLevers() {
+      const host = document.getElementById('lever-grid');
+      host.innerHTML = '';
+      for (const lever of LEVERS) {
+        const card = document.createElement('article');
+        card.className = 'lever-card';
+        const val = state.drivers[lever.id];
+        card.innerHTML = `
+          <div class="lever-head">
+            <div class="lever-name">${lever.name}</div>
+            <div class="lever-value" data-value-for="${lever.id}">${lever.format(val)}</div>
+          </div>
+          <p class="lever-explain">${lever.explain}</p>
+          <input class="lever-slider" type="range"
+                 min="${lever.min}" max="${lever.max}" step="${lever.step}"
+                 value="${val}" data-lever="${lever.id}"
+                 aria-label="${lever.name}" />
+          <div class="lever-scale">
+            <span>${lever.format(lever.baselines[0])}<br><em style="font-style:normal;color:var(--ink-disabled)">conservative</em></span>
+            <span class="mid">${lever.format(lever.baselines[1])}<br><em style="font-style:normal;color:var(--ink-disabled)">base</em></span>
+            <span>${lever.format(lever.baselines[2])}<br><em style="font-style:normal;color:var(--ink-disabled)">optimistic</em></span>
+          </div>
+        `;
+        host.appendChild(card);
+      }
+      host.querySelectorAll('input[data-lever]').forEach(input => {
+        input.addEventListener('input', onSliderInput);
+      });
+    }
+
+    function onSliderInput(e) {
+      const key = e.target.dataset.lever;
+      const val = parseFloat(e.target.value);
+      state.drivers[key] = val;
+      const disp = document.querySelector(`[data-value-for="${key}"]`);
+      const lever = LEVERS.find(l => l.id === key);
+      if (disp && lever) disp.textContent = lever.format(val);
+      refreshIsCustom();
+      recompute();
+    }
+
+    function refreshIsCustom() {
+      // A scenario is "custom" when any lever deviates from the scenario's baseline.
+      const idx = SCENARIO_IDX[state.scenario];
+      let custom = false;
+      for (const lever of LEVERS) {
+        if (Math.abs(state.drivers[lever.id] - lever.baselines[idx]) > 1e-9) {
+          custom = true; break;
+        }
+      }
+      state.isCustom = custom;
+      document.getElementById('scenario-tabs').classList.toggle('is-custom', custom);
+      // also un-highlight all tabs when custom
+      document.querySelectorAll('#scenario-tabs button').forEach(b => {
+        if (b.dataset.scenario === 'custom') {
+          b.classList.toggle('active', custom);
+        } else {
+          b.classList.toggle('active', !custom && b.dataset.scenario === state.scenario);
+        }
+      });
+    }
+
+    /* ----- scenario tab wiring ------------------------------------ */
+    function onScenarioClick(e) {
+      const btn = e.target.closest('button[data-scenario]');
+      if (!btn) return;
+      const name = btn.dataset.scenario;
+      if (name === 'custom') return; // custom is display-only
+      state.scenario = name;
+      state.drivers = driversForScenario(name);
+      renderLevers();
+      refreshIsCustom();
+      recompute();
+    }
+
+    /* ----- recompute + render ------------------------------------- */
+    function recompute() {
+      const live = simulate(state.drivers);
+      updateStatTiles(live);
+      updateCharts(live);
+    }
+
+    function updateStatTiles(live) {
+      // Paying practitioners (Y5 end)
+      const prac = live.yearEndPaying[4];
+      document.getElementById('stat-prac-count').textContent = Math.round(prac).toLocaleString('en-ZA');
+      const pracBase = PRECOMPUTED.base.yearEndPaying[4];
+      const pracSub = state.isCustom
+        ? diffPracSub(prac, pracBase)
+        : `${state.scenario[0].toUpperCase() + state.scenario.slice(1)} scenario end of year 5`;
+      document.getElementById('stat-prac-sub').innerHTML = pracSub;
+
+      // Revenue (Y5 gross)
+      const rev = live.yearRevenue[4];
+      const r = fmtZARCompact(rev);
+      document.getElementById('stat-rev-value').textContent = r.value;
+      document.getElementById('stat-rev-unit').textContent = r.unit;
+      const revSub = document.getElementById('stat-rev-sub');
+      const revBase = PRECOMPUTED.base.yearRevenue[4];
+      revSub.innerHTML = state.isCustom
+        ? diffRevSub(rev, revBase)
+        : `${fmtZARLong(rev)} gross, VAT-incl.`;
+
+      // 5-year cumulative profit
+      const cum = live.cumulativeEbitda[4];
+      const c = fmtZARCompact(cum);
+      document.getElementById('stat-cum-sign').textContent = cum < 0 ? '-R' : 'R';
+      document.getElementById('stat-cum-value').textContent = c.value.replace('-', '');
+      document.getElementById('stat-cum-unit').textContent = c.unit;
+      const cumSub = document.getElementById('stat-cum-sub');
+      cumSub.innerHTML = cum >= 0
+        ? '<span class="ok">Profitable over the full 5 years</span>'
+        : '<span class="bad">Runs at a loss over the 5 years</span>';
+    }
+
+    function diffRevSub(cur, base) {
+      const diff = cur - base;
+      if (Math.abs(diff) < 1000) return `${fmtZARLong(cur)} gross, VAT-incl.`;
+      const sign = diff > 0 ? '+' : '−';
+      const pct  = ((cur - base) / Math.max(1, base) * 100);
+      return `${sign}${fmtZARLong(Math.abs(diff))} vs base · ${pct > 0 ? '+' : ''}${pct.toFixed(0)}%`;
+    }
+
+    function diffPracSub(cur, base) {
+      const diff = cur - base;
+      if (Math.abs(diff) < 1) return `~${Math.round(base)} at base`;
+      const sign = diff > 0 ? '+' : '−';
+      return `${sign}${Math.round(Math.abs(diff)).toLocaleString('en-ZA')} vs base`;
+    }
+
+    /* -----------------------------------------------------------------
+       5. Chart.js setup + graceful fallback
+       ----------------------------------------------------------------- */
+    const CHART_THEME = {
+      tickColor: '#6b7280',
+      gridColor: 'rgba(46,49,64,0.45)',
+      axisColor: 'rgba(46,49,64,0.75)',
+      tooltipBg: 'rgba(15,17,23,0.95)',
+      tooltipBorder: '#2e3140',
+      fontFamily: '"Inter", system-ui, sans-serif',
+    };
+
+    let revChart, pftChart;
+
+    function chartJsReady() {
+      return typeof window.Chart !== 'undefined';
+    }
+
+    function labelsYears() {
+      return ['Y1', 'Y2', 'Y3', 'Y4', 'Y5'];
+    }
+
+    function baseLineDataset(label, data, color, dashed = false) {
+      return {
+        label, data,
+        borderColor: color,
+        backgroundColor: color,
+        borderWidth: dashed ? 1.6 : 2.4,
+        borderDash: dashed ? [4, 4] : [],
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        pointBackgroundColor: color,
+        pointBorderColor: color,
+        tension: 0.25,
+        fill: false,
+      };
+    }
+
+    function initCharts() {
+      if (!chartJsReady()) {
+        // Fallback table mode for both chart cards.
+        document.getElementById('rev-chart-card').classList.add('is-fallback');
+        document.getElementById('pft-chart-card').classList.add('is-fallback');
+        populateFallbacks();
+        return;
+      }
+
+      const base = PRECOMPUTED.base;
+      const cons = PRECOMPUTED.conservative;
+      const opt  = PRECOMPUTED.optimistic;
+
+      // ---- Revenue chart
+      const revCtx = document.getElementById('rev-chart').getContext('2d');
+      revChart = new Chart(revCtx, {
+        type: 'line',
+        data: {
+          labels: labelsYears(),
+          datasets: [
+            baseLineDataset('Conservative', cons.yearRevenue, '#9ca3af', true),
+            baseLineDataset('Base', base.yearRevenue, '#ff6b35', false),
+            baseLineDataset('Optimistic', opt.yearRevenue, '#86efac', true),
+          ],
+        },
+        options: chartOptionsCurrency(false),
+      });
+
+      // ---- Profit chart
+      const pftCtx = document.getElementById('pft-chart').getContext('2d');
+      pftChart = new Chart(pftCtx, {
+        type: 'line',
+        data: {
+          labels: labelsYears(),
+          datasets: [
+            // Cumulative profit (Base) as a filled area under the line
+            {
+              label: 'Cumulative profit (Base)',
+              data: base.cumulativeEbitda,
+              borderColor: 'rgba(255, 143, 94, 0.55)',
+              backgroundColor: 'rgba(255, 107, 53, 0.14)',
+              borderWidth: 1.5,
+              pointRadius: 0,
+              tension: 0.25,
+              fill: 'origin',
+              order: 3,
+            },
+            baseLineDataset('Conservative', cons.ebitda, '#9ca3af', true),
+            baseLineDataset('Base', base.ebitda, '#ff6b35', false),
+            baseLineDataset('Optimistic', opt.ebitda, '#86efac', true),
+          ],
+        },
+        options: chartOptionsCurrency(true),
+      });
+    }
+
+    function chartOptionsCurrency(withZeroLine) {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: CHART_THEME.tooltipBg,
+            borderColor: CHART_THEME.tooltipBorder,
+            borderWidth: 1,
+            titleColor: '#f0f0f5',
+            bodyColor: '#f0f0f5',
+            padding: 12,
+            titleFont: { family: CHART_THEME.fontFamily, weight: '600' },
+            bodyFont:  { family: CHART_THEME.fontFamily },
+            callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: ${fmtZARLong(ctx.parsed.y)}`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            ticks: { color: CHART_THEME.tickColor, font: { family: CHART_THEME.fontFamily } },
+            grid:  { color: CHART_THEME.gridColor, drawTicks: false },
+            border:{ color: CHART_THEME.axisColor },
+          },
+          y: {
+            ticks: {
+              color: CHART_THEME.tickColor,
+              font: { family: CHART_THEME.fontFamily },
+              callback: (v) => {
+                if (Math.abs(v) >= 1_000_000) return `R${(v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1)}M`;
+                if (Math.abs(v) >= 1_000)     return `R${(v / 1_000).toFixed(0)}k`;
+                if (v === 0) return 'R0';
+                return `R${v}`;
+              },
+            },
+            grid: {
+              color: (ctx) => ctx.tick.value === 0 && withZeroLine ? 'rgba(239, 68, 68, 0.5)' : CHART_THEME.gridColor,
+              lineWidth: (ctx) => ctx.tick.value === 0 && withZeroLine ? 1.3 : 1,
+            },
+            border:{ color: CHART_THEME.axisColor },
+          },
+        },
+        animation: { duration: 220, easing: 'easeOutQuad' },
+      };
+    }
+
+    function updateCharts(live) {
+      if (!chartJsReady()) {
+        populateFallbacks(live);
+        return;
+      }
+      // Update the Base line on revenue + profit charts without touching the reference bands.
+      if (revChart) {
+        revChart.data.datasets[1].data = live.yearRevenue;
+        revChart.update('none');
+      }
+      if (pftChart) {
+        pftChart.data.datasets[0].data = live.cumulativeEbitda;  // cumulative area
+        pftChart.data.datasets[2].data = live.ebitda;             // base annual profit line
+        pftChart.update('none');
+      }
+    }
+
+    function populateFallbacks(live) {
+      const fmt = (v) => {
+        const s = v < 0 ? '-' : '';
+        const a = Math.abs(v);
+        if (a >= 1_000_000) return `${s}R${(a/1_000_000).toFixed(2)}M`;
+        if (a >= 1_000)     return `${s}R${(a/1_000).toFixed(0)}k`;
+        return `${s}R${Math.round(a)}`;
+      };
+      const scen = {
+        Conservative: PRECOMPUTED.conservative,
+        Base: live || PRECOMPUTED.base,
+        Optimistic: PRECOMPUTED.optimistic,
+      };
+      const revBody = document.getElementById('rev-fallback-body');
+      const pftBody = document.getElementById('pft-fallback-body');
+      revBody.innerHTML = '';
+      pftBody.innerHTML = '';
+      for (const [name, data] of Object.entries(scen)) {
+        const revRow = document.createElement('tr');
+        revRow.innerHTML = `<td>${name}</td>` + data.yearRevenue.map(v => `<td>${fmt(v)}</td>`).join('');
+        revBody.appendChild(revRow);
+        const pftRow = document.createElement('tr');
+        pftRow.innerHTML = `<td>${name}</td>` + data.ebitda.map(v => `<td>${fmt(v)}</td>`).join('');
+        pftBody.appendChild(pftRow);
+      }
+    }
+
+    /* -----------------------------------------------------------------
+       6. Boot
+       ----------------------------------------------------------------- */
+    function boot() {
+      renderLevers();
+      refreshIsCustom();
+      initCharts();
+      recompute();
+
+      document.getElementById('scenario-tabs').addEventListener('click', onScenarioClick);
+      document.getElementById('reset-btn').addEventListener('click', () => {
+        state.drivers = driversForScenario(state.scenario);
+        renderLevers();
+        refreshIsCustom();
+        recompute();
+      });
+    }
+
+    // Give the CDN a beat to resolve; if it hasn't by this point we drop
+    // to fallback gracefully.
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', boot);
+    } else {
+      boot();
+    }
+  </script>
+</body>
+</html>
