@@ -48,10 +48,11 @@ import 'api_client.dart';
 ///
 /// Milestone B POV assumption: the FIRST user to sign in claims the
 /// pre-seeded sentinel practice (1000 credits) as its owner. Subsequent
-/// sign-ins get a fresh personal practice with a 5-credit welcome bonus.
-/// This is a one-shot race — `owner_trainer_id IS NULL` on the sentinel
-/// acts as the claim flag and the UPDATE is conditional so only one
-/// user can win.
+/// sign-ins get a fresh personal practice with a 3-credit signup bonus
+/// (Milestone M — organic signup); referral-code claimants add a further
+/// +5 on top via `claim_referral_code` for 8 total. This is a one-shot
+/// race — `owner_trainer_id IS NULL` on the sentinel acts as the claim
+/// flag and the UPDATE is conditional so only one user can win.
 class AuthService {
   AuthService._();
   static final AuthService instance = AuthService._();

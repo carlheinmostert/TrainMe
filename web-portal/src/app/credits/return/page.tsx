@@ -63,9 +63,10 @@ async function maybeApplyOptimisticSandboxCredit(
   if (!isMember) return { applied: false, reason: 'not a member' };
 
   // Apply: route through `applyPendingPaymentWithRebates` so the sandbox
-  // path mirrors the ITN webhook — purchase ledger row + any referral rebate
-  // rows (signup bonus on first purchase, 5% lifetime rebate on every
-  // purchase) are booked atomically in a single DB transaction.
+  // path mirrors the ITN webhook — purchase ledger row + any referral
+  // rebate row (5% lifetime rebate with a 1-credit goodwill floor on the
+  // referrer's first rebate from each referee) are booked atomically in
+  // a single DB transaction.
   const costPerCreditZar = Number(pending.amount_zar) / Number(pending.credits);
   const result = await admin.applyPendingPaymentWithRebates(pid, {
     practice_id: pending.practice_id,

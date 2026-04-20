@@ -145,8 +145,8 @@ class ApiClient {
   /// `bootstrap_practice_for_user()` — SECURITY DEFINER RPC that either
   /// (a) returns the caller's existing practice, (b) claims the Carl-
   /// sentinel practice, or (c) creates a fresh personal practice + owner
-  /// membership + 5-credit welcome bonus. Idempotent; safe to call on
-  /// every `onAuthStateChange` event.
+  /// membership + 3-credit organic signup bonus (Milestone M). Idempotent;
+  /// safe to call on every `onAuthStateChange` event.
   ///
   /// Returns the practice id (uuid as string). Raises `AuthException`
   /// from the underlying client on DB errors — callers own the try/catch.

@@ -128,11 +128,11 @@ export default async function ReferralLandingPage({
               Get started
             </Link>
             <p className="text-xs text-ink-dim">
-              You&rsquo;ll get{' '}
+              You&rsquo;ll land with{' '}
               <span className="font-semibold text-ink-muted">
-                +10 starter credits
+                8 free credits
               </span>{' '}
-              when you make your first purchase.
+              the moment you sign up — 3 on the house, plus 5 more for using this invitation link.
             </p>
           </div>
 

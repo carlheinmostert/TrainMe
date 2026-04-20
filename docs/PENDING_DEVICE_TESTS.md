@@ -33,11 +33,12 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Open same plan in web player → B&W tab active → confirm CSS filter renders
    - Consent-revoke: toggle `grayscale: false` → reload preview → B&W tab disabled with lock
 
-3. **Referral loop e2e**:
-   - Create a new account via `/r/{existing-code}` with the POPIA consent checkbox on
-   - Make a sandbox purchase
-   - Verify in DB: `referral_rebate_ledger` has signup-bonus rows for both sides + lifetime rebate
-   - Portal `/network` shows updated stats
+3. **Referral loop e2e** (updated for Milestone M credit model):
+   - **Organic signup:** sign up WITHOUT a referral code. Immediately after bootstrap, the credit balance tile should show **3** (not 5). Query `credit_ledger` for that practice and expect exactly one row: `type='signup_bonus', delta=3`.
+   - **Referral signup:** sign up via `/r/{existing-code}` with the POPIA consent checkbox on. Immediately after bootstrap + claim, the credit balance should show **8** (3 + 5). Query `credit_ledger` and expect TWO rows: `signup_bonus:3`, `referral_signup_bonus:5`.
+   - **First (small) purchase by the referee — goodwill floor:** make a R250 / 10-credit starter-bundle sandbox purchase. Referrer's `/network` rebate balance should jump by exactly **1 credit** (raw 5% of R250 = 0.5 credits → floor clamps to 1). `referral_rebate_ledger` should have a `kind='lifetime_rebate', credits=1.0000` row, and `practice_referrals.goodwill_floor_applied` flipped to `true`.
+   - **Second (larger) purchase by the referee — no floor:** make a R1000 / 40-credit clinic-bundle sandbox purchase. Referrer's rebate balance should jump by **2 credits** (raw 5% of R1000 = 2.0). `referral_rebate_ledger` should have another row: `kind='lifetime_rebate', credits=2.0000`. Goodwill flag stays `true`; no re-clamp.
+   - Portal `/network` stats should reflect all three rows (1 credit + 2 credits = 3 credits banked; R1250 qualifying spend total).
 
 4. **Large-plan publish path** — circuits + videos + rests combo, verify the raw-archive cloud upload (step 7.5 in `upload_service.dart`) doesn't regress primary publish on failure.
 

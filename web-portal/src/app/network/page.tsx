@@ -73,9 +73,9 @@ export default async function NetworkPage({
 
         <h1 className="font-heading text-3xl font-bold">Your network</h1>
         <p className="mt-2 max-w-2xl text-sm text-ink-muted">
-          Share your code with colleagues. Both of you get free credits
-          when they make their first purchase, plus a lifetime rebate on
-          theirs.
+          Share your code with colleagues. They land with 8 free credits
+          instead of 3, and you earn a 5% lifetime rebate on every purchase
+          they ever make.
         </p>
 
         <div className="mt-8 grid gap-6 lg:grid-cols-2">
