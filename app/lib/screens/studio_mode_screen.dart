@@ -24,6 +24,7 @@ import '../widgets/studio_exercise_card.dart';
 import '../widgets/treatment_segmented_control.dart';
 import '../widgets/undo_snackbar.dart';
 import 'plan_preview_screen.dart';
+import 'unified_preview_screen.dart';
 
 /// Post-session editing — the "Studio" mode.
 ///
@@ -836,16 +837,35 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           tooltip: 'Add from library',
         ),
         if (_session.exercises.isNotEmpty)
-          IconButton(
-            onPressed: () {
+          // Long-press lands on the Wave 4 Phase 1 unified-preview
+          // prototype (web-player bundle inside a WebView, fed by the
+          // in-process LocalPlayerServer). Regular tap keeps the
+          // native PlanPreviewScreen — the two ship side-by-side so
+          // Carl can A/B them while Phase 2 is scoped. See
+          // `unified_preview_screen.dart` + `local_player_server.dart`.
+          GestureDetector(
+            onLongPress: () {
+              HapticFeedback.selectionClick();
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => PlanPreviewScreen(session: _session),
+                  builder: (_) => UnifiedPreviewScreen(
+                    session: _session,
+                    storage: widget.storage,
+                  ),
                 ),
               );
             },
-            icon: const Icon(Icons.slideshow_outlined),
-            tooltip: 'Preview plan',
+            child: IconButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => PlanPreviewScreen(session: _session),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.slideshow_outlined),
+              tooltip: 'Preview plan (long-press: unified prototype)',
+            ),
           ),
       ],
     );

@@ -838,6 +838,24 @@ class LocalStorageService {
     });
   }
 
+  /// Fetch a single cached client by id. Returns null when the row is
+  /// missing or tombstoned — callers read this as "no extra consent
+  /// signals available, fall back to the line-drawing default".
+  ///
+  /// Added for Wave 4 Phase 1 (unified player prototype): the in-process
+  /// LocalPlayerServer needs per-plan consent flags to build a
+  /// shape-identical `get_plan_full` payload out of the local DB.
+  Future<CachedClient?> getCachedClientById(String id) async {
+    final rows = await db.query(
+      'cached_clients',
+      where: 'id = ? AND deleted = 0',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return CachedClient.fromMap(rows.first);
+  }
+
   /// Delete a cached_clients row outright. Used when SyncService
   /// rewires after a server-side name conflict (the local id loses —
   /// references move to the server-side id, and this one is purged).

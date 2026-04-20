@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0F1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <!-- Open Graph / WhatsApp link preview -->
+  <!-- TODO_SUPABASE: Populate these dynamically via edge function or SSR -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Your Exercise Plan — homefit.studio">
+  <meta property="og:description" content="Open your personalized exercise plan">
+  <meta property="og:image" content="https://placeholder.trainme.app/og-card.png">
+  <meta property="og:url" content="">
+  <meta property="og:site_name" content="homefit.studio">
+
+  <title>homefit.studio - Exercise Plan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <!-- Loading state -->
+  <div id="loading" class="loading-screen">
+    <div class="loading-content">
+      <div class="loading-mark">
+        <svg class="pulse-mark" viewBox="0 0 52 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2"
+                fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <p class="loading-text">Loading your plan...</p>
+    </div>
+  </div>
+
+  <!-- Error state -->
+  <div id="error" class="error-screen" hidden>
+    <div class="error-content">
+      <div class="error-icon">!</div>
+      <h2 class="error-title">Plan not found</h2>
+      <p class="error-text">This link may have expired or the plan may no longer be available. Contact your practitioner for a new link.</p>
+    </div>
+  </div>
+
+  <!-- Main app -->
+  <div id="app" hidden>
+    <!-- Plan title bar -->
+    <div class="plan-bar">
+      <div class="plan-bar-left">
+        <h1 id="plan-title" class="plan-title"></h1>
+        <span id="client-name" class="header-client"></span>
+      </div>
+      <div id="progress" class="progress-label"></div>
+    </div>
+
+    <!-- Progress-pill matrix — replaces the legacy single linear bar.
+         Horizontally scrolling grid of exercise pills. Auto-centres on the
+         active pill, stacks circuit cycles vertically, supports long-press
+         peek + slide to jump. See docs/design/mockups/progress-pills.html.
+         The ETA widget lives inside .progress-matrix-inner so it scrolls
+         with the matrix. -->
+    <div class="progress-matrix" id="progress-matrix">
+      <div class="progress-matrix-inner" id="progress-matrix-inner"></div>
+      <div class="progress-matrix-chevron" id="progress-matrix-chevron" hidden>
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="8 3 4 6 8 9"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Centered scrub/teaching peek (item 9) — name + decoded grammar.
+         Auto-shows for 2s on preview start as a teaching peek (R-09); then
+         only surfaces during long-press scrubbing. No thumbnail, no hint
+         text — just the two lines the user actually reads. -->
+    <div class="peek-panel" id="peek-panel" hidden>
+      <div class="peek-name" id="peek-name"></div>
+      <div class="peek-meta" id="peek-meta"></div>
+    </div>
+
+    <!-- Card viewport -->
+    <main id="card-viewport" class="card-viewport">
+      <div id="card-track" class="card-track">
+        <!-- Cards injected by JS -->
+      </div>
+    </main>
+
+    <!-- Dedicated timer chip REMOVED per item 7 of mobile parity.
+         Pause/play is now a single mode-aware gesture: tapping the active
+         slide's media area dispatches by mode (prep → skip; running → pause;
+         paused → resume). See .media-pause-overlay injected into each card. -->
+    <div id="timer-overlay" hidden></div>
+
+    <!-- Workout complete overlay -->
+    <div id="workout-complete" class="workout-complete" hidden>
+      <div class="workout-complete-inner">
+        <div class="workout-complete-icon">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="24" cy="24" r="20"/>
+            <polyline points="16 24 22 30 32 18"/>
+          </svg>
+        </div>
+        <div class="workout-complete-title">Workout Complete!</div>
+        <div id="workout-total-time" class="workout-complete-time">Total time: 0:00</div>
+        <button id="workout-close-btn" class="workout-close-btn">Close</button>
+      </div>
+    </div>
+
+    <!-- Start Workout button (floating) -->
+    <button id="start-workout-btn" class="start-workout-btn" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <polyline points="12 6 12 12 16 14"/>
+      </svg>
+      Start Workout
+    </button>
+
+    <!-- Navigation -->
+    <nav class="nav-bar">
+      <button id="btn-prev" class="nav-btn nav-btn--prev" aria-label="Previous exercise" disabled>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+        <span class="nav-btn-label">Prev</span>
+      </button>
+
+      <div class="nav-dots" id="nav-dots"></div>
+
+      <button id="btn-next" class="nav-btn nav-btn--next" aria-label="Next exercise">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+        <span class="nav-btn-label">Next</span>
+      </button>
+    </nav>
+
+    <!-- Footer — HomefitLogo v2 (item 10): a slice of the progress-pill
+         matrix — 3 ghost pills tapering in → 2×2 circuit in a coral band
+         → sage rest → 3 ghost pills mirrored. Matrix-only variant here
+         (the footer renders "powered by homefit.studio" separately next
+         to it). See /app.js buildHomefitLogoSvg(). -->
+    <footer class="footer">
+      <div class="footer-brand">
+        <span class="footer-preamble">powered by</span>
+        <div class="footer-logo" id="footer-logo">
+          <!-- SVG injected by buildHomefitLogo() at init time. -->
+          <span class="homefit-logo-wordmark">homefit.studio</span>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Data-access layer — MUST load before app.js. The web player's entire
+       Supabase surface lives in api.js; app.js is forbidden from calling
+       fetch('.../rest/v1/...') directly. See docs/DATA_ACCESS_LAYER.md. -->
+  <script src="/api.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
