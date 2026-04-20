@@ -112,7 +112,10 @@ export default async function DashboardPage({
   // "earned", "commission", "reward", "payout".
   const rebateBalance = referralStats.rebate_balance_credits;
   const refereeCount = referralStats.referee_count;
-  const networkHeadline = `${fmtCredits(rebateBalance)} free credits`;
+  const networkHeadline =
+    rebateBalance > 0
+      ? `${fmtCredits(rebateBalance)} free credits`
+      : 'Earn Free Credits';
   const networkSubtitle =
     refereeCount === 0
       ? 'Share your code to start'
