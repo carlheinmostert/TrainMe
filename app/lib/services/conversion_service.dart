@@ -320,12 +320,20 @@ class ConversionService extends ChangeNotifier {
       // `false` (see `exercise_capture.dart:109`), which collapsed PR #29's
       // Swift `sourceFormatHint` fix before it could run. Fresh captures
       // still shipped with silent Line treatment. (2026-04-20).
+      //
+      // Kill-switch (2026-04-20, PR #40 triage): if the audio-mux path is
+      // causing device hangs, flip `AppConfig.audioMuxEnabled` to false at
+      // build time via `--dart-define=HOMEFIT_AUDIO_MUX_ENABLED=false`. That
+      // makes us pass `includeAudio: false` to the native converter, which
+      // falls back to the pre-PR-#39 video-only path (no audio reader /
+      // writer / sample drain). The output will be silent on Line treatment
+      // but conversion will complete rather than hang. See `config.dart`.
       final videoOutputPath = p.join(convertedDir, '${exercise.id}_line$ext');
       try {
         await _convertVideo(
           exercise.absoluteRawFilePath,
           videoOutputPath,
-          includeAudio: true,
+          includeAudio: AppConfig.audioMuxEnabled,
         );
         return videoOutputPath;
       } catch (e, stack) {
@@ -550,7 +558,9 @@ class ConversionService extends ChangeNotifier {
       if (result != null && result['success'] == true) {
         debugPrint(
             'Native video conversion complete: '
-            '${result["framesProcessed"]} frames -> $outputPath');
+            '${result["framesProcessed"]} frames '
+            '(audioSamplesWritten=${result["audioSamplesWritten"]}, '
+            'audioMuxEnabled=${AppConfig.audioMuxEnabled}) -> $outputPath');
         return;
       }
     } on PlatformException catch (e) {

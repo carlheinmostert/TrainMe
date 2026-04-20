@@ -15,6 +15,35 @@ class AppConfig {
   static const String buildSha =
       String.fromEnvironment('GIT_SHA', defaultValue: 'dev');
 
+  /// Kill-switch for the native audio-muxing path inside the line-drawing
+  /// converter. Defaults to `true` — the post-PR-#39 behaviour that includes
+  /// the audio track in every converted clip.
+  ///
+  /// Flip to `false` at build time to fall back to the pre-PR-#39 behaviour
+  /// (video-only output, no audio track in the line-drawing file). Use this
+  /// when a regression in the audio mux is blocking device QA and you need to
+  /// keep capturing + converting while the root cause is investigated.
+  ///
+  /// Invocation (from the repo root):
+  ///
+  /// ```sh
+  /// cd app && flutter build ios --debug --simulator \
+  ///   --dart-define=GIT_SHA=$(git -C /Users/chm/dev/TrainMe rev-parse --short HEAD) \
+  ///   --dart-define=HOMEFIT_AUDIO_MUX_ENABLED=false
+  /// ```
+  ///
+  /// For a physical-device release build, add the same flag to `install-device.sh`.
+  ///
+  /// The Dart side simply passes this value as `includeAudio` over the
+  /// platform channel when false, reusing the existing Swift branch that
+  /// cleanly skips the audio reader/writer setup (see the
+  /// `if includeAudio, let audioTrack = ...` guard in
+  /// `VideoConverterChannel.swift`'s `convertVideo`).
+  static const bool audioMuxEnabled = bool.fromEnvironment(
+    'HOMEFIT_AUDIO_MUX_ENABLED',
+    defaultValue: true,
+  );
+
   /// Base URL for shared plan links (web player)
   /// TODO: Update when domain is registered
   static const String webPlayerBaseUrl = 'https://session.homefit.studio';
