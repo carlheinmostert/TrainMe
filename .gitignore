@@ -55,5 +55,12 @@ app/android/.gradle/
 app/android/local.properties
 *.iml
 
-# Claude
-.claude/
+# Claude — ignore most of .claude (transient worktrees, launch.json,
+# personal overrides in settings.local.json) but share the project-level
+# settings.json + hooks/ dir so teammates inherit the repo-wide rules.
+# Note: `.claude/*` (not `.claude/`) so git still recurses into the dir
+# — ignoring the directory itself would block negation patterns below.
+.claude/*
+!.claude/settings.json
+!.claude/hooks
+!.claude/hooks/**
