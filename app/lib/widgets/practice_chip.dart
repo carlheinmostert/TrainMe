@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 import 'practice_switcher_sheet.dart';
 
@@ -91,10 +92,30 @@ class _PracticeChipForIdState extends State<_PracticeChipForId> {
     }
   }
 
+  /// Offline-first read. Returns the cached practice list first; if
+  /// the cache is cold (fresh install, never synced) we fall through
+  /// to the network. The SyncService's own background sync keeps the
+  /// cache warm across sessions — by the time a second launch hits
+  /// this path, the cache is always populated.
   void _refresh() {
     setState(() {
-      _future = ApiClient.instance.listMyPractices();
+      _future = _loadMemberships();
     });
+  }
+
+  Future<List<PracticeMembership>> _loadMemberships() async {
+    try {
+      final cached = await SyncService.instance.storage.getCachedPractices();
+      if (cached.isNotEmpty) {
+        return cached.map((c) => c.toMembership()).toList(growable: false);
+      }
+    } catch (_) {
+      // Cache read failed — fall through to network.
+    }
+    // Cache cold — call the network. Offline path: returns [] and the
+    // chip renders "—" until the next pull lands. Equivalent to the
+    // pre-offline-first behaviour.
+    return ApiClient.instance.listMyPractices();
   }
 
   Future<void> _onTap() async {

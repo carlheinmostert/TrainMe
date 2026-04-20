@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 
 /// Bottom sheet that lists the practices the signed-in practitioner
@@ -92,11 +93,28 @@ class _PracticeSwitcherSheetState extends State<PracticeSwitcherSheet> {
   }
 
   Future<void> _loadBalances() async {
-    // Fire every balance fetch in parallel — same pattern as the
-    // `_loadSessions` publish-errors fanout in home_screen. The RPC
-    // swallows its own errors (returns null on any failure), so we
-    // never need a try/catch at the call-site.
-    final entries = await Future.wait(
+    // Cache-first: seed the balance map from cached_credit_balance so
+    // the sheet renders real numbers even offline. Then fire live
+    // fetches in parallel and let them overwrite each row as they
+    // complete.
+    final seedEntries = await Future.wait(
+      widget.memberships.map((m) async {
+        final cached =
+            await SyncService.instance.storage.getCachedCreditBalance(m.id);
+        return MapEntry(m.id, cached?.balance);
+      }),
+    );
+    if (!mounted) return;
+    setState(() {
+      _balances
+        ..clear()
+        ..addEntries(seedEntries);
+      _loadingBalances = false;
+    });
+
+    // Live refresh. Swallows its own errors; on failure the cached
+    // value we already painted stays on screen.
+    final liveEntries = await Future.wait(
       widget.memberships.map((m) async {
         final balance = await ApiClient.instance.practiceCreditBalance(
           practiceId: m.id,
@@ -106,10 +124,11 @@ class _PracticeSwitcherSheetState extends State<PracticeSwitcherSheet> {
     );
     if (!mounted) return;
     setState(() {
-      _balances
-        ..clear()
-        ..addEntries(entries);
-      _loadingBalances = false;
+      for (final e in liveEntries) {
+        if (e.value != null) {
+          _balances[e.key] = e.value;
+        }
+      }
     });
   }
 

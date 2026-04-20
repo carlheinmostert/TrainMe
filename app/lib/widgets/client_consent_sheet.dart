@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/client.dart';
-import '../services/api_client.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 
 /// Bottom sheet where the practitioner captures the client's viewing
@@ -50,26 +50,34 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
     setState(() => _saving = true);
     HapticFeedback.selectionClick();
 
-    final ok = await ApiClient.instance.setClientVideoConsent(
-      clientId: widget.client.id,
-      lineAllowed: true,
-      grayscaleAllowed: _grayscaleAllowed,
-      colourAllowed: _colourAllowed,
-    );
-
-    if (!mounted) return;
-    setState(() => _saving = false);
-
-    if (ok) {
+    // Offline-first: write to the local cache + enqueue. Returns
+    // immediately even if the device has no network.
+    try {
+      final cached = await SyncService.instance.queueSetConsent(
+        clientId: widget.client.id,
+        grayscaleAllowed: _grayscaleAllowed,
+        colourAllowed: _colourAllowed,
+      );
+      if (!mounted) return;
+      if (cached == null) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't save right now — try again."),
+          ),
+        );
+        return;
+      }
+      setState(() => _saving = false);
       final updated = widget.client.copyWith(
         grayscaleAllowed: _grayscaleAllowed,
         colourAllowed: _colourAllowed,
       );
       widget.onSaved?.call(updated);
       Navigator.of(context).pop(updated);
-    } else {
-      // Silent-ish: show a subtle snack so the practitioner isn't
-      // wondering whether it saved, but no stack trace, no alarm.
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Couldn't save right now — try again."),

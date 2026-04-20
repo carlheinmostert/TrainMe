@@ -8,9 +8,9 @@ import 'package:share_plus/share_plus.dart';
 import '../models/client.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
-import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/sync_service.dart';
 import '../services/upload_service.dart';
 import '../theme.dart';
 import '../utils/session_title.dart';
@@ -383,12 +383,25 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
       _renameError = null;
     });
 
+    // Offline-first: queue the rename. Local state updates immediately
+    // + the UI flips out of edit mode; the cloud push happens in the
+    // background (or the next time we reconnect). Duplicate-name
+    // errors are caught at the SQLite UNIQUE constraint level via the
+    // thrown exception — unwrap it so the inline error copy matches
+    // the online path.
     try {
-      await ApiClient.instance.renameClient(
+      final updated = await SyncService.instance.queueRenameClient(
         clientId: _client.id,
         newName: trimmed,
       );
       if (!mounted) return;
+      if (updated == null) {
+        setState(() {
+          _renameSaving = false;
+          _renameError = 'Client not found. Try refreshing.';
+        });
+        return;
+      }
       setState(() {
         _client = _client.copyWith(name: trimmed);
         _renameSaving = false;
@@ -396,31 +409,17 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
         _renameError = null;
       });
       HapticFeedback.selectionClick();
-    } on RenameClientError catch (e) {
+    } catch (e) {
       if (!mounted) return;
+      final msg = e.toString();
+      final isDuplicate =
+          msg.contains('UNIQUE') || msg.contains('unique') || msg.contains('2067');
       setState(() {
         _renameSaving = false;
-        _renameError = _messageFor(e.kind);
+        _renameError = isDuplicate
+            ? 'Another client in this practice already uses that name.'
+            : "Couldn't rename — try again.";
       });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _renameSaving = false;
-        _renameError = "Couldn't rename — try again.";
-      });
-    }
-  }
-
-  String _messageFor(RenameClientErrorKind kind) {
-    switch (kind) {
-      case RenameClientErrorKind.duplicate:
-        return 'Another client in this practice already uses that name.';
-      case RenameClientErrorKind.empty:
-        return "Name can't be empty.";
-      case RenameClientErrorKind.notMember:
-        return "You don't have permission to rename this client.";
-      case RenameClientErrorKind.notFound:
-        return 'Client not found. Try refreshing.';
     }
   }
 
