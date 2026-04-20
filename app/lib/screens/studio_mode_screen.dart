@@ -1431,15 +1431,25 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           top: 0,
           bottom: 0,
           width: kGutterVisibleWidth + 10,
-          child: GestureDetector(
+          // Listener.onPointerDown fires on raw pointer contact — before
+          // Flutter's gesture arena resolves. Guaranteed "moment of
+          // contact" haptic. The earlier fix put a touch-down haptic
+          // on `GutterGapCell` in gutter_rail.dart, but that widget
+          // isn't the insert-dot used in the Studio layout — this
+          // inline GestureDetector is. Wrapping with Listener here
+          // captures the right widget.
+          child: Listener(
             behavior: HitTestBehavior.opaque,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              setState(() {
-                _activeInsertIndex = isActive ? null : lowerIndex;
-                _expandedIndex = null;
-              });
-            },
+            onPointerDown: (_) => HapticFeedback.mediumImpact(),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() {
+                  _activeInsertIndex = isActive ? null : lowerIndex;
+                  _expandedIndex = null;
+                });
+              },
             child: RepaintBoundary(
               // The shared pulse controller drives only the halo opacity.
               // AnimatedBuilder rebuilds this small subtree 60Hz — everything
@@ -1470,6 +1480,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                 },
               ),
             ),
+          ),
           ),
         ),
       ],
