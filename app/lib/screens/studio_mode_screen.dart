@@ -148,14 +148,30 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     });
   }
 
+  /// Rename the current session. Writes to [Session.title] — the
+  /// practitioner-editable display name that session cards render — NOT
+  /// [Session.clientName] (which is now a legacy mirror of the parent
+  /// [Client.name] and would make the rename invisible on the session
+  /// list because cards read `title ?? clientName`).
   void _saveClientName(String newName) {
-    if (newName.isEmpty || newName == _session.clientName) return;
+    final trimmed = newName.trim();
+    final currentDisplay = _displayTitle(_session);
+    if (trimmed.isEmpty || trimmed == currentDisplay) return;
     setState(() {
-      _pushSession(_session.copyWith(clientName: newName));
+      _pushSession(_session.copyWith(title: trimmed));
     });
     unawaited(widget.storage.saveSession(_session).catchError((e, st) {
       debugPrint('saveSession failed: $e');
     }));
+  }
+
+  /// Same resolution order as `SessionCard._cardTitle`: title when set,
+  /// else clientName. Used by the inline-edit's initial value so the
+  /// rename field shows whatever the list shows.
+  static String _displayTitle(Session s) {
+    final t = s.title;
+    if (t != null && t.trim().isNotEmpty) return t;
+    return s.clientName;
   }
 
   // ---------------------------------------------------------------------------
@@ -763,7 +779,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         tooltip: 'Back to sessions',
       ),
       title: InlineEditableText(
-        initialValue: _session.clientName,
+        // Show whatever the session list shows — title when set, else
+        // clientName. Keeps the header and the card in sync.
+        initialValue: _displayTitle(_session),
         onCommit: _saveClientName,
         textStyle: const TextStyle(
           fontWeight: FontWeight.w700,
