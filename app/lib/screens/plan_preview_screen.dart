@@ -483,13 +483,50 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
   ///    applied at playback via a saturation-zero ColorFilter; the
   ///    backend returns the colour file under `grayscale_url`).
   ///  - [Treatment.original] — remote `original_url`.
-  void _prepareVideo(int index) {
+  Future<void> _prepareVideo(int index) async {
     if (index < 0 || index >= _slides.length) return;
     final exercise = _slides[index].exercise;
     if (exercise.isRest) return;
     if (exercise.mediaType != MediaType.video) return;
     if (_isStillImageConversion(exercise)) return;
     if (_videoControllers.containsKey(index)) return;
+
+    // B&W / Original need a remote signed URL — they play from the
+    // raw-archive bucket, not a local file. Two failure modes both
+    // reach "spinner forever" without the guards below:
+    //
+    //   (a) URL not loaded yet — _fetchTreatmentUrls is async; initState
+    //       can call _prepareVideo with _treatment=grayscale (inherited
+    //       from the exercise's preferredTreatment) BEFORE the URLs
+    //       arrive. _controllerForTreatment returns null, nothing in
+    //       _videoControllers, widget.videoController==null, spinner.
+    //       Also covers unpublished plans (URLs never arrive).
+    //
+    //   (b) URL loaded but 404 — raw-archive upload is best-effort at
+    //       publish time (upload_service.dart _uploadRawArchives). Plans
+    //       published before the upload landed get signed URLs pointing
+    //       at absent objects. AVPlayer waits its full network timeout
+    //       (~30s) before rejecting.
+    //
+    // Line is skipped here: it has a local-file fallback at
+    // controller-build time so a missing remote URL is harmless.
+    if (_treatment != Treatment.line) {
+      final url = _remoteUrlForTreatment(exercise);
+      if (url == null) {
+        // Case (a): silent fallback — user didn't ask for this, it's
+        // just "not ready / not published / no consent". No SnackBar.
+        _fallbackToLine(index, showSnack: false);
+        return;
+      }
+      final ok = await _probeUrl(url);
+      if (!mounted) return;
+      if (!ok) {
+        // Case (b): user-visible fallback — publish succeeded but the
+        // raw file is missing, worth explaining why the view changed.
+        _fallbackToLine(index, showSnack: true);
+        return;
+      }
+    }
 
     final controller = _controllerForTreatment(exercise);
     if (controller == null) return;
@@ -519,13 +556,9 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
           controller.play();
         }
       }).catchError((e) {
-        // Initialization failed — typically a 404 on the raw-archive
-        // signed URL (publish-time upload is best-effort; plans
-        // published before the upload landed will have signed URLs
-        // pointing at absent objects). Without cleanup here the dead
-        // controller lingers in the map and the UI shows a spinner
-        // forever. Remove it, then — if this was a B&W / Original
-        // request — fall back to Line so the user isn't stuck.
+        // Safety net — the HEAD probe above handles the common 404
+        // case BEFORE the controller is built, but a real init error
+        // (DRM, codec, etc.) can still land here.
         debugPrint('Video init failed for slide $index ($_treatment): $e');
         if (!mounted) return;
         if (_videoControllers[index] == controller) {
@@ -533,18 +566,71 @@ class _PlanPreviewScreenState extends State<PlanPreviewScreen>
           controller.dispose();
         }
         if (_treatment != Treatment.line) {
-          setState(() => _treatment = Treatment.line);
-          _prepareVideo(index);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'This treatment isn\'t available yet — showing line drawing.',
-              ),
-              duration: Duration(seconds: 2),
-            ),
-          );
+          _fallbackToLine(index, showSnack: true);
         }
       });
+  }
+
+  /// The remote URL for the current [_treatment] on [exercise], or null
+  /// when no URL has been resolved (offline / unpublished / consent).
+  /// Parallel to [_controllerForTreatment] but returns just the URL so
+  /// we can HEAD-probe it without touching the controller lifecycle.
+  String? _remoteUrlForTreatment(ExerciseCapture exercise) {
+    final urls = _treatmentUrls[exercise.id];
+    switch (_treatment) {
+      case Treatment.line:
+        return urls?.lineDrawingUrl;
+      case Treatment.grayscale:
+        return urls?.grayscaleUrl;
+      case Treatment.original:
+        return urls?.originalUrl;
+    }
+  }
+
+  /// HEAD-probe [url] with a 3s timeout. Returns true on 2xx, false on
+  /// any other status, error, or timeout. Used to short-circuit the
+  /// AVPlayer hang when the raw-archive object is missing.
+  Future<bool> _probeUrl(String url) async {
+    HttpClient? client;
+    try {
+      client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 3);
+      final req = await client
+          .headUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 3));
+      final resp = await req.close().timeout(const Duration(seconds: 3));
+      await resp.drain<void>();
+      return resp.statusCode >= 200 && resp.statusCode < 300;
+    } catch (e) {
+      debugPrint('HEAD probe failed for $url: $e');
+      return false;
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  /// Fall back to Line treatment when a B&W / Original source is
+  /// unavailable. Used by the HEAD-probe path, the init-error path, and
+  /// the "URL not loaded / plan unpublished" path.
+  ///
+  /// [showSnack] is true when the user actively tried to view B&W /
+  /// Original and the source is confirmed missing (404). It's false for
+  /// the silent case where URLs simply haven't loaded yet (the race at
+  /// initState) or the plan was never published — nothing to explain
+  /// because the user didn't ask to switch treatments.
+  void _fallbackToLine(int index, {required bool showSnack}) {
+    setState(() => _treatment = Treatment.line);
+    _prepareVideo(index);
+    if (showSnack) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This treatment isn\'t available yet — showing line drawing.',
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   /// Dispose a video controller for a slide that is no longer visible.
