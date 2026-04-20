@@ -52,6 +52,12 @@ dependencies:
   reorderable_grid: ^1.0.13
   uuid: ^4.5.1
 
+  # Persistence for lightweight preferences that survive app restarts
+  # (e.g. which practice the practitioner last chose when they belong to
+  # more than one). Already installed transitively via iOS pods — the
+  # explicit declaration here makes the Dart-side dep discoverable.
+  shared_preferences: ^2.3.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
