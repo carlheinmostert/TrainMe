@@ -108,6 +108,19 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
     - Publish the plan → open on the web player at `session.homefit.studio/p/{uuid}` → Line tab → confirm audio plays there too (the published `line_drawing_url` is the same converted file that now has audio).
     - Regression: pre-existing captures (converted BEFORE this fix) remain silent until the practitioner re-captures them. This is expected — old files on disk aren't retroactively re-converted.
 
+12. **Portal practice rename + popover switcher** (branch `feat/portal-rename-practice-inline-switcher`, Milestone N — **portal-only, mobile twin is a follow-up**):
+    - **(a) Dashboard inline rename — owner:** sign in as `carlhein@me.com` (owner of `carlhein@me.com Practice`). The dashboard should render `Signed in as carlhein@me.com` followed by `In practice: carlhein@me.com Practice   ⇄ Switch`. Click the practice name → it switches to a text input with the old name selected. Type a new name, hit Enter → the sentence re-renders with the new name, a bottom-centre toast says "Practice renamed." After ~2.5s the toast fades. Refresh the page → name persists.
+    - **(b) Account Settings rename — owner:** `/account?practice={yourPracticeId}` shows a new "Practice name" card above the password section, with the name as a dashed-underline title + a "Rename" button. Click either → edit mode. Commit via Enter; inline green "Practice renamed." confirms. Dashboard header subtitle + sidebar reflects the change.
+    - **(c) Rename error paths:**
+      - Type a name >60 chars → inline error "Name's a bit long — keep it under 60 characters." Input stays focused.
+      - Clear the field + hit Enter → "Name can't be empty."
+      - Hit Esc mid-edit → draft reverts, no RPC call fires.
+    - **(d) Switch via `⇄` popover — multi-practice:** sign-in as `carlhein@me.com` (belongs to two practices). Click `⇄ Switch` → a dark rounded card (~240px wide) fades + slides up just below the link. The ACTIVE practice is listed first with a coral ✓ and shows "{N} credits" under the name; the other membership is below it, tappable. Click the other row → dashboard navigates to `?practice={otherId}` and re-renders with the new context. Click `⇄ Switch` again → close on outside-click, Escape, or after a pick.
+    - **(e) Owner-only edit rule:** sign-in as `carlhein@me.com` (practitioner role on `carlhein@icloud.com Practice`). Switch context to that practice (via popover). The dashboard practice-name should render as plain bold ink (no dashed underline); hovering shows the tooltip "Only the practice owner can rename." On `/account`, the Practice-name card copy reads "Only the practice owner can change this." and no Rename button is shown. Try calling `rename_practice(practiceId, 'hack')` via a browser console RPC → 42501 `only the practice owner can rename it`.
+    - **(f) Single-membership users don't see the `⇄ Switch`:** sign-in as `carlhein@icloud.com` (owner of exactly one practice). The `⇄ Switch` affordance should be hidden; the editable name is still there. Account page works identically.
+    - DB sanity: `SELECT name FROM practices WHERE id = '{id}';` reflects the latest rename. `SELECT proname FROM pg_proc WHERE proname = 'rename_practice';` returns 1 row.
+    - **Out-of-scope:** the mobile practice-chip bottom-sheet still shows the old "switcher only" UX. R-11 twin (inline rename + popover-style switcher on the mobile sheet) is a separate follow-up PR.
+
 11. **Studio MediaViewer — coral bottom-right play/pause** (branch `fix/mediaviewer-play-pause-overlay`):
     - Long-press a Studio thumbnail → "Open full-screen" on a video exercise
     - Video auto-starts; coral circular **pause** button appears bottom-right immediately (~85% opacity, white glyph, 56-px touch target, sitting above the bottom page-dots row with no overlap)

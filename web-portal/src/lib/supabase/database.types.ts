@@ -339,6 +339,10 @@ export type Database = {
         Returns: boolean
       }
       refund_credit: { Args: { p_plan_id: string }; Returns: boolean }
+      rename_practice: {
+        Args: { p_practice_id: string; p_new_name: string }
+        Returns: { id: string; name: string; created_at: string }[]
+      }
       user_is_practice_owner: { Args: { pid: string }; Returns: boolean }
       user_practice_ids: { Args: never; Returns: string[] }
     }
