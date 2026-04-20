@@ -287,7 +287,11 @@ class ConversionService extends ChangeNotifier {
       // that single frame to a line drawing still image.
       final videoOutputPath = p.join(convertedDir, '${exercise.id}_line$ext');
       try {
-        await _convertVideo(exercise.absoluteRawFilePath, videoOutputPath);
+        await _convertVideo(
+          exercise.absoluteRawFilePath,
+          videoOutputPath,
+          includeAudio: exercise.includeAudio,
+        );
         return videoOutputPath;
       } catch (e, stack) {
         debugPrint(
@@ -453,7 +457,15 @@ class ConversionService extends ChangeNotifier {
   /// Accelerate). This handles H.264/265 codecs that OpenCV can't decode on
   /// iOS. If the native channel is unavailable (e.g. on Android) or fails,
   /// falls back to OpenCV's VideoCapture/VideoWriter.
-  Future<void> _convertVideo(String inputPath, String outputPath) async {
+  ///
+  /// [includeAudio] controls whether the native converter muxes the source
+  /// audio track into the output file. Defaults to true — mirrors the
+  /// practitioner's per-exercise mute toggle on `ExerciseCapture`.
+  Future<void> _convertVideo(
+    String inputPath,
+    String outputPath, {
+    bool includeAudio = true,
+  }) async {
     // --- Attempt 1: Native iOS platform channel ---
     try {
       final result = await _videoChannel.invokeMethod<Map>(
@@ -464,6 +476,7 @@ class ConversionService extends ChangeNotifier {
           'blurKernel': AppConfig.blurKernel,
           'thresholdBlock': AppConfig.thresholdBlock,
           'contrastLow': AppConfig.contrastLow,
+          'includeAudio': includeAudio,
         },
       );
       if (result != null && result['success'] == true) {

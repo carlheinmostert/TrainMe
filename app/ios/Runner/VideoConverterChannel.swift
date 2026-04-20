@@ -131,6 +131,14 @@ class VideoConverterChannel {
                 ))
                 return
             }
+            // `includeAudio` is optional for backward compat. Default to
+            // true — the line-drawing output should retain the captured audio
+            // track unless the practitioner explicitly muted the exercise.
+            // See `ExerciseCapture.includeAudio` on the Dart side: the flag
+            // controls playback volume AND whether the converter muxes the
+            // audio track at all. Keeping it out of the file when muted is
+            // a small privacy win (no ambient gym audio in the archive).
+            let includeAudio = (args["includeAudio"] as? Bool) ?? true
             processingQueue.async { [weak self] in
                 self?.convertVideo(
                     inputPath: inputPath,
@@ -138,6 +146,7 @@ class VideoConverterChannel {
                     blurKernel: blurKernel,
                     thresholdBlock: thresholdBlock,
                     contrastLow: contrastLow,
+                    includeAudio: includeAudio,
                     result: result
                 )
             }
@@ -233,6 +242,7 @@ class VideoConverterChannel {
         blurKernel: Int,
         thresholdBlock: Int,
         contrastLow: Int,
+        includeAudio: Bool,
         result: @escaping FlutterResult
     ) {
         // --- Defense in depth: validate input file exists and is readable ---
@@ -381,13 +391,20 @@ class VideoConverterChannel {
 
         // --- Audio passthrough setup ---
         // Copy the audio track as-is (no re-encoding) so the converted video
-        // retains the original audio. If the source has no audio track, we
-        // simply skip this — the output will be video-only.
+        // retains the original audio. If the source has no audio track, or
+        // the practitioner toggled `includeAudio = false` on this exercise,
+        // we skip audio entirely — the output will be video-only.
+        //
+        // IMPORTANT: passthrough (`outputSettings: nil`) on the writer input
+        // requires a `sourceFormatHint` so AVAssetWriter knows the codec and
+        // sample-rate layout of the compressed samples it's about to mux. On
+        // iOS 15+ without the hint, the writer silently drops the audio track
+        // from the output file — which is exactly what caused Carl's "no sound
+        // on line drawing" bug (2026-04-20). Keep the hint.
         var audioReaderOutput: AVAssetReaderTrackOutput?
         var audioWriterInput: AVAssetWriterInput?
 
-        // Audio track — optional, skip gracefully if incompatible
-        if let audioTrack = asset.tracks(withMediaType: .audio).first {
+        if includeAudio, let audioTrack = asset.tracks(withMediaType: .audio).first {
             let audioOutput = AVAssetReaderTrackOutput(
                 track: audioTrack,
                 outputSettings: nil
@@ -398,9 +415,22 @@ class VideoConverterChannel {
                 reader.add(audioOutput)
                 audioReaderOutput = audioOutput
 
+                // Pull the source format description so the writer can
+                // passthrough the compressed samples without re-encoding.
+                // `formatDescriptions` is [Any] in AVFoundation's legacy
+                // typing; the first entry is the track's canonical format.
+                // Conditional-cast so we pass nil cleanly if the array is
+                // empty (edge case — shouldn't happen for a real track).
+                let formatHint: CMFormatDescription?
+                if let first = audioTrack.formatDescriptions.first {
+                    formatHint = (first as! CMFormatDescription)
+                } else {
+                    formatHint = nil
+                }
                 let audioInput = AVAssetWriterInput(
                     mediaType: .audio,
-                    outputSettings: nil
+                    outputSettings: nil,
+                    sourceFormatHint: formatHint
                 )
                 audioInput.expectsMediaDataInRealTime = false
 

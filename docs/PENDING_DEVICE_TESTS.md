@@ -80,6 +80,15 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
    - Plans with >10 exercises: dots hide (same pattern as `plan_preview_screen.dart`); the name-pill counter is the only where-are-we signal. Confirm behaviour.
    - Regression check: pre-archive captures still show locked B&W + Original segments; the consent row stays hidden when the archive is missing.
 
+8. **Line-drawing audio restored** (branch `fix/line-drawing-audio`):
+   - Capture a new video exercise with your voice talking over the movement (e.g. "squat, hold, up" while demoing).
+   - Wait for the native line-drawing conversion to complete (Studio card leaves the spinner state).
+   - Open the plan preview → Line treatment active → play the video → **verify the voiceover is audible**.
+   - Cross-check with Treatment.original (raw archive) — should sound identical, same volume curve.
+   - Toggle the per-exercise mic icon OFF on the Studio card → re-record the exercise → Line treatment must now play **silently** (no audio track muxed into the converted file at all, not just muted). Confirm with `ffprobe` on the converted file under `Documents/converted/{id}_line.*` if you want to be thorough: `Stream #0:0 Video`, no `Stream #0:1 Audio`.
+   - Publish the plan → open on the web player at `session.homefit.studio/p/{uuid}` → Line tab → confirm audio plays there too (the published `line_drawing_url` is the same converted file that now has audio).
+   - Regression: pre-existing captures (converted BEFORE this fix) remain silent until the practitioner re-captures them. This is expected — old files on disk aren't retroactively re-converted.
+
 ### Things to actively watch for
 - **iOS 26.4 SDK gap** — any sub-agent build will fail in their sandbox on this; only Carl's main machine has the SDK installed. Not a code issue.
 - **`sessions.client_id` backfill** — runs on every Home load; should be a no-op after first run per practice.
