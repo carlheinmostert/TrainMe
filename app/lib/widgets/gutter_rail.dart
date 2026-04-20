@@ -267,15 +267,17 @@ class GutterGapCell extends StatelessWidget {
       width: kGutterVisibleWidth,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        // Fire a selection-click on TOUCH-DOWN in addition to the usual
-        // on-tap haptic. Carl's device-QA note (Q1 polish): the insertion
-        // dots are the primary "insert here" affordance on the gutter
-        // rail, and firing haptic only on lift-off made them feel
-        // unresponsive — the user wants instant tactile confirmation
-        // that they've actually hit the 6/10px target. Lift-off haptic
-        // is preserved so the interaction still has a "commit" beat
-        // when the tap completes (vs tap-cancel on drift-off).
-        onTapDown: onTap == null ? null : (_) => HapticFeedback.selectionClick(),
+        // Touch-down haptic (Q1 polish, Carl's 2026-04-20 device note).
+        // Fires on the moment of contact so the practitioner feels the
+        // insertion dot reacting instantly. Using `lightImpact` — not
+        // `selectionClick` — because the picker-wheel tick is too
+        // subtle to register as "yes you hit the target" on a 6/10px
+        // zone. lightImpact is the iOS Taptic Engine's "noticed but
+        // not intrusive" level. Lift-off keeps `selectionClick` so
+        // there's still a "commit" beat distinct from the touch-down
+        // "registered" beat.
+        onTapDown:
+            onTap == null ? null : (_) => HapticFeedback.lightImpact(),
         onTap: () {
           if (onTap == null) return;
           HapticFeedback.selectionClick();

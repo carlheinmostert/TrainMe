@@ -142,7 +142,21 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   ///     not mutating it),
   ///   - pure-UI state (scroll, expand/collapse, `_expandedIndex`).
   void _touchAndPush(Session next) {
-    _pushSession(next.copyWith(lastContentEditAt: DateTime.now()));
+    // Stamp + persist. The prior implementation only mutated in-memory
+    // state via _pushSession, so SQLite's `last_content_edit_at` column
+    // stayed null even after edits — the session-card icon correctly
+    // computes dirty on first load, but a reload (or cold start)
+    // wiped the stamp and the icon flipped back to "clean." Now we
+    // persist directly here so every mutation path gets durable dirty
+    // state. saveExercise calls in callers are still needed (they
+    // write exercise-level columns); this just guarantees the session
+    // row's timestamp lands.
+    final stamped = next.copyWith(lastContentEditAt: DateTime.now());
+    _pushSession(stamped);
+    unawaited(widget.storage.saveSession(stamped).catchError((e, st) {
+      debugPrint('saveSession (touchAndPush) failed: $e');
+      return Future<void>.value();
+    }));
   }
 
   Future<void> _refreshSession() async {
