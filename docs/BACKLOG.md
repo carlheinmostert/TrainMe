@@ -4,6 +4,32 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+## Consent-driven analytics collection (Wave 17)
+
+**Status:** Designed **2026-04-21** with Carl. Full design locked in [`docs/design-reviews/analytics-consent-mvp-2026-04-21.md`](design-reviews/analytics-consent-mvp-2026-04-21.md). MVP pillar — ships alongside the other MVP features, not as a post-MVP add-on. Foundation for the future paid Analytics subscription (Y2+).
+
+**Locked decisions:**
+- Consent model **C** — hybrid: practitioner toggle on client (default ON) + client per-plan banner (last word).
+- Cadence: once-and-remember per browser via localStorage + server session.
+- Transparency CTA on plan completion: "See what's been shared with {TrainerName}" → modal with event counts + "Stop sharing" button.
+- Retention: 180 days raw events, daily aggregates forever.
+- Naming: **Analytics** (same noun as the future paid product).
+
+**Scope:**
+- 2 new Supabase tables (`client_sessions`, `plan_analytics_events`) + 1 rollup (`plan_analytics_daily_aggregate`).
+- New `analytics_allowed` key on `clients.video_consent` (default true).
+- 4 write RPCs + 2 read RPCs + daily retention cron.
+- Web-player: consent banner, 12 event emitters, transparency modal on completion.
+- Flutter Studio: 3-number stats under each plan + per-exercise bars + new consent checkbox in the client detail page.
+
+**Event inventory (12):** plan_opened, plan_completed, plan_closed, exercise_viewed, exercise_completed, exercise_skipped, exercise_replayed, treatment_switched, pause_tapped, resume_tapped, rest_shortened, rest_extended. Metadata-only — no video telemetry, no IP/IDFA/geo/fingerprints.
+
+**Explicitly NOT in Wave 17:** per-exercise pain scale, weekly client adherence emails, cross-client cohort dashboards, CSV export. All Y2+ paid Analytics.
+
+**Timeline:** ~1 focused week. Not blocking other work. Can land right after Wave 15+16 device-QA settles.
+
+---
+
 ## Add practice member by email — supersede Wave 5 invite-code flow (Wave 14)
 
 **Status:** Shipped **Wave 14** (Carl, 2026-04-21). **Replaces the Wave 5 invite-code flow** (PR #76, which Carl rejected after QA friction). Migration: `supabase/schema_milestone_u_add_member_by_email.sql`.
