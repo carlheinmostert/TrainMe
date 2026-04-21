@@ -22,10 +22,16 @@ void main() async {
   // Initialize path resolver before anything that touches file paths
   await PathResolver.initialize();
 
-  // Lock to portrait — exercise demos are filmed vertically
+  // Wave 8: landscape capture. Exercise demos are mostly filmed
+  // vertically, but some (gait analysis, long lateral movements) need
+  // landscape. Allow all four orientations; individual screens that
+  // really want portrait-only can override locally with another
+  // setPreferredOrientations call on push.
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
   ]);
 
   // Initialize Supabase for cloud storage and plan sharing
