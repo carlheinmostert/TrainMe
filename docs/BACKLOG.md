@@ -4,6 +4,46 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+## Resend SMTP for Supabase Auth — lift built-in email throttle (Wave 13)
+
+**Status:** Scheduled **Wave 13** (Carl, 2026-04-21). **Triggered by an active QA outage** — Wave 5 invite-claim testing hit Supabase's built-in SMTP rate limit (~4 magic-link emails per hour, global-per-project). With Melissa + external testers onboarding soon this will be a recurring block.
+
+**Provider choice:** Resend. 3k emails/month free tier; simplest DKIM setup; already LI-widely used by Vercel/Next ecosystems. Postmark / SendGrid / AWS SES would work too but Resend has the lowest friction for a new project.
+
+**Scope (one PR + dashboard work):**
+
+1. **Resend account + domain verification**
+   - Sign up at [resend.com](https://resend.com).
+   - Add domain `homefit.studio`. Resend emits 3 DNS records: one `TXT` for SPF, two `CNAME` for DKIM (`resend._domainkey` + `resend.send.domainkey`).
+   - In [Hostinger DNS](https://hpanel.hostinger.com/) → `homefit.studio` → Manage DNS records → add the three records exactly as Resend shows.
+   - Resend → **Verify** — propagation <2 min typically.
+   - Resend → **API Keys** → create key named `supabase-auth-prod`, permission `Sending access`, domain `homefit.studio`. Copy the `re_...` key (shown once).
+
+2. **Supabase SMTP wiring** (dashboard-only; no CLI/API surface)
+   - [Supabase dashboard](https://supabase.com/dashboard/project/yrwcofhovrcydootivjx) → **Authentication → Settings → SMTP Settings**.
+   - Toggle **Enable Custom SMTP**.
+   - Host: `smtp.resend.com` · Port: `465` · Username: `resend` · Password: paste API key.
+   - Sender email: `noreply@homefit.studio` (decide on `hello@` vs `noreply@` before wiring — this is the From address every magic link shows).
+   - Sender name: `homefit.studio`.
+
+3. **Validate**
+   - Sign out; request a magic link for a test user.
+   - Resend dashboard → **Emails** — row should appear immediately.
+   - Inbox → email delivered from `noreply@homefit.studio`, DKIM + SPF pass in the Gmail/iCloud raw-headers view.
+   - Supabase dashboard → **Authentication → Rate Limits** — "Enable custom SMTP" note should say the built-in throttle no longer applies.
+
+4. **Playbook doc** — add `docs/infra/smtp-setup.md` with the above steps + a rollback section ("how to revert to built-in SMTP if Resend API key is revoked / bill runs hot"). Link from [`CLAUDE.md`](CLAUDE.md) under Architecture Principles.
+
+5. **Secret handling** — the `re_...` API key lives in the Supabase SMTP settings only (not in our repo, not in Vercel env). If we need second-source storage for audit, add a vault secret named `resend_api_key_smtp` via `vault.create_secret()` — it's unused by any code today, just a backup.
+
+**Blocked on Carl for:** Resend signup, Hostinger DNS edits, Supabase dashboard config. The migration code is zero lines; no repo changes except the playbook doc.
+
+**Acceptance test:** request 10 magic links in <5 minutes without throttling.
+
+**Out of scope (don't do in Wave 13):** custom transactional email templates, bulk marketing, webhook event handling for delivery failures. Those belong to a later email-observability wave.
+
+---
+
 ## Network share-kit Phase 3 — PNG + QR + analytics (Wave 10)
 
 **Status:** Scheduled **Wave 10** (after Phase 2 intents land). Design already exists at [`docs/design/mockups/network-share-kit.html`](design/mockups/network-share-kit.html) (PNG card section around line 1410).
