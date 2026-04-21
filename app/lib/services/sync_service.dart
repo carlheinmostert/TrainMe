@@ -145,7 +145,7 @@ class SyncService {
 
     // Dump any stuck queue contents so we can diagnose via os_log. This
     // fires on every cold boot, only when the queue is non-empty.
-    if (pendingCount.value > 0) {
+    if (pendingOpCount.value > 0) {
       try {
         final ops = await _storage.getPendingOps();
         dev.log(
