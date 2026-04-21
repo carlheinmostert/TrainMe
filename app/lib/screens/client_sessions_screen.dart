@@ -17,6 +17,7 @@ import '../utils/session_title.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/powered_by_footer.dart';
 import '../widgets/session_card.dart';
+import '../widgets/unconsented_treatments_sheet.dart';
 import 'session_shell_screen.dart';
 
 /// One client's page. Lists every local session that belongs to this
@@ -274,8 +275,61 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
           duration: const Duration(seconds: 2),
         ),
       );
+    } else if (result.isUnconsentedTreatments) {
+      await _handleUnconsentedTreatments(session, result.unconsented!);
     } else {
       _showPublishErrorSnackBar(session, result.toErrorString());
+    }
+  }
+
+  /// Wave 16 / Milestone V — the publish flow rejected the plan
+  /// because one or more exercises had a `preferred_treatment` the
+  /// client hasn't consented to. Show the unblock bottom-sheet and
+  /// react to the practitioner's choice:
+  ///
+  ///   * [UnconsentedTreatmentsAction.grantAndPublish] — the sheet
+  ///     has already flipped the consent flags on the client via
+  ///     `set_client_video_consent`; update our in-memory state + the
+  ///     local cache (so the header chip repaints) and retry publish.
+  ///   * [UnconsentedTreatmentsAction.backToStudio] /
+  ///     [UnconsentedTreatmentsAction.dismissed] — nothing else to do.
+  ///     Practitioner will edit per-exercise preferences from Studio.
+  Future<void> _handleUnconsentedTreatments(
+    Session session,
+    UnconsentedTreatmentsException exc,
+  ) async {
+    final action = await showUnconsentedTreatmentsSheet(
+      context,
+      exception: exc,
+      clientId: _client.id,
+      currentGrayscaleAllowed: _client.grayscaleAllowed,
+      currentColourAllowed: _client.colourAllowed,
+    );
+    if (!mounted) return;
+    switch (action) {
+      case UnconsentedTreatmentsAction.grantAndPublish:
+        // Reflect the new consent state locally so subsequent publish
+        // attempts (and the consent chip) see the updated values
+        // without waiting for the next SyncService pull.
+        final wantedKeys =
+            exc.violations.map((v) => v.consentKey).toSet();
+        setState(() {
+          _client = _client.copyWith(
+            grayscaleAllowed: _client.grayscaleAllowed ||
+                wantedKeys.contains('grayscale'),
+            colourAllowed: _client.colourAllowed ||
+                wantedKeys.contains('original'),
+          );
+        });
+        // Retry publish. The server-side guard has already seen the
+        // flipped consent row via the RPC's SECURITY DEFINER read, so
+        // this call should now sail through.
+        await _publishSession(session);
+      case UnconsentedTreatmentsAction.backToStudio:
+      case UnconsentedTreatmentsAction.dismissed:
+        // No-op. Practitioner dismissed the sheet; the publish did
+        // not fire and no state changed.
+        break;
     }
   }
 

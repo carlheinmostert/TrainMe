@@ -319,6 +319,43 @@
       </li>
     </ul>
 
+    <h2>8 · Publish-time consent validation</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Wave 16 hard-blocks publish when any exercise's <code>preferred_treatment</code> isn't in the linked client's <code>video_consent</code>. Mobile shows a bottom-sheet with a single-tap rescue ("Grant consent &amp; publish") or a manual escape ("Back to Studio"). <code>consume_credit</code> raises SQLSTATE <code>P0003</code> as the authoritative server backstop. Migration: <code>supabase/schema_milestone_v_publish_consent_validation.sql</code>.
+    </p>
+    <ul class="checklist">
+      <li data-num="21" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 21">✓</button><button class="fail" type="button" aria-label="Fail 21">✗</button></div>
+        <span class="num">21.</span>
+        <span class="text">Seed a plan where one exercise has <code>preferred_treatment = 'grayscale'</code> and the linked client has <code>video_consent.grayscale = false</code>. Tap Publish. A bottom-sheet appears with "Client hasn't consented to all treatments" + the grayscale group + "Grant consent &amp; publish" / "Back to Studio" CTAs. Publish does NOT fire (no new plan version, no credit deducted).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="22" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 22">✓</button><button class="fail" type="button" aria-label="Fail 22">✗</button></div>
+        <span class="num">22.</span>
+        <span class="text">From item 21's sheet, tap "Grant consent &amp; publish". The client's <code>video_consent.grayscale</code> flips to true, the sheet dismisses, publish retries automatically, plan URL is generated with the expected new version bump. Consent chip on the client header now shows the updated state without a reload.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="23" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 23">✓</button><button class="fail" type="button" aria-label="Fail 23">✗</button></div>
+        <span class="num">23.</span>
+        <span class="text">Re-seed another unconsented plan. Tap Publish → sheet appears. Tap "Back to Studio". Sheet dismisses; no publish fires; no consent flipped. Practitioner can still edit per-exercise preferences via the Studio card tiles to resolve the mismatch manually.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="24" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 24">✓</button><button class="fail" type="button" aria-label="Fail 24">✗</button></div>
+        <span class="num">24.</span>
+        <span class="text">Server-side backstop. Use <code>supabase db query --linked</code> (or the dashboard SQL editor) to call <code>consume_credit</code> directly against a plan that has a known violation. Expect the call to raise with SQLSTATE <code>P0003</code> and the ledger to be untouched (no consumption row inserted). Re-select the balance to confirm.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="25" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 25">✓</button><button class="fail" type="button" aria-label="Fail 25">✗</button></div>
+        <span class="num">25.</span>
+        <span class="text">No regression for legacy plans. Find (or construct) a plan with <code>plans.client_id IS NULL</code>, have it contain a non-line <code>preferred_treatment</code>. Publish proceeds normally — no sheet, no block. <code>validate_plan_treatment_consent</code> returns an empty set; <code>consume_credit</code> does not raise.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
     <footer>
       Pass-notes with polish suggestions feed the next wave's backlog. Failed items spawn targeted fix briefs.
     </footer>

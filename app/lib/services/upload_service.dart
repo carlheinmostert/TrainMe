@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import '../config.dart';
 import '../models/session.dart';
 import '../models/exercise_capture.dart';
@@ -17,9 +18,45 @@ import 'loud_swallow.dart';
 // hand media uploads to a native background URLSession / WorkManager so the
 // bio can background/kill the app mid-publish without losing progress.
 
-/// Outcome of a publish attempt. Exhaustive via the four factories:
+/// Raised by [UploadService.uploadPlan] when the plan has one or more
+/// exercises whose sticky `preferred_treatment` is denied by the linked
+/// client's `video_consent`. Carries the list of violations so the
+/// publish-button handler can show a bottom-sheet with "Grant consent &
+/// publish" / "Back to Studio" CTAs without a second round-trip.
+///
+/// The mobile pre-flight throws this BEFORE anything touches Supabase
+/// state (no ledger write, no version bump). The matching server-side
+/// backstop (`consume_credit` raising SQLSTATE P0003) is what catches a
+/// client that skipped the pre-flight — both paths yield the same user
+/// experience.
+///
+/// See Wave 16 / Milestone V
+/// (`supabase/schema_milestone_v_publish_consent_validation.sql`).
+class UnconsentedTreatmentsException implements Exception {
+  /// The offending exercises, one per violation, in `exercises.position`
+  /// order (rest-omitted). Non-empty by construction.
+  final List<UnconsentedTreatment> violations;
+
+  /// The client's display name at the moment the check ran. Used to
+  /// render "Garry hasn't consented to..." without the UI needing to
+  /// re-load the client.
+  final String clientName;
+
+  const UnconsentedTreatmentsException({
+    required this.violations,
+    required this.clientName,
+  });
+
+  @override
+  String toString() =>
+      'UnconsentedTreatmentsException(${violations.length} violation(s) '
+      'for $clientName)';
+}
+
+/// Outcome of a publish attempt. Exhaustive via the five factories:
 /// [PublishResult.success], [PublishResult.preflightFailed],
-/// [PublishResult.networkFailed], [PublishResult.insufficientCredits].
+/// [PublishResult.networkFailed], [PublishResult.insufficientCredits],
+/// [PublishResult.unconsentedTreatments].
 class PublishResult {
   /// When [success] is true, [url] and [version] are set. Otherwise they are
   /// null and one of [missingFiles] / [error] / (balance+required) is set.
@@ -53,6 +90,12 @@ class PublishResult {
   /// "buy credits" CTA can deep-link straight to the right practice page.
   final String? practiceId;
 
+  /// Wave 16 / Milestone V — per-exercise treatments that the linked
+  /// client's `video_consent` doesn't allow. Non-null only for
+  /// [PublishResult.unconsentedTreatments]. The caller shows the
+  /// bottom-sheet and then (optionally) retries after flipping consent.
+  final UnconsentedTreatmentsException? unconsented;
+
   const PublishResult._({
     required this.success,
     this.url,
@@ -63,6 +106,7 @@ class PublishResult {
     this.balance,
     this.required,
     this.practiceId,
+    this.unconsented,
   });
 
   /// Successful publish.
@@ -102,6 +146,16 @@ class PublishResult {
         practiceId: practiceId,
       );
 
+  /// Wave 16 / Milestone V — publish refused because one or more
+  /// exercises have a `preferred_treatment` the client hasn't
+  /// consented to. No plan state changed on Supabase; the ledger was
+  /// not touched. The caller shows the unblock sheet with "Grant
+  /// consent & publish" and "Back to Studio" CTAs.
+  factory PublishResult.unconsentedTreatments(
+    UnconsentedTreatmentsException e,
+  ) =>
+      PublishResult._(success: false, unconsented: e);
+
   /// Convenience: was this a pre-flight failure?
   bool get isPreflightFailure => !success && missingFiles != null;
 
@@ -110,6 +164,9 @@ class PublishResult {
 
   /// Convenience: was this an insufficient-credits rejection?
   bool get isInsufficientCredits => !success && required != null;
+
+  /// Convenience: was this an unconsented-treatments rejection?
+  bool get isUnconsentedTreatments => !success && unconsented != null;
 
   /// Human-readable error summary, suitable for snackbar display and storage
   /// in the `last_publish_error` column. Truncated to 500 chars.
@@ -121,6 +178,10 @@ class PublishResult {
     } else if (isInsufficientCredits) {
       s = 'Practice has $balance credits, need $required. '
           'Buy more via manage.homefit.studio.';
+    } else if (isUnconsentedTreatments) {
+      final u = unconsented!;
+      s = '${u.clientName} has not consented to '
+          '${u.violations.length} treatment(s).';
     } else if (isNetworkFailure) {
       s = error.toString();
     } else {
@@ -267,6 +328,51 @@ class UploadService {
     );
     final nonRestCount = session.exercises.where((e) => !e.isRest).length;
     final creditsToCharge = creditCostFor(nonRestCount);
+
+    // ------------------------------------------------------------------
+    // Step 0: Pre-flight consent validation (Wave 16 / Milestone V)
+    //
+    // Reject the publish BEFORE any file check or network I/O if any
+    // exercise's sticky `preferred_treatment` is denied by the linked
+    // client's `video_consent`. Triggered by the 2026-04-21 QA finding
+    // where a practitioner set per-exercise preferences to grayscale /
+    // original but the client had both switched off; publish succeeded
+    // silently, and the web player fell back to line-drawing for those
+    // exercises with no signal on either side.
+    //
+    // The RPC is SECURITY DEFINER + membership-checked internally. On
+    // violation we raise [UnconsentedTreatmentsException] which the
+    // caller catches + translates into a bottom-sheet with "Grant
+    // consent & publish" / "Back to Studio" CTAs. No local state
+    // changes; no Supabase writes happen.
+    //
+    // This is the primary UX surface. The matching server-side guard
+    // inside `consume_credit` (raises SQLSTATE P0003) is the
+    // authoritative backstop and only fires when a client skipped the
+    // pre-flight entirely. That race is explicitly caught below.
+    //
+    // Best-effort: if the RPC itself fails (network blip, auth edge
+    // case) we fall through to the file pre-flight so a transient
+    // failure doesn't block publish — the server-side guard still
+    // catches any real violation via `consume_credit`'s P0003 path.
+    // ------------------------------------------------------------------
+    try {
+      final violations = await _api.validatePlanTreatmentConsent(
+        planId: session.id,
+      );
+      if (violations.isNotEmpty) {
+        final exc = UnconsentedTreatmentsException(
+          violations: violations,
+          clientName: session.clientName,
+        );
+        await _recordFailure(session, exc.toString());
+        return PublishResult.unconsentedTreatments(exc);
+      }
+    } catch (e) {
+      // Swallow — the server-side consume_credit guard remains the
+      // authoritative source of truth. Log for diagnostics only.
+      debugPrint('UploadService: validate_plan_treatment_consent failed: $e');
+    }
 
     // ------------------------------------------------------------------
     // Step 1: Pre-flight validation (no network I/O)
@@ -624,6 +730,34 @@ class UploadService {
           credits: creditsToCharge,
         );
       }
+
+      // Wave 16 / Milestone V server-side backstop: if the pre-flight
+      // was skipped or the consent rows changed between the pre-flight
+      // and `consume_credit`, the RPC raises SQLSTATE P0003. Translate
+      // that into the same PublishResult the pre-flight produces so
+      // the UI has exactly one code path for unblock. Re-query the
+      // violations so the sheet can group them; if the re-query fails
+      // (it shouldn't — same auth context that just got a server
+      // error) we fall through with an empty list + the client name.
+      if (e is PostgrestException && e.code == 'P0003') {
+        List<UnconsentedTreatment> violations = const [];
+        try {
+          violations = await _api.validatePlanTreatmentConsent(
+            planId: session.id,
+          );
+        } catch (_) {
+          // Fall through with empty list — the sheet still renders
+          // a sensible "client has not consented to all treatments"
+          // message and the Back-to-Studio CTA works.
+        }
+        final exc = UnconsentedTreatmentsException(
+          violations: violations,
+          clientName: session.clientName,
+        );
+        await _recordFailure(session, exc.toString());
+        return PublishResult.unconsentedTreatments(exc);
+      }
+
       // Include practice/trainer context in the failure so a mismatched-
       // tenant error (RLS rejection) surfaces enough detail in the
       // user-facing snackbar to diagnose without device logs. The
