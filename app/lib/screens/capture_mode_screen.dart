@@ -11,6 +11,8 @@ import '../models/session.dart';
 import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/path_resolver.dart';
+import '../services/sticky_defaults.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
 import '../widgets/shell_pull_tab.dart';
@@ -58,6 +60,15 @@ class CaptureModeScreen extends StatefulWidget {
 
 class _CaptureModeScreenState extends State<CaptureModeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
+  /// Process-wide flag: once the practitioner has seen the
+  /// "Hold for video" hint in THIS app session, don't show it again
+  /// until the process restarts. Wave 8 spec: surface exactly once
+  /// per session, auto-dismiss on first long-press OR after 3s. We
+  /// deliberately keep this as a static rather than persisting in
+  /// SharedPreferences — the hint is cheap; re-seeing it on the next
+  /// cold start is a gentle reinforcement, not a nag.
+  static bool _longPressHintConsumedThisSession = false;
+
   // --- Camera state ---
   CameraController? _cameraController;
   List<CameraDescription> _cameras = const [];
@@ -120,6 +131,15 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// Controller for the "capture flies into the box" animation.
   late final AnimationController _flyController;
 
+  /// True while the "Hold for video" hint is visible. Shown exactly
+  /// once per process lifetime, auto-dismissed on first long-press OR
+  /// after 3 seconds (whichever comes first). See
+  /// [_longPressHintConsumedThisSession] and [_hintTimer].
+  bool _showLongPressHint = false;
+
+  /// Auto-dismiss timer for the long-press hint.
+  Timer? _hintTimer;
+
   @override
   void initState() {
     super.initState();
@@ -134,7 +154,24 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 420),
     );
+    // Wave 8: long-press-to-record hint. Show once per process; kick
+    // off a 3s auto-dismiss timer. First actual long-press (see
+    // [_onShutterPressDown]) also clears it.
+    if (!_longPressHintConsumedThisSession) {
+      _showLongPressHint = true;
+      _hintTimer = Timer(const Duration(seconds: 3), _dismissLongPressHint);
+    }
     _initCamera();
+  }
+
+  void _dismissLongPressHint() {
+    _hintTimer?.cancel();
+    _hintTimer = null;
+    _longPressHintConsumedThisSession = true;
+    if (!mounted) return;
+    if (_showLongPressHint) {
+      setState(() => _showLongPressHint = false);
+    }
   }
 
   @override
@@ -155,6 +192,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
     _recordingTickTimer?.cancel();
     _recordingTickTimer = null;
+    _hintTimer?.cancel();
+    _hintTimer = null;
     _cameraController?.dispose();
     _flyController.dispose();
     super.dispose();
@@ -479,6 +518,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     if (_isRecording) return;
     _longPressActive = true;
     _pendingStopAfterStart = false;
+    // Wave 8: first long-press of the session kills the hint
+    // immediately so it doesn't linger after the user has obviously
+    // discovered the gesture.
+    if (_showLongPressHint) {
+      _dismissLongPressHint();
+    }
   }
 
   /// Called on both `onLongPressEnd` (normal release) and the raw
@@ -654,12 +699,29 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       );
       await File(sourcePath).copy(destPath);
 
-      final exercise = ExerciseCapture.create(
+      var exercise = ExerciseCapture.create(
         position: widget.session.exercises.length + _newCapturesSoFar(),
         rawFilePath: PathResolver.toRelative(destPath),
         mediaType: type,
         sessionId: widget.session.id,
       );
+
+      // Sticky per-client defaults (Milestone R / Wave 8). Forward-only
+      // pre-fill — pull the client's most-recent-edit map from the
+      // offline cache and seed the seven sticky fields. Cache miss (no
+      // client_id, or client not yet synced) simply leaves the capture
+      // with the default nulls so StudioDefaults apply.
+      final clientId = widget.session.clientId;
+      if (clientId != null && clientId.isNotEmpty) {
+        final cached =
+            await SyncService.instance.storage.getCachedClientById(clientId);
+        if (cached != null && cached.clientExerciseDefaults.isNotEmpty) {
+          exercise = StickyDefaults.prefillCapture(
+            exercise,
+            cached.clientExerciseDefaults,
+          );
+        }
+      }
 
       await widget.storage.saveExercise(exercise);
       ConversionService.instance.queueConversion(exercise);
@@ -1120,35 +1182,43 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Unobtrusive hint that long-press records video. Carl's Q1
-          // polish note: first-time users see the shutter and assume
-          // it's tap-only (iOS camera convention); the long-press
-          // video gesture is discoverable but needs a nudge. Low
-          // opacity keeps it quiet; hidden while recording so it
-          // doesn't fight with the countdown overlay for attention.
-          AnimatedOpacity(
-            opacity: _isRecording ? 0.0 : 0.55,
-            duration: const Duration(milliseconds: 160),
-            child: const Padding(
-              padding: EdgeInsets.only(bottom: 8),
-              child: Text(
-                'Hold for video',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.4,
-                  color: Colors.white,
-                  shadows: [
-                    Shadow(
-                      color: Colors.black54,
-                      blurRadius: 4,
-                      offset: Offset(0, 1),
+          // Wave 8: "Hold for video" hint. First-time users see the
+          // shutter and assume it's tap-only (iOS camera convention);
+          // the long-press video gesture is discoverable but needs a
+          // nudge. Shown exactly once per process session:
+          //   * auto-dismisses after 3s, OR
+          //   * dismisses on first long-press on the shutter.
+          // Coral on dark, small-text per the Wave 8 brief.
+          // AnimatedSwitcher gives a quiet fade-out instead of a hard
+          // disappear when the hint retires.
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: (_showLongPressHint && !_isRecording)
+                ? const Padding(
+                    key: ValueKey('hold-for-video-hint'),
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'Hold for video',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.4,
+                        color: AppColors.primary,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black54,
+                            blurRadius: 4,
+                            offset: Offset(0, 1),
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
-                ),
-              ),
-            ),
+                  )
+                : const SizedBox(
+                    key: ValueKey('hold-for-video-hint-gone'),
+                    height: 0,
+                  ),
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
