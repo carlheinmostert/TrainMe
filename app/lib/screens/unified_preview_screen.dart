@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart'
     show PlaybackMediaTypes, WebKitWebViewControllerCreationParams;
@@ -10,7 +12,31 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart'
 import '../models/session.dart';
 import '../services/local_player_server.dart';
 import '../services/local_storage_service.dart';
+import '../services/unified_preview_scheme_bridge.dart';
 import '../theme.dart';
+
+/// Wave 4 Phase 2 — transport toggle.
+///
+/// Phase 1 served the web-player bundle over a loopback shelf HTTP server
+/// bound to `127.0.0.1:<ephemeral>`. Phase 2 replaces that with a custom
+/// `WKURLSchemeHandler` (see `UnifiedPlayerSchemeHandler.swift`) scheme
+/// `homefit-local://plan/...` — no port allocation, no shelf process,
+/// cleaner Range streaming. Flip this flag back to `true` for an
+/// emergency rollback to the shelf path; the dead code is retained for
+/// that reason (delete in a follow-up once the new transport has baked
+/// on device for a week).
+const bool kUseShelfFallback = false;
+
+/// Name of the iOS platform method channel that owns the
+/// `AVAudioSession` lifecycle for the unified preview. Implemented in
+/// `app/ios/Runner/UnifiedPreviewAudioChannel.swift`.
+const MethodChannel _audioChannel =
+    MethodChannel('com.raidme.unified_preview_audio');
+
+/// Name of the `WKUserContentController` channel the WebView bundle
+/// posts JSON messages to. Mirrored as `window.HomefitBridge` on the
+/// JS side (see `web-player/app.js` — `installHomefitBridge`).
+const String _bridgeChannelName = 'HomefitBridge';
 
 /// Wave 4 Phase 1 — unified player prototype screen.
 ///
@@ -55,6 +81,7 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
   Uri? _playerUri;
   String? _error;
   bool _loading = true;
+  bool _audioSessionActivated = false;
 
   @override
   void initState() {
@@ -64,15 +91,42 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
 
   Future<void> _boot() async {
     try {
-      await LocalPlayerServer.instance.start(
-        session: widget.session,
-        storage: widget.storage,
-      );
-      final uri = LocalPlayerServer.instance.buildPlayerUrl();
+      // Resolve the transport URL. Phase 2 default: a custom
+      // `homefit-local://plan/` scheme handled natively. Phase 1
+      // rollback path: boot the shelf server and use its loopback URL.
+      Uri uri;
+      if (kUseShelfFallback) {
+        await LocalPlayerServer.instance.start(
+          session: widget.session,
+          storage: widget.storage,
+        );
+        uri = LocalPlayerServer.instance.buildPlayerUrl();
+      } else {
+        // Bind the Dart-side resolver so the Swift scheme handler can
+        // answer plan-JSON + media-path requests against this session.
+        UnifiedPreviewSchemeBridge.instance.bind(
+          session: widget.session,
+          storage: widget.storage,
+        );
+        uri = Uri(
+          scheme: 'homefit-local',
+          host: 'plan',
+          path: '/',
+          queryParameters: {
+            'planId': widget.session.id,
+            'src': 'local',
+          },
+        );
+      }
 
       // iOS needs inline media playback + no user-gesture requirement
       // so the web-player's `<video autoplay muted>` calls succeed on
-      // first paint. On Android the defaults already allow both.
+      // first paint. On Android the defaults already allow both. In
+      // Phase 2 the iOS variant ALSO registers a `WKURLSchemeHandler`
+      // native-side that resolves `homefit-local://` URLs; that lives
+      // in Swift (see UnifiedPlayerSchemeHandler) and is wired from
+      // AppDelegate via `UnifiedPreviewSchemeRegistrar.register()`
+      // before the FlutterView creates its WebView.
       final PlatformWebViewControllerCreationParams params =
           Platform.isIOS
               ? WebKitWebViewControllerCreationParams(
@@ -84,18 +138,31 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
       final controller = WebViewController.fromPlatformCreationParams(params)
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
         ..setBackgroundColor(AppColors.surfaceBase)
+        ..addJavaScriptChannel(
+          _bridgeChannelName,
+          onMessageReceived: _onBridgeMessage,
+        )
         ..setNavigationDelegate(
           NavigationDelegate(
             onNavigationRequest: (req) {
-              // Any navigation AWAY from the loopback origin (share
-              // sheet opens) is blocked. Local bundle only navigates
-              // same-origin; anything else is a stray tap on a
-              // placeholder link.
+              // Any navigation AWAY from the bundle's origin (share
+              // sheet opens, stray link taps) is blocked. The bundle
+              // only ever navigates same-origin.
               final dest = Uri.tryParse(req.url);
-              if (dest != null &&
-                  dest.host == uri.host &&
-                  dest.port == uri.port) {
-                return NavigationDecision.navigate;
+              if (dest == null) return NavigationDecision.prevent;
+              final sameScheme = dest.scheme == uri.scheme;
+              if (kUseShelfFallback) {
+                if (sameScheme &&
+                    dest.host == uri.host &&
+                    dest.port == uri.port) {
+                  return NavigationDecision.navigate;
+                }
+              } else {
+                // Phase 2: compare scheme + host for the custom URL
+                // scheme. There is no port concept.
+                if (sameScheme && dest.host == uri.host) {
+                  return NavigationDecision.navigate;
+                }
               }
               return NavigationDecision.prevent;
             },
@@ -135,22 +202,100 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
 
   @override
   void dispose() {
-    // Stop the server when the screen closes. The controller shuts
-    // itself down via Flutter's widget lifecycle. Use unawaited so
-    // dispose() stays synchronous.
-    unawaited(LocalPlayerServer.instance.stop());
+    // Drop the audio-session override so the OS reverts to ambient /
+    // silent-respecting behaviour for whatever comes next. Done BEFORE
+    // the server teardown so the platform call lands while the engine
+    // still has a valid messenger.
+    if (_audioSessionActivated) {
+      unawaited(_setAudioPlayback(false));
+    }
+    // Stop the shelf server when the screen closes — a no-op if Phase
+    // 2's native scheme path was used. The controller shuts itself
+    // down via Flutter's widget lifecycle. Use unawaited so dispose()
+    // stays synchronous.
+    if (kUseShelfFallback) {
+      unawaited(LocalPlayerServer.instance.stop());
+    } else {
+      UnifiedPreviewSchemeBridge.instance.unbind();
+    }
     super.dispose();
   }
 
-  // TODO(wave4-phase2): wire a postMessage bridge so the web-player can
-  //   request haptic feedback (`HapticFeedback.selectionClick` on pill
-  //   tap, `HapticFeedback.mediumImpact` on prep finish) and so the
-  //   trainer app can update the iOS AVAudioSession category to
-  //   playback when the first video plays (so a Silent-mode phone still
-  //   emits audio like the production player on session.homefit.studio).
-  //   Bridge shape: controller.addJavaScriptChannel('HomefitHost', ...)
-  //   on the WebView side; `window.HomefitHost.postMessage(...)` calls
-  //   from app.js.
+  // ---------------------------------------------------------------------------
+  // Native bridge — JSON messages posted from `window.HomefitBridge` in
+  // `web-player/app.js`. Shape:
+  //   { "type": "haptic", "kind": "selection"|"mediumImpact"|"heavyImpact" }
+  //   { "type": "audio",  "active": true|false }
+  // Malformed or unknown messages are logged (debug only) and ignored
+  // so a stray payload can't crash the preview.
+  // ---------------------------------------------------------------------------
+
+  void _onBridgeMessage(JavaScriptMessage message) {
+    Map<String, dynamic> payload;
+    try {
+      final decoded = jsonDecode(message.message);
+      if (decoded is! Map<String, dynamic>) return;
+      payload = decoded;
+    } catch (_) {
+      if (kDebugMode) {
+        debugPrint('[UnifiedPreview] bridge: bad JSON: ${message.message}');
+      }
+      return;
+    }
+
+    final type = payload['type'];
+    switch (type) {
+      case 'haptic':
+        final kind = payload['kind'];
+        if (kind is String) _dispatchHaptic(kind);
+        break;
+      case 'audio':
+        final active = payload['active'] == true;
+        _audioSessionActivated = _audioSessionActivated || active;
+        unawaited(_setAudioPlayback(active));
+        break;
+      default:
+        if (kDebugMode) {
+          debugPrint('[UnifiedPreview] bridge: unknown type "$type"');
+        }
+    }
+  }
+
+  void _dispatchHaptic(String kind) {
+    switch (kind) {
+      case 'selection':
+        HapticFeedback.selectionClick();
+        break;
+      case 'mediumImpact':
+        HapticFeedback.mediumImpact();
+        break;
+      case 'heavyImpact':
+        HapticFeedback.heavyImpact();
+        break;
+      default:
+        if (kDebugMode) {
+          debugPrint('[UnifiedPreview] bridge: unknown haptic kind "$kind"');
+        }
+    }
+  }
+
+  Future<void> _setAudioPlayback(bool active) async {
+    if (!Platform.isIOS) return;
+    try {
+      await _audioChannel.invokeMethod<void>(
+        'setPlaybackCategory',
+        {'active': active},
+      );
+    } on PlatformException catch (e) {
+      if (kDebugMode) {
+        debugPrint('[UnifiedPreview] audio channel failed: ${e.code} ${e.message}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[UnifiedPreview] audio channel threw: $e');
+      }
+    }
+  }
 
 
   @override

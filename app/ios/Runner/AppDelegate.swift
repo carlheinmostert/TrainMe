@@ -8,6 +8,11 @@ import AVFoundation
   // the instance from being released and losing its method-call handler.
   private var videoConverter: VideoConverterChannel?
 
+  // Wave 4 Phase 2 — iOS AVAudioSession owner for the embedded
+  // web-player WebView. Stored here so the handler isn't deallocated
+  // the moment the `didFinishLaunchingWithOptions` scope ends.
+  private var unifiedPreviewAudio: UnifiedPreviewAudioChannel?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -186,6 +191,21 @@ import AVFoundation
     // Register the full video converter channel using the same messenger.
     // Stored on self so the handler registration persists for the app lifetime.
     videoConverter = VideoConverterChannel(messenger: messenger)
+
+    // Wave 4 Phase 2 — audio-session owner for the unified preview
+    // WebView. Without this, Silent-mode phones mute the embedded
+    // <video> audio even though PR #41's concurrent-drain gave Line
+    // treatment real audio tracks.
+    unifiedPreviewAudio = UnifiedPreviewAudioChannel(messenger: messenger)
+
+    // Wave 4 Phase 2 — custom URL scheme handler. Installs a one-shot
+    // swizzle on `-[WKWebViewConfiguration init]` so every
+    // configuration created by `webview_flutter_wkwebview` picks up
+    // the `homefit-local://` handler before the WKWebView consumes
+    // the config. See UnifiedPlayerSchemeHandler.swift.
+    if #available(iOS 11.0, *) {
+      UnifiedPreviewSchemeRegistrar.register(messenger: messenger)
+    }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
