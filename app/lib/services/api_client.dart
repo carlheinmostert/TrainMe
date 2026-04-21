@@ -820,6 +820,49 @@ class ApiClient {
       }
     }
   }
+
+  // ==========================================================================
+  // Share-kit analytics — Wave 10 / 11
+  // ==========================================================================
+
+  /// Fire-and-forget analytics for every share-kit action (copy, open-intent,
+  /// PNG download, clipboard image). Wraps `log_share_event` SECURITY DEFINER
+  /// RPC; clients don't write `share_events` directly.
+  ///
+  /// [channel] is one of: `whatsapp_one_to_one`, `whatsapp_broadcast`,
+  /// `email`, `png_download`, `png_clipboard`, `tagline_copy`, `code_copy`,
+  /// `link_copy`. [eventKind] is one of: `copy`, `open_intent`, `download`,
+  /// `clipboard_image`.
+  ///
+  /// Callers should wrap in `unawaited(...)` — this method MUST NOT block
+  /// the UI. Errors are swallowed locally (with `debugPrint`) because
+  /// analytics are low-stakes: the share still happened even if the log
+  /// row didn't land.
+  ///
+  /// TODO(wave-7): once `loud_swallow` ships, replace the try/catch with
+  /// `loudSwallow('ApiClient.logShareEvent', () => raw.rpc(...))` so every
+  /// failure surfaces in the Diagnostics panel instead of being silently
+  /// dropped.
+  Future<void> logShareEvent({
+    required String practiceId,
+    required String channel,
+    required String eventKind,
+    Map<String, dynamic>? meta,
+  }) async {
+    try {
+      await raw.rpc(
+        'log_share_event',
+        params: {
+          'p_practice_id': practiceId,
+          'p_channel': channel,
+          'p_event_kind': eventKind,
+          if (meta != null) 'p_meta': meta,
+        },
+      );
+    } catch (e) {
+      debugPrint('ApiClient.logShareEvent($channel/$eventKind) failed: $e');
+    }
+  }
 }
 
 /// Aggregate stats for a practice's referral network.

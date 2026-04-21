@@ -52,6 +52,12 @@ dependencies:
   reorderable_grid: ^1.0.13
   uuid: ^4.5.1
 
+  # Wave 11 — QR renderer for the PNG share card (client-side
+  # RepaintBoundary raster). Pure Dart, no native deps; draws the QR
+  # matrix into a Canvas so it composes directly into the card widget
+  # tree that gets snapshotted via RepaintBoundary.toImage().
+  qr_flutter: ^4.1.0
+
   # Persistence for lightweight preferences that survive app restarts
   # (e.g. which practice the practitioner last chose when they belong to
   # more than one). Already installed transitively via iOS pods — the

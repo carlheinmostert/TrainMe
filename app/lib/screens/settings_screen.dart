@@ -12,6 +12,7 @@ import '../widgets/powered_by_footer.dart';
 import '../widgets/set_password_sheet.dart';
 import '../widgets/undo_snackbar.dart';
 import 'diagnostics_screen.dart';
+import 'network_share_kit_screen.dart';
 
 /// Persistent home for account-level actions the practitioner needs
 /// access to at any time — primarily "set or change password" so a
@@ -1233,6 +1234,17 @@ class _NetworkSectionState extends State<_NetworkSection> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
           child: _StatsRow(statsFuture: _statsFuture),
+        ),
+        const _Divider(),
+        _ActionRow(
+          icon: Icons.ios_share_rounded,
+          label: 'Share homefit.studio',
+          subtitle: 'Three templates + a PNG card for your network.',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const NetworkShareKitScreen(),
+            ),
+          ),
         ),
         const _Divider(),
         InkWell(
