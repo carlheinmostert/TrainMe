@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as dev;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -105,6 +106,7 @@ class SyncService {
   /// mutating; this is read-only convenience.
   LocalStorageService get storage => _storage;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  StreamSubscription<AuthState>? _authSub;
 
   /// True while a flush() is running. Guards against re-entrant drain
   /// kicked off by multiple enqueue() calls in quick succession.
@@ -140,11 +142,65 @@ class SyncService {
       debugPrint('SyncService.start: connectivity plugin unavailable: $e');
       offline.value = false;
     }
+
+    // Dump any stuck queue contents so we can diagnose via os_log. This
+    // fires on every cold boot, only when the queue is non-empty.
+    if (pendingCount.value > 0) {
+      try {
+        final ops = await _storage.getPendingOps();
+        dev.log(
+          'boot — ${ops.length} pending ops in queue',
+          name: 'SyncService',
+        );
+        for (final op in ops.take(30)) {
+          dev.log(
+            '  ${op.type.name} id=${op.id} attempts=${op.attempts} '
+            'last_error=${op.lastError ?? "(none)"}',
+            name: 'SyncService',
+          );
+        }
+      } catch (e) {
+        dev.log('boot queue dump failed: $e', name: 'SyncService');
+      }
+    }
+
+    // Drain-on-boot. Previously the queue only flushed on offline→online
+    // transitions, which left cold-start-with-stuck-queue scenarios
+    // silently idle. Fire-and-forget; failures land in the per-op catch
+    // block and surface via dev.log.
+    unawaited(flush());
+
+    // Auth-state listener: fire a flush whenever the user (re-)signs in.
+    // Before this, a sign-out + sign-in cycle left the queue stuck with
+    // stale-JWT errors until the user happened to enqueue another op.
+    // Fix: on signedIn events, drain the queue against the new session.
+    try {
+      _authSub = Supabase.instance.client.auth.onAuthStateChange.listen(
+        (state) {
+          if (state.event == AuthChangeEvent.signedIn ||
+              state.event == AuthChangeEvent.tokenRefreshed) {
+            dev.log(
+              'auth ${state.event.name} — draining pending ops',
+              name: 'SyncService',
+            );
+            unawaited(flush());
+          }
+        },
+        onError: (_) {
+          // Plugin errored — don't die; connectivity listener is the
+          // fallback drain trigger.
+        },
+      );
+    } catch (e) {
+      debugPrint('SyncService.start: auth listener attach failed: $e');
+    }
   }
 
   void dispose() {
     _connectivitySub?.cancel();
     _connectivitySub = null;
+    _authSub?.cancel();
+    _authSub = null;
   }
 
   static bool _isOffline(List<ConnectivityResult> results) {
@@ -162,6 +218,7 @@ class SyncService {
       // bound practice. Kick off in parallel; errors are swallowed
       // inside each call.
       debugPrint('SyncService: online — draining pending ops');
+      dev.log('online transition — draining pending ops', name: 'SyncService');
       await flush();
       final practiceId = _lastPracticeId;
       if (practiceId != null) {
@@ -573,6 +630,13 @@ class SyncService {
           );
           debugPrint('SyncService.flush: op ${op.type.name} '
               'id=${op.id} failed (code=$code): $msg');
+          // Profile builds strip debugPrint from os_log; dev.log goes
+          // through the VM service + Dart os_log subsystem so it's
+          // visible in idevicesyslog / Console.app.
+          dev.log(
+            'flush ${op.type.name} id=${op.id} code=$code: $msg',
+            name: 'SyncService',
+          );
           // Don't break — keep draining subsequent ops. Each is
           // independent and some may succeed.
         }
