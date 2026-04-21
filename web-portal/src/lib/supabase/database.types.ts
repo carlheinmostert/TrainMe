@@ -39,8 +39,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      audit_events: {
+        Row: {
+          actor_id: string | null
+          id: string
+          kind: string
+          meta: Json | null
+          practice_id: string
+          ref_id: string | null
+          ts: string
+        }
+        Insert: {
+          actor_id?: string | null
+          id?: string
+          kind: string
+          meta?: Json | null
+          practice_id: string
+          ref_id?: string | null
+          ts?: string
+        }
+        Update: {
+          actor_id?: string | null
+          id?: string
+          kind?: string
+          meta?: Json | null
+          practice_id?: string
+          ref_id?: string | null
+          ts?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_events_practice_id_fkey"
+            columns: ["practice_id"]
+            isOneToOne: false
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
+          client_exercise_defaults: Json
           created_at: string
           deleted_at: string | null
           id: string
@@ -50,6 +89,7 @@ export type Database = {
           video_consent: Json
         }
         Insert: {
+          client_exercise_defaults?: Json
           created_at?: string
           deleted_at?: string | null
           id?: string
@@ -59,6 +99,7 @@ export type Database = {
           video_consent?: Json
         }
         Update: {
+          client_exercise_defaults?: Json
           created_at?: string
           deleted_at?: string | null
           id?: string
@@ -118,6 +159,53 @@ export type Database = {
           },
           {
             foreignKeyName: "credit_ledger_practice_id_fkey"
+            columns: ["practice_id"]
+            isOneToOne: false
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      error_logs: {
+        Row: {
+          id: string
+          kind: string
+          message: string | null
+          meta: Json | null
+          practice_id: string | null
+          severity: string
+          sha: string | null
+          source: string
+          trainer_id: string | null
+          ts: string
+        }
+        Insert: {
+          id?: string
+          kind: string
+          message?: string | null
+          meta?: Json | null
+          practice_id?: string | null
+          severity: string
+          sha?: string | null
+          source: string
+          trainer_id?: string | null
+          ts?: string
+        }
+        Update: {
+          id?: string
+          kind?: string
+          message?: string | null
+          meta?: Json | null
+          practice_id?: string | null
+          severity?: string
+          sha?: string | null
+          source?: string
+          trainer_id?: string | null
+          ts?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "error_logs_practice_id_fkey"
             columns: ["practice_id"]
             isOneToOne: false
             referencedRelation: "practices"
@@ -574,9 +662,64 @@ export type Database = {
           },
         ]
       }
+      share_events: {
+        Row: {
+          channel: string
+          event_kind: string
+          id: string
+          meta: Json | null
+          occurred_at: string
+          practice_id: string
+          trainer_id: string | null
+        }
+        Insert: {
+          channel: string
+          event_kind: string
+          id?: string
+          meta?: Json | null
+          occurred_at?: string
+          practice_id: string
+          trainer_id?: string | null
+        }
+        Update: {
+          channel?: string
+          event_kind?: string
+          id?: string
+          meta?: Json | null
+          occurred_at?: string
+          practice_id?: string
+          trainer_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "share_events_practice_id_fkey"
+            columns: ["practice_id"]
+            isOneToOne: false
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
-      [_ in never]: never
+      publish_health: {
+        Row: {
+          failed_24h: number | null
+          last_issued_ts: string | null
+          practice_id: string | null
+          stuck_pending: number | null
+          succeeded_24h: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plans_practice_id_fkey"
+            columns: ["practice_id"]
+            isOneToOne: false
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       _generate_slug_7: { Args: never; Returns: string }
@@ -617,6 +760,7 @@ export type Database = {
       get_client_by_id: {
         Args: { p_client_id: string }
         Returns: {
+          client_exercise_defaults: Json
           id: string
           name: string
           video_consent: Json
@@ -624,9 +768,34 @@ export type Database = {
       }
       get_plan_full: { Args: { p_plan_id: string }; Returns: Json }
       leave_practice: { Args: { p_practice_id: string }; Returns: undefined }
+      list_practice_audit: {
+        Args: {
+          p_actor?: string
+          p_from?: string
+          p_kinds?: string[]
+          p_limit?: number
+          p_offset?: number
+          p_practice_id: string
+          p_to?: string
+        }
+        Returns: {
+          balance_after: number
+          credits_delta: number
+          email: string
+          full_name: string
+          kind: string
+          meta: Json
+          ref_id: string
+          title: string
+          total_count: number
+          trainer_id: string
+          ts: string
+        }[]
+      }
       list_practice_clients: {
         Args: { p_practice_id: string }
         Returns: {
+          client_exercise_defaults: Json
           id: string
           last_plan_at: string
           name: string
@@ -676,6 +845,27 @@ export type Database = {
           version: number
         }[]
       }
+      log_error: {
+        Args: {
+          p_kind: string
+          p_message?: string
+          p_meta?: Json
+          p_practice_id?: string
+          p_severity: string
+          p_sha?: string
+          p_source: string
+        }
+        Returns: string
+      }
+      log_share_event: {
+        Args: {
+          p_channel: string
+          p_event_kind: string
+          p_meta?: Json
+          p_practice_id: string
+        }
+        Returns: string
+      }
       mint_practice_invite_code: {
         Args: { p_practice_id: string }
         Returns: string
@@ -691,6 +881,16 @@ export type Database = {
       practice_rebate_balance: {
         Args: { p_practice_id: string }
         Returns: number
+      }
+      record_audit_event: {
+        Args: {
+          p_actor_id?: string
+          p_kind: string
+          p_meta?: Json
+          p_practice_id: string
+          p_ref_id?: string
+        }
+        Returns: string
       }
       record_purchase_with_rebates: {
         Args: {
@@ -760,6 +960,10 @@ export type Database = {
         Args: { p_practice_id: string }
         Returns: boolean
       }
+      set_client_exercise_default: {
+        Args: { p_client_id: string; p_field: string; p_value: Json }
+        Returns: undefined
+      }
       set_client_video_consent: {
         Args: {
           p_client_id: string
@@ -780,6 +984,15 @@ export type Database = {
       sign_storage_url: {
         Args: { p_bucket: string; p_expires_in?: number; p_path: string }
         Returns: string
+      }
+      signed_url_self_check: {
+        Args: never
+        Returns: {
+          jwt_secret_present: boolean
+          ok: boolean
+          sample_url: string
+          supabase_url_present: boolean
+        }[]
       }
       upsert_client: {
         Args: { p_name: string; p_practice_id: string }

@@ -8,6 +8,7 @@ import {
   OpenInAppButton,
   WhatsAppOutboundGlyph,
 } from './OpenInAppButton';
+import type { LogShareEvent } from './useShareAnalytics';
 import {
   buildWhatsAppOneToOne,
   buildWhatsAppOneToOneUrl,
@@ -33,7 +34,19 @@ import {
  * the label reads "Colleague's first name (optional)", never
  * "Recipient" / "Friend" / "Contact".
  */
-export function WhatsAppOneToOne({ slots }: { slots: ShareKitSlots }) {
+export function WhatsAppOneToOne({
+  slots,
+  logEvent,
+}: {
+  slots: ShareKitSlots;
+  /**
+   * Wave 10 Phase 3 analytics callback. Omitted on surfaces that don't
+   * want telemetry (unit tests, storybook); always passed from the main
+   * `/network` composition. Optional so the component stays trivially
+   * mockable.
+   */
+  logEvent?: LogShareEvent;
+}) {
   const [name, setName] = useState('');
 
   // Trimmed view used for substitution — doesn't mutate the controlled
@@ -109,6 +122,14 @@ export function WhatsAppOneToOne({ slots }: { slots: ShareKitSlots }) {
           label="Copy message"
           copiedLabel="Copied!"
           ariaLabel="Copy WhatsApp one-to-one message"
+          onCopy={
+            logEvent
+              ? () =>
+                  logEvent('whatsapp_one_to_one', 'copy', {
+                    colleague_name_substituted: trimmed.length > 0,
+                  })
+              : undefined
+          }
         />
         <OpenInAppButton
           getHref={() => buildWhatsAppOneToOneUrl(slots, trimmed)}
@@ -117,6 +138,14 @@ export function WhatsAppOneToOne({ slots }: { slots: ShareKitSlots }) {
           glyph={<WhatsAppOutboundGlyph />}
           target="_blank"
           rel="noopener noreferrer"
+          onOpen={
+            logEvent
+              ? () =>
+                  logEvent('whatsapp_one_to_one', 'open_intent', {
+                    colleague_name_substituted: trimmed.length > 0,
+                  })
+              : undefined
+          }
         />
       </div>
 

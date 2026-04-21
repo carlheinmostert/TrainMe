@@ -1225,3 +1225,96 @@ function mockCodeFor(practiceId: string): string {
   }
   return out;
 }
+
+// ============================================================================
+// Share-kit analytics surface (PortalShareKitApi) — Wave 10 Phase 3
+// ============================================================================
+//
+// The `/network` page exposes four share channels (WhatsApp 1:1, WhatsApp
+// broadcast, Email, PNG share card) with up to three actions each (copy,
+// open-intent, download, clipboard-image). Each action fires fire-and-forget
+// against `log_share_event(practice_id, channel, event_kind, meta)`, a
+// SECURITY DEFINER RPC on the `share_events` append-only table (milestone S).
+//
+// This class lives here so the analytics surface uses the same single-
+// enumerated-surface convention as the rest of the portal (see
+// docs/DATA_ACCESS_LAYER.md). Previously I considered folding it into
+// PortalReferralApi since both surfaces live on /network — but the channels
+// include code_copy and link_copy which aren't referral-specific, so a
+// dedicated class reads cleaner on the caller side.
+//
+// The single RPC takes: practice_id, channel ∈ (whatsapp_one_to_one,
+// whatsapp_broadcast, email, png_download, png_clipboard, tagline_copy,
+// code_copy, link_copy), event_kind ∈ (copy, open_intent, download,
+// clipboard_image), and optional meta jsonb.
+//
+// Callers should fire-and-forget via `void api.logEvent(...)` — the analytics
+// value of a single event is low, so we never block the UX on its success.
+
+/** Channel the event was fired from. Matches the CHECK on share_events.channel. */
+export type ShareEventChannel =
+  | 'whatsapp_one_to_one'
+  | 'whatsapp_broadcast'
+  | 'email'
+  | 'png_download'
+  | 'png_clipboard'
+  | 'tagline_copy'
+  | 'code_copy'
+  | 'link_copy';
+
+/** Action that was taken. Matches the CHECK on share_events.event_kind. */
+export type ShareEventKind =
+  | 'copy'
+  | 'open_intent'
+  | 'download'
+  | 'clipboard_image';
+
+/**
+ * PortalShareKitApi — the single enumerated write surface for share
+ * telemetry. Wraps the `log_share_event` SECURITY DEFINER RPC.
+ *
+ * All callers should use this class instead of raw `supabase.rpc(...)`
+ * calls so the channel / kind enums stay type-safe. The wrapper returns
+ * nothing and swallows errors — analytics is fire-and-forget per the
+ * Wave 10 brief.
+ */
+export class PortalShareKitApi {
+  constructor(private readonly supabase: CompatSupabase) {}
+
+  /**
+   * Append a share_events row. Never throws; errors are silent so a flaky
+   * analytics path doesn't break the share-kit UX. Caller convention is
+   * `void api.logEvent(...)` from a click handler.
+   *
+   * `meta` is optional — reserve it for payloads the dashboard will care
+   * about (e.g. `{ colleague_name_substituted: true }` for the 1:1 card
+   * when the user filled in a first name, or `{ code: 'K3JT7QR' }` when
+   * the action is tied to a specific referral code revision).
+   */
+  async logEvent(
+    practiceId: string,
+    channel: ShareEventChannel,
+    eventKind: ShareEventKind,
+    meta?: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.supabase.rpc('log_share_event', {
+        p_practice_id: practiceId,
+        p_channel: channel,
+        p_event_kind: eventKind,
+        p_meta: meta ? (meta as never) : undefined,
+      });
+    } catch {
+      // Swallow — analytics must never break the share UX. If the RPC is
+      // down the user's copy/download still works, they just don't show
+      // up in the funnel dashboard.
+    }
+  }
+}
+
+/** Construct a `PortalShareKitApi` bound to the given Supabase client. */
+export function createPortalShareKitApi(
+  supabase: CompatSupabase,
+): PortalShareKitApi {
+  return new PortalShareKitApi(supabase);
+}
