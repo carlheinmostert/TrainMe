@@ -622,6 +622,35 @@ class SyncService {
         } catch (e) {
           final code = _extractErrorCode(e);
           final msg = e.toString();
+
+          // "Client missing on server" class of errors — the intended
+          // state (rename / update defaults / consent on client X) is
+          // moot because X is gone. Drop the op instead of retrying.
+          // Matches the drop-semantics we gave delete_client + restore_client
+          // in the schema_fix_delete_restore_idempotent.sql migration.
+          if (_isStaleOpAgainstMissingClient(e, op.type)) {
+            await _storage.deletePendingOp(op.id);
+            flushed += 1;
+            dev.log(
+              'flush ${op.type.name} id=${op.id} dropped (stale — client missing): $msg',
+              name: 'SyncService',
+            );
+            continue;
+          }
+
+          // Safety net: after 30 failed attempts, drop the op. Prevents
+          // any unknown-error class from bloating the queue forever.
+          // 30 attempts ≈ a full day of reconnect cycles.
+          if (op.attempts >= 30) {
+            await _storage.deletePendingOp(op.id);
+            flushed += 1;
+            dev.log(
+              'flush ${op.type.name} id=${op.id} dropped (attempts=${op.attempts} exceeded cap): $msg',
+              name: 'SyncService',
+            );
+            continue;
+          }
+
           final nowMs = DateTime.now().millisecondsSinceEpoch;
           await _storage.markPendingOpFailed(
             id: op.id,
@@ -826,6 +855,50 @@ class SyncService {
   String? _extractErrorCode(Object e) {
     if (e is PostgrestException) return e.code;
     return null;
+  }
+
+  /// Returns true when the exception indicates that the server-side
+  /// client (or plan) the op acts on no longer exists. The op is
+  /// semantically moot — the user's intent to mutate X is already
+  /// superseded by X being gone — so we drop it from the queue instead
+  /// of retrying forever. See the 2026-04-21 post-mortem: a session
+  /// invalidation (`session_not_found`) blocked all flushes for an hour,
+  /// during which many ops on soon-to-be-deleted clients piled up;
+  /// when the JWT recovered, those ops would never succeed and the
+  /// queue would otherwise stay stuck forever.
+  bool _isStaleOpAgainstMissingClient(Object e, PendingOpType type) {
+    final msg = e.toString().toLowerCase();
+
+    // PostgREST 22023 "client X not found" — set_client_exercise_default,
+    // set_client_video_consent, rename_client all return this shape when
+    // the row is missing or tombstoned.
+    if (e is PostgrestException && e.code == '22023' &&
+        msg.contains('not found')) {
+      return true;
+    }
+
+    // renameClient on ApiClient throws RenameClientError(notFound) when
+    // the RPC's RETURN QUERY returns zero rows (client absent / deleted).
+    if (type == PendingOpType.renameClient &&
+        msg.contains('renameclienterror') &&
+        msg.contains('notfound')) {
+      return true;
+    }
+
+    // set_client_video_consent returns `false` when the caller isn't a
+    // member of the client's practice OR the client is missing. We wrap
+    // that in a thrown exception upstream; the message carries the
+    // distinctive string.
+    if (type == PendingOpType.setConsent &&
+        msg.contains('set_client_video_consent returned false')) {
+      return true;
+    }
+
+    // delete_client / restore_client are already idempotent on missing
+    // rows (schema_fix_delete_restore_idempotent.sql), so any thrown
+    // error there is NOT a stale-op condition — let the normal retry
+    // path handle it.
+    return false;
   }
 }
 
