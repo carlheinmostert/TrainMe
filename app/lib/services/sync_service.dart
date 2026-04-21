@@ -451,14 +451,8 @@ class SyncService {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final trimmed = newName.trim();
     // Load current row so we can keep the consent flags intact.
-    final rows = await _storage.db.query(
-      'cached_clients',
-      where: 'id = ?',
-      whereArgs: [clientId],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    final current = CachedClient.fromMap(rows.first);
+    final current = await _loadCachedClientRaw(clientId);
+    if (current == null) return null;
     final updated = current.copyWith(name: trimmed, dirty: true);
     await _storage.upsertCachedClient(updated);
     final op = PendingOp.renameClient(
@@ -529,14 +523,8 @@ class SyncService {
     required bool colourAllowed,
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final rows = await _storage.db.query(
-      'cached_clients',
-      where: 'id = ?',
-      whereArgs: [clientId],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    final current = CachedClient.fromMap(rows.first);
+    final current = await _loadCachedClientRaw(clientId);
+    if (current == null) return null;
     final updated = current.copyWith(
       grayscaleAllowed: grayscaleAllowed,
       colourAllowed: colourAllowed,
@@ -578,14 +566,8 @@ class SyncService {
     required Object? value,
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final rows = await _storage.db.query(
-      'cached_clients',
-      where: 'id = ?',
-      whereArgs: [clientId],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    final current = CachedClient.fromMap(rows.first);
+    final current = await _loadCachedClientRaw(clientId);
+    if (current == null) return null;
     final nextDefaults = Map<String, dynamic>.from(
       current.clientExerciseDefaults,
     );
@@ -624,6 +606,12 @@ class SyncService {
   /// after the cool-down. 5s matches the shortest observable recovery
   /// latency on LTE in Carl's QA logs.
   static const Duration _retryCooldown = Duration(seconds: 5);
+
+  /// Hard cap on per-op retry attempts before the op is dropped as a
+  /// safety net (prevents an unknown-error class from bloating the queue
+  /// forever). ~30 attempts ≈ a full day of reconnect cycles at the
+  /// [_retryCooldown] tick rate.
+  static const int _maxAttempts = 30;
 
   /// Try to push every queued op. Each op is independent — a failure
   /// on op N doesn't block op N+1. Idempotent: running twice in a row
@@ -665,25 +653,21 @@ class SyncService {
           // Matches the drop-semantics we gave delete_client + restore_client
           // in the schema_fix_delete_restore_idempotent.sql migration.
           if (_isStaleOpAgainstMissingClient(e, op.type)) {
-            await _storage.deletePendingOp(op.id);
+            await _dropOp(op, reason: 'stale — client missing', detail: msg);
             flushed += 1;
-            dev.log(
-              'flush ${op.type.name} id=${op.id} dropped (stale — client missing): $msg',
-              name: 'SyncService',
-            );
             continue;
           }
 
           // Safety net: after 30 failed attempts, drop the op. Prevents
           // any unknown-error class from bloating the queue forever.
           // 30 attempts ≈ a full day of reconnect cycles.
-          if (op.attempts >= 30) {
-            await _storage.deletePendingOp(op.id);
-            flushed += 1;
-            dev.log(
-              'flush ${op.type.name} id=${op.id} dropped (attempts=${op.attempts} exceeded cap): $msg',
-              name: 'SyncService',
+          if (op.attempts >= _maxAttempts) {
+            await _dropOp(
+              op,
+              reason: 'attempts=${op.attempts} exceeded cap',
+              detail: msg,
             );
+            flushed += 1;
             continue;
           }
 
@@ -763,10 +747,7 @@ class SyncService {
           await _rewireClient(fromId: clientId, toId: returned);
         } else {
           // Happy path: mark the row clean.
-          await _storage.db.rawUpdate(
-            'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
-            [DateTime.now().millisecondsSinceEpoch, clientId],
-          );
+          await _markCachedClientClean(clientId);
         }
         return true;
 
@@ -778,10 +759,7 @@ class SyncService {
           clientId: clientId,
           newName: newName,
         );
-        await _storage.db.rawUpdate(
-          'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
-          [DateTime.now().millisecondsSinceEpoch, clientId],
-        );
+        await _markCachedClientClean(clientId);
         return true;
 
       case PendingOpType.setConsent:
@@ -798,10 +776,7 @@ class SyncService {
         if (!ok) {
           throw Exception('set_client_video_consent returned false');
         }
-        await _storage.db.rawUpdate(
-          'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
-          [DateTime.now().millisecondsSinceEpoch, clientId],
-        );
+        await _markCachedClientClean(clientId);
         return true;
 
       case PendingOpType.deleteClient:
@@ -811,20 +786,14 @@ class SyncService {
         // Mark the cached row clean; it stays with `deleted=1` so reads
         // skip it. A subsequent pull will remove it once the server
         // state settles (list_practice_clients filters deleted rows).
-        await _storage.db.rawUpdate(
-          'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
-          [DateTime.now().millisecondsSinceEpoch, clientId],
-        );
+        await _markCachedClientClean(clientId);
         return true;
 
       case PendingOpType.restoreClient:
         final clientId = op.payload['client_id'] as String?;
         if (clientId == null) return true;
         await ApiClient.instance.restoreClient(clientId: clientId);
-        await _storage.db.rawUpdate(
-          'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
-          [DateTime.now().millisecondsSinceEpoch, clientId],
-        );
+        await _markCachedClientClean(clientId);
         return true;
 
       case PendingOpType.setExerciseDefault:
@@ -840,10 +809,7 @@ class SyncService {
           field: field,
           value: value,
         );
-        await _storage.db.rawUpdate(
-          'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
-          [DateTime.now().millisecondsSinceEpoch, clientId],
-        );
+        await _markCachedClientClean(clientId);
         return true;
     }
   }
@@ -900,6 +866,53 @@ class SyncService {
     }
   }
 
+  /// Raw cached-client lookup that does NOT filter soft-deleted rows.
+  /// Separate from [LocalStorageService.getCachedClientById] because the
+  /// queue* helpers need to operate on any row we have a copy of (a
+  /// rename issued just before a delete still queues; the cloud
+  /// classifier will drop it if necessary). Returns null on miss.
+  Future<CachedClient?> _loadCachedClientRaw(String clientId) async {
+    final rows = await _storage.db.query(
+      'cached_clients',
+      where: 'id = ?',
+      whereArgs: [clientId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return CachedClient.fromMap(rows.first);
+  }
+
+  /// Mark a cached_clients row as clean + stamped with a fresh
+  /// `synced_at`. Called after every successful op in [_applyOp] — this
+  /// is the single place the SQL literal lives so a future column change
+  /// doesn't need six identical edits.
+  Future<void> _markCachedClientClean(String clientId) async {
+    await _storage.db.rawUpdate(
+      'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
+      [DateTime.now().millisecondsSinceEpoch, clientId],
+    );
+  }
+
+  /// Permanently drop [op] from the queue and emit a diagnostic log
+  /// line. Used by the two drop paths in [flush] — stale-op classifier
+  /// match + 30-attempt safety cap — so the delete + `dev.log` pair
+  /// stays in lockstep regardless of which path fires.
+  ///
+  /// [reason] is a short classifier (e.g. `stale — client missing`,
+  /// `attempts=30 exceeded cap`); [detail] is the stringified exception
+  /// from the most recent attempt.
+  Future<void> _dropOp(
+    PendingOp op, {
+    required String reason,
+    required String detail,
+  }) async {
+    await _storage.deletePendingOp(op.id);
+    dev.log(
+      'flush ${op.type.name} id=${op.id} dropped ($reason): $detail',
+      name: 'SyncService',
+    );
+  }
+
   /// Extract the PostgREST / Postgres SQLSTATE code from an arbitrary
   /// exception. Returns null when the shape is unrecognised. Today
   /// only used for the debug log — SyncService retries all errors the
@@ -948,9 +961,11 @@ class SyncService {
 
     // renameClient on ApiClient throws RenameClientError(notFound) when
     // the RPC's RETURN QUERY returns zero rows (client absent / deleted).
+    // Match the typed exception directly — cheaper + less fragile than
+    // stringifying + lower-casing the error and grepping.
     if (type == PendingOpType.renameClient &&
-        msg.contains('renameclienterror') &&
-        msg.contains('notfound')) {
+        e is RenameClientError &&
+        e.kind == RenameClientErrorKind.notFound) {
       return true;
     }
 

@@ -770,16 +770,7 @@ export class PortalMembersApi {
     );
     if (error || !data) return [];
     const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
-    return rows.map((r) => ({
-      trainerId: String(r.trainer_id ?? ''),
-      email: String(r.email ?? ''),
-      fullName: String(r.full_name ?? ''),
-      role: (r.role === 'owner' ? 'owner' : 'practitioner') as
-        | 'owner'
-        | 'practitioner',
-      joinedAt: String(r.joined_at ?? ''),
-      isCurrentUser: Boolean(r.is_current_user),
-    }));
+    return rows.map(mapMemberProfileRow);
   }
 
   /**
@@ -815,16 +806,7 @@ export class PortalMembersApi {
           addedAt: String(r.added_at ?? ''),
         });
       } else {
-        members.push({
-          trainerId: String(r.trainer_id ?? ''),
-          email: String(r.email ?? ''),
-          fullName: String(r.full_name ?? ''),
-          role: (r.role === 'owner' ? 'owner' : 'practitioner') as
-            | 'owner'
-            | 'practitioner',
-          joinedAt: String(r.joined_at ?? ''),
-          isCurrentUser: Boolean(r.is_current_user),
-        });
+        members.push(mapMemberProfileRow(r));
       }
     }
     return { members, pending };
@@ -963,6 +945,25 @@ export function createPortalMembersApi(
   supabase: CompatSupabase,
 ): PortalMembersApi {
   return new PortalMembersApi(supabase);
+}
+
+/**
+ * Decode a `list_practice_members_*` row into a [MemberProfile]. Shared
+ * between [PortalMembersApi.listMembers] and the non-pending branch of
+ * [PortalMembersApi.listMembersAndPending] so the field coercions
+ * (empty-string fallbacks, role narrowing) live in one place.
+ */
+function mapMemberProfileRow(r: Record<string, unknown>): MemberProfile {
+  return {
+    trainerId: String(r.trainer_id ?? ''),
+    email: String(r.email ?? ''),
+    fullName: String(r.full_name ?? ''),
+    role: (r.role === 'owner' ? 'owner' : 'practitioner') as
+      | 'owner'
+      | 'practitioner',
+    joinedAt: String(r.joined_at ?? ''),
+    isCurrentUser: Boolean(r.is_current_user),
+  };
 }
 
 // Error classifier for the Milestone P RPCs. Mirrors the SQLSTATE choices
