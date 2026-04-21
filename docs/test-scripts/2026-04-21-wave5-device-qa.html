@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Device QA Wave 5 — Members area (identity + invite codes + roles)</title>
+<title>Device QA Wave 5 + 14 — Members area (add by email + pending + roles)</title>
 <style>
   :root {
     --bg: #0F1117;
@@ -130,34 +130,35 @@
 </head>
 <body>
   <div class="wrap">
-    <div class="kicker">2026-04-21 · Wave 5 — Members area</div>
-    <h1>Device QA — Wave 5</h1>
+    <div class="kicker">2026-04-21 · Wave 5 + 14 — Members area</div>
+    <h1>Device QA — Members (Wave 5 + 14)</h1>
     <p class="lede">
-      <strong>Purpose:</strong> verify the portal <code>/members</code> rewrite exposes real identities (email + name), owners can mint per-practitioner invite codes, unauthenticated landing on <code>/join/:code</code> gates through auth then claims the invite, and role-change + remove + leave flows enforce the blocked-cases (last owner, self-role-change, only-member leave).
+      <strong>Purpose:</strong> verify <code>/members</code> identity surface + the Wave 14 add-by-email flow that superseded the Wave 5 invite-code flow. Owner types a colleague's email → if they have an account, added immediately; if not, a pending row is saved and auto-claims on signup via an <code>auth.users</code> INSERT trigger. Role-change + remove + leave flows unchanged.
       <br><br>
-      <strong>In scope:</strong> <code>/members</code> table identity fix, invite minting + revocation, <code>/join/:code</code> flow (fresh signup + existing user + already-member + invalid code), role changes, remove, leave, mobile claim entry.
+      <strong>In scope:</strong> <code>/members</code> table identity, add-by-email (three paths: added / already_member / pending), pending-row visibility + remove, auto-claim trigger on new signup, role changes with last-owner / self-role-change guards, remove, leave with last-owner / only-member guards, mobile surface cleanup.
       <br><br>
-      <strong>Out of scope:</strong> audit log expansion (covered in Wave 9), member avatars, in-app notifications of new joiners, email invites.
+      <strong>Out of scope:</strong> audit log expansion (Wave 9), member avatars, in-app notifications of new joiners, Resend SMTP lift of the magic-link throttle (Wave 13, queued), email invites with a link. The auto-claim trigger fires on ANY new <code>auth.users</code> INSERT — Supabase handles whether the user got in via magic link / password / OAuth.
     </p>
 
     <div class="oos">
       <h3>Prerequisites</h3>
       <ul>
-        <li>Portal deployed with Wave 5 PR merged. Supabase migration for <code>practice_invite_codes</code> + 6 new RPCs applied.</li>
-        <li>Two practitioner test accounts available: one owner (Carl's main), one clean account with no practice membership yet.</li>
-        <li>A second practice where Carl is an owner with at least one other practitioner member, for role-change + remove + leave tests.</li>
+        <li>Main merged through PR #97 (Wave 14). Supabase migration <code>schema_milestone_u_add_member_by_email.sql</code> applied live — <code>pending_practice_members</code> table + three RPCs (<code>add_practice_member_by_email</code>, <code>remove_pending_practice_member</code>, <code>list_practice_members_and_pending</code>) + <code>claim_pending_practice_memberships_trigger</code> on <code>auth.users</code>.</li>
+        <li>Two fresh Safari profiles so the owner session + test-user session don't collide (see "Safari → Settings → Profiles" if not already set up).</li>
+        <li>Access to at least one email address with no homefit.studio account yet (for the pending + auto-claim case). A second address that already has an account (for the instant-join case).</li>
+        <li>A practice where Carl is the owner with at least one other practitioner member, for role-change + remove + leave tests.</li>
       </ul>
     </div>
 
     <h2>1 · Members list — identity surface</h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      The scaffold shows truncated UUIDs. After the rewrite, email + full name come through via the new <code>list_practice_members_with_profile</code> RPC.
+      <code>/members</code> renders real identities (email + name) via <code>list_practice_members_and_pending</code>. Two sections on the page: Members (live) + Pending (added by email, not yet signed up).
     </p>
     <ul class="checklist">
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
         <span class="num">1.</span>
-        <span class="text">Open <code>manage.homefit.studio/members</code> as an owner — table shows a row per member with Email, Name, Role, Joined date. No truncated UUID placeholders remain.</span>
+        <span class="text">Open <code>manage.homefit.studio/members</code> as an owner — Members table shows a row per member with Email, Name, Role, Joined date. No truncated UUIDs.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="2" data-status="">
@@ -169,145 +170,151 @@
       <li data-num="3" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
         <span class="num">3.</span>
-        <span class="text">Open <code>/members</code> as a non-owner practitioner — table renders but Role dropdown and Remove button are absent. Own row still shows Leave.</span>
+        <span class="text">Open <code>/members</code> as a non-owner practitioner — Members table renders but Role dropdown, Remove button, Add-by-email input, and Pending section are all absent. Own row still shows Leave.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>2 · Invite mint + copy</h2>
+    <h2>2 · Add by email — existing account (instant join)</h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      Owners mint a 7-char opaque code per invited practitioner. No expiry. One code per invited person.
+      Owner types the colleague's email, clicks Add. If the email matches an <code>auth.users</code> row, the practitioner is inserted into <code>practice_members</code> immediately.
     </p>
     <ul class="checklist">
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
         <span class="num">4.</span>
-        <span class="text">Click <code>Invite a practitioner</code> at the top of <code>/members</code> — a new 7-char code is generated, displayed, and the full <code>https://manage.homefit.studio/join/{code}</code> URL is copied to clipboard. Toast confirms.</span>
+        <span class="text">Type an email belonging to an existing homefit.studio user who is NOT yet a member of this practice. Click <code>Add</code>. Toast reads "Added {email} to {practice}." (or equivalent). The Members table gains a new row immediately.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="5" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
         <span class="num">5.</span>
-        <span class="text">Mint two more codes in succession — each is unique, each uses the unambiguous alphabet (no 0/O/1/I/l). All three appear in a pending-invites list somewhere on the page.</span>
+        <span class="text">As that newly-added practitioner (in a separate Safari profile), refresh <code>/dashboard</code> → the practice appears in the switcher. No re-auth, no invite link clicked. Just appears.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>3 · Claim flow — <code>/join/:code</code></h2>
-    <p style="color: var(--text-mute); margin: 0 0 12px;">
-      Landing page routes through auth and inserts the claimer as a <code>practitioner</code> member.
-    </p>
-    <ul class="checklist">
       <li data-num="6" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
         <span class="num">6.</span>
-        <span class="text">Open <code>/join/{code}</code> in a private window (unauth) — page shows the practice name + a <code>Sign in to join</code> button. After email/password or magic-link sign-in, page auto-redirects back and claims the invite.</span>
+        <span class="text">Try to Add the same email again. Toast reads "Already a member" (or equivalent — RPC <code>kind=already_member</code>). Members table does not duplicate the row.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="7" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
         <span class="num">7.</span>
-        <span class="text">After claim, redirect lands on <code>/dashboard</code> with the invited practice now selected in the switcher. Credit balance + clients list reflect the joined practice.</span>
+        <span class="text">Try malformed input: empty string, single word with no <code>@</code>, blank spaces. Form should reject client-side with a sensible hint OR the RPC returns 22023 <code>invalid email</code> surfaced as a red toast. No 500 / blank page.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
+    </ul>
+
+    <h2>3 · Add by email — pending (no account yet)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      When the email has no <code>auth.users</code> match, the RPC stashes a row in <code>pending_practice_members</code>. Pending section renders them.
+    </p>
+    <ul class="checklist">
       <li data-num="8" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
         <span class="num">8.</span>
-        <span class="text">Open <code>/join/{already-claimed-code}</code> — page shows a friendly "This invite was already used" message, no crash. Offer to sign in + navigate to dashboard.</span>
+        <span class="text">Type a fresh email with NO homefit.studio account (e.g. <code>test-qa-{timestamp}@example.com</code>). Click Add. Toast reads "Saved — will join automatically when they sign up" (or equivalent, <code>kind=pending</code>). The email appears in the <strong>Pending</strong> section, not the Members table.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="9" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
         <span class="num">9.</span>
-        <span class="text">Open <code>/join/{made-up-nonsense}</code> — page shows "Invite not found or revoked" message, not a blank screen or stack trace.</span>
+        <span class="text">Pending row shows email + <code>added_by</code> (you) + <code>added_at</code> (now) + a Remove button. Fields match the mockup / component spec.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="10" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
         <span class="num">10.</span>
-        <span class="text">Sign in as a user who is already a member of the practice, then open <code>/join/{valid-code-for-that-practice}</code> — page shows "You're already a member" and lands on the practice dashboard. No duplicate row inserted in <code>practice_members</code>.</span>
+        <span class="text">Add the same pending email again. Idempotent — no duplicate row, <code>added_at</code> may refresh (ON CONFLICT DO UPDATE). Toast distinguishes this from the first-add case OR says the same "Saved" (either is fine; note which).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Click Remove on a pending row → row disappears from the Pending section. Refresh the page — still gone. (RPC <code>remove_pending_practice_member</code> fired.)</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>4 · Role changes (owner ↔ practitioner)</h2>
+    <h2>4 · Auto-claim on signup (the trigger)</h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      Owner-only control, DB-enforced blocks on last-owner demotion and self-role-change.
+      <code>claim_pending_practice_memberships_trigger</code> on <code>auth.users</code> INSERT drains matching pending rows into <code>practice_members</code> for the new user.
     </p>
     <ul class="checklist">
-      <li data-num="11" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
-        <span class="num">11.</span>
-        <span class="text">On a practice with 2+ owners, change another owner's role to <code>practitioner</code> via the Role dropdown — update persists, table refreshes, their access in Portal is now practitioner-only on next page load.</span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="12" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
         <span class="num">12.</span>
-        <span class="text">Try to demote yourself (own-row role dropdown) — the dropdown is disabled / not present. RPC called directly via browser console returns a guard error.</span>
+        <span class="text">Add a pending row for a fresh-never-seen email. In a separate Safari profile, go to <code>manage.homefit.studio</code>, sign up with that email (password or magic link). Confirm signup.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="13" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
         <span class="num">13.</span>
-        <span class="text">On a practice where you are the only owner, try to demote yourself — blocked with a friendly "You are the last owner — promote someone first" message. No DB state change.</span>
+        <span class="text">Upon sign-in, the new user's practice switcher shows the practice that added them — no invite link, no extra click. Audit log (or <code>practice_members</code> direct query) shows a row with <code>joined_at</code> matching the signup time, role <code>practitioner</code>.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>5 · Remove member</h2>
-    <p style="color: var(--text-mute); margin: 0 0 12px;">
-      Owner-only. Hard-deletes the membership row. Revokes any unclaimed invite codes minted for them.
-    </p>
-    <ul class="checklist">
       <li data-num="14" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
         <span class="num">14.</span>
-        <span class="text">Click Remove on a practitioner row — member disappears from the table immediately. Removed practitioner's next session refresh boots them out of that practice.</span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
-      <li data-num="15" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
-        <span class="num">15.</span>
-        <span class="text">Credit ledger entries attributed to the removed practitioner remain intact and still show the correct trainer_id (FK to <code>auth.users</code>, not the pivot row). Audit trail unbroken.</span>
+        <span class="text">Back in the owner's Safari profile, refresh <code>/members</code> — the email moved from Pending into the Members table.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>6 · Leave practice (self-service)</h2>
+    <h2>5 · Role changes (owner ↔ practitioner)</h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      Any member can leave unless they're the last owner with practitioners remaining or the only member.
+      Owner-only control, DB-enforced blocks on last-owner demotion and self-role-change. Unchanged by Wave 14.
     </p>
     <ul class="checklist">
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+        <span class="num">15.</span>
+        <span class="text">On a practice with 2+ owners, promote a practitioner to owner via the Role dropdown — update persists, table refreshes, their UI reflects owner permissions (Members page shows Add form + role/remove controls).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
       <li data-num="16" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
         <span class="num">16.</span>
-        <span class="text">As a practitioner in a multi-member practice, click Leave on own row — UndoSnackBar appears, dismissing the undo removes you; refreshing the portal shows the practice no longer in the switcher.</span>
+        <span class="text">Try to demote yourself — dropdown disabled / not present on your own row. If RPC is called directly via browser console, guard error (42501).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="17" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
         <span class="num">17.</span>
-        <span class="text">As the only owner of a practice with practitioners remaining, click Leave — blocked with "Promote another owner before leaving" message. No membership row removed.</span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
-      <li data-num="18" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
-        <span class="num">18.</span>
-        <span class="text">As the only member of a practice, click Leave — blocked with "You're the only member — practice deletion is out of scope" or equivalent. No action.</span>
+        <span class="text">On a practice where you are the only owner, try to demote another owner — blocked with "last owner — promote someone first" style message. No DB state change.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>7 · Mobile claim entry</h2>
+    <h2>6 · Remove member + leave practice</h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      Practitioner opens an invite URL on their iPhone → Safari → app should handle or direct to portal to claim, returning user to app with new practice membership visible.
+      Hard-delete the membership. Credit-ledger attribution preserved. Leave blocked for last-owner-with-practitioners and only-member cases.
     </p>
     <ul class="checklist">
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
+        <span class="num">18.</span>
+        <span class="text">Click Remove on a practitioner row → row disappears. Their next portal refresh boots them out of that practice. <code>credit_ledger</code> entries attributed to them remain (FK to <code>auth.users</code>, not pivot).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
       <li data-num="19" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 19">✓</button><button class="fail" type="button" aria-label="Fail 19">✗</button></div>
         <span class="num">19.</span>
-        <span class="text">Tap a <code>/join/{code}</code> link on iPhone Safari as an already-signed-in practitioner — flow completes in Safari, portal confirms join, launch the homefit.studio app → new practice appears in the Practice Switcher bottom-sheet.</span>
+        <span class="text">As a practitioner, click Leave on own row → removed. As the only owner with practitioners remaining, click Leave → blocked. As the only member, click Leave → blocked. All three paths work / block correctly.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>7 · Mobile surface — invite-code cleanup</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Wave 14 retired the mobile "Join a practice" card. Practitioners discover new practices via the switcher once the owner has added them.
+    </p>
+    <ul class="checklist">
+      <li data-num="20" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 20">✓</button><button class="fail" type="button" aria-label="Fail 20">✗</button></div>
+        <span class="num">20.</span>
+        <span class="text">On iPhone, open Settings → scroll through the page top to bottom. The "Practices" card with the 7-char invite-code input is gone. No residual UI referencing "Join a practice" or "invite code".</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>

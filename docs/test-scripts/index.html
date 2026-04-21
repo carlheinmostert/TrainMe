@@ -168,8 +168,8 @@
         <a href="./2026-04-21-wave5-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 5 — Members area (identity + invite codes + roles)</div>
-              <div class="scope">Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/members</code> rewrite + mobile Settings "Join a practice" card. Per-practitioner-per-practice invite codes, no expiry, auto-join on claim, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/join/:code</code> landing page. Role change + hard remove + self-service leave with last-owner guards. Mobile CLAIM only; mint/manage stay on portal. 19 items.</div>
+              <div class="name">1 · Wave 5 + 14 — Members area (add by email + pending + roles)</div>
+              <div class="scope">Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/members</code> with the Wave 14 add-by-email flow that superseded the invite-code flow. Three paths: <em>added</em> (existing account → instant join), <em>already_member</em> (idempotent no-op), <em>pending</em> (no account → stashed in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">pending_practice_members</code>, auto-claims on signup via an <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">auth.users</code> trigger). Role change + hard remove + leave-with-guards unchanged. Mobile "Join a practice" card retired — practitioners discover via switcher. 20 items.</div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
