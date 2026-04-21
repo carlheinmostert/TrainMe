@@ -1,0 +1,54 @@
+{
+  "items": {
+    "1": {
+      "note": "",
+      "status": "pass"
+    },
+    "10": {
+      "note": "",
+      "status": "pass"
+    },
+    "11": {
+      "note": "",
+      "status": "pass"
+    },
+    "12": {
+      "note": "",
+      "status": "pass"
+    },
+    "2": {
+      "note": "",
+      "status": "pass"
+    },
+    "3": {
+      "note": "",
+      "status": "pass"
+    },
+    "4": {
+      "note": "Paste this:  > Verified indirectly. If the scheme handler weren't intercepting `homefit-local://`, the bundle couldn't fetch `/api/plan/<id>` from same-origin and the preview would still show \"Plan not found\". Preview loads with exercises + videos \u2192 scheme is working. Direct Web Inspector confirmation deferred (iOS 16.4+ requires `isInspectable=true` on the WKWebView; not set yet).",
+      "status": "pass"
+    },
+    "5": {
+      "note": "Paste this:  > Verified indirectly. If the scheme handler weren't intercepting `homefit-local://`, the bundle couldn't fetch `/api/plan/<id>` from same-origin and the preview would still show \"Plan not found\". Preview loads with exercises + videos \u2192 scheme is working. Direct Web Inspector confirmation deferred (iOS 16.4+ requires `isInspectable=true` on the WKWebView; not set yet).",
+      "status": "pass"
+    },
+    "6": {
+      "note": "Paste this:  > Verified indirectly. If the scheme handler weren't intercepting `homefit-local://`, the bundle couldn't fetch `/api/plan/<id>` from same-origin and the preview would still show \"Plan not found\". Preview loads with exercises + videos \u2192 scheme is working. Direct Web Inspector confirmation deferred (iOS 16.4+ requires `isInspectable=true` on the WKWebView; not set yet).",
+      "status": "pass"
+    },
+    "7": {
+      "note": "Paste this:  > Verified indirectly. If the scheme handler weren't intercepting `homefit-local://`, the bundle couldn't fetch `/api/plan/<id>` from same-origin and the preview would still show \"Plan not found\". Preview loads with exercises + videos \u2192 scheme is working. Direct Web Inspector confirmation deferred (iOS 16.4+ requires `isInspectable=true` on the WKWebView; not set yet).",
+      "status": "pass"
+    },
+    "8": {
+      "note": "shelf/shelf_static deliberately retained as rollback path (kUseShelfFallback flag). Not invoked at runtime. Full removal queued for a later wave once Phase 2 holds on device.",
+      "status": "pass"
+    },
+    "9": {
+      "note": "",
+      "status": "pass"
+    }
+  },
+  "updatedAt": "2026-04-21T11:18:44.729Z",
+  "wave": "wave-4-phase-2"
+}
