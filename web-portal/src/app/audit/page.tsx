@@ -26,9 +26,14 @@ import { AuditCsvButton } from '@/components/AuditCsvButton';
  *   - referral_rebate_ledger (referral.rebate)
  *   - clients (client.create / client.delete)
  *   - practice_members (member.join)
- *   - practice_invite_codes (invite.mint / invite.claim)
  *   - audit_events (catchall — member.role_change, member.remove,
- *     practice.rename, client.restore, invite.revoke, ...)
+ *     practice.rename, client.restore, ...)
+ *
+ * Wave 14: invite.mint / invite.claim / invite.revoke chips retired
+ * when the Wave 5 invite-code flow was replaced with add-by-email.
+ * The label + description maps still carry fallback copy so any legacy
+ * audit_events rows with those kinds render gracefully, but nothing
+ * new emits them.
  *
  * Transparency rule (CLAUDE.md): every practice member sees every event.
  * No role-based filtering. The Members link in the nav is still owner-only

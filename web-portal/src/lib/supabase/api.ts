@@ -654,13 +654,20 @@ export class DeleteClientError extends Error {
 // Members surface (PortalMembersApi)
 // ============================================================================
 //
-// Wraps the Milestone P / Wave 5 SECURITY DEFINER RPCs for member-roster,
-// invite-code minting + claiming, role change, remove, and leave flows.
-// Owner-only gates live inside each RPC — the client just surfaces the
-// typed signature + error mapping.
+// Wraps the Wave 14 (milestone U) SECURITY DEFINER RPCs for add-member-by-
+// email, pending-revoke, combined roster + pending list, role change,
+// remove, and leave flows. Owner-only gates live inside each RPC — the
+// client just surfaces the typed signature + error mapping.
 //
-// Visibility: any practice member can read the roster (transparency
-// intentional). Write RPCs enforce owner-only (or self) at the DB level.
+// Supersedes the Wave 5 invite-code flow (mint + claim). The new model
+// is: owner types invitee email → existing auth.users get added
+// immediately; new-to-homefit emails get parked in pending_practice_members
+// and a trigger drains them on signup. The invitee never sees an invite
+// link or code — magic-link throttle is no longer in the critical path.
+//
+// Visibility: any practice member can read the roster + pending list
+// (transparency intentional, carries over from Wave 5). Writes enforce
+// owner-only at the DB level.
 
 export type MemberProfile = {
   trainerId: string;
@@ -672,14 +679,53 @@ export type MemberProfile = {
 };
 
 /**
+ * A parking-lot entry in `pending_practice_members`. Surfaces in the
+ * "Pending" section of the /members page alongside the current-member
+ * table. `email` is the only identity — there's no auth.users row yet.
+ * `addedAt` is when the owner nudged them; `addedBy` is the owner uuid.
+ */
+export type PendingMember = {
+  email: string;
+  addedBy: string | null;
+  addedAt: string;
+};
+
+/**
+ * Return payload from `addMemberByEmail` — mirrors the three-way branch
+ * inside `add_practice_member_by_email`: the target already has an
+ * auth.users row and is (a) now added, (b) already a member, or (c) no
+ * auth.users row yet → parked in pending.
+ */
+export type AddMemberResult =
+  | {
+      kind: 'added';
+      trainerId: string;
+      email: string;
+      fullName: string;
+      role: 'owner' | 'practitioner';
+    }
+  | {
+      kind: 'already_member';
+      trainerId: string;
+      email: string;
+      fullName: string;
+      role: 'owner' | 'practitioner';
+    }
+  | {
+      kind: 'pending';
+      email: string;
+    };
+
+/**
  * Typed failure from [PortalMembersApi] mutations. Mirrors the
  * [RenameClientError] / [RenamePracticeError] shape — kind bucket + message —
  * so the pages can pick the matching inline copy without string parsing.
  *
- *   - `not-owner` (42501) — caller is not an owner (mint, set-role, remove).
+ *   - `not-owner` (42501) — caller is not an owner (add, set-role, remove, remove-pending).
  *   - `not-member` (42501) — caller is not in the practice (leave).
- *   - `not-found` (P0002) — invite code invalid or member row missing.
- *   - `invalid` (22023) — self-role-change, last-owner, solo-member, etc.
+ *   - `not-found` (P0002) — member row missing.
+ *   - `invalid` (22023) — self-role-change, last-owner, solo-member,
+ *     malformed email on add.
  *   - `auth` (28000) — session expired; caller should re-auth.
  */
 export class MembersError extends Error {
@@ -704,6 +750,11 @@ export class PortalMembersApi {
    * Roster for a practice — every member's uuid, email, display name,
    * role, join-timestamp, plus an `isCurrentUser` flag for the own-row
    * tag.
+   *
+   * Preserves the Wave 5 shape for backward-compat callers (audit filter
+   * actor dropdown uses this; see `listPracticeMembersWithProfile` on
+   * PortalApi). /members itself has moved to `listMembersAndPending`
+   * which UNIONs current + pending in one call.
    *
    * RPC enforces membership (42501 if not a member); we surface an
    * empty list in that case because defence-in-depth: the caller should
@@ -732,54 +783,126 @@ export class PortalMembersApi {
   }
 
   /**
-   * Mint a fresh 7-char invite code for the given practice. Owner-only
-   * (enforced inside the RPC; 42501 surfaces as `MembersError('not-owner')`).
+   * Wave 14 — list current members + pending entries in a single RPC
+   * call. The RPC UNIONs `practice_members` (joined on auth.users for
+   * identity) with `pending_practice_members`; the `is_pending` flag
+   * splits the two sections at render time. Current-member rows carry
+   * null `addedBy` / `addedAt`; pending rows carry null `trainerId`.
    *
-   * Returns the opaque slug — the caller is responsible for building
-   * the landing-page URL (`{origin}/join/{code}`) and the copy UX.
+   * Used by /members. Everywhere else should stay on `listMembers` so
+   * pending rows don't leak into surfaces that only model real
+   * practitioners (audit filter, mobile).
+   *
+   * Non-member callers get 42501 inside the RPC which we fold to
+   * `{members: [], pending: []}` here — defence-in-depth.
    */
-  async mintInviteCode(practiceId: string): Promise<string> {
+  async listMembersAndPending(
+    practiceId: string,
+  ): Promise<{ members: MemberProfile[]; pending: PendingMember[] }> {
     const { data, error } = await this.supabase.rpc(
-      'mint_practice_invite_code',
+      'list_practice_members_and_pending',
       { p_practice_id: practiceId },
     );
-    if (error) throw mapMembersError(error);
-    if (typeof data !== 'string' || data.length !== 7) {
-      throw new Error('mint_practice_invite_code returned unexpected payload');
+    if (error || !data) return { members: [], pending: [] };
+    const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
+    const members: MemberProfile[] = [];
+    const pending: PendingMember[] = [];
+    for (const r of rows) {
+      if (Boolean(r.is_pending)) {
+        pending.push({
+          email: String(r.email ?? ''),
+          addedBy: r.added_by ? String(r.added_by) : null,
+          addedAt: String(r.added_at ?? ''),
+        });
+      } else {
+        members.push({
+          trainerId: String(r.trainer_id ?? ''),
+          email: String(r.email ?? ''),
+          fullName: String(r.full_name ?? ''),
+          role: (r.role === 'owner' ? 'owner' : 'practitioner') as
+            | 'owner'
+            | 'practitioner',
+          joinedAt: String(r.joined_at ?? ''),
+          isCurrentUser: Boolean(r.is_current_user),
+        });
+      }
     }
-    return data;
+    return { members, pending };
   }
 
   /**
-   * Claim an invite code. Any authenticated user can call — if the code
-   * is valid + unclaimed, the caller is inserted into `practice_members`
-   * as `role='practitioner'` and the code is stamped claimed.
+   * Wave 14 — add a member to a practice by email.
    *
-   * Idempotent: calling on a code the caller has already claimed (same
-   * auth user) succeeds without an extra practice_members insert — just
-   * re-stamps `claimed_at`. This matches the "user re-clicks the link"
-   * degenerate case.
+   * Wraps `add_practice_member_by_email(p_practice_id, p_email)`
+   * (SECURITY DEFINER, owner-only). The RPC returns a single row with a
+   * `kind` discriminator so the caller can pick the right toast copy:
    *
-   * Returns the practice id + name for post-claim redirect flows. Throws
-   * `MembersError` on invalid / already-used codes (P0002 → `not-found`)
-   * or auth failures (28000 → `auth`).
+   *   - `added`          — the email had an auth.users row and was just
+   *                        inserted into practice_members.
+   *   - `already_member` — the email had an auth.users row AND was
+   *                        already in practice_members. The existing
+   *                        role is echoed back for display parity with
+   *                        `added`.
+   *   - `pending`        — no auth.users row yet. A pending_practice_members
+   *                        row was upserted; a trigger on auth.users
+   *                        INSERT will drain it on signup.
+   *
+   * Typed errors:
+   *   - `not-owner` (42501) — caller is not an owner.
+   *   - `invalid`   (22023) — email missing / malformed.
+   *   - `auth`      (28000) — session expired.
    */
-  async claimInvite(
-    code: string,
-  ): Promise<{ practiceId: string; practiceName: string }> {
-    const { data, error } = await this.supabase.rpc('claim_practice_invite', {
-      p_code: code.toUpperCase(),
-    });
+  async addMemberByEmail(
+    practiceId: string,
+    email: string,
+  ): Promise<AddMemberResult> {
+    const { data, error } = await this.supabase.rpc(
+      'add_practice_member_by_email',
+      { p_practice_id: practiceId, p_email: email },
+    );
     if (error) throw mapMembersError(error);
     const rows = Array.isArray(data) ? data : data ? [data] : [];
     const row = rows[0] as Record<string, unknown> | undefined;
-    if (!row || typeof row.practice_id !== 'string') {
-      throw new Error('claim_practice_invite returned empty payload');
+    if (!row) {
+      throw new Error('add_practice_member_by_email returned empty payload');
     }
-    return {
-      practiceId: row.practice_id,
-      practiceName: String(row.practice_name ?? ''),
-    };
+    const kind = String(row.kind ?? '');
+    if (kind === 'pending') {
+      return { kind: 'pending', email: String(row.email ?? '') };
+    }
+    if (kind === 'added' || kind === 'already_member') {
+      return {
+        kind,
+        trainerId: String(row.trainer_id ?? ''),
+        email: String(row.email ?? ''),
+        fullName: String(row.full_name ?? ''),
+        role: (row.role === 'owner' ? 'owner' : 'practitioner') as
+          | 'owner'
+          | 'practitioner',
+      };
+    }
+    throw new Error(
+      `add_practice_member_by_email returned unexpected kind "${kind}"`,
+    );
+  }
+
+  /**
+   * Wave 14 — revoke a pending entry before the user signs up.
+   *
+   * Wraps `remove_pending_practice_member(p_practice_id, p_email)`
+   * (SECURITY DEFINER, owner-only). No-op if the pending row doesn't
+   * exist (so the UI doesn't need to race against the trigger draining
+   * the row on signup).
+   */
+  async removePendingMember(
+    practiceId: string,
+    email: string,
+  ): Promise<void> {
+    const { error } = await this.supabase.rpc(
+      'remove_pending_practice_member',
+      { p_practice_id: practiceId, p_email: email },
+    );
+    if (error) throw mapMembersError(error);
   }
 
   /**
@@ -807,10 +930,9 @@ export class PortalMembersApi {
   /**
    * Remove a member from a practice. Owner-only; RPC rejects self-remove
    * (caller must use `leavePractice` instead) and last-owner remove.
-   * Also revokes any unclaimed invite codes the removed user minted.
    *
    * Hard delete — no undo for Wave 5. Follow-up wave may add a 5-second
-   * undo RPC that re-inserts the member and revives their codes.
+   * undo RPC that re-inserts the member.
    */
   async removeMember(practiceId: string, trainerId: string): Promise<void> {
     const { error } = await this.supabase.rpc('remove_practice_member', {
@@ -1067,9 +1189,10 @@ export const AUDIT_EVENT_KINDS = [
   'member.join',
   'member.role_change',
   'member.remove',
-  'invite.mint',
-  'invite.claim',
-  'invite.revoke',
+  // Wave 14: invite.mint / invite.claim / invite.revoke retired with the
+  // invite-code flow. The audit page's label + description maps keep
+  // fallback copy for any stale audit_events rows with those kinds, but
+  // they no longer surface as filter chips.
   'practice.rename',
 ] as const;
 
@@ -1094,6 +1217,8 @@ export function auditChipTone(kind: string): AuditChipTone {
     case 'credit.refund':
     case 'client.delete':
     case 'member.remove':
+    // Wave 14: invite.revoke kept only for the defensive grey-fallback
+    // on legacy audit_events rows; no new emissions after Wave 5 retired.
     case 'invite.revoke':
       return 'red';
     default:

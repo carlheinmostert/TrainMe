@@ -8,25 +8,35 @@ import { MembersList } from '@/components/MembersList';
 type SearchParams = { practice?: string };
 
 /**
- * /members — practice roster with owner-only invite / role / remove and
- * everyone-sees-everyone transparency.
+ * /members — practice roster with owner-only add-by-email, pending list,
+ * role change, remove, and leave. Wave 14 supersedes the Wave 5
+ * invite-code flow: there's no more /join/:code landing page and the
+ * invitee never handles a share URL or 7-character code. Instead, the
+ * owner types their colleague's email and clicks Add; if the email
+ * already has a homefit.studio account they're added immediately, and
+ * if not the email is parked in pending_practice_members until they
+ * sign up (a trigger on auth.users INSERT drains it).
  *
- * Wave 5 scope (see docs/BACKLOG.md "Members area — identity, invite codes,
- * role, remove, leave"):
+ * Sections:
+ *   1. Add form (owner only) — email input + Add button. The inline
+ *      toast routes on the RPC's `kind` discriminator: 'added' →
+ *      success, 'already_member' → friendly "already there", 'pending'
+ *      → "we'll add them automatically on signup".
+ *   2. Members table — identical shape to Wave 5. Email · Name · Role
+ *      · Joined · Actions. Own row tagged "you" with Leave.
+ *   3. Pending table (owner only) — email · added by · added at ·
+ *      Remove. Practitioners don't see this section because pending
+ *      is strictly an owner-admin signal — other members have no
+ *      actions they can take on pending rows.
  *
- * - Table: Email · Name · Role · Joined · Actions. Own row is tagged
- *   "(you)" with a Leave button.
- * - Invite: owner-only button at the top mints a fresh 7-char code,
- *   copies the `/join/{code}` URL, and surfaces it in a toast. Each code
- *   is one-time — claiming or revoking invalidates it.
- * - Role change: owner-only dropdown per non-self row. DB enforces
- *   last-owner + self-change guards.
- * - Remove: owner-only destructive button per non-self row. Hard delete
- *   with success toast (no undo for Wave 5).
- * - Leave: self-service button on your own row. Redirects to `/` after.
- *
- * Practitioners see the read-only table; the Actions column shows "—" for
- * them except on their own row, which always carries Leave.
+ * Design compliance:
+ *   - R-01 (no modal confirms): Add + Remove-pending fire immediately;
+ *     destructive errors surface as inline toasts, never confirmation
+ *     dialogs.
+ *   - R-06 (practitioner vocabulary): copy uses "member" / "practitioner"
+ *     / "owner" throughout.
+ *   - R-09 (obvious defaults): the Add form is the primary CTA at the
+ *     top of the section, not buried in a disclosure.
  */
 export default async function MembersPage({
   searchParams,
@@ -51,8 +61,8 @@ export default async function MembersPage({
     redirect('/dashboard');
   }
 
-  const [members, role] = await Promise.all([
-    membersApi.listMembers(practiceId),
+  const [{ members, pending }, role] = await Promise.all([
+    membersApi.listMembersAndPending(practiceId),
     portalApi.getCurrentUserRole(practiceId, user.id),
   ]);
   const isOwner = role === 'owner';
@@ -74,24 +84,20 @@ export default async function MembersPage({
           <div>
             <h1 className="font-heading text-3xl font-bold">Members</h1>
             <p className="mt-2 max-w-xl text-sm text-ink-muted">
-              Everyone who can publish plans under this practice. Every
-              member can see the roster; only owners can invite, change
-              roles, or remove.
+              Everyone who can publish plans under this practice. Owners
+              can add practitioners by email; if the email already has a
+              homefit.studio account they&rsquo;re added immediately, and
+              if not they&rsquo;ll join automatically when they sign up.
             </p>
           </div>
         </div>
 
-        {members.length === 0 ? (
-          <p className="mt-10 rounded-lg border border-surface-border bg-surface-base p-8 text-center text-ink-muted">
-            No members found for this practice.
-          </p>
-        ) : (
-          <MembersList
-            practiceId={practiceId}
-            initialMembers={members}
-            isOwner={isOwner}
-          />
-        )}
+        <MembersList
+          practiceId={practiceId}
+          initialMembers={members}
+          initialPending={pending}
+          isOwner={isOwner}
+        />
       </div>
     </main>
   );

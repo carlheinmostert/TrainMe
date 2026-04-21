@@ -4,6 +4,31 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+## Add practice member by email — supersede Wave 5 invite-code flow (Wave 14)
+
+**Status:** Shipped **Wave 14** (Carl, 2026-04-21). **Replaces the Wave 5 invite-code flow** (PR #76, which Carl rejected after QA friction). Migration: `supabase/schema_milestone_u_add_member_by_email.sql`.
+
+**Why:** Wave 5's "mint code → share /join/{code} link → invitee signs in → calls claim_practice_invite" had three blockers for MVP-stage QA:
+- Magic-link emails hit Supabase's built-in SMTP throttle (~4/hr project-wide) — caused a live QA outage 2026-04-21.
+- Testing needed fresh browser profiles to avoid session collision between owner + invitee in the same browser.
+- Invitee-side confusion around the 7-character code and landing page.
+
+**New model:** owner on `/members` types the invitee's email and clicks **Add**. The RPC branches on whether an `auth.users` row already exists:
+- Exists + not yet in practice → added to `practice_members` immediately; the practice appears in their switcher on their next home render.
+- Exists + already a member → returns `already_member` kind for a friendly "already there" toast.
+- No account yet → parked in `pending_practice_members` (email + practice_id PK). A trigger on `auth.users` INSERT drains matching rows into `practice_members` on first signup and deletes the pending row. The invitee never sees an invite link or code.
+
+**What shipped:**
+- `supabase/schema_milestone_u_add_member_by_email.sql` — drops `practice_invite_codes`, `mint_practice_invite_code`, `claim_practice_invite`. Creates `pending_practice_members` + 3 new RPCs (`add_practice_member_by_email`, `remove_pending_practice_member`, `list_practice_members_and_pending`). Installs `claim_pending_practice_memberships` AFTER INSERT trigger on `auth.users`. Recreates `list_practice_audit` without the dead `invite.mint` / `invite.claim` branches.
+- Portal `/members` rewrite — email input + Add button, Members + Pending sections, Remove on pending rows. `/join/[code]` route deleted entirely (page.tsx + JoinInvite.tsx + JoinSignInPrompt.tsx).
+- Mobile: `claimPracticeInvite` / `ClaimInviteResult` / `ClaimInviteError` / `ClaimInviteErrorKind` removed from `app/lib/services/api_client.dart`. Settings "Join a practice" card removed from `app/lib/screens/settings_screen.dart` — zero invitee-side mobile UI; practices just appear in the switcher on first launch after the trigger fires.
+
+**Why no mobile UI:** the invitee-side flow is passive by design. The trigger runs server-side on INSERT; the mobile app's first authenticated `listMyPractices()` call picks up the newly-drained membership row. No UI = no friction = no QA wave 3 bugs.
+
+**Tested live:** three-case RPC spot-check (`added` / `already_member` / `pending`) against Carl's sentinel practice. The pending table + trigger are unit-inspected; end-to-end trigger firing needs a fresh-email signup to exercise — deferred to Wave 14 QA wave if Carl wants a formal pass.
+
+---
+
 ## Resend SMTP for Supabase Auth — lift built-in email throttle (Wave 13)
 
 **Status:** Scheduled **Wave 13** (Carl, 2026-04-21). **Triggered by an active QA outage** — Wave 5 invite-claim testing hit Supabase's built-in SMTP rate limit (~4 magic-link emails per hour, global-per-project). With Melissa + external testers onboarding soon this will be a recurring block.
