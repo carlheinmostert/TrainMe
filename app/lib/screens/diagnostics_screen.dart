@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -322,10 +324,68 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
               offline: SyncService.instance.offline.value,
               sha: AppConfig.buildSha,
             ),
+            const SizedBox(height: 24),
+            // Wave 15 — manual drain escape hatch. Today's only fix for
+            // a stuck queue was "rename a client" or "toggle airplane
+            // mode". This button calls SyncService.flush() directly and
+            // surfaces the count via a toast. Button stays enabled even
+            // when pendingOpCount == 0 — useful as a heartbeat when
+            // dev.log says otherwise.
+            _ActionGroup(
+              title: 'Actions',
+              children: [
+                _ActionRow(
+                  icon: Icons.sync_rounded,
+                  label: 'Force sync now',
+                  subtitle: 'Drain the pending-ops queue immediately',
+                  onTap: () => _runForceSync(context),
+                ),
+              ],
+            ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _runForceSync(BuildContext context) async {
+    HapticFeedback.selectionClick();
+    final messenger = ScaffoldMessenger.of(context);
+    int flushed = 0;
+    String? errorMsg;
+    try {
+      flushed = await SyncService.instance.flush();
+    } catch (e) {
+      errorMsg = e.toString();
+    }
+    if (!context.mounted) return;
+    final remaining = SyncService.instance.pendingOpCount.value;
+    final text = errorMsg != null
+        ? 'Sync failed: $errorMsg'
+        : (flushed == 0 && remaining == 0
+            ? 'No pending ops to sync.'
+            : 'Flushed $flushed ops · $remaining remain');
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            text,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              color: AppColors.textOnDark,
+            ),
+          ),
+          backgroundColor: errorMsg != null
+              ? AppColors.error
+              : AppColors.surfaceRaised,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    // Re-run the probe so the Pending-ops row reflects the new depth.
+    unawaited(_runPendingOpsProbe());
   }
 }
 
@@ -673,6 +733,115 @@ class _MetaRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Visual twin of [_ProbeGroup] for tappable actions instead of status
+/// probes. Same card chrome (surface colour, border, section label
+/// above) so the screen keeps a consistent rhythm, but the children
+/// are [_ActionRow]s with a coral icon + chevron instead of a
+/// pass/warn/fail chip.
+class _ActionGroup extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+  const _ActionGroup({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+          child: Text(
+            title.toUpperCase(),
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.0,
+              color: AppColors.textSecondaryOnDark,
+            ),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.surfaceBase,
+            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+            border: Border.all(color: AppColors.surfaceBorder, width: 1),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: children,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One tappable row inside an [_ActionGroup]. Mirrors the layout of
+/// [_ProbeRow] so the two visual patterns feel related: label +
+/// subtitle on the left, an icon and chevron on the right.
+class _ActionRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _ActionRow({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, color: AppColors.primary, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textOnDark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 12,
+                      color: AppColors.textSecondaryOnDark,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.textSecondaryOnDark,
+              size: 22,
+            ),
+          ],
+        ),
       ),
     );
   }

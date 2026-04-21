@@ -174,6 +174,13 @@ class SyncService {
     // Before this, a sign-out + sign-in cycle left the queue stuck with
     // stale-JWT errors until the user happened to enqueue another op.
     // Fix: on signedIn events, drain the queue against the new session.
+    //
+    // Wave 15 polish — also fire a `pullAll` for the last-known practice
+    // on signedIn so the newly-authed session refreshes cache state
+    // that may have moved server-side while the token was revoked.
+    // pullAll is guarded on _lastPracticeId being non-null (fresh
+    // sign-ins haven't bound a practice yet; the bootstrap path does
+    // that separately).
     try {
       _authSub = Supabase.instance.client.auth.onAuthStateChange.listen(
         (state) {
@@ -184,6 +191,14 @@ class SyncService {
               name: 'SyncService',
             );
             unawaited(flush());
+            final pid = _lastPracticeId;
+            if (state.event == AuthChangeEvent.signedIn && pid != null) {
+              dev.log(
+                'auth signedIn — refreshing cache for $pid',
+                name: 'SyncService',
+              );
+              unawaited(pullAll(pid));
+            }
           }
         },
         onError: (_) {
@@ -601,6 +616,15 @@ class SyncService {
   // Drain
   // ---------------------------------------------------------------------------
 
+  /// Minimum time between successive retries of the same op. Prevents a
+  /// burst of `enqueue → flush` calls from hammering the server when a
+  /// recently-failed op will almost certainly fail again within the
+  /// same few seconds (bad token, captive portal, RLS mismatch). The op
+  /// is still retried on the next reconnect / auth event / force-sync
+  /// after the cool-down. 5s matches the shortest observable recovery
+  /// latency on LTE in Carl's QA logs.
+  static const Duration _retryCooldown = Duration(seconds: 5);
+
   /// Try to push every queued op. Each op is independent — a failure
   /// on op N doesn't block op N+1. Idempotent: running twice in a row
   /// with no new ops is a no-op.
@@ -612,7 +636,19 @@ class SyncService {
     var flushed = 0;
     try {
       final ops = await _storage.getPendingOps();
+      final nowMsAtStart = DateTime.now().millisecondsSinceEpoch;
       for (final op in ops) {
+        // Wave 15 polish — skip ops we retried within the cool-down
+        // window. Prevents two rapid enqueues from firing back-to-back
+        // flushes against a known-broken session (e.g. session_not_found
+        // loop pre-Wave-15). The op stays in the queue and the next
+        // natural drain trigger (reconnect, auth refresh, manual force
+        // sync, cold boot) will pick it up.
+        final lastAttempt = op.lastAttemptAt;
+        if (lastAttempt != null &&
+            nowMsAtStart - lastAttempt < _retryCooldown.inMilliseconds) {
+          continue;
+        }
         try {
           final delta = await _applyOp(op);
           if (delta) {
@@ -686,9 +722,14 @@ class SyncService {
   }
 
   /// Dispatch one op to the cloud. Returns true if the op landed
-  /// (so it can be deleted from the queue); false if it should stay
-  /// queued (shouldn't happen today — all paths either return true or
-  /// throw).
+  /// (so it can be deleted from the queue); throws if it should be
+  /// retried. Previously the [upsertClient] branch could return
+  /// `false` on a null RPC response, which branched around the flush
+  /// loop's catch block entirely — attempts never incremented, the
+  /// stale-op classifier never ran, and no dev.log fired. That's how
+  /// client fc2c8be9-... became a permanent ghost in Carl's queue.
+  /// All paths now either return true or throw so the flush loop's
+  /// error handling is the single funnel.
   Future<bool> _applyOp(PendingOp op) async {
     switch (op.type) {
       case PendingOpType.upsertClient:
@@ -703,7 +744,19 @@ class SyncService {
           practiceId: practiceId,
           name: name,
         );
-        if (returned == null) return false;
+        if (returned == null) {
+          // Null-return from upsert_client_with_id is rare — it means the
+          // RPC succeeded at the transport layer but the DB refused to
+          // return a row. Typical causes: practice_id is not a practice
+          // the signed-in user is a member of (the SECURITY DEFINER
+          // fn's membership check silently drops the row), or a quiet
+          // RLS/permission edge case. Throw so the flush's catch block
+          // owns recovery: attempts increments, last_error populates,
+          // the 30-attempt safety cap applies — same path every other
+          // op takes on failure. Without this, the op sat in
+          // pending_ops forever with no diagnostic trail.
+          throw const UpsertClientNullResultException();
+        }
         if (returned != clientId) {
           // Name-conflict rewire — server returned the id of a DIFFERENT
           // existing client. Move local state over.
@@ -933,6 +986,26 @@ enum _BranchOutcome {
   /// and the UI should treat this as "we couldn't talk to the cloud
   /// right now".
   error,
+}
+
+/// Raised by [SyncService._applyOp] when `upsert_client_with_id` returns
+/// null. Routes through the normal flush catch block so attempts
+/// increments, last_error populates, and the 30-attempt safety cap
+/// applies — same as every other op failure. The message is deliberately
+/// short + distinctive so `_isStaleOpAgainstMissingClient` or a future
+/// heuristic can match on it cheaply.
+///
+/// Not a PostgrestException — the RPC itself didn't throw; it returned
+/// null, which is a semantically distinct failure mode. Wrapping it in a
+/// typed exception keeps the flush catch block's error string
+/// self-describing.
+@immutable
+class UpsertClientNullResultException implements Exception {
+  const UpsertClientNullResultException();
+
+  @override
+  String toString() =>
+      'UpsertClientNullResultException: upsert_client_with_id returned null';
 }
 
 /// Result of a [SyncService.pullAll] invocation. Carries two signals:
