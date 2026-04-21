@@ -410,6 +410,15 @@ class ApiClient {
   /// Raises on membership / auth / network failures; caller handles.
   /// Empty map on a malformed RPC response so callers can rely on
   /// `result['ok'] == true` without null-guarding every field.
+  ///
+  /// Milestone V (2026-04-21, Wave 16): the RPC now raises SQLSTATE
+  /// `P0003` if any exercise on the plan has a `preferred_treatment` the
+  /// linked client hasn't consented to. The `_guardAuth` passthrough
+  /// preserves the `PostgrestException` with `code == 'P0003'`, which
+  /// `UploadService` translates into `UnconsentedTreatmentsException` so
+  /// the UI can show the unblock sheet. This is the authoritative
+  /// backstop — a mobile client that skips the `validatePlanTreatmentConsent`
+  /// pre-flight still can't burn credits on a mismatched plan.
   Future<Map<String, dynamic>> consumeCredit({
     required String practiceId,
     required String planId,
@@ -426,6 +435,46 @@ class ApiClient {
     return result is Map
         ? Map<String, dynamic>.from(result)
         : const <String, dynamic>{};
+  }
+
+  /// `validate_plan_treatment_consent(p_plan_id)` — returns the list of
+  /// exercises whose `preferred_treatment` is denied by the linked
+  /// client's `video_consent`. Empty list = safe to publish.
+  ///
+  /// Called from `UploadService.uploadPlan` as a pre-flight check before
+  /// the (authoritative) `consumeCredit` guard. Running both means the
+  /// UI can show the unblock sheet WITHOUT the server ever having to
+  /// raise P0003 — the server-side guard is a backstop, not the primary
+  /// UX surface.
+  ///
+  /// Legacy plans (client_id IS NULL) return an empty list by design;
+  /// there's no client to validate against. Milestone V migration
+  /// (`supabase/schema_milestone_v_publish_consent_validation.sql`).
+  Future<List<UnconsentedTreatment>> validatePlanTreatmentConsent({
+    required String planId,
+  }) async {
+    final result = await _guardAuth(() => raw.rpc(
+          'validate_plan_treatment_consent',
+          params: {'p_plan_id': planId},
+        ));
+    if (result is! List) return const [];
+    final out = <UnconsentedTreatment>[];
+    for (final row in result) {
+      if (row is! Map) continue;
+      final exerciseId = row['exercise_id'];
+      final treatment = row['preferred_treatment'];
+      final consentKey = row['consent_key'];
+      if (exerciseId is String &&
+          treatment is String &&
+          consentKey is String) {
+        out.add(UnconsentedTreatment(
+          exerciseId: exerciseId,
+          preferredTreatment: treatment,
+          consentKey: consentKey,
+        ));
+      }
+    }
+    return out;
   }
 
   /// `refund_credit(p_plan_id)` — idempotent compensating refund. Best-
@@ -1050,6 +1099,35 @@ class PlanClientLink {
   final String clientId;
 
   const PlanClientLink({required this.planId, required this.clientId});
+}
+
+/// One row returned by
+/// [ApiClient.validatePlanTreatmentConsent]: a single exercise whose
+/// sticky `preferred_treatment` is denied by the linked client's
+/// `video_consent` jsonb.
+///
+/// * [exerciseId] — the offending exercise row. Matches
+///   `exercises.id`.
+/// * [preferredTreatment] — the raw wire value ('grayscale' or
+///   'original'; 'line' is never surfaced since line-drawing consent
+///   is always true).
+/// * [consentKey] — the matching `video_consent` jsonb key
+///   ('grayscale' / 'original'). Provided by the RPC so the UI can
+///   render a friendly group label without re-mapping.
+///
+/// Used only by Wave 16's pre-flight consent validation; never hits
+/// the cache or the SQLite layer.
+@immutable
+class UnconsentedTreatment {
+  final String exerciseId;
+  final String preferredTreatment;
+  final String consentKey;
+
+  const UnconsentedTreatment({
+    required this.exerciseId,
+    required this.preferredTreatment,
+    required this.consentKey,
+  });
 }
 
 // Wave 14: `ClaimInviteResult` / `ClaimInviteError` / `ClaimInviteErrorKind`
