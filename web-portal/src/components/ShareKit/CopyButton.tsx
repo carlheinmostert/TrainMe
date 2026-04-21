@@ -26,6 +26,7 @@ export function CopyButton({
   variant = 'primary',
   fullWidth = false,
   ariaLabel,
+  onCopy,
 }: {
   getText: () => string;
   label?: string;
@@ -33,6 +34,13 @@ export function CopyButton({
   variant?: 'primary' | 'secondary';
   fullWidth?: boolean;
   ariaLabel?: string;
+  /**
+   * Optional fire-and-forget callback invoked on every click — whether
+   * the clipboard write succeeded or failed. Used by Wave 10 Phase 3 to
+   * log a `share_events` row. Do NOT await inside the callback; the UI
+   * must not block on analytics.
+   */
+  onCopy?: () => void;
 }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [toast, setToast] = useState<string | null>(null);
@@ -50,6 +58,16 @@ export function CopyButton({
 
   async function handleClick() {
     const text = getText();
+    // Fire the analytics callback first so a clipboard exception below
+    // still produces an event row. The caller's onCopy is fire-and-forget
+    // by contract.
+    if (onCopy) {
+      try {
+        onCopy();
+      } catch {
+        // Swallow — analytics must never break the UX.
+      }
+    }
     try {
       await navigator.clipboard.writeText(text);
       setState('copied');

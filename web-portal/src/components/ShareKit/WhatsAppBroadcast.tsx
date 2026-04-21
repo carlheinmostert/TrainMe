@@ -6,6 +6,7 @@ import {
   OpenInAppButton,
   WhatsAppOutboundGlyph,
 } from './OpenInAppButton';
+import type { LogShareEvent } from './useShareAnalytics';
 import {
   buildWhatsAppBroadcast,
   buildWhatsAppBroadcastUrl,
@@ -26,7 +27,17 @@ import {
  * body pre-filled; the practitioner picks the destination (status
  * caption / broadcast list / group) on-device.
  */
-export function WhatsAppBroadcast({ slots }: { slots: ShareKitSlots }) {
+export function WhatsAppBroadcast({
+  slots,
+  logEvent,
+}: {
+  slots: ShareKitSlots;
+  /**
+   * Wave 10 Phase 3 analytics callback. See `<WhatsAppOneToOne/>` for
+   * the same pattern. Optional — the card works fine without it.
+   */
+  logEvent?: LogShareEvent;
+}) {
   const rendered = buildWhatsAppBroadcast(slots);
 
   return (
@@ -59,6 +70,9 @@ export function WhatsAppBroadcast({ slots }: { slots: ShareKitSlots }) {
           label="Copy message"
           copiedLabel="Copied!"
           ariaLabel="Copy WhatsApp broadcast message"
+          onCopy={
+            logEvent ? () => logEvent('whatsapp_broadcast', 'copy') : undefined
+          }
         />
         <OpenInAppButton
           getHref={() => buildWhatsAppBroadcastUrl(slots)}
@@ -67,6 +81,11 @@ export function WhatsAppBroadcast({ slots }: { slots: ShareKitSlots }) {
           glyph={<WhatsAppOutboundGlyph />}
           target="_blank"
           rel="noopener noreferrer"
+          onOpen={
+            logEvent
+              ? () => logEvent('whatsapp_broadcast', 'open_intent')
+              : undefined
+          }
         />
       </div>
 

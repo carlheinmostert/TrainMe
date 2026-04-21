@@ -183,8 +183,17 @@ export default async function NetworkPage({
           </p>
         </section>
 
-        {/* Primary Phase-1 surface — three copy-to-clipboard templates. */}
-        <ShareKit slots={shareKitSlots} />
+        {/* Primary share surface — three copy-to-clipboard templates +
+            Wave 10 PNG share card + tagline helper. ShareKit is a client
+            component (Phase 3 wires useShareAnalytics) so the
+            practiceId + code props below become the analytics scope. */}
+        <ShareKit
+          slots={shareKitSlots}
+          practiceId={practiceId}
+          referralCode={referralCode}
+          practitionerFullName={fullName}
+          practiceName={practiceName}
+        />
 
         {/* Earnings + referee list retained from the previous layout. */}
         <div className="mt-16 border-t border-surface-border pt-10">

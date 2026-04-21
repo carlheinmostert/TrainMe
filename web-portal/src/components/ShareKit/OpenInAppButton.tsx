@@ -27,6 +27,7 @@ export function OpenInAppButton({
   glyph,
   target,
   rel,
+  onOpen,
 }: {
   /** Lazy URL builder — invoked on click. */
   getHref: () => string;
@@ -43,6 +44,14 @@ export function OpenInAppButton({
    */
   target?: '_blank';
   rel?: string;
+  /**
+   * Optional fire-and-forget callback invoked on click, before the
+   * browser follows the href. Wave 10 Phase 3 uses it to log a
+   * `share_events` row (channel = whatsapp / email, event_kind =
+   * open_intent). Do NOT await inside — analytics must not delay the
+   * native handler hand-off.
+   */
+  onOpen?: () => void;
 }) {
   const base =
     'inline-flex items-center justify-center gap-2 rounded-full px-4 h-10 text-sm font-semibold transition duration-fast ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40';
@@ -57,6 +66,15 @@ export function OpenInAppButton({
     const resolved = getHref();
     if (event.currentTarget.href !== resolved) {
       event.currentTarget.href = resolved;
+    }
+    // Fire-and-forget analytics. Swallowed errors so a flaky RPC doesn't
+    // block the navigation.
+    if (onOpen) {
+      try {
+        onOpen();
+      } catch {
+        // Intentionally silent.
+      }
     }
   }
 

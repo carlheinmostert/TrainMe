@@ -2,6 +2,7 @@
 
 import { CopyButton } from './CopyButton';
 import { OpenInAppButton, SendGlyph } from './OpenInAppButton';
+import type { LogShareEvent } from './useShareAnalytics';
 import {
   buildEmailBody,
   buildEmailFullCopy,
@@ -26,7 +27,14 @@ import {
  * both the display and clipboard output so the practitioner can
  * personalise once pasted.
  */
-export function EmailCard({ slots }: { slots: ShareKitSlots }) {
+export function EmailCard({
+  slots,
+  logEvent,
+}: {
+  slots: ShareKitSlots;
+  /** Wave 10 Phase 3 analytics callback. Optional for mockability. */
+  logEvent?: LogShareEvent;
+}) {
   const body = buildEmailBody(slots);
   const subject = buildEmailSubject();
   const fullCopy = buildEmailFullCopy(slots);
@@ -121,12 +129,16 @@ export function EmailCard({ slots }: { slots: ShareKitSlots }) {
           label="Copy full email"
           copiedLabel="Copied!"
           ariaLabel="Copy full email (subject + body)"
+          onCopy={logEvent ? () => logEvent('email', 'copy') : undefined}
         />
         <OpenInAppButton
           getHref={() => buildEmailMailtoUrl(slots)}
           label="Open in mail client"
           ariaLabel="Open mail client with subject and body pre-filled"
           glyph={<SendGlyph />}
+          onOpen={
+            logEvent ? () => logEvent('email', 'open_intent') : undefined
+          }
         />
         <span className="font-mono text-[11px] uppercase tracking-wider text-ink-dim">
           Includes subject + body + signature
