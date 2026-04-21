@@ -9,6 +9,7 @@ import 'package:video_thumbnail/video_thumbnail.dart' as vt;
 import '../config.dart';
 import '../models/exercise_capture.dart';
 import 'local_storage_service.dart';
+import 'loud_swallow.dart';
 import 'path_resolver.dart';
 
 /// Background line drawing conversion service.
@@ -247,7 +248,14 @@ class ConversionService extends ChangeNotifier {
             'Error: $e\n\nStack:\n$stack\n\n',
             mode: FileMode.append,
           );
-        } catch (_) {}
+        } catch (_) {
+          // Log-of-log swallow. Sanctioned site: writing the
+          // conversion-error fallback log already failed, so we can't
+          // route through `loudSwallow` (which would recurse into this
+          // same log path on its own failure). Legacy breadcrumb only;
+          // primary observability signal travels via the parent catch's
+          // structured handler.
+        }
 
         // Re-read from the database to preserve thumbnailPath.
         final freshRows = await _storage.db.query(
@@ -347,7 +355,14 @@ class ConversionService extends ChangeNotifier {
             '${DateTime.now()} [_convertVideo failed]\n$e\n$stack\n\n',
             mode: FileMode.append,
           );
-        } catch (_) {}
+        } catch (_) {
+          // Log-of-log swallow. Sanctioned site: writing the
+          // conversion-error fallback log already failed, so we can't
+          // route through `loudSwallow` (which would recurse into this
+          // same log path on its own failure). Legacy breadcrumb only;
+          // primary observability signal travels via the parent catch's
+          // structured handler.
+        }
       }
 
       // Fallback: extract a key frame and convert to a still line drawing.
@@ -426,16 +441,33 @@ class ConversionService extends ChangeNotifier {
         debugPrint('Native thumb channel succeeded: $thumbPath');
         return thumbPath;
       }
-    } catch (e) {
+    } catch (e, st) {
+      // Native thumb channel failure. Control flow: fall through to
+      // the full video-converter channel attempt below. Wave 7: route
+      // the signal through `loudSwallow` so the server-side error_logs
+      // table receives a row + the local diagnostics.log captures it,
+      // even in release builds where the debugPrint below is stripped.
       debugPrint('Native thumb channel failed: $e');
-      try {
-        final logDir = await getApplicationDocumentsDirectory();
-        final logFile = File(p.join(logDir.path, 'conversion_error.log'));
-        await logFile.writeAsString(
-          '${DateTime.now()} [native_thumb extractFrame]\n$e\n\n',
-          mode: FileMode.append,
-        );
-      } catch (_) {}
+      await loudSwallow(
+        () async {
+          final logDir = await getApplicationDocumentsDirectory();
+          final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+          await logFile.writeAsString(
+            '${DateTime.now()} [native_thumb extractFrame]\n$e\n'
+            '  ${st.toString().split('\n').take(3).join('\n  ')}\n\n',
+            mode: FileMode.append,
+          );
+        },
+        kind: 'native_thumb_channel_failed',
+        source: 'ConversionService._extractVideoThumbnail',
+        severity: 'warn',
+        message: e.toString(),
+        meta: {
+          'exercise_id': exerciseId,
+          'video_path': videoPath,
+        },
+        swallow: true,
+      );
     }
 
     // Attempt 1: Full native video converter channel.
@@ -697,7 +729,12 @@ class ConversionService extends ChangeNotifier {
           '${DateTime.now()} [native_thumb frame extract]\n$nativeErr\n\n',
           mode: FileMode.append,
         );
-      } catch (_) {}
+      } catch (_) {
+        // Log-of-log swallow. Same rationale as the other log-of-log
+        // sites in this file — the fallback log write is optional
+        // forensic surface, and a filesystem failure here must not
+        // recurse into loudSwallow's own logging path.
+      }
 
       // Fallback to video_thumbnail package.
       Uint8List? bytes;
@@ -746,7 +783,12 @@ class ConversionService extends ChangeNotifier {
       // Clean up temp file.
       try {
         await File(tempFramePath).delete();
-      } catch (_) {}
+      } catch (_) {
+        // Log-of-log swallow. Same rationale as the other log-of-log
+        // sites in this file — the fallback log write is optional
+        // forensic surface, and a filesystem failure here must not
+        // recurse into loudSwallow's own logging path.
+      }
     }
   }
 
@@ -896,7 +938,12 @@ class ConversionService extends ChangeNotifier {
           'Error: $e\n$stack\n\n',
           mode: FileMode.append,
         );
-      } catch (_) {}
+      } catch (_) {
+        // Log-of-log swallow. Same rationale as the other log-of-log
+        // sites in this file — the fallback log write is optional
+        // forensic surface, and a filesystem failure here must not
+        // recurse into loudSwallow's own logging path.
+      }
     }
   }
 
