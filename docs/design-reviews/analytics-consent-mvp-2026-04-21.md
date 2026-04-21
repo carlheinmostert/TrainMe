@@ -21,7 +21,7 @@ POPIA-friendly from the start: consent-driven, metadata-only, pseudonymous sessi
 | Consent model | **Hybrid (C).** Practitioner can flip `clients.video_consent.analytics_allowed` off globally per client. If allowed by practitioner, the client sees a banner on first open and has the last word per-plan. |
 | Practitioner default | **ON.** Needs data to shape MVP. Toggle exists at the client level for opt-out. |
 | Banner cadence | **Once-and-remember** per browser. localStorage + server-side session row. Practitioner can reset the consent prompt only by creating a new client. |
-| Transparency view | **YES — on plan completion.** Client reaches the end slide → clickable CTA "See what's been shared with {TrainerName}" → modal lists event counts + "Stop sharing" button. |
+| Transparency view | **YES — static page at `session.homefit.studio/what-we-share`** (two variants: generic `/what-we-share` + contextual `/what-we-share?p={planId}` that greets by practitioner name + wires the stop-sharing button). Linked from the consent banner, the completion screen, and the player menu. Chosen over an inline modal so one source of truth lives outside the player — citable in emails, QR codes, flyers, future help docs. |
 | Retention | **180 days raw.** Roll into daily aggregate table + drop raw. Aggregates retained indefinitely. |
 | Naming | **"Analytics"** throughout. Banner copy uses "share which exercises you complete" (plain-English), tables named `plan_analytics_*`. |
 
@@ -157,6 +157,26 @@ CREATE FUNCTION public.revoke_analytics_consent(
 ) RETURNS void ...
 ```
 
+**Anon reads** — the contextual transparency page reads minimal practitioner-name + practice-name for display. No event counts (those stay practitioner-only).
+
+```sql
+-- For the `/what-we-share?p={planId}` page. Returns just enough
+-- context to render the personalised greeting. Anon — the plan
+-- UUID is the only auth.
+CREATE FUNCTION public.get_plan_sharing_context(p_plan_id uuid)
+RETURNS TABLE (
+  practitioner_name text,
+  practice_name text,
+  client_first_name text,
+  analytics_allowed boolean
+) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+  -- Join plans → clients → practices → auth.users. Return NULL row
+  -- if the plan is deleted or analytics is disabled at the client
+  -- level (page falls back to generic content + no stop-sharing button).
+$$;
+GRANT EXECUTE ON FUNCTION public.get_plan_sharing_context(uuid) TO anon, authenticated;
+```
+
 **Authenticated reads** — practitioner scope only.
 
 ```sql
@@ -196,7 +216,11 @@ We'll share which exercises you complete, and when. Nothing else.
 You can stop this anytime.
 
                           [ No thanks ]  [ Yes, share ]
+
+                        What's shared? →  (opens /what-we-share?p={planId})
 ```
+
+The small "What's shared?" link opens the static transparency page in a new tab so the banner doesn't dismiss while they read.
 
 Tap "Yes, share" → banner dismisses, consent written, event capture starts.
 Tap "No thanks" → banner dismisses, consent written as false, only `plan_opened` stored with `consent_granted=false` for telemetry on the banner itself (did people open?).
@@ -210,26 +234,42 @@ After the final exercise + the `plan_completed` event fires, the end screen show
 ```
 Nice work.
 
-[ See what's been shared with {TrainerName} ]
+[ See what's been shared with {TrainerName} → ]
 [ Exit ]
 ```
 
-Tap → modal slides up:
+Tap → navigates (same-tab or new-tab, user preference) to `session.homefit.studio/what-we-share?p={planId}`. The static page is the one source of truth; the completion screen only links to it.
 
-```
-You shared this with {TrainerName}:
+### Static transparency page — `/what-we-share`
 
-  • 3 plan opens
-  • 12 of 12 exercises completed
-  • 45 minutes total watching time
-  • Last opened: 2h ago
+Plain HTML page in `web-player/what-we-share.html` (or Next-style route depending on where we host). Single scrolling page, four sections, ~600 words. Two variants served from the same URL, differentiated by the `?p={planId}` query parameter.
 
-Nothing else was collected.
+**Sections (both variants):**
 
-[ Stop sharing ]                [ Close ]
-```
+1. **What we collect** — the 12 event kinds explained in plain English. "We know when you opened a plan, which exercises you completed or skipped, how long you paused. Nothing else."
+2. **What we don't collect** — explicit nope list. "No video of you doing the exercise. No location. No phone number. No browsing history. Nothing about you outside this plan."
+3. **How long we keep it** — "Raw details for 180 days, then summary numbers only. After that we can tell your practitioner your overall completion rate but not the individual details of when or how."
+4. **How to stop sharing** — "Tap the button below, or ask your practitioner to turn it off for you."
 
-"Stop sharing" → `revoke_analytics_consent(plan_id, session_id)` fires → `consent_granted` flips to false for all future sessions on this plan → modal closes with a toast "Sharing stopped. {TrainerName} won't see new data from this plan."
+**Generic variant — `/what-we-share` (no `?p=`):**
+- Greeting: "What homefit.studio shares with your practitioner."
+- Stop-sharing button: disabled + helper text "Open this page from inside your exercise plan to stop sharing for that plan."
+
+**Contextual variant — `/what-we-share?p={planId}`:**
+- On page load, fetches `get_plan_sharing_context(planId)` via anon RPC.
+- If the RPC returns data: greeting becomes "What {practitioner_name} at {practice_name} sees about your exercises." Stop-sharing button enabled.
+- Stop-sharing button fires `revoke_analytics_consent(planId, sessionId)` via anon RPC. The page flips to a "Stopped. {practitioner_name} won't see new data from this plan." confirmation, no further events fire from this browser.
+- If the RPC returns NULL (plan deleted, client-level analytics_allowed=false, etc.) falls back to the generic variant.
+
+The session ID for the stop-sharing button comes from `localStorage['homefit-session-id']` — same key the banner writes on first open. If the user arrived on the page without ever having opened a session (e.g. direct link from a QR code), the button shows "Open this page from inside your exercise plan" instead of firing.
+
+**Link placements summary:**
+- Consent banner — small inline "What's shared? →" link.
+- Completion screen — primary CTA links to the contextual variant.
+- Player footer / menu (if added later) — subtle footer link to the generic variant.
+- Future: QR code on printed flyers, email signatures, privacy policy cross-link.
+
+Static page can be updated independently of the player bundle — no service-worker cache bump needed for copy changes.
 
 ## Practitioner UX (MVP)
 

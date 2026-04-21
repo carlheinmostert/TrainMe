@@ -11,15 +11,16 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 **Locked decisions:**
 - Consent model **C** — hybrid: practitioner toggle on client (default ON) + client per-plan banner (last word).
 - Cadence: once-and-remember per browser via localStorage + server session.
-- Transparency CTA on plan completion: "See what's been shared with {TrainerName}" → modal with event counts + "Stop sharing" button.
+- Transparency via a **static page at `session.homefit.studio/what-we-share`** (+ contextual `?p={planId}` variant that greets by practitioner name + wires stop-sharing). Linked from consent banner, completion screen, player menu. One source of truth outside the player — citable in emails, QR codes, future help docs.
 - Retention: 180 days raw events, daily aggregates forever.
 - Naming: **Analytics** (same noun as the future paid product).
 
 **Scope:**
 - 2 new Supabase tables (`client_sessions`, `plan_analytics_events`) + 1 rollup (`plan_analytics_daily_aggregate`).
 - New `analytics_allowed` key on `clients.video_consent` (default true).
-- 4 write RPCs + 2 read RPCs + daily retention cron.
-- Web-player: consent banner, 12 event emitters, transparency modal on completion.
+- 4 write RPCs + 3 read RPCs (anon `get_plan_sharing_context` for the contextual transparency page + 2 practitioner-scoped rollups) + daily retention cron.
+- Web-player: consent banner with inline "What's shared?" link, 12 event emitters, completion-screen CTA linking out to the static page.
+- New static page at `web-player/what-we-share.html` — two variants on the same URL, updatable independently of the player bundle.
 - Flutter Studio: 3-number stats under each plan + per-exercise bars + new consent checkbox in the client detail page.
 
 **Event inventory (12):** plan_opened, plan_completed, plan_closed, exercise_viewed, exercise_completed, exercise_skipped, exercise_replayed, treatment_switched, pause_tapped, resume_tapped, rest_shortened, rest_extended. Metadata-only — no video telemetry, no IP/IDFA/geo/fingerprints.
