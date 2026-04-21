@@ -14,6 +14,7 @@ import '../widgets/bootstrap_error_banner.dart';
 import '../widgets/homefit_logo.dart';
 import '../widgets/offline_sync_chip.dart';
 import '../widgets/practice_chip.dart';
+import '../widgets/session_expired_banner.dart';
 import '../widgets/undo_snackbar.dart';
 import 'client_sessions_screen.dart';
 import 'settings_screen.dart';
@@ -524,6 +525,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: _retrying ? null : _retrySync,
               ),
             const SizedBox(height: 8),
+            // Wave 15 — a server-revoked session (password rotated,
+            // admin intervention, auth.sessions row deleted) used to
+            // 403 every subsequent RPC silently. ApiClient now detects
+            // `session_not_found`, forces a local sign-out, and flips
+            // `sessionExpired` so this banner surfaces. Reads stay on
+            // cache; writes queue locally. Tapping sign-in routes
+            // through AuthService.signOut → AuthGate.
+            SessionExpiredBanner(
+              onSignIn: () => AuthService.instance.signOut(),
+            ),
             ValueListenableBuilder<String?>(
               valueListenable: AuthService.instance.bootstrapError,
               builder: (context, error, _) {

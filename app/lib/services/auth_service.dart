@@ -87,6 +87,20 @@ class AuthService {
   /// (Keychain on iOS) — no extra wiring needed.
   supa.Session? get currentSession => _api.currentSession;
 
+  /// Whether the server has revoked our session (Wave 15). Wired to the
+  /// `session_not_found` detector in [ApiClient] so any 403 response
+  /// from a backend call flips this true; cleared when the user signs
+  /// back in. UI banners on Home + Studio subscribe via
+  /// `ValueListenableBuilder` and prompt the practitioner to re-auth
+  /// without blocking the rest of the app (reads stay on cache, writes
+  /// queue locally).
+  ///
+  /// This is a pass-through to [ApiClient.sessionExpired] — the signal
+  /// lives on the boundary that first detects the failure. Exposing it
+  /// through [AuthService] means UI code only needs to know about the
+  /// auth layer, not the data-access layer.
+  ValueNotifier<bool> get sessionExpired => _api.sessionExpired;
+
   /// Convenience — the authenticated user's uuid, or null.
   String? get currentUserId => _api.currentUserId;
 
@@ -256,6 +270,9 @@ class AuthService {
     await _api.signOut();
     currentPracticeId.value = null;
     bootstrapError.value = null;
+    // Explicit user-initiated sign-out — clear any stale session-expired
+    // banner so it doesn't persist into the sign-in screen.
+    _api.sessionExpired.value = false;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_selectedPracticeIdPrefsKey);

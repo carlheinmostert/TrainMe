@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA Wave 15 — Offline-sync robustness</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 9999px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+    background: var(--coral-bg); color: var(--coral);
+    border: 1px solid rgba(255,107,53,0.3);
+    margin-right: 6px;
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-21 · Wave 15 — Offline-sync robustness</div>
+    <h1>Device QA — Offline-sync robustness (Wave 15)</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify the three targeted fixes that close real failure modes the MVP hit during Wave 5 QA: (A) silent <code>upsertClient</code> failures that left ghost ops in <code>pending_ops</code>, (B) no self-recovery when the server revokes the session (<code>session_not_found</code> / 403), (C) no manual escape hatch when the queue is stuck.
+      <br><br>
+      <strong>In scope:</strong> null-return on <code>upsert_client_with_id</code> now throws <code>UpsertClientNullResultException</code> and routes through the flush catch block (attempts increment, stale-op classifier applies, drops at 30 attempts); <code>ApiClient</code> <code>_guardAuth</code> funnel catches <code>session_not_found</code>, forces local sign-out, flips <code>sessionExpired</code> on <code>AuthService</code>; coral banner on Home + Studio with "Sign in" CTA; Diagnostics has a <code>Force sync now</code> action row with a toast; polish items: <code>pullAll</code> fires on signedIn and a 5s retry backoff skips recently-failed ops.
+      <br><br>
+      <strong>Out of scope:</strong> dropped-op audit log, orphan cache cleanup, amber/red pending-chip state (queued as Wave 15.5); any Wave 4 Phase 2 / line-drawing / web-player work; iOS Swift changes; Wave 14 <code>/members</code> files.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Main merged through PR for Wave 15. <code>feat/wave-15-offline-sync-robustness</code> branch landed.</li>
+        <li>Install to device via <code>./install-device.sh</code> from the repo root. The PR did NOT ship a device install; Carl needs to reinstall before running this script.</li>
+        <li>At least two practices you're a member of — one for the main test path, one to craft a mismatched-practice upsert (item 1).</li>
+        <li>Supabase CLI access for the session-revocation simulation (item 3 — <code>supabase db query --linked "DELETE FROM auth.sessions WHERE user_id = '&lt;your-uuid&gt;'"</code>). Alternatively rotate your password from a second device.</li>
+      </ul>
+    </div>
+
+    <h2>1 · A — Silent <code>upsertClient</code> failure now recovers</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Null-return from <code>upsert_client_with_id</code> used to dead-end the flush loop without incrementing attempts or firing any dev.log. Now it throws and rides the normal error path.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Force a null-return by crafting an upsert op with a practice_id you aren't a member of (set <code>SyncService.instance.storage.db.rawInsert</code> via a debug console, or by swapping the current practice in <code>SharedPreferences</code> to a UUID that doesn't exist). Watch os_log (<code>idevicesyslog</code> or Console.app) — each retry should emit a <code>SyncService: flush upsertClient id=… code=null: UpsertClientNullResultException</code> line. Attempts count increments per retry (check Settings → Diagnostics → Pending ops queue after ~5 retries).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Drive the crafted op past 30 attempts (tap <code>Force sync now</code> in Diagnostics repeatedly, or let the normal offline→online triggers accumulate). After attempts ≥ 30, the op drops from <code>pending_ops</code>. dev.log emits <code>flush upsertClient id=… dropped (attempts=30 exceeded cap)</code>. Diagnostics pending-ops row goes back to 0 (or drops by the count of the stuck op).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Drain-on-boot still fires (sanity from Wave 14)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Confirm the existing boot drain wasn't broken by the retry backoff.
+    </p>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Enqueue a legit client-rename op offline (airplane mode ON, edit a client name in Home), force-kill the app before the queue drains, re-enable network, cold-launch. Within ~5s of boot, os_log shows <code>SyncService: boot — 1 pending ops in queue</code> followed by <code>online transition</code> or the auth-state listener firing a flush. Client name on server updates without any user action.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · B — Session-not-found self-recovery</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Before Wave 15, a server-side session deletion produced silent 403s forever. Now the app detects it on the next RPC and surfaces a coral banner.
+    </p>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Signed in on the device, delete your <code>auth.sessions</code> row from the Supabase side. Run <code>supabase db query --linked "DELETE FROM auth.sessions WHERE user_id = '&lt;your-uuid&gt;';"</code> (grab the uuid from Diagnostics → Context → <code>Practice</code> first, or via <code>SELECT id FROM auth.users WHERE email = 'yours@example.com';</code>). Within one RPC round-trip (pull clients / credit balance / rename something), the coral banner appears at the top of Home: "Your session expired. Please sign in again to continue syncing."</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Swipe into Studio mode while the banner is up — the same banner appears at the top of Studio. os_log shows <code>ApiClient: session revoked — forcing sign-out</code> exactly once (re-entry guard works; no spam).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Tap the <code>Sign in</code> CTA on the banner → AuthGate routes to the sign-in screen (ApiClient has already called <code>auth.signOut()</code> server-side). Reads from SQLite cache still work between steps 4 and 6 — the app isn't force-navigated mid-action.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Sign back in with password or magic link. After the <code>onAuthStateChange(signedIn)</code> event lands, the banner vanishes on the next frame. Queue flushes automatically (os_log: <code>auth signedIn — draining pending ops</code>). A <code>pullAll</code> fires for the last-known practice (os_log: <code>auth signedIn — refreshing cache for ≤practice-id></code>).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · C — <code>Force sync now</code> escape hatch</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Settings → Diagnostics now carries a visible manual drain action.
+    </p>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Open Settings → Diagnostics. Below the Context card you see a new <strong>ACTIONS</strong> section with a "Force sync now" row (sync icon, "Drain the pending-ops queue immediately" subtitle, chevron right). Card chrome matches the Boot probes card above.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">With the queue non-empty (enqueue a rename offline first), tap Force sync now. Haptic click fires. Toast reads "Flushed N ops · M remain" with real counts. If you tap again after a successful drain, toast reads "No pending ops to sync." Pending-ops probe row above updates to reflect the new depth.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">Button is always enabled (not greyed on queue-empty). Useful as a heartbeat when Diagnostics shows 0 but os_log suggests otherwise — tap it, see either a flush happen or a "No pending ops to sync." toast confirming the empty state.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Polish — retry backoff</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Rapid enqueues within 5s no longer hammer the server with duplicate retries of the same op.
+    </p>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Prime a failing op (e.g. the crafted mismatched-practice upsert from item 1, which throws null-result). Within 5s of its first attempt, fire 3 more <code>Force sync now</code> taps back-to-back. os_log only shows ONE <code>flush upsertClient id=… failed</code> line per 5s window — the intermediate flush() calls saw <code>lastAttemptAt</code> inside the cool-down and skipped the op. After ~5s, the next <code>Force sync now</code> retries and logs again.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass-notes with polish suggestions feed the next wave's backlog. Failed items spawn targeted fix briefs. Wave 15.5 backlog: dropped-op audit log, orphan cache cleanup, amber/red chip state.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-21-wave15-device-qa.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave-15', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

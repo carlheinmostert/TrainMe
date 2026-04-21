@@ -20,10 +20,12 @@ import '../widgets/circuit_control_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
+import '../widgets/session_expired_banner.dart';
 import '../widgets/shell_pull_tab.dart';
 import '../widgets/studio_exercise_card.dart';
 import '../widgets/treatment_segmented_control.dart';
 import '../widgets/undo_snackbar.dart';
+import '../services/auth_service.dart';
 import 'plan_preview_screen.dart';
 import 'unified_preview_screen.dart';
 
@@ -822,7 +824,22 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       appBar: _buildAppBar(),
       body: Stack(
         children: [
-          SafeArea(child: _buildBody()),
+          SafeArea(
+            // Wave 15 — the session-expired banner sits above the
+            // Studio content so a mid-session revocation surfaces
+            // without blocking ongoing edits. Reads continue from
+            // SQLite; writes queue locally via SyncService. Tapping
+            // Sign in routes through AuthService.signOut → AuthGate →
+            // SignInScreen.
+            child: Column(
+              children: [
+                SessionExpiredBanner(
+                  onSignIn: () => AuthService.instance.signOut(),
+                ),
+                Expanded(child: _buildBody()),
+              ],
+            ),
+          ),
           Positioned.fill(
             child: ShellPullTab(
               side: ShellPullTabSide.right,

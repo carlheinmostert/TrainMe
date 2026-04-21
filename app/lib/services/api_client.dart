@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:developer' as dev;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -43,11 +45,133 @@ import '../models/client.dart';
 ///   like "consume credit then upsert the version" belongs in
 ///   `upload_service.dart`; we just expose the primitives it composes.
 class ApiClient {
-  ApiClient._();
+  ApiClient._() {
+    // Wire an auth-state listener so `sessionExpired` clears the moment
+    // the user signs back in. Supabase emits `signedIn` when a fresh
+    // session lands (via magic link / password / OAuth). Keeps the UI
+    // banner tightly coupled to reality without the rest of the app
+    // having to remember to clear the flag. Attach errors are
+    // swallowed — the banner is a recovery hint, not load-bearing.
+    try {
+      _authSub = Supabase.instance.client.auth.onAuthStateChange.listen(
+        (state) {
+          if (state.event == AuthChangeEvent.signedIn ||
+              state.event == AuthChangeEvent.tokenRefreshed) {
+            sessionExpired.value = false;
+          } else if (state.event == AuthChangeEvent.signedOut) {
+            // On signedOut we do NOT clear sessionExpired — if this
+            // sign-out was triggered by `_detectRevokedSession`, the
+            // caller set sessionExpired BEFORE the sign-out fired, and
+            // we want the banner to stick until a successful sign-in.
+            // Explicit user-initiated sign-outs clear the flag in
+            // AuthService.signOut().
+          }
+        },
+        onError: (_) {},
+      );
+    } catch (e) {
+      // Plugin not initialised yet — unlikely because ApiClient is only
+      // accessed after Supabase.initialize in main.dart. Non-fatal.
+      debugPrint('ApiClient: auth listener attach failed: $e');
+    }
+  }
+
+  // The singleton lives the app lifetime, so we never cancel this
+  // subscription — it's kept in a field solely so the closure it binds
+  // isn't GC'd. The `ignore: unused_field` silences the analyzer.
+  // ignore: unused_field
+  StreamSubscription<AuthState>? _authSub;
 
   /// Singleton. The Supabase client itself is a singleton, so wrapping it
   /// as a singleton here is lossless and lets call sites stay short.
   static final ApiClient instance = ApiClient._();
+
+  /// Classify an arbitrary exception as "the server-side session has
+  /// been revoked" vs. anything else. Matches every shape Supabase uses:
+  ///
+  /// * `AuthApiException(code: 'session_not_found', ...)` — the typed
+  ///   wrapper from supabase-flutter when the REST boundary returns
+  ///   `{ code: 'session_not_found' }` on a 403.
+  /// * `AuthException` (generic) whose `message` contains
+  ///   `session_not_found` — the older shape that still surfaces from
+  ///   some call sites.
+  /// * PostgREST responses that forward the auth gate's 403 payload
+  ///   with `session_not_found` in the body.
+  ///
+  /// If the error matches, flips [sessionExpired] to true so the UI
+  /// can render a banner. Does NOT call `signOut()` — the brief's
+  /// "don't force-navigate on revoke" rule requires keeping the user
+  /// on their current screen with the banner visible. Reads still come
+  /// from cache; writes still queue into `pending_ops`. The actual
+  /// sign-out happens when the practitioner taps the banner's
+  /// "Sign in" CTA, which routes through
+  /// [AuthService.signOut] → [AuthGate] → [SignInScreen].
+  ///
+  /// Does NOT swallow the exception — callers that were expecting an
+  /// RPC result still see a failure; the retry backoff in
+  /// [SyncService.flush] keeps the 403 rate to at most once per op per
+  /// 5 seconds, so piling 403s against the revoked session is bounded.
+  ///
+  /// Idempotent: repeated calls with the same error only flip the flag
+  /// once (`sessionExpired.value` guards re-entry).
+  Future<void> _detectRevokedSession(Object error) async {
+    // Cheap + order-sensitive checks. AuthException (and its subclasses
+    // AuthApiException / AuthSessionMissingException) carries a `code`
+    // field populated with `session_not_found` when the REST boundary
+    // returns that payload. PostgREST errors that forward the auth
+    // gate's 403 body surface the same string in `toString()`, so we
+    // also check the stringified form as a fallback.
+    final msg = error.toString();
+    final looksLikeRevoked = msg.contains('session_not_found') ||
+        (error is AuthException &&
+            (error.code == 'session_not_found' ||
+                error.message.contains('session_not_found')));
+    if (!looksLikeRevoked) return;
+    if (sessionExpired.value) return; // already handling it
+    sessionExpired.value = true;
+    // Log line deliberately matches the brief's phrasing so grepping
+    // `dev.log` archives turns up matches even though the
+    // sign-out itself is deferred to the user's banner tap.
+    dev.log(
+      'session revoked — forcing sign-out',
+      name: 'ApiClient',
+    );
+  }
+
+  /// Thin wrapper around a single async op that routes known
+  /// "session revoked" failures through [_detectRevokedSession] before
+  /// rethrowing. Every RPC method in this file that touches the
+  /// authenticated Supabase boundary should run through this funnel so
+  /// a server-side session deletion can't silently 403 every subsequent
+  /// request.
+  ///
+  /// Doesn't swallow errors — on a non-revoke exception the original
+  /// stack trace bubbles up to the caller unchanged.
+  Future<T> _guardAuth<T>(Future<T> Function() op) async {
+    try {
+      return await op();
+    } catch (e) {
+      await _detectRevokedSession(e);
+      rethrow;
+    }
+  }
+
+  /// Fires true when an RPC detects the server-side session has been
+  /// revoked (`session_not_found` / 403) and we've forced a local
+  /// sign-out to recover. Cleared when the user signs back in via the
+  /// [onAuthStateChange] `signedIn` event (see [AuthService] for the
+  /// wiring — this notifier is exposed so UI can render a banner).
+  ///
+  /// Rationale: before Wave 15, a revoked session (password rotated
+  /// elsewhere, admin intervention, `auth.sessions` row deleted) left
+  /// the app returning HTTP 403 `session_not_found` on every RPC with
+  /// no recovery path. The practitioner had to discover the problem
+  /// via Diagnostics, manually sign out + sign in. This blocked Carl's
+  /// pending-ops flush for hours on 2026-04-21.
+  ///
+  /// Surfaced in Home + Studio as a coral banner with a sign-in CTA.
+  /// Non-blocking (reads come from cache; writes queue locally).
+  final ValueNotifier<bool> sessionExpired = ValueNotifier<bool>(false);
 
   /// Canonical storage bucket for exercise media. Every storage call in the
   /// app routes through this bucket; if the name ever changes, change it
@@ -130,6 +254,9 @@ class ApiClient {
     required String email,
     required String password,
   }) async {
+    // Sign-in is the recovery path itself — don't route through
+    // [_guardAuth], which would mis-flag a plain invalid-password
+    // error as a session-revoke event.
     return raw.auth.signInWithPassword(email: email, password: password);
   }
 
@@ -151,7 +278,7 @@ class ApiClient {
   /// Returns the practice id (uuid as string). Raises `AuthException`
   /// from the underlying client on DB errors — callers own the try/catch.
   Future<String?> bootstrapPracticeForUser() async {
-    final result = await raw.rpc('bootstrap_practice_for_user');
+    final result = await _guardAuth(() => raw.rpc('bootstrap_practice_for_user'));
     if (result == null) return null;
     return result is String ? result : result.toString();
   }
@@ -174,11 +301,15 @@ class ApiClient {
     try {
       final userId = raw.auth.currentUser?.id;
       if (userId == null) return const [];
-      final response = await raw
+      // Wrap in a cast<dynamic>() so _guardAuth's T-inference doesn't
+      // narrow to a concrete List type — the subsequent `is! List`
+      // defence-in-depth was there to protect against Supabase drivers
+      // that could return a non-list on unexpected shapes.
+      final dynamic response = await _guardAuth(() => raw
           .from('practice_members')
           .select('role, practice_id, practices:practice_id ( id, name )')
           .eq('trainer_id', userId)
-          .order('joined_at', ascending: true);
+          .order('joined_at', ascending: true));
       if (response is! List) return const [];
       return response
           .whereType<Map>()
@@ -214,10 +345,10 @@ class ApiClient {
   /// error should NOT be mistaken for "you're out of credits".
   Future<int?> practiceCreditBalance({required String practiceId}) async {
     try {
-      final result = await raw.rpc(
-        'practice_credit_balance',
-        params: {'p_practice_id': practiceId},
-      );
+      final result = await _guardAuth(() => raw.rpc(
+            'practice_credit_balance',
+            params: {'p_practice_id': practiceId},
+          ));
       if (result is int) return result;
       if (result is num) return result.toInt();
       if (result is String) return int.tryParse(result);
@@ -239,11 +370,13 @@ class ApiClient {
   /// fallback in the filter keeps sessions visible when the sync fails.
   Future<List<PlanClientLink>> listPlanClientLinks(String practiceId) async {
     try {
-      final result = await raw
+      // Wrap in dynamic so the `is! List` defence below survives T-
+      // inference narrowing. See [listMyPractices] for the same pattern.
+      final dynamic result = await _guardAuth(() => raw
           .from('plans')
           .select('id, client_id')
           .eq('practice_id', practiceId)
-          .not('client_id', 'is', null);
+          .not('client_id', 'is', null));
       if (result is! List) return const [];
       return result
           .whereType<Map>()
@@ -275,14 +408,14 @@ class ApiClient {
     required String planId,
     required int credits,
   }) async {
-    final result = await raw.rpc(
-      'consume_credit',
-      params: {
-        'p_practice_id': practiceId,
-        'p_plan_id': planId,
-        'p_credits': credits,
-      },
-    );
+    final result = await _guardAuth(() => raw.rpc(
+          'consume_credit',
+          params: {
+            'p_practice_id': practiceId,
+            'p_plan_id': planId,
+            'p_credits': credits,
+          },
+        ));
     return result is Map
         ? Map<String, dynamic>.from(result)
         : const <String, dynamic>{};
@@ -295,10 +428,10 @@ class ApiClient {
   /// matching consumption, or any swallowed error).
   Future<bool> refundCredit({required String planId}) async {
     try {
-      final result = await raw.rpc(
-        'refund_credit',
-        params: {'p_plan_id': planId},
-      );
+      final result = await _guardAuth(() => raw.rpc(
+            'refund_credit',
+            params: {'p_plan_id': planId},
+          ));
       return result == true;
     } catch (_) {
       return false;
@@ -319,13 +452,13 @@ class ApiClient {
   /// caller owns the row shape so this class stays agnostic to schema
   /// migrations.
   Future<void> upsertPlan(Map<String, dynamic> row) async {
-    await raw.from('plans').upsert(row);
+    await _guardAuth(() => raw.from('plans').upsert(row));
   }
 
   /// Upsert a batch of exercise rows.
   Future<void> upsertExercises(List<Map<String, dynamic>> rows) async {
     if (rows.isEmpty) return;
-    await raw.from('exercises').upsert(rows);
+    await _guardAuth(() => raw.from('exercises').upsert(rows));
   }
 
   /// Delete exercise rows for a plan that are NOT in [keepIds]. If
@@ -334,11 +467,13 @@ class ApiClient {
     required String planId,
     required List<String> keepIds,
   }) async {
-    var q = raw.from('exercises').delete().eq('plan_id', planId);
-    if (keepIds.isNotEmpty) {
-      q = q.not('id', 'in', keepIds);
-    }
-    await q;
+    await _guardAuth(() async {
+      var q = raw.from('exercises').delete().eq('plan_id', planId);
+      if (keepIds.isNotEmpty) {
+        q = q.not('id', 'in', keepIds);
+      }
+      await q;
+    });
   }
 
   /// Append a plan_issuances audit row. Best-effort from the caller's
@@ -346,7 +481,7 @@ class ApiClient {
   /// swallows it (see the comment there; the ledger is already the
   /// source of truth for billing).
   Future<void> insertPlanIssuance(Map<String, dynamic> row) async {
-    await raw.from('plan_issuances').insert(row);
+    await _guardAuth(() => raw.from('plan_issuances').insert(row));
   }
 
   // ==========================================================================
@@ -359,11 +494,11 @@ class ApiClient {
     required String path,
     required File file,
   }) async {
-    await raw.storage.from(mediaBucket).upload(
+    await _guardAuth(() => raw.storage.from(mediaBucket).upload(
           path,
           file,
           fileOptions: const FileOptions(upsert: true),
-        );
+        ));
   }
 
   /// Return the public URL for an object at [path] in the media bucket.
@@ -378,7 +513,7 @@ class ApiClient {
   /// the original error).
   Future<void> removeMedia({required List<String> paths}) async {
     if (paths.isEmpty) return;
-    await raw.storage.from(mediaBucket).remove(paths);
+    await _guardAuth(() => raw.storage.from(mediaBucket).remove(paths));
   }
 
   // ==========================================================================
@@ -405,10 +540,10 @@ class ApiClient {
   /// ```
   Future<Map<String, dynamic>?> getPlanFull(String planId) async {
     try {
-      final result = await raw.rpc(
-        'get_plan_full',
-        params: {'p_plan_id': planId},
-      );
+      final result = await _guardAuth(() => raw.rpc(
+            'get_plan_full',
+            params: {'p_plan_id': planId},
+          ));
       if (result is Map) return Map<String, dynamic>.from(result);
       return null;
     } catch (e) {
@@ -452,10 +587,10 @@ class ApiClient {
     required String name,
   }) async {
     try {
-      final result = await raw.rpc(
-        'upsert_client',
-        params: {'p_practice_id': practiceId, 'p_name': name},
-      );
+      final result = await _guardAuth(() => raw.rpc(
+            'upsert_client',
+            params: {'p_practice_id': practiceId, 'p_name': name},
+          ));
       if (result is String && result.isNotEmpty) return result;
       return null;
     } catch (e) {
@@ -487,14 +622,14 @@ class ApiClient {
     required String practiceId,
     required String name,
   }) async {
-    final result = await raw.rpc(
-      'upsert_client_with_id',
-      params: {
-        'p_id': clientId,
-        'p_practice_id': practiceId,
-        'p_name': name,
-      },
-    );
+    final result = await _guardAuth(() => raw.rpc(
+          'upsert_client_with_id',
+          params: {
+            'p_id': clientId,
+            'p_practice_id': practiceId,
+            'p_name': name,
+          },
+        ));
     if (result is String && result.isNotEmpty) return result;
     return null;
   }
@@ -520,10 +655,10 @@ class ApiClient {
     required String newName,
   }) async {
     try {
-      await raw.rpc(
-        'rename_client',
-        params: {'p_client_id': clientId, 'p_new_name': newName},
-      );
+      await _guardAuth(() => raw.rpc(
+            'rename_client',
+            params: {'p_client_id': clientId, 'p_new_name': newName},
+          ));
     } on PostgrestException catch (e) {
       switch (e.code) {
         case '23505':
@@ -552,10 +687,10 @@ class ApiClient {
   /// (SyncService) lets those bubble so [markPendingOpFailed] records
   /// the error for diagnostics.
   Future<void> deleteClient({required String clientId}) async {
-    await raw.rpc(
-      'delete_client',
-      params: {'p_client_id': clientId},
-    );
+    await _guardAuth(() => raw.rpc(
+          'delete_client',
+          params: {'p_client_id': clientId},
+        ));
   }
 
   /// `restore_client(p_client_id)` — reverses [deleteClient]. Restores the
@@ -565,10 +700,10 @@ class ApiClient {
   ///
   /// Idempotent — no-op on a live client.
   Future<void> restoreClient({required String clientId}) async {
-    await raw.rpc(
-      'restore_client',
-      params: {'p_client_id': clientId},
-    );
+    await _guardAuth(() => raw.rpc(
+          'restore_client',
+          params: {'p_client_id': clientId},
+        ));
   }
 
   /// List the clients belonging to a practice. Used by the Your-clients
@@ -599,10 +734,10 @@ class ApiClient {
   Future<List<PracticeClient>> listPracticeClientsOrThrow(
     String practiceId,
   ) async {
-    final result = await raw.rpc(
-      'list_practice_clients',
-      params: {'p_practice_id': practiceId},
-    );
+    final result = await _guardAuth(() => raw.rpc(
+          'list_practice_clients',
+          params: {'p_practice_id': practiceId},
+        ));
     if (result is! List) return const [];
     return result
         .whereType<Map>()
@@ -625,15 +760,15 @@ class ApiClient {
     required bool colourAllowed,
   }) async {
     try {
-      await raw.rpc(
-        'set_client_video_consent',
-        params: {
-          'p_client_id': clientId,
-          'p_line_drawing': lineAllowed,
-          'p_grayscale': grayscaleAllowed,
-          'p_original': colourAllowed,
-        },
-      );
+      await _guardAuth(() => raw.rpc(
+            'set_client_video_consent',
+            params: {
+              'p_client_id': clientId,
+              'p_line_drawing': lineAllowed,
+              'p_grayscale': grayscaleAllowed,
+              'p_original': colourAllowed,
+            },
+          ));
       return true;
     } catch (e) {
       debugPrint('ApiClient.setClientVideoConsent failed: $e');
@@ -673,14 +808,14 @@ class ApiClient {
     required String path,
     required File file,
   }) async {
-    await raw.storage.from(rawArchiveBucket).upload(
+    await _guardAuth(() => raw.storage.from(rawArchiveBucket).upload(
           path,
           file,
           fileOptions: const FileOptions(
             upsert: false,
             contentType: 'video/mp4',
           ),
-        );
+        ));
   }
 
   // ---------------------------------------------------------------------------
@@ -698,10 +833,10 @@ class ApiClient {
   /// are expected to handle errors and retry (e.g. the
   /// "Couldn't load — tap to retry" row in Settings).
   Future<String> ensureReferralCode(String practiceId) async {
-    final result = await raw.rpc(
-      'generate_referral_code',
-      params: {'p_practice_id': practiceId},
-    );
+    final result = await _guardAuth(() => raw.rpc(
+          'generate_referral_code',
+          params: {'p_practice_id': practiceId},
+        ));
     if (result is String && result.isNotEmpty) return result;
     if (result is List && result.isNotEmpty) {
       final first = result.first;
@@ -722,10 +857,10 @@ class ApiClient {
   /// Map or a List-of-one-Map depending on the RPC return semantics; we
   /// tolerate both shapes.
   Future<ReferralStats> getReferralStats(String practiceId) async {
-    final result = await raw.rpc(
-      'referral_dashboard_stats',
-      params: {'p_practice_id': practiceId},
-    );
+    final result = await _guardAuth(() => raw.rpc(
+          'referral_dashboard_stats',
+          params: {'p_practice_id': practiceId},
+        ));
     Map<String, dynamic>? row;
     if (result is Map<String, dynamic>) {
       row = result;
@@ -768,15 +903,15 @@ class ApiClient {
     Map<String, dynamic>? meta,
   }) async {
     try {
-      await raw.rpc(
-        'log_share_event',
-        params: {
-          'p_practice_id': practiceId,
-          'p_channel': channel,
-          'p_event_kind': eventKind,
-          if (meta != null) 'p_meta': meta,
-        },
-      );
+      await _guardAuth(() => raw.rpc(
+            'log_share_event',
+            params: {
+              'p_practice_id': practiceId,
+              'p_channel': channel,
+              'p_event_kind': eventKind,
+              if (meta != null) 'p_meta': meta,
+            },
+          ));
     } catch (e) {
       debugPrint('ApiClient.logShareEvent($channel/$eventKind) failed: $e');
     }
