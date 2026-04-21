@@ -7,7 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart'
-    show PlaybackMediaTypes, WebKitWebViewControllerCreationParams;
+    show
+        PlaybackMediaTypes,
+        WebKitWebViewController,
+        WebKitWebViewControllerCreationParams;
 
 import '../models/session.dart';
 import '../services/local_player_server.dart';
@@ -141,8 +144,31 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
         ..addJavaScriptChannel(
           _bridgeChannelName,
           onMessageReceived: _onBridgeMessage,
-        )
-        ..setNavigationDelegate(
+        );
+
+      // Safari Web Inspector — iOS 16.4+ gates WKWebView inspection
+      // behind `isInspectable = true`. The underlying WebKit controller
+      // exposes `setInspectable` on iOS 16.4+; a no-op on older runtimes.
+      // Always on in debug/profile so device QA can attach Safari
+      // Develop → iPhone → homefit.studio WebView without rebuilding.
+      // Release builds leave inspection off (PII + CSP concerns).
+      if (Platform.isIOS && (kDebugMode || kProfileMode)) {
+        final platform = controller.platform;
+        if (platform is WebKitWebViewController) {
+          try {
+            await platform.setInspectable(true);
+          } catch (e) {
+            // Older webview_flutter_wkwebview versions won't expose
+            // setInspectable; silently skip so QA still works on the
+            // loopback path.
+            if (kDebugMode) {
+              debugPrint('[UnifiedPreview] setInspectable unavailable: $e');
+            }
+          }
+        }
+      }
+
+      controller.setNavigationDelegate(
           NavigationDelegate(
             onNavigationRequest: (req) {
               // Any navigation AWAY from the bundle's origin (share
