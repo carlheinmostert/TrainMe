@@ -11,6 +11,7 @@ import '../theme.dart';
 import '../widgets/powered_by_footer.dart';
 import '../widgets/set_password_sheet.dart';
 import '../widgets/undo_snackbar.dart';
+import 'diagnostics_screen.dart';
 
 /// Persistent home for account-level actions the practitioner needs
 /// access to at any time — primarily "set or change password" so a
@@ -177,6 +178,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         version: '0.1.0',
                         shortSha: AppConfig.buildSha,
                         onTap: _handleVersionTap,
+                      ),
+                      _Divider(),
+                      // Wave 7 / Milestone Q — Diagnostics screen.
+                      // Always visible (not gated behind the 7-tap
+                      // easter egg) so a practitioner hitting weirdness
+                      // can check the probes themselves and read off
+                      // the result to support. Opens DiagnosticsScreen
+                      // which runs 4 probes: signed-URL self-check,
+                      // Supabase connectivity, local SQLite, and
+                      // pending-ops queue depth.
+                      _ActionRow(
+                        icon: Icons.health_and_safety_outlined,
+                        label: 'Diagnostics',
+                        subtitle:
+                            'Live health probes for signed URLs, '
+                            'Supabase, local DB, sync queue.',
+                        onTap: _signOutPending
+                            ? null
+                            : () {
+                                HapticFeedback.selectionClick();
+                                DiagnosticsScreen.push(context);
+                              },
                       ),
                       if (_diagnosticsVisible) ...[
                         _Divider(),

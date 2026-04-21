@@ -9,6 +9,7 @@ import '../models/treatment.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'local_storage_service.dart';
+import 'loud_swallow.dart';
 
 // TODO: move to background URLSession for true non-blocking publish.
 // Today the upload runs on the Dart isolate tied to the app lifecycle; the
@@ -239,13 +240,18 @@ class UploadService {
       practiceId = cachedPracticeId;
       if (sessionPracticeId != cachedPracticeId) {
         final backfilled = session.copyWith(practiceId: cachedPracticeId);
-        try {
-          await _storage.saveSession(backfilled);
-        } catch (e) {
-          debugPrint(
-            'uploadPlan: failed to backfill practiceId locally: $e',
-          );
-        }
+        await loudSwallow(
+          () => _storage.saveSession(backfilled),
+          kind: 'practice_id_backfill_failed',
+          source: 'UploadService.uploadPlan',
+          severity: 'warn',
+          meta: {
+            'session_id': session.id,
+            'practice_id': cachedPracticeId,
+            'was': sessionPracticeId,
+          },
+          swallow: true,
+        );
       }
     } else if (sessionPracticeId != null) {
       practiceId = sessionPracticeId;
@@ -540,8 +546,8 @@ class UploadService {
       // (e.g. schema migration not applied yet) we swallow — the ledger
       // is consistent and the bio must not be blocked by an audit hiccup.
       // ----------------------------------------------------------------
-      try {
-        await _api.insertPlanIssuance({
+      await loudSwallow(
+        () => _api.insertPlanIssuance({
           'plan_id': session.id,
           'practice_id': practiceId,
           'trainer_id': trainerId,
@@ -549,10 +555,20 @@ class UploadService {
           'exercise_count': nonRestCount,
           'credits_charged': creditsToCharge,
           'issued_at': DateTime.now().toIso8601String(),
-        });
-      } catch (_) {
-        // Audit write is best-effort. Do not fail the publish.
-      }
+        }),
+        kind: 'plan_issuance_audit_failed',
+        source: 'UploadService.uploadPlan',
+        severity: 'warn',
+        meta: {
+          'plan_id': session.id,
+          'practice_id': practiceId,
+          'version': newVersion,
+          'credits_charged': creditsToCharge,
+        },
+        // Audit write is best-effort; ledger is the source of truth for
+        // billing. Do not fail the publish on its behalf.
+        swallow: true,
+      );
 
       // ----------------------------------------------------------------
       // Success — persist new local state.
@@ -579,15 +595,23 @@ class UploadService {
       // a cleanup failure must NOT mask the original error surfaced to
       // the user via [PublishResult.networkFailed].
       if (uploadedPaths.isNotEmpty) {
-        try {
-          await _api.removeMedia(paths: uploadedPaths);
-        } catch (cleanupErr) {
-          debugPrint(
-            'UploadService: orphan cleanup failed for ${uploadedPaths.length} '
-            'path(s) after publish failure — leaving objects in bucket: '
-            '$cleanupErr',
-          );
-        }
+        await loudSwallow(
+          () => _api.removeMedia(paths: uploadedPaths),
+          kind: 'orphan_cleanup_failed',
+          source: 'UploadService.uploadPlan',
+          severity: 'warn',
+          message:
+              'orphan cleanup failed for ${uploadedPaths.length} path(s) '
+              'after publish failure — leaving objects in bucket',
+          meta: {
+            'plan_id': session.id,
+            'practice_id': practiceId,
+            'orphan_count': uploadedPaths.length,
+          },
+          // Cleanup is best-effort; the publish already failed and we
+          // must preserve that original error up the stack.
+          swallow: true,
+        );
       }
 
       // If we already consumed credits, compensate with a refund row so
@@ -652,63 +676,95 @@ class UploadService {
       }
 
       final storagePath = '$practiceId/${session.id}/${exercise.id}.mp4';
-      try {
-        await _api.uploadRawArchive(
-          path: storagePath,
-          file: file,
+      // This is THE silent-failure site that motivated Wave 7 — the
+      // missing-vault-secret outage (2026-04-20) manifested as every
+      // raw-archive upload being rejected by Storage, and the bare
+      // debugPrint swallow hid it for weeks.
+      //
+      // We explicitly type the loudSwallow generic as `bool` and return
+      // `true` on success so we can branch on `ok == true` below. Using
+      // `Future<void>` would make the return `void?`, which Dart forbids
+      // comparing with null.
+      final ok = await loudSwallow<bool>(
+        () async {
+          await _api.uploadRawArchive(path: storagePath, file: file);
+          return true;
+        },
+        kind: 'raw_archive_upload_failed',
+        source: 'UploadService._uploadRawArchives',
+        severity: 'warn',
+        meta: {
+          'practice_id': practiceId,
+          'plan_id': session.id,
+          'exercise_id': exercise.id,
+          'storage_path': storagePath,
+        },
+        swallow: true,
+      );
+      if (ok != true) {
+        // loudSwallow swallowed the throw. Keep the legacy on-device
+        // breadcrumb so existing diagnostic tooling still sees it, even
+        // though the primary signal now goes via log_error.
+        await _logRawArchiveFailure(
+          exercise.id,
+          storagePath,
+          'loudSwallow route — see diagnostics.log',
+          StackTrace.current,
         );
-        // Persist the success locally so a subsequent publish skips this
-        // file. Wrapped in its own try/catch — a DB hiccup here must not
-        // mask the fact that the upload itself succeeded.
-        try {
-          final stamped = exercise.copyWith(
-            rawArchiveUploadedAt: DateTime.now(),
-          );
-          await _storage.saveExercise(stamped);
-        } catch (dbErr) {
-          debugPrint(
-            'UploadService: raw-archive upload succeeded for ${exercise.id} '
-            'but local stamp failed: $dbErr',
-          );
-        }
-      } catch (e, st) {
-        // Bucket missing (404) / RLS rejection / transient network — all
-        // non-fatal. Next publish retries. Keep the log terse so a large
-        // plan with a vanished bucket doesn't flood debugPrint.
-        debugPrint(
-          'UploadService: raw-archive upload failed for ${exercise.id} '
-          '→ $storagePath (continuing): $e',
-        );
-        // Also persist to a local log so release-build failures leave a
-        // breadcrumb — release strips debugPrint, which made diagnosis
-        // of this exact code path silent for weeks.
-        await _logRawArchiveFailure(exercise.id, storagePath, e, st);
+        continue;
       }
+
+      // Persist the success locally so a subsequent publish skips this
+      // file. A DB hiccup here must not mask the fact that the upload
+      // itself succeeded — swallow + log loudly.
+      await loudSwallow(
+        () => _storage.saveExercise(
+          exercise.copyWith(rawArchiveUploadedAt: DateTime.now()),
+        ),
+        kind: 'raw_archive_local_stamp_failed',
+        source: 'UploadService._uploadRawArchives',
+        severity: 'warn',
+        meta: {
+          'exercise_id': exercise.id,
+          'storage_path': storagePath,
+        },
+        swallow: true,
+      );
     }
   }
 
   /// Append a raw-archive upload failure to `{Documents}/raw_archive_error.log`.
   /// Swallows its own errors — this is a best-effort breadcrumb, never
   /// block publish on its behalf.
+  ///
+  /// Kept for continuity after Wave 7 routed the primary signal through
+  /// `loudSwallow` (which writes the server-side `error_logs` row + the
+  /// new shared `{Documents}/diagnostics.log`). This file-specific log
+  /// is legacy forensic surface that the filter workbench / on-device
+  /// support affordance already know to look at.
   Future<void> _logRawArchiveFailure(
     String exerciseId,
     String storagePath,
     Object error,
     StackTrace st,
   ) async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final logFile = File(p.join(dir.path, 'raw_archive_error.log'));
-      await logFile.writeAsString(
-        '${DateTime.now().toIso8601String()}  exercise=$exerciseId  path=$storagePath\n'
-        '  $error\n'
-        '  ${st.toString().split('\n').take(4).join('\n  ')}\n\n',
-        mode: FileMode.append,
-        flush: true,
-      );
-    } catch (_) {
-      // Swallow. Log-of-log isn't worth the complexity.
-    }
+    await loudSwallow(
+      () async {
+        final dir = await getApplicationDocumentsDirectory();
+        final logFile = File(p.join(dir.path, 'raw_archive_error.log'));
+        await logFile.writeAsString(
+          '${DateTime.now().toIso8601String()}  exercise=$exerciseId  path=$storagePath\n'
+          '  $error\n'
+          '  ${st.toString().split('\n').take(4).join('\n  ')}\n\n',
+          mode: FileMode.append,
+          flush: true,
+        );
+      },
+      kind: 'raw_archive_log_write_failed',
+      source: 'UploadService._logRawArchiveFailure',
+      severity: 'warn',
+      swallow: true,
+    );
   }
 
   /// Issue a compensating refund when a publish fails AFTER consume_credit
@@ -745,50 +801,64 @@ class UploadService {
   /// On failure: bump `publish_attempt_count`, set `last_publish_error`.
   Future<void> _recordFailure(Session session, String error) async {
     final truncated = error.length > 500 ? error.substring(0, 500) : error;
-    try {
-      await _storage.db.rawUpdate(
+    await loudSwallow(
+      () => _storage.db.rawUpdate(
         'UPDATE sessions '
         'SET last_publish_error = ?, '
         '    publish_attempt_count = COALESCE(publish_attempt_count, 0) + 1 '
         'WHERE id = ?',
         [truncated, session.id],
-      );
-    } catch (_) {
+      ),
+      kind: 'publish_error_record_failed',
+      source: 'UploadService._recordFailure',
+      severity: 'warn',
+      meta: {'session_id': session.id},
       // Schema v11 not applied yet — skip. Not fatal; publish flow
       // has already returned its PublishResult.
-    }
+      swallow: true,
+    );
   }
 
   /// On success: clear `last_publish_error`. Keep `publish_attempt_count`
   /// so the UI can show "took N tries" history if we ever want it.
   Future<void> _recordSuccess(String sessionId) async {
-    try {
-      await _storage.db.rawUpdate(
+    await loudSwallow(
+      () => _storage.db.rawUpdate(
         'UPDATE sessions SET last_publish_error = NULL WHERE id = ?',
         [sessionId],
-      );
-    } catch (_) {
+      ),
+      kind: 'publish_success_record_failed',
+      source: 'UploadService._recordSuccess',
+      severity: 'warn',
+      meta: {'session_id': sessionId},
       // Schema v11 not applied yet — skip.
-    }
+      swallow: true,
+    );
   }
 
   /// Read the last publish error for a session, if any. Returns null when
   /// the column doesn't exist yet (schema v11 not applied) or no error is
   /// stored.
   Future<String?> getLastPublishError(String sessionId) async {
-    try {
-      final rows = await _storage.db.query(
-        'sessions',
-        columns: ['last_publish_error'],
-        where: 'id = ?',
-        whereArgs: [sessionId],
-      );
-      if (rows.isEmpty) return null;
-      final v = rows.first['last_publish_error'];
-      return v is String && v.isNotEmpty ? v : null;
-    } catch (_) {
-      return null;
-    }
+    final result = await loudSwallow<String?>(
+      () async {
+        final rows = await _storage.db.query(
+          'sessions',
+          columns: ['last_publish_error'],
+          where: 'id = ?',
+          whereArgs: [sessionId],
+        );
+        if (rows.isEmpty) return null;
+        final v = rows.first['last_publish_error'];
+        return v is String && v.isNotEmpty ? v : null;
+      },
+      kind: 'publish_error_read_failed',
+      source: 'UploadService.getLastPublishError',
+      severity: 'warn',
+      meta: {'session_id': sessionId},
+      swallow: true,
+    );
+    return result;
   }
 }
 
