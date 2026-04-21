@@ -1,11 +1,33 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
-import { createPortalApi } from '@/lib/supabase/api';
+import { createPortalApi, createPortalMembersApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
+import { MembersList } from '@/components/MembersList';
 
 type SearchParams = { practice?: string };
 
+/**
+ * /members — practice roster with owner-only invite / role / remove and
+ * everyone-sees-everyone transparency.
+ *
+ * Wave 5 scope (see docs/BACKLOG.md "Members area — identity, invite codes,
+ * role, remove, leave"):
+ *
+ * - Table: Email · Name · Role · Joined · Actions. Own row is tagged
+ *   "(you)" with a Leave button.
+ * - Invite: owner-only button at the top mints a fresh 7-char code,
+ *   copies the `/join/{code}` URL, and surfaces it in a toast. Each code
+ *   is one-time — claiming or revoking invalidates it.
+ * - Role change: owner-only dropdown per non-self row. DB enforces
+ *   last-owner + self-change guards.
+ * - Remove: owner-only destructive button per non-self row. Hard delete
+ *   with success toast (no undo for Wave 5).
+ * - Leave: self-service button on your own row. Redirects to `/` after.
+ *
+ * Practitioners see the read-only table; the Actions column shows "—" for
+ * them except on their own row, which always carries Leave.
+ */
 export default async function MembersPage({
   searchParams,
 }: {
@@ -17,14 +39,21 @@ export default async function MembersPage({
   } = await supabase.auth.getUser();
   if (!user) redirect('/');
 
-  const api = createPortalApi(supabase);
+  const portalApi = createPortalApi(supabase);
+  const membersApi = createPortalMembersApi(supabase);
   const params = await searchParams;
   const practiceId = params.practice ?? '';
+
+  // Fail gracefully when the caller lands here without selecting a
+  // practice first (rare but possible via hand-crafted URLs). The
+  // dashboard redirect flow is the canonical entry point.
+  if (!practiceId) {
+    redirect('/dashboard');
+  }
+
   const [members, role] = await Promise.all([
-    practiceId ? api.listPracticeMembers(practiceId) : Promise.resolve([]),
-    practiceId
-      ? api.getCurrentUserRole(practiceId, user.id)
-      : Promise.resolve(null),
+    membersApi.listMembers(practiceId),
+    portalApi.getCurrentUserRole(practiceId, user.id),
   ]);
   const isOwner = role === 'owner';
 
@@ -41,41 +70,15 @@ export default async function MembersPage({
           </Link>
         </nav>
 
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <h1 className="font-heading text-3xl font-bold">Members</h1>
-          {isOwner && (
-            <details className="rounded-md border border-surface-border bg-surface-base px-4 py-2">
-              <summary className="cursor-pointer text-sm font-medium text-brand">
-                Invite
-              </summary>
-              <form
-                className="mt-3 flex flex-col gap-2"
-                action="#"
-                onSubmit={undefined}
-              >
-                <label className="text-xs text-ink-muted" htmlFor="invite-email">
-                  Practitioner email
-                </label>
-                <input
-                  id="invite-email"
-                  name="email"
-                  type="email"
-                  placeholder="name@example.com"
-                  className="rounded-md border border-surface-border bg-surface-raised px-3 py-2 text-sm"
-                />
-                <button
-                  type="submit"
-                  disabled
-                  className="rounded-md bg-surface-raised px-3 py-2 text-sm text-ink-muted"
-                >
-                  Send invite (wiring pending)
-                </button>
-                <p className="text-xs text-warning">
-                  Member-invite wiring is pending — Milestone D4 follow-up.
-                </p>
-              </form>
-            </details>
-          )}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="font-heading text-3xl font-bold">Members</h1>
+            <p className="mt-2 max-w-xl text-sm text-ink-muted">
+              Everyone who can publish plans under this practice. Every
+              member can see the roster; only owners can invite, change
+              roles, or remove.
+            </p>
+          </div>
         </div>
 
         {members.length === 0 ? (
@@ -83,35 +86,11 @@ export default async function MembersPage({
             No members found for this practice.
           </p>
         ) : (
-          <ul className="mt-8 divide-y divide-surface-border rounded-lg border border-surface-border bg-surface-base">
-            {members.map((m) => (
-              <li
-                key={m.trainer_id}
-                className="flex items-center justify-between px-5 py-4"
-              >
-                <div>
-                  <p className="font-mono text-sm text-ink">
-                    {m.trainer_id.slice(0, 8)}…
-                  </p>
-                  <p className="text-xs text-ink-dim">
-                    Joined{' '}
-                    {new Date(m.joined_at).toLocaleDateString('en-ZA', {
-                      dateStyle: 'medium',
-                    })}
-                  </p>
-                </div>
-                <span
-                  className={
-                    m.role === 'owner'
-                      ? 'rounded-full bg-brand/15 px-3 py-1 text-xs font-semibold uppercase text-brand'
-                      : 'rounded-full bg-surface-raised px-3 py-1 text-xs font-semibold uppercase text-ink-muted'
-                  }
-                >
-                  {m.role}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <MembersList
+            practiceId={practiceId}
+            initialMembers={members}
+            isOwner={isOwner}
+          />
         )}
       </div>
     </main>

@@ -12,8 +12,71 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
+      clients: {
+        Row: {
+          created_at: string
+          deleted_at: string | null
+          id: string
+          name: string
+          practice_id: string
+          updated_at: string
+          video_consent: Json
+        }
+        Insert: {
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          name: string
+          practice_id: string
+          updated_at?: string
+          video_consent?: Json
+        }
+        Update: {
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          name?: string
+          practice_id?: string
+          updated_at?: string
+          video_consent?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clients_practice_id_fkey"
+            columns: ["practice_id"]
+            isOneToOne: false
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credit_ledger: {
         Row: {
           created_at: string
@@ -76,7 +139,11 @@ export type Database = {
           notes: string | null
           plan_id: string
           position: number
+          preferred_treatment: string | null
+          prep_seconds: number | null
+          rep_duration_seconds: number | null
           reps: number | null
+          set_rest_seconds: number | null
           sets: number | null
           thumbnail_url: string | null
         }
@@ -93,7 +160,11 @@ export type Database = {
           notes?: string | null
           plan_id: string
           position: number
+          preferred_treatment?: string | null
+          prep_seconds?: number | null
+          rep_duration_seconds?: number | null
           reps?: number | null
+          set_rest_seconds?: number | null
           sets?: number | null
           thumbnail_url?: string | null
         }
@@ -110,7 +181,11 @@ export type Database = {
           notes?: string | null
           plan_id?: string
           position?: number
+          preferred_treatment?: string | null
+          prep_seconds?: number | null
+          rep_duration_seconds?: number | null
           reps?: number | null
+          set_rest_seconds?: number | null
           sets?: number | null
           thumbnail_url?: string | null
         }
@@ -222,8 +297,10 @@ export type Database = {
       plans: {
         Row: {
           circuit_cycles: Json | null
+          client_id: string | null
           client_name: string
           created_at: string | null
+          deleted_at: string | null
           exercise_count: number | null
           first_opened_at: string | null
           id: string
@@ -235,8 +312,10 @@ export type Database = {
         }
         Insert: {
           circuit_cycles?: Json | null
+          client_id?: string | null
           client_name: string
           created_at?: string | null
+          deleted_at?: string | null
           exercise_count?: number | null
           first_opened_at?: string | null
           id?: string
@@ -248,8 +327,10 @@ export type Database = {
         }
         Update: {
           circuit_cycles?: Json | null
+          client_id?: string | null
           client_name?: string
           created_at?: string | null
+          deleted_at?: string | null
           exercise_count?: number | null
           first_opened_at?: string | null
           id?: string
@@ -261,7 +342,52 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "plans_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "plans_practice_id_fkey"
+            columns: ["practice_id"]
+            isOneToOne: false
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      practice_invite_codes: {
+        Row: {
+          claimed_at: string | null
+          claimed_by: string | null
+          code: string
+          created_at: string
+          created_by: string | null
+          practice_id: string
+          revoked_at: string | null
+        }
+        Insert: {
+          claimed_at?: string | null
+          claimed_by?: string | null
+          code: string
+          created_at?: string
+          created_by?: string | null
+          practice_id: string
+          revoked_at?: string | null
+        }
+        Update: {
+          claimed_at?: string | null
+          claimed_by?: string | null
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          practice_id?: string
+          revoked_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_invite_codes_practice_id_fkey"
             columns: ["practice_id"]
             isOneToOne: false
             referencedRelation: "practices"
@@ -298,6 +424,51 @@ export type Database = {
           },
         ]
       }
+      practice_referrals: {
+        Row: {
+          claimed_at: string
+          code_used: string
+          goodwill_floor_applied: boolean
+          referee_named_consent: boolean
+          referee_practice_id: string
+          referrer_practice_id: string
+          signup_bonus_paid_at: string | null
+        }
+        Insert: {
+          claimed_at?: string
+          code_used: string
+          goodwill_floor_applied?: boolean
+          referee_named_consent?: boolean
+          referee_practice_id: string
+          referrer_practice_id: string
+          signup_bonus_paid_at?: string | null
+        }
+        Update: {
+          claimed_at?: string
+          code_used?: string
+          goodwill_floor_applied?: boolean
+          referee_named_consent?: boolean
+          referee_practice_id?: string
+          referrer_practice_id?: string
+          signup_bonus_paid_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "practice_referrals_referee_practice_id_fkey"
+            columns: ["referee_practice_id"]
+            isOneToOne: true
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "practice_referrals_referrer_practice_id_fkey"
+            columns: ["referrer_practice_id"]
+            isOneToOne: false
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       practices: {
         Row: {
           created_at: string
@@ -319,17 +490,196 @@ export type Database = {
         }
         Relationships: []
       }
+      referral_codes: {
+        Row: {
+          code: string
+          created_at: string
+          practice_id: string
+          revoked_at: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          practice_id: string
+          revoked_at?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          practice_id?: string
+          revoked_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_codes_practice_id_fkey"
+            columns: ["practice_id"]
+            isOneToOne: true
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_rebate_ledger: {
+        Row: {
+          created_at: string
+          credits: number
+          id: string
+          kind: Database["public"]["Enums"]["referral_rebate_kind"]
+          referee_practice_id: string | null
+          referrer_practice_id: string
+          source_credit_ledger_id: string | null
+          zar_amount: number | null
+        }
+        Insert: {
+          created_at?: string
+          credits: number
+          id?: string
+          kind: Database["public"]["Enums"]["referral_rebate_kind"]
+          referee_practice_id?: string | null
+          referrer_practice_id: string
+          source_credit_ledger_id?: string | null
+          zar_amount?: number | null
+        }
+        Update: {
+          created_at?: string
+          credits?: number
+          id?: string
+          kind?: Database["public"]["Enums"]["referral_rebate_kind"]
+          referee_practice_id?: string | null
+          referrer_practice_id?: string
+          source_credit_ledger_id?: string | null
+          zar_amount?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_rebate_ledger_referee_practice_id_fkey"
+            columns: ["referee_practice_id"]
+            isOneToOne: false
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_rebate_ledger_referrer_practice_id_fkey"
+            columns: ["referrer_practice_id"]
+            isOneToOne: false
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_rebate_ledger_source_credit_ledger_id_fkey"
+            columns: ["source_credit_ledger_id"]
+            isOneToOne: false
+            referencedRelation: "credit_ledger"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      _generate_slug_7: { Args: never; Returns: string }
       bootstrap_practice_for_user: { Args: never; Returns: string }
+      can_write_to_raw_archive: { Args: { p_path: string }; Returns: boolean }
+      claim_practice_invite: {
+        Args: { p_code: string }
+        Returns: {
+          practice_id: string
+          practice_name: string
+        }[]
+      }
+      claim_referral_code: {
+        Args: {
+          p_code: string
+          p_consent_to_naming: boolean
+          p_referee_practice_id: string
+        }
+        Returns: boolean
+      }
       consume_credit: {
         Args: { p_credits: number; p_plan_id: string; p_practice_id: string }
         Returns: Json
       }
+      delete_client: {
+        Args: { p_client_id: string }
+        Returns: {
+          deleted_at: string
+          id: string
+          name: string
+          practice_id: string
+        }[]
+      }
+      generate_referral_code: {
+        Args: { p_practice_id: string }
+        Returns: string
+      }
+      get_client_by_id: {
+        Args: { p_client_id: string }
+        Returns: {
+          id: string
+          name: string
+          video_consent: Json
+        }[]
+      }
       get_plan_full: { Args: { p_plan_id: string }; Returns: Json }
+      leave_practice: { Args: { p_practice_id: string }; Returns: undefined }
+      list_practice_clients: {
+        Args: { p_practice_id: string }
+        Returns: {
+          id: string
+          last_plan_at: string
+          name: string
+          video_consent: Json
+        }[]
+      }
+      list_practice_members_with_profile: {
+        Args: { p_practice_id: string }
+        Returns: {
+          email: string
+          full_name: string
+          is_current_user: boolean
+          joined_at: string
+          role: string
+          trainer_id: string
+        }[]
+      }
+      list_practice_sessions: {
+        Args: { p_practice_id: string }
+        Returns: {
+          client_name: string
+          exercise_count: number
+          first_opened_at: string
+          id: string
+          is_own_session: boolean
+          issuance_count: number
+          last_published_at: string
+          title: string
+          trainer_email: string
+          trainer_id: string
+          version: number
+        }[]
+      }
+      list_sessions_for_client: {
+        Args: { p_client_id: string }
+        Returns: {
+          client_name: string
+          exercise_count: number
+          first_opened_at: string
+          id: string
+          is_own_session: boolean
+          issuance_count: number
+          last_published_at: string
+          title: string
+          trainer_email: string
+          trainer_id: string
+          version: number
+        }[]
+      }
+      mint_practice_invite_code: {
+        Args: { p_practice_id: string }
+        Returns: string
+      }
       practice_credit_balance: {
         Args: { p_practice_id: string }
         Returns: number
@@ -338,16 +688,116 @@ export type Database = {
         Args: { p_cost: number; p_practice_id: string }
         Returns: boolean
       }
+      practice_rebate_balance: {
+        Args: { p_practice_id: string }
+        Returns: number
+      }
+      record_purchase_with_rebates: {
+        Args: {
+          p_amount_zar: number
+          p_bundle_key: string
+          p_cost_per_credit_zar: number
+          p_credits: number
+          p_payfast_payment_id: string
+          p_practice_id: string
+        }
+        Returns: Json
+      }
+      referral_dashboard_stats: {
+        Args: { p_practice_id: string }
+        Returns: {
+          lifetime_rebate_credits: number
+          qualifying_spend_total_zar: number
+          rebate_balance_credits: number
+          referee_count: number
+        }[]
+      }
+      referral_referees_list: {
+        Args: { p_practice_id: string }
+        Returns: {
+          is_named: boolean
+          joined_at: string
+          qualifying_spend_zar: number
+          rebate_earned_credits: number
+          referee_label: string
+          referee_practice_id: string
+        }[]
+      }
       refund_credit: { Args: { p_plan_id: string }; Returns: boolean }
+      remove_practice_member: {
+        Args: { p_practice_id: string; p_trainer_id: string }
+        Returns: undefined
+      }
+      rename_client: {
+        Args: { p_client_id: string; p_new_name: string }
+        Returns: undefined
+      }
       rename_practice: {
-        Args: { p_practice_id: string; p_new_name: string }
-        Returns: { id: string; name: string; created_at: string }[]
+        Args: { p_new_name: string; p_practice_id: string }
+        Returns: {
+          created_at: string
+          id: string
+          name: string
+          owner_trainer_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "practices"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      restore_client: {
+        Args: { p_client_id: string }
+        Returns: {
+          deleted_at: string
+          id: string
+          name: string
+          practice_id: string
+        }[]
+      }
+      revoke_referral_code: {
+        Args: { p_practice_id: string }
+        Returns: boolean
+      }
+      set_client_video_consent: {
+        Args: {
+          p_client_id: string
+          p_grayscale: boolean
+          p_line_drawing: boolean
+          p_original: boolean
+        }
+        Returns: undefined
+      }
+      set_practice_member_role: {
+        Args: {
+          p_new_role: string
+          p_practice_id: string
+          p_trainer_id: string
+        }
+        Returns: undefined
+      }
+      sign_storage_url: {
+        Args: { p_bucket: string; p_expires_in?: number; p_path: string }
+        Returns: string
+      }
+      upsert_client: {
+        Args: { p_name: string; p_practice_id: string }
+        Returns: string
+      }
+      upsert_client_with_id: {
+        Args: { p_id: string; p_name: string; p_practice_id: string }
+        Returns: string
       }
       user_is_practice_owner: { Args: { pid: string }; Returns: boolean }
       user_practice_ids: { Args: never; Returns: string[] }
     }
     Enums: {
-      [_ in never]: never
+      referral_rebate_kind:
+        | "signup_bonus_referrer"
+        | "signup_bonus_referee"
+        | "lifetime_rebate"
+        | "redeemed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -473,7 +923,17 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  public: {
+  graphql_public: {
     Enums: {},
+  },
+  public: {
+    Enums: {
+      referral_rebate_kind: [
+        "signup_bonus_referrer",
+        "signup_bonus_referee",
+        "lifetime_rebate",
+        "redeemed",
+      ],
+    },
   },
 } as const
