@@ -869,11 +869,27 @@ class SyncService {
   bool _isStaleOpAgainstMissingClient(Object e, PendingOpType type) {
     final msg = e.toString().toLowerCase();
 
-    // PostgREST 22023 "client X not found" — set_client_exercise_default,
-    // set_client_video_consent, rename_client all return this shape when
-    // the row is missing or tombstoned.
+    // PostgREST 22023 — covers BOTH 'client X not found' (row gone) and
+    // 'client has been deleted' (row tombstoned). Set_client_exercise_default,
+    // set_client_video_consent, rename_client all return these shapes when
+    // the row is missing or soft-deleted on the server.
     if (e is PostgrestException && e.code == '22023' &&
-        msg.contains('not found')) {
+        (msg.contains('not found') || msg.contains('has been deleted'))) {
+      return true;
+    }
+
+    // PostgREST 23505 — unique_violation on the (practice_id, name)
+    // constraint in `clients`. Observed shape:
+    //   "a deleted client already uses that name — restore it instead"
+    // The practitioner created a client locally while the server still
+    // has a tombstoned client with the same name. There's no correct
+    // automatic resolution (the intent is ambiguous — did they want
+    // to restore the old one or keep a fresh one?). Drop the op; the
+    // user can recreate or restore from the recycle bin on the portal.
+    if (type == PendingOpType.upsertClient &&
+        e is PostgrestException &&
+        e.code == '23505' &&
+        msg.contains('already uses that name')) {
       return true;
     }
 
