@@ -38,6 +38,18 @@ import WebKit
 ///
 /// The channel name is `com.raidme.unified_preview_scheme`. Dart lives in
 /// `app/lib/services/unified_preview_scheme_bridge.dart`.
+///
+/// # Stopped-task safety
+///
+/// `WKURLSchemeTask` raises an Obj-C `NSInternalInconsistencyException` if
+/// `didReceive` / `didFinish` / `didFailWithError` is called after WebKit
+/// has invoked `webView(_:stop:)` on the task. Swift can't `try`/`catch`
+/// Obj-C runtime exceptions, so the app crashes. This is easy to hit any
+/// time a previous video load races against the next swipe — WebKit
+/// aborts the old <video> request while our async file I/O is still in
+/// flight. Every task method is funnelled through `safeDidReceive` /
+/// `safeDidFinish` / `safeDidFail` below; each one checks the stopped-set
+/// under a lock before calling through.
 @available(iOS 11.0, *)
 final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
   static let schemeName = "homefit-local"
@@ -52,6 +64,14 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
   private var liveTasks: [ObjectIdentifier: DispatchWorkItem] = [:]
   private let liveTasksLock = NSLock()
 
+  /// Stopped-task set. Populated by `webView(_:stop:)` and checked by
+  /// every `safeDidReceive` / `safeDidFinish` / `safeDidFail` call.
+  /// Entries stay until the handler is deallocated — WebKit never reuses
+  /// a stopped task so unbounded growth is bounded by task churn per
+  /// handler lifetime (typically one session preview).
+  private var stoppedTasks: Set<ObjectIdentifier> = []
+  private let stoppedTasksLock = NSLock()
+
   init(messenger: FlutterBinaryMessenger) {
     self.channel = FlutterMethodChannel(
       name: UnifiedPlayerSchemeHandler.methodChannelName,
@@ -64,7 +84,7 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
 
   func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
     guard let url = urlSchemeTask.request.url else {
-      urlSchemeTask.didFailWithError(Self.error(.badURL, "missing request URL"))
+      safeDidFail(urlSchemeTask, Self.error(.badURL, "missing request URL"))
       return
     }
 
@@ -102,15 +122,54 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
       return
     }
 
-    urlSchemeTask.didFailWithError(Self.error(.unsupportedURL, "no route for \(path)"))
+    safeDidFail(urlSchemeTask, Self.error(.unsupportedURL, "no route for \(path)"))
   }
 
   func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
     let key = ObjectIdentifier(urlSchemeTask)
+
+    // Mark stopped FIRST so any in-flight completion on the scheme handler's
+    // dispatch queues no-ops before touching the task.
+    stoppedTasksLock.lock()
+    stoppedTasks.insert(key)
+    stoppedTasksLock.unlock()
+
+    // Then cancel the work item (if any) so the file-IO queue aborts its
+    // read when it next checks `isCancelled`.
     liveTasksLock.lock()
     let item = liveTasks.removeValue(forKey: key)
     liveTasksLock.unlock()
     item?.cancel()
+  }
+
+  // MARK: - Stopped-task guards
+
+  /// Returns true if the WebView has already called `stop:` on this task.
+  private func isStopped(_ task: WKURLSchemeTask) -> Bool {
+    let key = ObjectIdentifier(task)
+    stoppedTasksLock.lock()
+    defer { stoppedTasksLock.unlock() }
+    return stoppedTasks.contains(key)
+  }
+
+  private func safeDidReceive(_ task: WKURLSchemeTask, _ response: URLResponse) {
+    if isStopped(task) { return }
+    task.didReceive(response)
+  }
+
+  private func safeDidReceive(_ task: WKURLSchemeTask, _ data: Data) {
+    if isStopped(task) { return }
+    task.didReceive(data)
+  }
+
+  private func safeDidFinish(_ task: WKURLSchemeTask) {
+    if isStopped(task) { return }
+    task.didFinish()
+  }
+
+  private func safeDidFail(_ task: WKURLSchemeTask, _ error: Error) {
+    if isStopped(task) { return }
+    task.didFailWithError(error)
   }
 
   // MARK: - Static asset handler
@@ -127,14 +186,18 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
     let assetPath = "assets/web-player/\(assetName)"
     let key = FlutterDartProject.lookupKey(forAsset: assetPath)
     guard let resource = Bundle.main.path(forResource: key, ofType: nil) else {
-      task.didFailWithError(Self.error(.fileDoesNotExist, "asset missing: \(assetPath)"))
+      safeDidFail(task, Self.error(.fileDoesNotExist, "asset missing: \(assetPath)"))
       return
     }
     let fileURL = URL(fileURLWithPath: resource)
     do {
       let data = try Data(contentsOf: fileURL)
+      guard let requestURL = task.request.url else {
+        safeDidFail(task, Self.error(.badURL, "missing request URL mid-response"))
+        return
+      }
       let response = makeResponse(
-        url: task.request.url!,
+        url: requestURL,
         statusCode: 200,
         headers: [
           "Content-Type": contentType,
@@ -145,11 +208,11 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
       )
       // WebKit accepts URLResponse OR HTTPURLResponse. Custom schemes
       // get a plain URLResponse; mimeType + content-length suffice.
-      task.didReceive(response)
-      task.didReceive(data)
-      task.didFinish()
+      safeDidReceive(task, response)
+      safeDidReceive(task, data)
+      safeDidFinish(task)
     } catch {
-      task.didFailWithError(Self.error(.cannotOpenFile, "read failed: \(error.localizedDescription)"))
+      safeDidFail(task, Self.error(.cannotOpenFile, "read failed: \(error.localizedDescription)"))
     }
   }
 
@@ -158,20 +221,30 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
   private func respondWithPlanJson(_ task: WKURLSchemeTask, planId: String) {
     DispatchQueue.main.async { [weak self] in
       guard let self = self else { return }
-      self.channel.invokeMethod("resolvePlanJson", arguments: ["planId": planId]) { result in
+      // Bail early if the task was stopped between scheduling and firing
+      // on main. `channel.invokeMethod` below would still land in a
+      // callback that touches the task, so this short-circuit avoids the
+      // round-trip entirely.
+      if self.isStopped(task) { return }
+      self.channel.invokeMethod("resolvePlanJson", arguments: ["planId": planId]) { [weak self] result in
+        guard let self = self else { return }
         if let error = result as? FlutterError {
-          task.didFailWithError(Self.error(
+          self.safeDidFail(task, Self.error(
             .cannotLoadFromNetwork,
             "resolvePlanJson: \(error.code) \(error.message ?? "")"
           ))
           return
         }
         guard let json = result as? String, let data = json.data(using: .utf8) else {
-          task.didFailWithError(Self.error(.cannotLoadFromNetwork, "resolvePlanJson returned non-string"))
+          self.safeDidFail(task, Self.error(.cannotLoadFromNetwork, "resolvePlanJson returned non-string"))
+          return
+        }
+        guard let requestURL = task.request.url else {
+          self.safeDidFail(task, Self.error(.badURL, "missing request URL mid-response"))
           return
         }
         let response = self.makeResponse(
-          url: task.request.url!,
+          url: requestURL,
           statusCode: 200,
           headers: [
             "Content-Type": "application/json; charset=utf-8",
@@ -179,9 +252,9 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
             "Cache-Control": "no-store, max-age=0",
           ]
         )
-        task.didReceive(response)
-        task.didReceive(data)
-        task.didFinish()
+        self.safeDidReceive(task, response)
+        self.safeDidReceive(task, data)
+        self.safeDidFinish(task)
       }
     }
   }
@@ -195,20 +268,21 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
   ) {
     DispatchQueue.main.async { [weak self] in
       guard let self = self else { return }
+      if self.isStopped(task) { return }
       self.channel.invokeMethod(
         "resolveMediaPath",
         arguments: ["exerciseId": exerciseId, "kind": kind]
       ) { [weak self] result in
         guard let self = self else { return }
         if let error = result as? FlutterError {
-          task.didFailWithError(Self.error(
+          self.safeDidFail(task, Self.error(
             .fileDoesNotExist,
             "resolveMediaPath: \(error.code) \(error.message ?? "")"
           ))
           return
         }
         guard let path = result as? String, !path.isEmpty else {
-          task.didFailWithError(Self.error(.fileDoesNotExist, "no media for \(exerciseId)/\(kind)"))
+          self.safeDidFail(task, Self.error(.fileDoesNotExist, "no media for \(exerciseId)/\(kind)"))
           return
         }
         self.streamFileWithRangeSupport(task, filePath: path)
@@ -224,14 +298,31 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
     let url = URL(fileURLWithPath: filePath)
     let rangeHeader = task.request.value(forHTTPHeaderField: "Range")
 
+    // Capture requestURL on the calling queue — we can't trust the task
+    // itself to still be alive by the time the fileIO queue picks up the
+    // work item. (The task reference is still fine because WKWebView
+    // retains it until stop: + didFail/didFinish completes, but reading
+    // .request from a stopped task is a documented no-go on some iOS
+    // versions.)
+    guard let requestURL = task.request.url else {
+      safeDidFail(task, Self.error(.badURL, "missing request URL"))
+      return
+    }
+
+    // DispatchWorkItem reference has to be stable so the block can check
+    // its own `isCancelled` on cancel-during-read races.
+    var workItemRef: DispatchWorkItem?
     let workItem = DispatchWorkItem { [weak self] in
       guard let self = self else { return }
+      if workItemRef?.isCancelled == true { return }
+      if self.isStopped(task) { return }
       do {
         let attrs = try FileManager.default.attributesOfItem(atPath: filePath)
         guard let length = attrs[.size] as? Int else {
-          task.didFailWithError(Self.error(.resourceUnavailable, "cannot stat \(filePath)"))
+          self.safeDidFail(task, Self.error(.resourceUnavailable, "cannot stat \(filePath)"))
           return
         }
+        if workItemRef?.isCancelled == true { return }
         let contentType = self.contentTypeFor(filePath)
 
         guard let range = rangeHeader, !range.isEmpty else {
@@ -239,8 +330,9 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
           // so future requests for the same URL (e.g. AVPlayer pre-roll)
           // know they can seek.
           let data = try Data(contentsOf: url)
+          if workItemRef?.isCancelled == true { return }
           let response = self.makeResponse(
-            url: task.request.url!,
+            url: requestURL,
             statusCode: 200,
             headers: [
               "Content-Type": contentType,
@@ -249,24 +341,24 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
               "Cache-Control": "no-store, max-age=0",
             ]
           )
-          task.didReceive(response)
-          task.didReceive(data)
-          task.didFinish()
+          self.safeDidReceive(task, response)
+          self.safeDidReceive(task, data)
+          self.safeDidFinish(task)
           return
         }
 
         // Parse `bytes=<start>-<end>`
         guard let (start, end) = self.parseRange(rangeHeader: range, totalLength: length) else {
           let response = self.makeResponse(
-            url: task.request.url!,
+            url: requestURL,
             statusCode: 416,
             headers: [
               "Content-Range": "bytes */\(length)",
               "Content-Length": "0",
             ]
           )
-          task.didReceive(response)
-          task.didFinish()
+          self.safeDidReceive(task, response)
+          self.safeDidFinish(task)
           return
         }
 
@@ -274,10 +366,12 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         try handle.seek(toOffset: UInt64(start))
+        if workItemRef?.isCancelled == true { return }
         let chunk = handle.readData(ofLength: chunkLength)
+        if workItemRef?.isCancelled == true { return }
 
         let response = self.makeResponse(
-          url: task.request.url!,
+          url: requestURL,
           statusCode: 206,
           headers: [
             "Content-Type": contentType,
@@ -287,13 +381,15 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
             "Cache-Control": "no-store, max-age=0",
           ]
         )
-        task.didReceive(response)
-        task.didReceive(chunk)
-        task.didFinish()
+        self.safeDidReceive(task, response)
+        self.safeDidReceive(task, chunk)
+        self.safeDidFinish(task)
       } catch {
-        task.didFailWithError(Self.error(.cannotOpenFile, "stream failed: \(error.localizedDescription)"))
+        if workItemRef?.isCancelled == true { return }
+        self.safeDidFail(task, Self.error(.cannotOpenFile, "stream failed: \(error.localizedDescription)"))
       }
     }
+    workItemRef = workItem
 
     liveTasksLock.lock()
     liveTasks[ObjectIdentifier(task)] = workItem
