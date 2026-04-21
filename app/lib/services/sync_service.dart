@@ -9,6 +9,7 @@ import '../models/cached_client.dart';
 import '../models/cached_practice.dart';
 import '../models/pending_op.dart';
 import 'api_client.dart';
+import 'client_defaults_api.dart';
 import 'local_storage_service.dart';
 
 /// Orchestrator for the offline-first sync loop.
@@ -260,23 +261,21 @@ class SyncService {
 
   Future<_BranchOutcome> _pullClients(String practiceId, int nowMs) async {
     try {
-      // Use the throwing variant so an RPC failure bubbles up here
-      // instead of silently returning `[]` and making it look like the
-      // practice has no clients. The Home screen reads [hadError] from
-      // the outcome and shows a "Couldn't refresh" banner.
-      final clients = await ApiClient.instance
-          .listPracticeClientsOrThrow(practiceId);
-      final cached = clients
-          .map((c) => CachedClient(
-                id: c.id,
-                practiceId: c.practiceId.isNotEmpty ? c.practiceId : practiceId,
-                name: c.name,
-                grayscaleAllowed: c.grayscaleAllowed,
-                colourAllowed: c.colourAllowed,
-                syncedAt: nowMs,
-                dirty: false,
-              ))
-          .toList(growable: false);
+      // Go through the raw RPC surface so the new
+      // `client_exercise_defaults` jsonb (Milestone R / Wave 8) lands
+      // in the cache alongside consent + name. The typed
+      // `ApiClient.listPracticeClientsOrThrow` drops the defaults
+      // through the `PracticeClient` projection; the raw read
+      // preserves them on the wire map.
+      final rawRows = await ClientDefaultsApi.instance
+          .listPracticeClientsRaw(practiceId);
+      final cached = rawRows.map((row) {
+        final withPractice = Map<String, dynamic>.from(row);
+        // The RPC omits practice_id (it's bound by the input param) —
+        // backfill so CachedClient.fromCloudJson can populate it.
+        withPractice.putIfAbsent('practice_id', () => practiceId);
+        return CachedClient.fromCloudJson(withPractice, nowMs: nowMs);
+      }).toList(growable: false);
       await _storage.replaceCachedClientsForPractice(
         practiceId: practiceId,
         clients: cached,
@@ -485,6 +484,62 @@ class SyncService {
     return updated;
   }
 
+  /// Local-first sticky-default write (Milestone R / Wave 8).
+  ///
+  /// Called from the Studio card whenever the practitioner overrides
+  /// one of the seven sticky fields (reps / sets / hold_seconds /
+  /// include_audio / preferred_treatment / prep_seconds /
+  /// custom_duration_seconds) on a NEW capture. Writes the new value
+  /// into [CachedClient.clientExerciseDefaults] in-memory / on-disk,
+  /// queues the RPC, and best-effort flushes.
+  ///
+  /// [value] must be JSON-encodable (bool, num, String, null). Null
+  /// means "clear this field" — the next new capture reverts to the
+  /// [StudioDefaults] global fallback.
+  ///
+  /// Returns the updated cache row so the caller can immediately refresh
+  /// its in-memory state. Null when [clientId] doesn't resolve to a
+  /// cached row (legacy sessions without client_id — we just skip).
+  Future<CachedClient?> queueSetExerciseDefault({
+    required String clientId,
+    required String field,
+    required Object? value,
+  }) async {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final rows = await _storage.db.query(
+      'cached_clients',
+      where: 'id = ?',
+      whereArgs: [clientId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final current = CachedClient.fromMap(rows.first);
+    final nextDefaults = Map<String, dynamic>.from(
+      current.clientExerciseDefaults,
+    );
+    if (value == null) {
+      nextDefaults.remove(field);
+    } else {
+      nextDefaults[field] = value;
+    }
+    final updated = current.copyWith(
+      clientExerciseDefaults: nextDefaults,
+      dirty: true,
+    );
+    await _storage.upsertCachedClient(updated);
+    final op = PendingOp.setExerciseDefault(
+      opId: _uuid.v4(),
+      clientId: clientId,
+      field: field,
+      value: value,
+      nowMs: nowMs,
+    );
+    await _storage.enqueuePendingOp(op);
+    await _refreshPendingCount();
+    unawaited(flush());
+    return updated;
+  }
+
   // ---------------------------------------------------------------------------
   // Drain
   // ---------------------------------------------------------------------------
@@ -620,6 +675,25 @@ class SyncService {
         final clientId = op.payload['client_id'] as String?;
         if (clientId == null) return true;
         await ApiClient.instance.restoreClient(clientId: clientId);
+        await _storage.db.rawUpdate(
+          'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
+          [DateTime.now().millisecondsSinceEpoch, clientId],
+        );
+        return true;
+
+      case PendingOpType.setExerciseDefault:
+        final clientId = op.payload['client_id'] as String?;
+        final field = op.payload['field'] as String?;
+        // `value` is intentionally dynamic — the RPC's p_value JSONB
+        // accepts bool / num / String / null transparently (the
+        // supabase-flutter client JSON-encodes whatever we pass).
+        final value = op.payload['value'];
+        if (clientId == null || field == null) return true;
+        await ClientDefaultsApi.instance.setClientExerciseDefault(
+          clientId: clientId,
+          field: field,
+          value: value,
+        );
         await _storage.db.rawUpdate(
           'UPDATE cached_clients SET dirty = 0, synced_at = ? WHERE id = ?',
           [DateTime.now().millisecondsSinceEpoch, clientId],
