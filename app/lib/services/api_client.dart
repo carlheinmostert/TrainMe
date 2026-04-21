@@ -739,88 +739,6 @@ class ApiClient {
     return ReferralStats.fromJson(row);
   }
 
-  // ---------------------------------------------------------------------------
-  // Members — Wave 5 / Milestone P
-  // ---------------------------------------------------------------------------
-
-  /// Claim a practice invite code.
-  ///
-  /// Wraps `claim_practice_invite(p_code)` (SECURITY DEFINER). If the code
-  /// is valid + unclaimed, the current auth user is inserted into
-  /// `practice_members` as `role='practitioner'` and the practice id +
-  /// name are returned. Idempotent on re-claim by the same user.
-  ///
-  /// Mobile scope for Wave 5 is CLAIM ONLY — minting and member
-  /// management live on the portal. This method is the one Settings
-  /// "Join a practice" card calls.
-  ///
-  /// Throws a [ClaimInviteError] with a classified [ClaimInviteErrorKind]
-  /// so the caller can pick the matching inline message:
-  ///
-  /// * `invalidOrUsed` (P0002) — code is bogus, already claimed, or revoked.
-  /// * `auth` (28000) — session expired; caller should re-auth.
-  /// * `invalid` (22023) — code length / shape wrong.
-  Future<ClaimInviteResult> claimPracticeInvite(String code) async {
-    try {
-      final result = await raw.rpc(
-        'claim_practice_invite',
-        params: {'p_code': code.toUpperCase()},
-      );
-      // RPC returns a SETOF so PostgREST may shape as List-of-one-Map or
-      // bare Map depending on version. Tolerate both.
-      Map<String, dynamic>? row;
-      if (result is Map<String, dynamic>) {
-        row = result;
-      } else if (result is Map) {
-        row = Map<String, dynamic>.from(result);
-      } else if (result is List && result.isNotEmpty) {
-        final first = result.first;
-        if (first is Map) row = Map<String, dynamic>.from(first);
-      }
-      if (row == null) {
-        throw const ClaimInviteError(
-          kind: ClaimInviteErrorKind.unknown,
-          message: 'empty payload',
-        );
-      }
-      final practiceId = row['practice_id']?.toString();
-      final practiceName = row['practice_name']?.toString() ?? '';
-      if (practiceId == null || practiceId.isEmpty) {
-        throw const ClaimInviteError(
-          kind: ClaimInviteErrorKind.unknown,
-          message: 'missing practice id',
-        );
-      }
-      return ClaimInviteResult(
-        practiceId: practiceId,
-        practiceName: practiceName,
-      );
-    } on PostgrestException catch (e) {
-      switch (e.code) {
-        case 'P0002':
-          throw ClaimInviteError(
-            kind: ClaimInviteErrorKind.invalidOrUsed,
-            message: e.message,
-          );
-        case '22023':
-          throw ClaimInviteError(
-            kind: ClaimInviteErrorKind.invalid,
-            message: e.message,
-          );
-        case '28000':
-          throw ClaimInviteError(
-            kind: ClaimInviteErrorKind.auth,
-            message: e.message,
-          );
-        default:
-          throw ClaimInviteError(
-            kind: ClaimInviteErrorKind.unknown,
-            message: e.message,
-          );
-      }
-    }
-  }
-
   // ==========================================================================
   // Share-kit analytics — Wave 10 / 11
   // ==========================================================================
@@ -994,49 +912,8 @@ class PlanClientLink {
   const PlanClientLink({required this.planId, required this.clientId});
 }
 
-/// Return value from [ApiClient.claimPracticeInvite] on success.
-///
-/// Carries both the practice id + name so the caller's SnackBar can show
-/// "Joined {practiceName}" while the practice-switcher state machine
-/// flips to [practiceId].
-@immutable
-class ClaimInviteResult {
-  final String practiceId;
-  final String practiceName;
-
-  const ClaimInviteResult({
-    required this.practiceId,
-    required this.practiceName,
-  });
-}
-
-/// Categorised failure from [ApiClient.claimPracticeInvite]. Mirrors the
-/// portal's `MembersError.kind` so mobile + portal surface identical
-/// messaging for the same underlying SQLSTATE (R-11 twin).
-enum ClaimInviteErrorKind {
-  /// P0002 — the code is invalid, already-claimed, or revoked.
-  invalidOrUsed,
-
-  /// 22023 — the code shape is wrong (e.g. length mismatch).
-  invalid,
-
-  /// 28000 — no authenticated session; caller should prompt re-auth.
-  auth,
-
-  /// Anything else (network hiccup, RPC missing after a bad deploy, etc.).
-  unknown,
-}
-
-/// Thrown by [ApiClient.claimPracticeInvite] when the RPC raises. Carries
-/// the [kind] so callers can pick the inline copy without parsing server
-/// strings, plus the raw server message for surfacing in diagnostics.
-@immutable
-class ClaimInviteError implements Exception {
-  final ClaimInviteErrorKind kind;
-  final String message;
-
-  const ClaimInviteError({required this.kind, required this.message});
-
-  @override
-  String toString() => 'ClaimInviteError(${kind.name}): $message';
-}
+// Wave 14: `ClaimInviteResult` / `ClaimInviteError` / `ClaimInviteErrorKind`
+// retired alongside the Wave 5 invite-code flow. Mobile has zero invitee-
+// side UI in Wave 14 — new practices appear in the practice-switcher on
+// first launch after the auth.users INSERT trigger drains any pending
+// entries staged by the owner on the portal's /members page.

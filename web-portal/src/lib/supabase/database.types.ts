@@ -334,6 +334,35 @@ export type Database = {
           },
         ]
       }
+      pending_practice_members: {
+        Row: {
+          added_at: string
+          added_by: string | null
+          email: string
+          practice_id: string
+        }
+        Insert: {
+          added_at?: string
+          added_by?: string | null
+          email: string
+          practice_id: string
+        }
+        Update: {
+          added_at?: string
+          added_by?: string | null
+          email?: string
+          practice_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_practice_members_practice_id_fkey"
+            columns: ["practice_id"]
+            isOneToOne: false
+            referencedRelation: "practices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       plan_issuances: {
         Row: {
           credits_charged: number
@@ -438,44 +467,6 @@ export type Database = {
           },
           {
             foreignKeyName: "plans_practice_id_fkey"
-            columns: ["practice_id"]
-            isOneToOne: false
-            referencedRelation: "practices"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      practice_invite_codes: {
-        Row: {
-          claimed_at: string | null
-          claimed_by: string | null
-          code: string
-          created_at: string
-          created_by: string | null
-          practice_id: string
-          revoked_at: string | null
-        }
-        Insert: {
-          claimed_at?: string | null
-          claimed_by?: string | null
-          code: string
-          created_at?: string
-          created_by?: string | null
-          practice_id: string
-          revoked_at?: string | null
-        }
-        Update: {
-          claimed_at?: string | null
-          claimed_by?: string | null
-          code?: string
-          created_at?: string
-          created_by?: string | null
-          practice_id?: string
-          revoked_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "practice_invite_codes_practice_id_fkey"
             columns: ["practice_id"]
             isOneToOne: false
             referencedRelation: "practices"
@@ -723,15 +714,18 @@ export type Database = {
     }
     Functions: {
       _generate_slug_7: { Args: never; Returns: string }
-      bootstrap_practice_for_user: { Args: never; Returns: string }
-      can_write_to_raw_archive: { Args: { p_path: string }; Returns: boolean }
-      claim_practice_invite: {
-        Args: { p_code: string }
+      add_practice_member_by_email: {
+        Args: { p_email: string; p_practice_id: string }
         Returns: {
-          practice_id: string
-          practice_name: string
+          email: string
+          full_name: string
+          kind: string
+          role: string
+          trainer_id: string
         }[]
       }
+      bootstrap_practice_for_user: { Args: never; Returns: string }
+      can_write_to_raw_archive: { Args: { p_path: string }; Returns: boolean }
       claim_referral_code: {
         Args: {
           p_code: string
@@ -802,6 +796,20 @@ export type Database = {
           video_consent: Json
         }[]
       }
+      list_practice_members_and_pending: {
+        Args: { p_practice_id: string }
+        Returns: {
+          added_at: string
+          added_by: string
+          email: string
+          full_name: string
+          is_current_user: boolean
+          is_pending: boolean
+          joined_at: string
+          role: string
+          trainer_id: string
+        }[]
+      }
       list_practice_members_with_profile: {
         Args: { p_practice_id: string }
         Returns: {
@@ -866,10 +874,6 @@ export type Database = {
         }
         Returns: string
       }
-      mint_practice_invite_code: {
-        Args: { p_practice_id: string }
-        Returns: string
-      }
       practice_credit_balance: {
         Args: { p_practice_id: string }
         Returns: number
@@ -924,6 +928,10 @@ export type Database = {
         }[]
       }
       refund_credit: { Args: { p_plan_id: string }; Returns: boolean }
+      remove_pending_practice_member: {
+        Args: { p_email: string; p_practice_id: string }
+        Returns: undefined
+      }
       remove_practice_member: {
         Args: { p_practice_id: string; p_trainer_id: string }
         Returns: undefined
