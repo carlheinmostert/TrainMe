@@ -150,116 +150,94 @@
   <div class="wrap">
     <div class="kicker">homefit.studio · device QA</div>
     <h1>Test scripts</h1>
-    <p class="lede">Single landing page for all device QA waves. The active wave is pinned at the top; older waves are archived below.</p>
+    <p class="lede">Active QA for the six waves still awaiting device QA. Suggested order runs high-risk mobile changes first so any regression surfaces before you test the rest.</p>
 
-    <div class="active-card" style="cursor: default;">
-      <div class="label">No active test wave</div>
-      <h3 class="title">Implementation in flight</h3>
-      <p class="sub">Wave 4 (unified player), Wave 6 Phase 1 (share-kit templates), and iPhone polish batches Q1 + Q2 are all being built by background agents. New test wave lands when PRs merge + device install completes.</p>
+    <div class="active-card">
+      <div class="label">Active now — please test</div>
+      <h3 class="title">6 waves awaiting device QA</h3>
+      <p class="sub">
+        <strong style="color: var(--text);">1. Install first:</strong> run <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--coral);">./install-device.sh</code> from the repo root. It pulls main, release-builds, installs to iPhone CHM.<br>
+        <strong style="color: var(--text);">2. Hard-refresh</strong> <a href="https://manage.homefit.studio/network" target="_blank" style="color: var(--coral);">manage.homefit.studio</a> in Safari (Cmd+Shift+R) so Vercel's new portal build loads, then sign in.<br>
+        <strong style="color: var(--text);">3. Walk the waves below in order.</strong> Each script auto-persists pass/fail + notes as you click — no need to save.
+      </p>
     </div>
 
-    <h2>Upcoming waves</h2>
+    <h2>Order · test these now</h2>
     <ul class="wave-list">
-      <li class="planned">
-        <a href="./2026-04-21-wave4-phase2-device-qa.html">
-          <div class="row">
-            <div>
-              <div class="name">Wave 4 Phase 2 — postMessage bridge + URL scheme + retire shelf</div>
-              <div class="scope">Production-grade unified player: Flutter posts plan state to WebView via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">postMessage</code>, local media resolves via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">WKURLSchemeHandler</code> with Range support, Phase 1 Dart <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">shelf</code> loopback is retired. Haptics + iOS audio session bridge remain native. 12 test items.</div>
-            </div>
-            <div style="text-align: right;">
-              <span class="chip planned">Predictive</span>
-            </div>
-          </div>
-        </a>
-      </li>
-      <li class="planned">
+      <li>
         <a href="./2026-04-21-wave5-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">Wave 5 — Members area (identity + invite codes + roles)</div>
-              <div class="scope">Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">/members</code> rewrite. Shows email + name (new SECURITY DEFINER RPC joins <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">auth.users</code>). Per-practitioner-per-practice invite codes, no expiry, auto-join on claim via new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">/join/:code</code> landing page. Role change (block last-owner demotion + self-role-change). Hard remove (revokes unclaimed codes). Self-service leave (block last-owner-with-practitioners + only-member cases). 19 test items.</div>
+              <div class="name">1 · Wave 5 — Members area (identity + invite codes + roles)</div>
+              <div class="scope">Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/members</code> rewrite + mobile Settings "Join a practice" card. Per-practitioner-per-practice invite codes, no expiry, auto-join on claim, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/join/:code</code> landing page. Role change + hard remove + self-service leave with last-owner guards. Mobile CLAIM only; mint/manage stay on portal. 19 items.</div>
             </div>
             <div style="text-align: right;">
-              <span class="chip planned">Predictive</span>
+              <span class="chip active">Active</span>
             </div>
           </div>
         </a>
       </li>
-      <li class="planned">
-        <a>
-          <div class="row">
-            <div>
-              <div class="name">Wave 6 — Network share-kit</div>
-              <div class="scope">Practitioner shares homefit.studio on the company's behalf: WhatsApp 1:1, WhatsApp broadcast, email with subject/body/signature, plus a PNG share-card with QR. Phased: copy-to-clipboard → <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">wa.me</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">mailto:</code> intents → PNG + QR. Spec: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">docs/design/mockups/network-share-kit.html</code> (1540 lines, merged in PR #27). Phase 1 shipped in PR #63; Phase 2 (intents) + Phase 3 (PNG/QR/analytics) remaining.</div>
-            </div>
-            <div style="text-align: right;">
-              <span class="chip planned">Planned</span>
-            </div>
-          </div>
-        </a>
-      </li>
-      <li class="planned">
-        <a href="./2026-04-21-wave7-device-qa.html">
-          <div class="row">
-            <div>
-              <div class="name">Wave 7 — Silent-failure observability</div>
-              <div class="scope">Architectural. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">error_logs</code> table + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">_loudSwallow</code> helper + pre-commit lint banning bare catch blocks + boot-time Diagnostics screen with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">signed_url_self_check()</code> probe + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">publish_health</code> SQL view with daily WhatsApp ping via the CallMeBot skill. Would have caught the 2026-04-20 raw-archive / vault / client_id bleeders on first launch. Design: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">docs/design-reviews/silent-failures-2026-04-20.md</code>. 12 test items.</div>
-            </div>
-            <div style="text-align: right;">
-              <span class="chip planned">Predictive</span>
-            </div>
-          </div>
-        </a>
-      </li>
-      <li class="planned">
+      <li>
         <a href="./2026-04-21-wave8-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">Wave 8 — Sticky per-client defaults</div>
-              <div class="scope">JSONB <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">client_exercise_defaults</code> on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">clients</code> + SQLite mirror. Propagates 7 fields forward-only on every edit: reps · sets · hold · muted · preferred treatment · prep seconds · custom duration. Invisible UX — practitioner just sees pre-filled values on the next new exercise. Also: landscape capture + "long-press to record video" hint. 11 test items.</div>
+              <div class="name">2 · Wave 8 — Sticky per-client defaults</div>
+              <div class="scope">JSONB <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">client_exercise_defaults</code> + SQLite mirror. Forward-only propagation on new captures for reps/sets/hold/rest/muted/preferred-treatment. Invisible UX — just pre-fills. Also: landscape capture + "long-press to record video" hint. 11 items.</div>
             </div>
             <div style="text-align: right;">
-              <span class="chip planned">Predictive</span>
+              <span class="chip active">Active</span>
             </div>
           </div>
         </a>
       </li>
-      <li class="planned">
-        <a href="./2026-04-21-wave9-device-qa.html">
-          <div class="row">
-            <div>
-              <div class="name">Wave 9 — Audit expansion (full event log + filters + CSV)</div>
-              <div class="scope">Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">/audit</code> expands from "50 most recent publishes" to a full event log: publishes, credit purchases / refunds / signup bonuses / rebates / adjustments, clients created / deleted / restored, members joined / removed / role-changed, practice renames, invites minted. New <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">audit_events</code> table for mutations without natural sources; single <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">list_practice_audit</code> RPC unions across sources. UI: Date · Actor (email + name) · Kind chip (coral/sage/red/grey palette) · Description · Credit Δ · Balance after · Link. Filters: Kind multi-select, Practitioner, Date range. Page navigation. CSV export. Everyone sees everything — transparency. 17 test items.</div>
-            </div>
-            <div style="text-align: right;">
-              <span class="chip planned">Predictive</span>
-            </div>
-          </div>
-        </a>
-      </li>
-      <li class="planned">
+      <li>
         <a href="./2026-04-21-wave10-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">Wave 10 — Network share-kit Phase 3 (PNG + QR + analytics)</div>
-              <div class="scope">Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">/network</code> produces a 1080×1350 PNG share card with scannable QR → <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">session.homefit.studio/r/{code}</code>. Download PNG + Copy image (Safari compat load-bearing). Share-action analytics (Copy / Open-in-app / Download-PNG) persisted to new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">share_events</code> append-only table. 14 test items.</div>
+              <div class="name">3 · Wave 10 — Network share-kit Phase 3 (PNG + QR + analytics)</div>
+              <div class="scope">Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/network</code> now renders a real 1080×1350 PNG with scannable QR (replaces the Phase 1 placeholder). Download + Copy-to-clipboard. Every share-kit action logs to the new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">share_events</code> table. 14 items.</div>
             </div>
             <div style="text-align: right;">
-              <span class="chip planned">Predictive</span>
+              <span class="chip active">Active</span>
             </div>
           </div>
         </a>
       </li>
-      <li class="planned">
+      <li>
         <a href="./2026-04-21-wave11-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">Wave 11 — Mobile R-11 twin for Network share-kit</div>
-              <div class="scope">Flutter Settings → Network mirrors portal share-kit: three rendered templates (WhatsApp 1:1, broadcast, email), native intent launchers via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">url_launcher</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">wa.me</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; color: var(--coral);">mailto:</code>, PNG share card through iOS share sheet. R-10 parity required. 10 test items.</div>
+              <div class="name">4 · Wave 11 — Mobile R-11 twin for Network share-kit</div>
+              <div class="scope">Settings → Network → <strong>Share homefit.studio</strong> opens the new mobile surface. Three rendered templates (WhatsApp 1:1 with live colleague-name substitution, broadcast, email). <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">url_launcher</code>-backed intent launchers + PNG rasterised via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">RepaintBoundary.toImage</code> through iOS share sheet. 10 items.</div>
             </div>
             <div style="text-align: right;">
-              <span class="chip planned">Predictive</span>
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
+        <a href="./2026-04-21-wave9-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">5 · Wave 9 — Audit expansion (full event log + filters + CSV)</div>
+              <div class="scope">Portal-only. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/audit</code> expands to a unified event log — publishes, credit changes, referral rebates, clients created/deleted, members joined, invites minted/claimed. New <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">audit_events</code> table for mutations without natural sources. Kind chips, filter bar (multi-select), pagination, CSV export. Everyone sees everything. 17 items.</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
+        <a href="./2026-04-21-wave7-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">6 · Wave 7 — Silent-failure observability</div>
+              <div class="scope">Architectural. Test last because it's mostly invisible. Settings → About → Diagnostics runs the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">signed_url_self_check()</code> probe + three more. Boot self-check auto-opens on first sign-in. Verify <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">error_logs</code> is writing rows under failure simulation. 12 items.</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
             </div>
           </div>
         </a>
@@ -268,6 +246,20 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-04-21-wave4-phase2-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 4 Phase 2 — unified player (postMessage + WKURLSchemeHandler)</div>
+              <div class="date">2026-04-21</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Complete</span>
+              <div class="results" id="wave4-phase2-results">Loading…</div>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-04-20-wave3-device-qa.html">
           <div class="row">
@@ -345,6 +337,7 @@
           .catch(function() { el.textContent = 'No results yet.'; });
       }
 
+      load('2026-04-21-wave4-phase2-device-qa.results.json', 'wave4-phase2-results');
       load('2026-04-20-wave3-device-qa.results.json', 'wave3-results');
       load('2026-04-20-wave2-device-qa.results.json', 'wave2-results');
     })();
