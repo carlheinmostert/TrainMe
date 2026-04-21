@@ -52,7 +52,9 @@
   function isLocalSurface() {
     try {
       const host = window.location.hostname;
-      if (host !== '127.0.0.1' && host !== 'localhost') return false;
+      // Wave 4 Phase 1: Dart `shelf` loopback → 127.0.0.1 / localhost.
+      // Wave 4 Phase 2: `homefit-local://plan/...` custom scheme → 'plan'.
+      if (host !== '127.0.0.1' && host !== 'localhost' && host !== 'plan') return false;
       const params = new URLSearchParams(window.location.search || '');
       return params.get('src') === 'local';
     } catch (_) {
