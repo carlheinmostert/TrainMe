@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'api_client.dart';
+
 /// Thin RPC wrapper for the sticky per-client exercise defaults
 /// (Milestone R / Wave 8).
 ///
@@ -9,6 +11,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// `docs/BACKLOG.md`). Once Wave 5 lands, these methods can be folded
 /// into [ApiClient] with no behavioural change — the wire contract
 /// stays the same.
+///
+/// RPC calls here route through [ApiClient.guardAuth] so a revoked
+/// server-side session fires [ApiClient.sessionExpired] the same way
+/// every other RPC does (Wave 15 — no silent bypass of the auth
+/// funnel).
 ///
 /// Contract mirrors `supabase/schema_milestone_r_sticky_defaults.sql`:
 ///
@@ -57,14 +64,14 @@ class ClientDefaultsApi {
     required String field,
     required Object? value,
   }) async {
-    await _raw.rpc(
-      'set_client_exercise_default',
-      params: <String, dynamic>{
-        'p_client_id': clientId,
-        'p_field': field,
-        'p_value': value,
-      },
-    );
+    await ApiClient.instance.guardAuth(() => _raw.rpc(
+          'set_client_exercise_default',
+          params: <String, dynamic>{
+            'p_client_id': clientId,
+            'p_field': field,
+            'p_value': value,
+          },
+        ));
   }
 
   /// Best-effort variant — swallows errors with a debug log. Used by
@@ -102,10 +109,10 @@ class ClientDefaultsApi {
   Future<List<Map<String, dynamic>>> listPracticeClientsRaw(
     String practiceId,
   ) async {
-    final result = await _raw.rpc(
-      'list_practice_clients',
-      params: <String, dynamic>{'p_practice_id': practiceId},
-    );
+    final result = await ApiClient.instance.guardAuth(() => _raw.rpc(
+          'list_practice_clients',
+          params: <String, dynamic>{'p_practice_id': practiceId},
+        ));
     if (result is! List) return const <Map<String, dynamic>>[];
     return result
         .whereType<Map>()

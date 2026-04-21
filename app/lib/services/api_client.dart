@@ -156,6 +156,13 @@ class ApiClient {
     }
   }
 
+  /// Public variant of [_guardAuth] for sibling API seams that still
+  /// live outside this file (e.g. [ClientDefaultsApi]) but want the
+  /// session-revoke detector to fire on their RPCs too. Prefer inlining
+  /// the RPC into this class when possible; this is the compatibility
+  /// seam until those seams fold in.
+  Future<T> guardAuth<T>(Future<T> Function() op) => _guardAuth(op);
+
   /// Fires true when an RPC detects the server-side session has been
   /// revoked (`session_not_found` / 403) and we've forced a local
   /// sign-out to recover. Cleared when the user signs back in via the
@@ -890,12 +897,10 @@ class ApiClient {
   /// Callers should wrap in `unawaited(...)` — this method MUST NOT block
   /// the UI. Errors are swallowed locally (with `debugPrint`) because
   /// analytics are low-stakes: the share still happened even if the log
-  /// row didn't land.
-  ///
-  /// TODO(wave-7): once `loud_swallow` ships, replace the try/catch with
-  /// `loudSwallow('ApiClient.logShareEvent', () => raw.rpc(...))` so every
-  /// failure surfaces in the Diagnostics panel instead of being silently
-  /// dropped.
+  /// row didn't land. A follow-up can route this through `loudSwallow`
+  /// so failures land in the server-side `error_logs` table; kept on
+  /// `debugPrint` today to preserve the fire-and-forget contract
+  /// exactly.
   Future<void> logShareEvent({
     required String practiceId,
     required String channel,
