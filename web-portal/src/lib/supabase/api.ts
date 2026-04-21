@@ -83,6 +83,21 @@ export type MemberRow = {
 };
 
 /**
+ * Row shape returned by `list_practice_members_with_profile` (Wave 5 RPC,
+ * SECURITY DEFINER). Same columns as MemberRow plus identity fields
+ * resolved via auth.users. Used by the audit filter dropdown + members
+ * admin surfaces.
+ */
+export type MemberProfileRow = {
+  trainerId: string;
+  email: string;
+  fullName: string;
+  role: 'owner' | 'practitioner';
+  joinedAt: string;
+  isCurrentUser: boolean;
+};
+
+/**
  * A published session visible to the caller. See `list_practice_sessions`
  * RPC (`supabase/schema_milestone_h_list_practice_sessions.sql`). The
  * trainer fields are populated from the most recent `plan_issuances` row
@@ -219,6 +234,36 @@ export class PortalApi {
 
     if (error || !data) return [];
     return data as MemberRow[];
+  }
+
+  /**
+   * List members with email / full name via the Wave 5 SECURITY DEFINER
+   * RPC `list_practice_members_with_profile`. Join onto auth.users happens
+   * inside the RPC — callers never need service-role access. Returns an
+   * empty array if the caller isn't a member (the RPC raises 42501 which
+   * we fold here) or the RPC hasn't shipped yet.
+   *
+   * Used by:
+   *   - /members admin surface (Wave 5 table body)
+   *   - /audit filter bar actor dropdown (Wave 9)
+   */
+  async listPracticeMembersWithProfile(
+    practiceId: string,
+  ): Promise<MemberProfileRow[]> {
+    const { data, error } = await this.supabase.rpc(
+      'list_practice_members_with_profile',
+      { p_practice_id: practiceId },
+    );
+    if (error || !data) return [];
+    const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
+    return rows.map((r) => ({
+      trainerId: String(r.trainer_id ?? ''),
+      email: String(r.email ?? ''),
+      fullName: String(r.full_name ?? ''),
+      role: (r.role === 'owner' ? 'owner' : 'practitioner'),
+      joinedAt: String(r.joined_at ?? ''),
+      isCurrentUser: Boolean(r.is_current_user),
+    }));
   }
 
   /**
@@ -982,6 +1027,201 @@ export async function createAdminApi(): Promise<AdminApi> {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   return new AdminApi(admin);
+}
+
+// ============================================================================
+// Audit surface (PortalAuditApi)
+// ============================================================================
+//
+// Wave 9 — unified practice event log with filters + pagination. The portal's
+// `/audit` page routes through this class exclusively; direct table reads
+// are a layering violation.
+//
+// The backing RPC is `list_practice_audit(p_practice_id, p_offset, p_limit,
+// p_kinds[], p_actor, p_from, p_to)` — SECURITY DEFINER, membership-gated,
+// unions plan_issuances + credit_ledger + referral_rebate_ledger + clients +
+// practice_members + practice_invite_codes + audit_events. The RPC emits a
+// window `total_count` on every row so pagination doesn't need a second
+// round-trip.
+//
+// SCHEMA NOTE: credit_ledger has no trainer_id column, so credit rows surface
+// with `trainerId`/`email`/`fullName` all null. The portal renders those as
+// "—". Plan publishes and member joins DO carry the actor.
+
+/** Canonical event kinds emitted by the RPC. Kept in sync with the SQL
+ *  `CASE` branches in `schema_milestone_t_audit_expansion.sql`. The portal
+ *  uses these as chip keys; ad-hoc audit_events rows can emit new kinds and
+ *  the portal falls back to the grey "neutral" palette. */
+export const AUDIT_EVENT_KINDS = [
+  'plan.publish',
+  'credit.consumption',
+  'credit.purchase',
+  'credit.refund',
+  'credit.adjustment',
+  'credit.signup_bonus',
+  'credit.referral_signup_bonus',
+  'referral.rebate',
+  'client.create',
+  'client.delete',
+  'client.restore',
+  'member.join',
+  'member.role_change',
+  'member.remove',
+  'invite.mint',
+  'invite.claim',
+  'invite.revoke',
+  'practice.rename',
+] as const;
+
+export type AuditEventKind = (typeof AUDIT_EVENT_KINDS)[number];
+
+/** Chip colour bucket. Kept here (not in a component) so the mobile twin can
+ *  reuse the same palette when porting. */
+export type AuditChipTone = 'coral' | 'sage' | 'red' | 'grey';
+
+/** Maps a kind string (including unknown future kinds) to a chip tone. Any
+ *  kind not in the table falls back to 'grey' — safe neutral default. */
+export function auditChipTone(kind: string): AuditChipTone {
+  switch (kind) {
+    case 'plan.publish':
+    case 'credit.consumption':
+      return 'coral';
+    case 'credit.purchase':
+    case 'credit.signup_bonus':
+    case 'credit.referral_signup_bonus':
+    case 'referral.rebate':
+      return 'sage';
+    case 'credit.refund':
+    case 'client.delete':
+    case 'member.remove':
+    case 'invite.revoke':
+      return 'red';
+    default:
+      return 'grey';
+  }
+}
+
+/** A single row emitted by `list_practice_audit`. The jsonb `meta` bag is
+ *  kind-specific; callers key into it defensively. */
+export type AuditRow = {
+  ts: string;
+  kind: string;
+  trainerId: string | null;
+  email: string | null;
+  fullName: string | null;
+  title: string | null;
+  creditsDelta: number | null;
+  balanceAfter: number | null;
+  refId: string | null;
+  meta: Record<string, unknown> | null;
+};
+
+/** Page of audit rows + total matching-filter count (same value on every
+ *  row in the RPC output; the portal uses it for "Showing N–M of T" +
+ *  pagination). */
+export type AuditPage = {
+  rows: AuditRow[];
+  totalCount: number;
+};
+
+export type AuditListOptions = {
+  /** Zero-based offset into the filtered result set. Default 0. */
+  offset?: number;
+  /** Page size. Default 50. Capped at 5000 server-side by convention. */
+  limit?: number;
+  /** Filter: include only these exact kinds. Omit or empty → all kinds. */
+  kinds?: string[];
+  /** Filter: only events by this actor uuid. Null/omitted → all actors. */
+  actor?: string | null;
+  /** Filter: ts >= this ISO timestamp. */
+  from?: string | null;
+  /** Filter: ts <= this ISO timestamp. */
+  to?: string | null;
+};
+
+/** Wraps the `list_practice_audit` RPC surface. Separate class from
+ *  [PortalApi] so the audit feature is self-contained and easy to move
+ *  later if the portal ever splits into domain bundles. */
+export class PortalAuditApi {
+  constructor(private readonly supabase: CompatSupabase) {}
+
+  /**
+   * List practice audit events, filtered + paginated. Returns an empty page
+   * on any RPC error — the portal is display-safe (the table renders the
+   * "no events match these filters" empty state). Callers that need to
+   * distinguish "truly empty" from "RPC failed" should surface errors
+   * from a separate health check, not this method.
+   */
+  async listAudit(
+    practiceId: string,
+    opts: AuditListOptions = {},
+  ): Promise<AuditPage> {
+    const { data, error } = await this.supabase.rpc('list_practice_audit', {
+      p_practice_id: practiceId,
+      p_offset: opts.offset ?? 0,
+      p_limit: opts.limit ?? 50,
+      // RPC treats NULL as "no filter" — unwrap empty arrays so a blank
+      // kinds filter doesn't accidentally match zero rows.
+      p_kinds:
+        opts.kinds && opts.kinds.length > 0 ? opts.kinds : undefined,
+      p_actor: opts.actor ?? undefined,
+      p_from: opts.from ?? undefined,
+      p_to: opts.to ?? undefined,
+    });
+    if (error || !data) {
+      return { rows: [], totalCount: 0 };
+    }
+    const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
+    const totalCount =
+      rows.length > 0 ? Number(rows[0]?.total_count ?? 0) : 0;
+    return {
+      rows: rows.map(mapAuditRow),
+      totalCount: Number.isFinite(totalCount) ? totalCount : 0,
+    };
+  }
+}
+
+/** Construct a [PortalAuditApi] bound to the given Supabase client. */
+export function createPortalAuditApi(
+  supabase: CompatSupabase,
+): PortalAuditApi {
+  return new PortalAuditApi(supabase);
+}
+
+// ----------------------------------------------------------------------------
+// Audit helpers
+// ----------------------------------------------------------------------------
+
+function mapAuditRow(r: Record<string, unknown>): AuditRow {
+  const meta = r.meta;
+  return {
+    ts: String(r.ts ?? ''),
+    kind: String(r.kind ?? ''),
+    trainerId: r.trainer_id ? String(r.trainer_id) : null,
+    email: r.email ? String(r.email) : null,
+    fullName: r.full_name ? String(r.full_name) : null,
+    title: r.title ? String(r.title) : null,
+    creditsDelta: coerceNumberOrNull(r.credits_delta),
+    balanceAfter: coerceNumberOrNull(r.balance_after),
+    refId: r.ref_id ? String(r.ref_id) : null,
+    meta:
+      meta && typeof meta === 'object' && !Array.isArray(meta)
+        ? (meta as Record<string, unknown>)
+        : null,
+  };
+}
+
+/** Numeric columns come back as strings (Postgres numeric type) in the JSON
+ *  payload. Coerce to number, but preserve null vs 0 — many audit rows
+ *  legitimately have null credit deltas (e.g. plan.publish). */
+function coerceNumberOrNull(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
 // ============================================================================
