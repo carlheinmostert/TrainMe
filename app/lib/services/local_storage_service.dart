@@ -18,7 +18,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 20;
+  static const _dbVersion = 21;
 
   Database? _db;
 
@@ -128,6 +128,7 @@ class LocalStorageService {
         practice_id TEXT NOT NULL,
         name TEXT NOT NULL,
         video_consent TEXT NOT NULL,
+        client_exercise_defaults TEXT NOT NULL DEFAULT '{}',
         synced_at INTEGER,
         dirty INTEGER NOT NULL DEFAULT 0,
         deleted INTEGER NOT NULL DEFAULT 0,
@@ -391,6 +392,28 @@ class LocalStorageService {
       // so historic sessions don't all light up as dirty on upgrade.
       await db.execute(
         'ALTER TABLE sessions ADD COLUMN last_content_edit_at INTEGER',
+      );
+    }
+    if (oldVersion < 21) {
+      // Sticky per-client exercise defaults (Milestone R / Wave 8).
+      //
+      // JSON string (sqlite has no native jsonb), decoded at read time
+      // by CachedClient.fromMap. Holds the practitioner's most-recent
+      // edit of the seven sticky fields — reps, sets, hold_seconds,
+      // include_audio, preferred_treatment, prep_seconds,
+      // custom_duration_seconds. Forward-only: next new capture for
+      // this client pre-fills from this map; overriding a field writes
+      // back the new value.
+      //
+      // Existing rows default to '{}' — the first capture after upgrade
+      // simply uses StudioDefaults (no previous sticky values to apply).
+      //
+      // Supabase has a matching column in
+      // schema_milestone_r_sticky_defaults.sql; the cloud stores jsonb,
+      // we mirror as a serialised TEXT on the SQLite side. Writes go
+      // through the pending-op queue via `set_client_exercise_default`.
+      await db.execute(
+        "ALTER TABLE cached_clients ADD COLUMN client_exercise_defaults TEXT NOT NULL DEFAULT '{}'",
       );
     }
   }

@@ -30,6 +30,11 @@ enum PendingOpType {
   /// Dispatches `restore_client` RPC. Idempotent — replay on a live
   /// client is a no-op.
   restoreClient,
+
+  /// Write a single sticky per-client exercise default (Milestone R /
+  /// Wave 8). Dispatches `set_client_exercise_default` RPC. Idempotent
+  /// — whole-value overwrite.
+  setExerciseDefault,
 }
 
 String _opTypeToWire(PendingOpType t) {
@@ -44,6 +49,8 @@ String _opTypeToWire(PendingOpType t) {
       return 'delete_client';
     case PendingOpType.restoreClient:
       return 'restore_client';
+    case PendingOpType.setExerciseDefault:
+      return 'set_exercise_default';
   }
 }
 
@@ -59,6 +66,8 @@ PendingOpType? _opTypeFromWire(String s) {
       return PendingOpType.deleteClient;
     case 'restore_client':
       return PendingOpType.restoreClient;
+    case 'set_exercise_default':
+      return PendingOpType.setExerciseDefault;
     default:
       return null;
   }
@@ -236,6 +245,34 @@ class PendingOp {
       type: PendingOpType.restoreClient,
       payload: <String, dynamic>{
         'client_id': clientId,
+      },
+      createdAt: nowMs,
+    );
+  }
+
+  /// Queue a `set_client_exercise_default` op (Milestone R / Wave 8).
+  /// One op per field write — coalescing multiple rapid edits into a
+  /// single op is unnecessary since each op is already a whole-value
+  /// overwrite (last write wins; replaying in order yields the right
+  /// final state).
+  ///
+  /// [value] must be JSON-encodable (bool, num, String, null). The
+  /// drain layer re-hydrates it via jsonDecode and hands it to the
+  /// RPC unchanged; the RPC wraps it in a jsonb literal server-side.
+  factory PendingOp.setExerciseDefault({
+    required String opId,
+    required String clientId,
+    required String field,
+    required Object? value,
+    required int nowMs,
+  }) {
+    return PendingOp(
+      id: opId,
+      type: PendingOpType.setExerciseDefault,
+      payload: <String, dynamic>{
+        'client_id': clientId,
+        'field': field,
+        'value': value,
       },
       createdAt: nowMs,
     );

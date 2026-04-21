@@ -12,6 +12,7 @@ import '../models/session.dart';
 import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/path_resolver.dart';
+import '../services/sticky_defaults.dart';
 import '../theme.dart';
 import '../models/treatment.dart';
 import '../services/sync_service.dart';
@@ -291,19 +292,30 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
     await File(sourcePath).copy(destPath);
 
-    // Seed an exercise. Note: ExerciseCapture.create(...) leaves reps /
-    // sets / hold null — they read through as StudioDefaults via the
-    // card. We don't pre-fill them on the model so "customised" detection
-    // stays accurate (R-05): a card with no user input reads as
-    // uncustomised.
+    // Seed an exercise. ExerciseCapture.create(...) leaves reps / sets
+    // / hold null; they read through as StudioDefaults on the card for
+    // fresh clients. For clients with prior captures we overlay the
+    // sticky per-client defaults (Milestone R / Wave 8) onto those
+    // nulls — forward-only propagation, invisible to the practitioner.
     final exercises = List<ExerciseCapture>.from(_session.exercises);
     final position = insertAt ?? exercises.length;
-    final exercise = ExerciseCapture.create(
+    var exercise = ExerciseCapture.create(
       position: position,
       rawFilePath: PathResolver.toRelative(destPath),
       mediaType: type,
       sessionId: _session.id,
     );
+    final clientId = _session.clientId;
+    if (clientId != null && clientId.isNotEmpty) {
+      final cached =
+          await SyncService.instance.storage.getCachedClientById(clientId);
+      if (cached != null && cached.clientExerciseDefaults.isNotEmpty) {
+        exercise = StickyDefaults.prefillCapture(
+          exercise,
+          cached.clientExerciseDefaults,
+        );
+      }
+    }
     exercises.insert(position, exercise);
     for (var i = 0; i < exercises.length; i++) {
       exercises[i] = exercises[i].copyWith(position: i);
@@ -456,6 +468,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   }
 
   void _updateExercise(int index, ExerciseCapture updated) {
+    final previous = _session.exercises[index];
     setState(() {
       final exercises = List<ExerciseCapture>.from(_session.exercises);
       exercises[index] = updated;
@@ -464,6 +477,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     unawaited(widget.storage.saveExercise(updated).catchError((e, st) {
       debugPrint('saveExercise failed: $e');
     }));
+    // Sticky per-client defaults (Milestone R / Wave 8): every time the
+    // practitioner edits one of the seven sticky fields on an existing
+    // card, the new value becomes the default for the NEXT new capture
+    // for this client. Forward-only — prior captures are unchanged.
+    // Rest periods skip (they don't carry the reps/sets/hold/etc.
+    // vocabulary).
+    if (!updated.isRest) {
+      StickyDefaults.recordAllDeltas(
+        clientId: _session.clientId,
+        before: previous,
+        after: updated,
+      );
+    }
   }
 
   void _deleteExercise(int index) {
