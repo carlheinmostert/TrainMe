@@ -55,6 +55,12 @@ app/android/.gradle/
 app/android/local.properties
 *.iml
 
+# Test-script runtime output — tester's per-click pass/fail journal,
+# written by docs/test-scripts/_server.py. Mid-QA state is not worth
+# tracking; commit with `git add -f` only at wave close as an audit
+# trail (see feedback_test_scripts_as_markdown.md for workflow).
+docs/test-scripts/*.results.json
+
 # Claude — ignore most of .claude (transient worktrees, launch.json,
 # personal overrides in settings.local.json) but share the project-level
 # settings.json + hooks/ dir so teammates inherit the repo-wide rules.
