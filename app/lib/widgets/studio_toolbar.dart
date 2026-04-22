@@ -115,7 +115,11 @@ class StudioToolbar extends StatelessWidget {
     ];
 
     return Container(
-      height: 52,
+      // Wave 18.1 compaction: 52 → 40. The child IconButtons also
+      // shrink via visualDensity: compact + padding: zero (see
+      // _IconButton / _PublishIconButton below), so icons stay 22pt
+      // visible while the overall strip reads tighter.
+      height: 40,
       decoration: const BoxDecoration(
         color: AppColors.surfaceBase,
         border: Border(
@@ -156,23 +160,33 @@ class _IconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = active ? iconColor : iconColor.withValues(alpha: 0.45);
-    return Tooltip(
-      message: tooltip,
-      child: GestureDetector(
-        onTap: onTap == null
-            ? null
-            : () {
-                HapticFeedback.selectionClick();
-                onTap!();
-              },
-        onLongPress: onLongPress,
-        behavior: HitTestBehavior.opaque,
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Icon(icon, color: color, size: 22),
-        ),
-      ),
+    // Wave 18.1 compaction — IconButton with visualDensity.compact +
+    // zero padding. Previously a raw GestureDetector inside a 48×48
+    // SizedBox; the button surface now matches the 40pt toolbar
+    // height. The 22pt visible glyph is preserved via iconSize.
+    //
+    // Long-press (Preview's legacy-native escape hatch) is wired via
+    // a wrapping GestureDetector since IconButton has no onLongPress.
+    final button = IconButton(
+      onPressed: onTap == null
+          ? null
+          : () {
+              HapticFeedback.selectionClick();
+              onTap!();
+            },
+      icon: Icon(icon, color: color, size: 22),
+      iconSize: 22,
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+      splashRadius: 20,
+      tooltip: tooltip,
+    );
+    if (onLongPress == null) return button;
+    return GestureDetector(
+      onLongPress: onLongPress,
+      behavior: HitTestBehavior.opaque,
+      child: button,
     );
   }
 }
@@ -264,37 +278,40 @@ class _PublishIconButton extends StatelessWidget {
       handler = onPublish;
     }
 
-    return Tooltip(
-      message: tooltip,
-      child: GestureDetector(
-        onTap: handler == null
-            ? null
-            : () {
-                HapticFeedback.selectionClick();
-                handler!();
-              },
-        behavior: HitTestBehavior.opaque,
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Center(child: Opacity(opacity: active ? 1.0 : 0.45, child: glyph)),
-              if (isPublishLocked)
-                const Positioned(
-                  right: 10,
-                  bottom: 10,
-                  child: Icon(
-                    Icons.lock_outline,
-                    size: 12,
-                    color: AppColors.textSecondaryOnDark,
-                  ),
-                ),
-            ],
-          ),
-        ),
+    // Wave 18.1 compaction — IconButton with visualDensity.compact +
+    // zero padding, minWidth/minHeight 40 to match the new toolbar
+    // height. The lock badge overlays via the IconButton's icon slot,
+    // which accepts a Stack.
+    return IconButton(
+      onPressed: handler == null
+          ? null
+          : () {
+              HapticFeedback.selectionClick();
+              handler!();
+            },
+      icon: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          Opacity(opacity: active ? 1.0 : 0.45, child: glyph),
+          if (isPublishLocked)
+            const Positioned(
+              right: -4,
+              bottom: -4,
+              child: Icon(
+                Icons.lock_outline,
+                size: 12,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+        ],
       ),
+      iconSize: 22,
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+      splashRadius: 20,
+      tooltip: tooltip,
     );
   }
 }
@@ -309,9 +326,12 @@ class _Triangle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Height bumped down from 48 → 40 to match the Wave 18.1 toolbar
+    // compaction. Visible triangle extents are controlled in the
+    // painter, so the centred triangle keeps the same visible size.
     return SizedBox(
       width: 16,
-      height: 48,
+      height: 40,
       child: CustomPaint(
         painter: _TrianglePainter(dim: dim),
       ),

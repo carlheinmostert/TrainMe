@@ -511,25 +511,34 @@ class ApiClient {
     await _guardAuth(() => raw.from('plans').upsert(row));
   }
 
-  /// Upsert a batch of exercise rows.
-  Future<void> upsertExercises(List<Map<String, dynamic>> rows) async {
-    if (rows.isEmpty) return;
-    await _guardAuth(() => raw.from('exercises').upsert(rows));
-  }
-
-  /// Delete exercise rows for a plan that are NOT in [keepIds]. If
-  /// [keepIds] is empty, deletes every exercise for the plan.
-  Future<void> deleteStaleExercises({
+  /// Atomic replace-all-exercises for a plan (Wave 18.1).
+  ///
+  /// Wraps DELETE + INSERT inside a single SECURITY DEFINER transaction
+  /// server-side. This is the ONLY supported write path for exercise
+  /// rows: the previous `upsert + delete-stale` pair raced against the
+  /// UNIQUE (plan_id, position) index whenever exercises were reordered
+  /// (each PostgREST HTTP call auto-commits, so the DEFERRABLE index
+  /// never actually deferred). The RPC batches both operations into
+  /// ONE transaction so the deferrable check holds until commit.
+  ///
+  /// Payload shape: each row in [rows] mirrors the `exercises` table
+  /// columns (id, plan_id, position, name, media_url, thumbnail_url,
+  /// media_type, reps, sets, hold_seconds, notes, circuit_id,
+  /// include_audio, custom_duration_seconds, preferred_treatment,
+  /// prep_seconds). Unknown keys are ignored by the RPC.
+  ///
+  /// Pass an empty [rows] list to clear every exercise for the plan.
+  Future<void> replacePlanExercises({
     required String planId,
-    required List<String> keepIds,
+    required List<Map<String, dynamic>> rows,
   }) async {
-    await _guardAuth(() async {
-      var q = raw.from('exercises').delete().eq('plan_id', planId);
-      if (keepIds.isNotEmpty) {
-        q = q.not('id', 'in', keepIds);
-      }
-      await q;
-    });
+    await _guardAuth(() => raw.rpc(
+          'replace_plan_exercises',
+          params: {
+            'p_plan_id': planId,
+            'p_rows': rows,
+          },
+        ));
   }
 
   /// Append a plan_issuances audit row. Best-effort from the caller's

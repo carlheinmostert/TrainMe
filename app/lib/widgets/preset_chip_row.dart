@@ -10,37 +10,45 @@ import 'undo_snackbar.dart';
 /// cards + the sage slider on the Rest bar) with a uniform pattern:
 ///
 ///   [5] [8] [10] [12] [15]  [Custom]
-///   └ canonical presets ┘   └ inline add ┘
+///   └───── unified presets ─────┘   └ inline add ┘
+///
+/// **Wave 18.1** — the chips render a single unified list. Canonical
+/// seeds and custom additions look identical; long-press on any chip
+/// removes it with an Undo SnackBar. The `[Custom]` tail only opens an
+/// inline numeric input — long-press on it is a no-op. No corner dot
+/// distinguishes a "yours" chip from a seed chip; the practitioner
+/// curates the list over time until it reflects their muscle memory.
 ///
 /// Chips rendered by this widget:
-///   * Unselected canonical → surfaceRaised fill, light label.
-///   * Unselected custom    → surfaceRaised fill + 3pt coral dot top-right
-///                            (tells the practitioner "this is yours,
-///                            long-press to remove").
-///   * Selected             → [accentColor] fill, white label, either kind.
-///   * `[Custom]` tail      → dashed [accentColor] border (1.5pt),
-///                            [accentColor] label. Tapping toggles
-///                            INLINE input mode; no bottom sheet, no
-///                            modal (R-01, load-bearing — don't
-///                            regress to a popup here).
+///   * Unselected → surfaceRaised fill, textOnDark label.
+///   * Selected   → [accentColor] fill, white label.
+///   * `[Custom]` → dashed [accentColor] border (1.5pt),
+///                  [accentColor] label. Tapping toggles INLINE input
+///                  mode; no bottom sheet, no modal (R-01, load-bearing
+///                  — don't regress to a popup here). Long-press is a
+///                  no-op.
 ///
-/// MRU custom-value memory lives practitioner-wide in
-/// [PractitionerCustomPresets]; chips merge canonical + MRU before
-/// sorting numerically so [5, 7, 8, 10, 12, 13, 15] reads in order.
+/// Storage lives in [PractitionerCustomPresets] as a unified list (MRU
+/// cap 8 per controlKey). The first read for a control seeds the
+/// canonical defaults; subsequent reads respect any deliberate
+/// removals. See `getMerged` for the migration path.
 ///
 /// Haptics:
-///   - Tap canonical / custom / `[Custom]`: selectionClick.
-///   - Commit NEW custom value via Done: mediumImpact.
+///   - Tap any chip / `[Custom]`: selectionClick.
+///   - Commit NEW value via Done: mediumImpact.
 ///   - Commit value that matches an existing chip: selectionClick.
-///   - Long-press custom chip: selectionClick (then undo SnackBar).
+///   - Long-press chip: selectionClick (then undo SnackBar).
+///   - Long-press `[Custom]`: no haptic (no-op).
 class PresetChipRow extends StatefulWidget {
   /// Opaque key identifying which preset array in
   /// [PractitionerCustomPresets] to read from. e.g. "reps", "sets",
-  /// "hold", "rest". Unknown keys surface an empty custom array.
+  /// "hold", "rest".
   final String controlKey;
 
-  /// Canonical chips, fixed per controlKey. Rendered in order first,
-  /// then merged with the practitioner's MRU values and re-sorted.
+  /// Canonical seed values for this controlKey. Merged with any stored
+  /// customs on FIRST read (post-Wave-18.1 migration) and then persisted
+  /// as a single unified list. Subsequent reads just return the stored
+  /// list — the seeds here are only used as bootstrap material.
   final List<num> canonicalPresets;
 
   /// Currently-selected value. Drives the fill colour on the matching
@@ -60,9 +68,16 @@ class PresetChipRow extends StatefulWidget {
   /// Accent colour. Coral for Reps / Sets / Hold; sage for Rest.
   final Color accentColor;
 
-  /// Label prefix for the undo SnackBar when a custom chip is removed.
+  /// Label prefix for the undo SnackBar when a chip is removed.
   /// Defaults to the controlKey capitalised.
   final String? undoLabel;
+
+  /// Whether the chip row can scroll horizontally. Defaults to true.
+  /// Callers that host the chip row in a horizontally-constrained space
+  /// (e.g. the rest bar, which takes a horizontal swipe for
+  /// swipe-to-delete) pass `false` so the ListView doesn't eat the
+  /// gesture.
+  final bool scrollable;
 
   const PresetChipRow({
     super.key,
@@ -73,6 +88,7 @@ class PresetChipRow extends StatefulWidget {
     required this.accentColor,
     this.displayFormat,
     this.undoLabel,
+    this.scrollable = true,
   });
 
   @override
@@ -109,15 +125,13 @@ class _PresetChipRowState extends State<PresetChipRow> {
     return value.toString();
   }
 
-  Set<num> _canonicalSet() =>
-      widget.canonicalPresets.toSet();
-
-  List<num> _mergedPresets() {
-    final canonical = widget.canonicalPresets;
-    final custom = PractitionerCustomPresets.get(widget.controlKey);
-    final merged = <num>{...canonical, ...custom}.toList();
-    merged.sort((a, b) => a.compareTo(b));
-    return merged;
+  /// Full ordered preset list for this control. Drives both the
+  /// initial migration-on-first-read AND the visible chips each build.
+  List<num> _presets() {
+    return PractitionerCustomPresets.getMerged(
+      widget.controlKey,
+      widget.canonicalPresets,
+    );
   }
 
   Future<void> _commitCustom() async {
@@ -132,11 +146,8 @@ class _PresetChipRowState extends State<PresetChipRow> {
       return;
     }
 
-    final canonical = _canonicalSet();
-    final custom =
-        PractitionerCustomPresets.get(widget.controlKey).toSet();
-    final alreadyExists = canonical.contains(parsed) ||
-        custom.contains(parsed);
+    final existing = _presets().toSet();
+    final alreadyExists = existing.contains(parsed);
     if (alreadyExists) {
       HapticFeedback.selectionClick();
     } else {
@@ -168,7 +179,7 @@ class _PresetChipRowState extends State<PresetChipRow> {
     });
   }
 
-  Future<void> _removeCustomChip(num value) async {
+  Future<void> _removeChip(num value) async {
     HapticFeedback.selectionClick();
     await PractitionerCustomPresets.remove(widget.controlKey, value);
     if (!mounted) return;
@@ -196,58 +207,65 @@ class _PresetChipRowState extends State<PresetChipRow> {
       );
     }
 
-    final presets = _mergedPresets();
-    final canonicalSet = _canonicalSet();
+    final presets = _presets();
+    final children = <Widget>[
+      for (final value in presets)
+        Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: _Chip(
+            label: _format(value),
+            selected: value == widget.currentValue,
+            accentColor: widget.accentColor,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              widget.onChanged(value);
+            },
+            onLongPress: () => _removeChip(value),
+          ),
+        ),
+      // [Custom] tail — long-press is a no-op (spec: Wave 18.1).
+      _CustomTail(
+        accentColor: widget.accentColor,
+        onTap: _openCustomInput,
+      ),
+    ];
 
     return SizedBox(
       height: 40,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.zero,
-        children: [
-          for (final value in presets)
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: _Chip(
-                label: _format(value),
-                selected: value == widget.currentValue,
-                isCustom: !canonicalSet.contains(value),
-                accentColor: widget.accentColor,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  widget.onChanged(value);
-                },
-                onLongPress: canonicalSet.contains(value)
-                    ? null
-                    : () => _removeCustomChip(value),
+      child: widget.scrollable
+          ? ListView(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.zero,
+              children: children,
+            )
+          // Non-scrolling variant: a plain Row clipped to its parent's
+          // width. No ScrollView at all, so no horizontal-drag
+          // recognizer contests with the outer Dismissible for the
+          // swipe gesture. Needed for the rest bar (Wave 18.1) where
+          // the whole row is a swipe-to-delete target.
+          : ClipRect(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: children,
               ),
             ),
-          // [Custom] tail.
-          _CustomTail(
-            accentColor: widget.accentColor,
-            onTap: _openCustomInput,
-          ),
-        ],
-      ),
     );
   }
 }
 
-/// Chip — either a canonical or MRU custom value. Long-press on custom
-/// chips removes them; canonical chips ignore long-press (they're
-/// immutable).
+/// Chip — one value in the practitioner's curated list. Long-press
+/// removes any chip (Wave 18.1 — canonical vs custom distinction is
+/// gone; the chips look identical and behave identically).
 class _Chip extends StatelessWidget {
   final String label;
   final bool selected;
-  final bool isCustom;
   final Color accentColor;
   final VoidCallback onTap;
-  final VoidCallback? onLongPress;
+  final VoidCallback onLongPress;
 
   const _Chip({
     required this.label,
     required this.selected,
-    required this.isCustom,
     required this.accentColor,
     required this.onTap,
     required this.onLongPress,
@@ -267,35 +285,17 @@ class _Chip extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
         ),
         alignment: Alignment.center,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: selected ? Colors.white : AppColors.textOnDark,
-                ),
-              ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected ? Colors.white : AppColors.textOnDark,
             ),
-            if (isCustom && !selected)
-              Positioned(
-                top: -3,
-                right: -5,
-                child: Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: accentColor,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-          ],
+          ),
         ),
       ),
     );
@@ -303,6 +303,8 @@ class _Chip extends StatelessWidget {
 }
 
 /// Dashed-border `[Custom]` tail chip. Tapping opens the inline input.
+/// Long-press is a no-op per Wave 18.1 — only value chips can be
+/// removed, and the tail isn't a value.
 class _CustomTail extends StatelessWidget {
   final Color accentColor;
   final VoidCallback onTap;
@@ -316,6 +318,8 @@ class _CustomTail extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      // Long-press on [Custom] is explicitly a no-op (Wave 18.1). No
+      // haptic, no action.
       behavior: HitTestBehavior.opaque,
       child: Container(
         height: 32,
