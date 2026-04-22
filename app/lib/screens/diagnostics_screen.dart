@@ -340,6 +340,13 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   subtitle: 'Drain the pending-ops queue immediately',
                   onTap: () => _runForceSync(context),
                 ),
+                _Divider(),
+                _ActionRow(
+                  icon: Icons.content_copy_rounded,
+                  label: 'Copy queue contents',
+                  subtitle: 'Dump every pending op to the clipboard for debug',
+                  onTap: () => _copyQueueContents(context),
+                ),
               ],
             ),
           ],
@@ -386,6 +393,60 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
       );
     // Re-run the probe so the Pending-ops row reflects the new depth.
     unawaited(_runPendingOpsProbe());
+  }
+
+  /// Dump every pending op to the clipboard as human-readable text so
+  /// Carl can paste it back during a debug session. The queue is tiny
+  /// (bounded by the 30-attempt cap × realistic op rate) so formatting
+  /// inline is cheap. Includes SHA + count header for context.
+  Future<void> _copyQueueContents(BuildContext context) async {
+    HapticFeedback.selectionClick();
+    final messenger = ScaffoldMessenger.of(context);
+    final storage = SyncService.instance.storage;
+    String text;
+    try {
+      final ops = await storage.getPendingOps();
+      final buf = StringBuffer()
+        ..writeln('# homefit pending_ops dump')
+        ..writeln('sha: ${AppConfig.buildSha}')
+        ..writeln('count: ${ops.length}')
+        ..writeln('at: ${DateTime.now().toIso8601String()}')
+        ..writeln();
+      for (var i = 0; i < ops.length; i++) {
+        final op = ops[i];
+        buf
+          ..writeln('[${i + 1}] ${op.type.name}')
+          ..writeln('  id: ${op.id}')
+          ..writeln('  created_at: ${op.createdAt}')
+          ..writeln('  attempts: ${op.attempts}')
+          ..writeln('  last_attempt_at: ${op.lastAttemptAt ?? "(never)"}')
+          ..writeln('  last_error: ${op.lastError ?? "(none)"}')
+          ..writeln('  payload: ${op.payload}')
+          ..writeln();
+      }
+      text = buf.toString();
+    } catch (e) {
+      text = 'dump failed: $e';
+    }
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!context.mounted) return;
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'Queue dumped to clipboard (${text.length} chars).',
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              color: AppColors.textOnDark,
+            ),
+          ),
+          backgroundColor: AppColors.surfaceRaised,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ),
+      );
   }
 }
 
