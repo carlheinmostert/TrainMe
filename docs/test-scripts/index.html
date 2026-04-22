@@ -165,11 +165,11 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
-        <a href="./2026-04-22-wave18.10-device-qa.html">
+        <a href="./2026-04-22-wave18.11-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 18.10 — Device QA</div>
-              <div class="scope">polish round 7: chevron realign, section-break breathing room, recessed expanded-body tray with coral hairline left-edge. Three items from Wave 18.9 live QA. (1) Chevron's Wave-18.3-era <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">top: 1</code> padding retuned to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">top: 5</code> so it sits on the Montserrat 18pt line box's visual centre (+ coral dot bumped <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">11 → 13</code> to track). (2) Section-header padding asymmetric: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">top: 12, bottom: 2</code> — section breaks now read as real breaks. First header (PLAYBACK) passes <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">isFirst: true</code> to dodge double-padding against the card's own top inset. (3) New <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_ExpandedBody</code> wrapper: darker fill (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">surfaceBg</code> vs card's <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">surfaceBase</code>) + 2pt coral hairline on the left edge signals "this section is live". Delta-only; run AFTER Wave 18.1 baseline.</div>
+              <div class="name">1 · Wave 18.11 — Device QA</div>
+              <div class="scope">polish round 8: elevated neutral sub-card for expanded sections, right-padding breathing room, inline-editor fill swap. Three-point correction on Wave 18.10's expanded-body treatment. (1) <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_ExpandedBody</code> swapped from recessed (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">surfaceBg</code> + coral left-stripe) to elevated neutral sub-card (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">surfaceRaised</code> @ r8 + 1pt 6%-white border) — mirrors outer card's grammar one elevation up. Zero coral on the body. (2) Horizontal padding now symmetric <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">12pt</code> so right-aligned values (REPS / SETS / HOLD / PREP / DURATION PER REP / Muted toggle) have breathing room. (3) <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">InlineNumericEditor</code> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">fillColor</code> swapped <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">surfaceRaised → surfaceBase</code> so the field reads as a darker recessed well against the new sub-card. Section-header bottom padding bumped <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">2 → 6</code> for sub-card top-edge breathing room. Delta-only; run AFTER Wave 18.1 baseline.</div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -285,6 +285,20 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-04-22-wave18.10-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 18.10 — polish round 7 (5/5 pass; direction-change fed Wave 18.11)</div>
+              <div class="date">2026-04-22</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Complete</span>
+              <div class="results" id="wave18-10-results">Loading…</div>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-04-22-wave18.9-device-qa.html">
           <div class="row">
@@ -501,6 +515,7 @@
           .catch(function() { el.textContent = 'No results yet.'; });
       }
 
+      load('2026-04-22-wave18.10-device-qa.results.json', 'wave18-10-results');
       load('2026-04-22-wave18.9-device-qa.results.json', 'wave18-9-results');
       load('2026-04-22-wave18.8-device-qa.results.json', 'wave18-8-results');
       load('2026-04-22-wave18.7-device-qa.results.json', 'wave18-7-results');
