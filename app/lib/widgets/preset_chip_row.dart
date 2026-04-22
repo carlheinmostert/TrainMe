@@ -208,6 +208,42 @@ class _PresetChipRowState extends State<PresetChipRow> {
     }
 
     final presets = _presets();
+
+    // Non-scrolling variant uses a Wrap so long lists flow onto
+    // additional rows instead of silently hiding chips past the edge
+    // (Wave 18.2 — fixed the cap-8 + [Custom] tail overflowing off
+    // narrow phones). Wrap has no scrolling so it doesn't contest the
+    // outer Dismissible for horizontal drag, and its vertical extent
+    // grows as needed — a 2-line wrap reads as ~2 × row height.
+    if (!widget.scrollable) {
+      final wrapChildren = <Widget>[
+        for (final value in presets)
+          _Chip(
+            label: _format(value),
+            selected: value == widget.currentValue,
+            accentColor: widget.accentColor,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              widget.onChanged(value);
+            },
+            onLongPress: () => _removeChip(value),
+          ),
+        _CustomTail(
+          accentColor: widget.accentColor,
+          onTap: _openCustomInput,
+        ),
+      ];
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: wrapChildren,
+        ),
+      );
+    }
+
+    // Scrollable variant (DOSE rows): horizontal ListView unchanged.
     final children = <Widget>[
       for (final value in presets)
         Padding(
@@ -232,23 +268,11 @@ class _PresetChipRowState extends State<PresetChipRow> {
 
     return SizedBox(
       height: 40,
-      child: widget.scrollable
-          ? ListView(
-              scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.zero,
-              children: children,
-            )
-          // Non-scrolling variant: a plain Row clipped to its parent's
-          // width. No ScrollView at all, so no horizontal-drag
-          // recognizer contests with the outer Dismissible for the
-          // swipe gesture. Needed for the rest bar (Wave 18.1) where
-          // the whole row is a swipe-to-delete target.
-          : ClipRect(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: children,
-              ),
-            ),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.zero,
+        children: children,
+      ),
     );
   }
 }
@@ -285,16 +309,19 @@ class _Chip extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
         ),
         alignment: Alignment.center,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: selected ? Colors.white : AppColors.textOnDark,
-            ),
+        // Wave 18.2 — `height: 1.0` strips Inter's natural descender
+        // padding so the label sits dead-centre inside the 32pt pill.
+        // Previously the inner symmetric-6pt padding + Inter's default
+        // 1.25 line-height drifted text ~1-2pt below the visual midpoint.
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            height: 1.0,
+            color: selected ? Colors.white : AppColors.textOnDark,
           ),
         ),
       ),
@@ -328,17 +355,18 @@ class _CustomTail extends StatelessWidget {
         decoration: const BoxDecoration(),
         child: CustomPaint(
           painter: _DashedBorderPainter(color: accentColor),
+          // Wave 18.2 — `height: 1.0` matches the _Chip fix above so
+          // [Custom] baseline aligns with the numeric chips next to it.
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 2,
-              vertical: 6,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 2),
             child: Text(
               'Custom',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
+                height: 1.0,
                 color: accentColor,
               ),
             ),
