@@ -165,11 +165,11 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
-        <a href="./2026-04-22-wave18.8-device-qa.html">
+        <a href="./2026-04-22-wave18.9-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 18.8 — polish round 5 (delta over 18.7)</div>
-              <div class="scope">12-item delta validating five items from Wave 18.7 live device QA. (1) <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[+]</code> padding 12pt → 10pt; pill now ~38pt wide (was ~42pt) — leaner match to the text chips. (2) Section header label AND summary both bumped to 16pt. Even at 14pt the coral label perceptually read smaller than the 13pt grey inner labels (coral on dark loses the contrast battle); 16pt vs 13pt gives a real 3pt absolute gap so the section header finally dominates. Label/summary differentiation now carried purely by weight + case + colour. (3) Expand gap between <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_GroupHeader</code> and first inner content row tightened 8pt → 2pt — header + body feel like one connected unit. Intra-content spacing unchanged. (4) NOTES collapsed summary: replaces all whitespace (including newlines) with single spaces, forces single-line with ellipsis. PACING keeps its up-to-3-line wrap. (5) Inline numeric editor (PREP + DURATION PER REP) now uses <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Expanded</code> on the text field + call-site Expanded wrapper — the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt; Cancel [_N_] Done &gt;</code> row fits entirely inside the card's content area, no more overflow past the right edge. Storage semantics unchanged. Run AFTER Wave 18.1 baseline; delta-only.</div>
+              <div class="name">1 · Wave 18.9 — Device QA</div>
+              <div class="scope">polish round 6: Montserrat 18pt section headers + 12pt inner tier + stacked editors for PREP &amp; DURATION PER REP. Two items from Wave 18.8 live QA. (1) Section header swaps <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Inter → Montserrat</code> and bumps 16pt → 18pt. Brand spec reserves Montserrat for headings; Wave 18.8's 16pt Inter was a body-tier font choice that held back the coral-on-dark hierarchy. (2) Inner tier (labels + values in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_ControlRow</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_PrepSecondsRow</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_DurationPerRepRow</code>) shrinks 13pt → 12pt. Net: 6pt absolute gap between header and inner tier (vs Wave 18.8's 3pt). (3) DURATION PER REP + PREP inline editors now stack full-width BELOW the label when editing. The 175pt 'DURATION PER REP' label left no room for <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Cancel [_N_] Done</code> even with Wave 18.8's Expanded wrap. Delta-only; run AFTER Wave 18.1 baseline.</div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -285,6 +285,20 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-04-22-wave18.8-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 18.8 — polish round 5 (10/12 pass; 2 failures fed Wave 18.9)</div>
+              <div class="date">2026-04-22</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Complete</span>
+              <div class="results" id="wave18-8-results">Loading…</div>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-04-22-wave18.7-device-qa.html">
           <div class="row">
@@ -473,6 +487,7 @@
           .catch(function() { el.textContent = 'No results yet.'; });
       }
 
+      load('2026-04-22-wave18.8-device-qa.results.json', 'wave18-8-results');
       load('2026-04-22-wave18.7-device-qa.results.json', 'wave18-7-results');
       load('2026-04-22-wave18.6-device-qa.results.json', 'wave18-6-results');
       load('2026-04-22-wave18.5-device-qa.results.json', 'wave18-5-results');
