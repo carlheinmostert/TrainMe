@@ -1,3 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 36" width="52" height="36" role="img" aria-label="homefit.studio Pulse Mark">
-  <path d="M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2" fill="none" stroke="#FF6B35" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 9.5" role="img" aria-label="homefit.studio matrix mark">
+  <!-- Left ghost pills: outer → inner, tapering larger + lighter. -->
+  <rect x="0"  y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
+  <rect x="4"  y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+  <rect x="9"  y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+  <!-- Coral tint band behind the 2×2 circuit. -->
+  <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+  <!-- 2×2 circuit: 2 exercises × 2 cycles, solid coral. -->
+  <rect x="15"   y="2"   width="5" height="3" rx="1" fill="#FF6B35"/>
+  <rect x="15"   y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
+  <rect x="21.5" y="2"   width="5" height="3" rx="1" fill="#FF6B35"/>
+  <rect x="21.5" y="6.5" width="5" height="3" rx="1" fill="#FF6B35"/>
+  <!-- Rest pill: sage. -->
+  <rect x="28" y="2" width="5" height="3" rx="1" fill="#86EFAC"/>
+  <!-- Right ghost pills: inner → outer, mirror of left. -->
+  <rect x="34.5" y="2.15" width="4.5" height="2.7" rx="0.9" fill="#9CA3AF"/>
+  <rect x="40.5" y="2.45" width="3.5" height="2.1" rx="0.7" fill="#6B7280"/>
+  <rect x="45.5" y="2.75" width="2.5" height="1.5" rx="0.5" fill="#4B5563"/>
 </svg>
