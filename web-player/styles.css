@@ -386,35 +386,46 @@ body {
    width. Inside the block, rows stack; each row is a grid with
    N_exercises equal columns. */
 .matrix-circuit {
-  /* Goal: an internal circuit pill renders at the SAME width as a single.
-     Trick: put the fixed overhead (2×4px padding + (N-1)×4px row gap) into
-     flex-BASIS and leave N growth shares. That way the flexible part of
-     the block distributes identically to N singles, and the internal
-     pills end up the same width as single pills after subtracting the
-     fixed overhead.
-     Max-width mirrors .matrix-col's 32px ceiling so excess flex space
-     doesn't bloat circuit pills once singles hit their cap. */
-  /* Total horizontal overhead = 8px block padding + 8px row padding
-     + (N-1)×4px row gap = 16px + 4×(N-1). Put it all in flex-basis so
-     the N growth shares match single-pill widths exactly. */
-  flex: var(--circuit-cols, 1) 1 calc(16px + 4px * (var(--circuit-cols, 1) - 1));
-  min-width: calc(6px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1) + 16px);
-  max-width: calc(32px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1) + 16px);
+  /* Horizontal overhead = (N-1)×4px row-gap only (block + row paddings
+     retired in favour of a ::before coral tint). Put the overhead in
+     flex-basis so N growth shares match N singles exactly — circuit
+     pills and single pills end up pixel-identical widths.
+     Max-width mirrors .matrix-col's 32px ceiling. */
+  flex: var(--circuit-cols, 1) 1 calc(4px * (var(--circuit-cols, 1) - 1));
+  min-width: calc(6px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1));
+  max-width: calc(32px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1));
   display: flex;
   flex-direction: column;
+  /* Gap between round-rows matches the horizontal pill gap so the
+     circuit reads as a clean grid. */
   gap: 4px;
-  padding: 4px;
-  margin: -4px 0;
 }
 
 .matrix-circuit-row {
+  /* Padding retired: pills sit at the row's natural edges, so the first
+     row of any circuit top-aligns with single-pill rows in the same
+     flex line. The coral tint band is rendered by ::before, which
+     extends 2px vertically + 4px horizontally so pills still feel
+     nested inside a capsule without offsetting them. */
+  position: relative;
   display: grid;
   /* grid-template-columns is set inline by app.js based on N_exercises. */
   gap: 4px;
   align-items: center;
+  padding: 0;
+}
+.matrix-circuit-row::before {
+  content: "";
+  position: absolute;
+  inset: -2px -4px;
   background: var(--c-brand-tint-bg);
   border-radius: var(--radius-md);
-  padding: 4px;
+  z-index: 0;
+  pointer-events: none;
+}
+.matrix-circuit-row > .pill {
+  position: relative;
+  z-index: 1;
 }
 
 /* === Pill primitives ============================================= */
@@ -1210,8 +1221,15 @@ video.is-prep-paused {
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease-standard);
 }
+/* Paused (workout live but timer stopped) — the play icon is the call to
+   action, so full alpha. */
 .media-pause-overlay.is-visible {
   opacity: 1;
+}
+/* Running (workout live + timer ticking) — dim the pause icon so it's
+   legible as a toggle hint without fighting the video for attention. */
+.media-pause-overlay.is-visible.is-running {
+  opacity: 0.35;
 }
 .media-pause-overlay .pause-disc {
   width: 96px;
@@ -1313,9 +1331,25 @@ body.is-fullscreen #app {
   padding-top: 0;
   padding-bottom: 0;
 }
-body.is-fullscreen .plan-bar,
-body.is-fullscreen .footer {
+body.is-fullscreen .plan-bar {
   display: none !important;
+}
+
+/* Fullscreen: keep the "powered by homefit.studio" mark visible but
+   overlay it on the video bottom rather than reserving layout space. */
+body.is-fullscreen .footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  pointer-events: none;
+  background: transparent;
+  opacity: 0.55;
+  transition: opacity 220ms var(--ease-standard);
+}
+body.is-fullscreen.chrome-visible .footer {
+  opacity: 1;
 }
 
 /* In fullscreen the app fills the viewport, so drop the pill max-widths

@@ -401,8 +401,12 @@ function buildMediaPauseOverlay() {
   return `
     <div class="media-pause-overlay">
       <div class="pause-disc">
-        <svg class="pause-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <svg class="pause-icon pause-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <polygon points="6 3 20 12 6 21 6 3"/>
+        </svg>
+        <svg class="pause-icon pause-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
+          <rect x="6" y="4" width="4" height="16" rx="1"/>
+          <rect x="14" y="4" width="4" height="16" rx="1"/>
         </svg>
       </div>
     </div>
@@ -1736,12 +1740,22 @@ function toggleMute() {
 function updatePauseOverlay() {
   if (!$cardTrack) return;
   const overlays = $cardTrack.querySelectorAll('.media-pause-overlay');
-  const showActive = isWorkoutMode && !isPrepPhase && !isTimerRunning
-    && remainingSeconds > 0;
+  const workoutLive = isWorkoutMode && !isPrepPhase && remainingSeconds > 0;
+  // Overlay is present whenever the workout is live on the active slide.
+  // Icon reflects the action the next tap will trigger: ⏸ while running,
+  // ▶ while paused. CSS handles dim/full opacity based on running state
+  // and fullscreen ambient mode.
+  const showPlayIcon = !isTimerRunning;
   overlays.forEach((overlay) => {
     const card = overlay.closest('.exercise-card');
     const idx = card ? Number(card.getAttribute('data-index')) : -1;
-    overlay.classList.toggle('is-visible', showActive && idx === currentIndex);
+    const isActive = workoutLive && idx === currentIndex;
+    overlay.classList.toggle('is-visible', isActive);
+    overlay.classList.toggle('is-running', isActive && isTimerRunning);
+    const playIcon = overlay.querySelector('.pause-icon-play');
+    const pauseIcon = overlay.querySelector('.pause-icon-pause');
+    if (playIcon) playIcon.hidden = !showPlayIcon;
+    if (pauseIcon) pauseIcon.hidden = showPlayIcon;
   });
 }
 
