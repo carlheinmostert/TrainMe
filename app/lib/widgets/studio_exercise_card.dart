@@ -99,10 +99,13 @@ class StudioExerciseCard extends StatefulWidget {
   State<StudioExerciseCard> createState() => _StudioExerciseCardState();
 }
 
-/// Which of the three accordion-grouped sections is currently expanded.
-/// At most one at a time — opening another closes the first. All three
-/// can end up closed if the practitioner taps the open one.
-enum _AccordionGroup { dose, pacing, notes }
+/// Which of the four accordion-grouped sections is currently expanded.
+/// At most one at a time — opening another closes the first. All four
+/// can end up closed if the practitioner taps the open one. Wave 18.2
+/// folded PLAYBACK into the same accordion (previously an independent
+/// toggle that defaulted open); all four groups now start collapsed on
+/// every card open so the card reads lean + quiet.
+enum _AccordionGroup { playback, dose, pacing, notes }
 
 class _StudioExerciseCardState extends State<StudioExerciseCard> {
   late int _reps;
@@ -110,14 +113,10 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
   late int _hold;
   late TextEditingController _notesController;
 
-  /// PLAYBACK is an independent accordion — its expanded state never
-  /// closes DOSE/PACING/NOTES. Defaults to open per Wave 18.1 spec.
-  bool _playbackOpen = true;
-
-  /// Single-open accordion for DOSE / PACING / NOTES. Null = all three
-  /// closed (the default on every card open, per Wave 18.1). Opening
-  /// one group closes the previously-open group; tapping the open
-  /// group closes it (null again).
+  /// Single-open accordion for PLAYBACK / DOSE / PACING / NOTES.
+  /// Null = all four closed (the default on every card open, per
+  /// Wave 18.2). Opening one group closes the previously-open group;
+  /// tapping the open group closes it (null again).
   _AccordionGroup? _openGroup;
 
   @override
@@ -134,7 +133,6 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     if (old.exercise.id != widget.exercise.id) {
       _syncFromModel(widget.exercise);
       _notesController.text = widget.exercise.notes ?? '';
-      _playbackOpen = true;
       _openGroup = null;
     } else {
       // Same exercise, same open state — but the parent may have
@@ -149,8 +147,7 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     }
     if (old.isExpanded && !widget.isExpanded) {
       // Card just closed — drop accordion state so a re-open lands on
-      // the spec default (PLAYBACK open, DOSE/PACING/NOTES all closed).
-      _playbackOpen = true;
+      // the spec default (all four groups closed, per Wave 18.2).
       _openGroup = null;
     }
   }
@@ -160,11 +157,6 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     setState(() {
       _openGroup = (_openGroup == group) ? null : group;
     });
-  }
-
-  void _togglePlayback() {
-    HapticFeedback.selectionClick();
-    setState(() => _playbackOpen = !_playbackOpen);
   }
 
   void _syncFromModel(ExerciseCapture ex) {
@@ -351,12 +343,17 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
               ),
               const SizedBox(height: 4),
               Text(
-                _buildSummary().toUpperCase(),
+                // Wave 18.2 — mixed-case kept. Reps / sets / hold read
+                // naturally ("3 reps · 1 set · 5s hold") next to the
+                // InlineEditableText name above, which is also mixed
+                // case. The ALL CAPS variant from pre-18.1 read like a
+                // label strip rather than a live stat readout.
+                _buildSummary(),
                 style: const TextStyle(
                   fontFamily: 'Inter',
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
+                  letterSpacing: 0.3,
                   color: AppColors.textSecondaryOnDark,
                 ),
               ),
@@ -483,6 +480,7 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
         isVideo && (widget.exercise.videoDurationMs ?? 0) > 0;
     final customOn = widget.exercise.customDurationSeconds != null;
 
+    final playbackOpen = _openGroup == _AccordionGroup.playback;
     final doseOpen = _openGroup == _AccordionGroup.dose;
     final pacingOpen = _openGroup == _AccordionGroup.pacing;
     final notesOpen = _openGroup == _AccordionGroup.notes;
@@ -524,18 +522,20 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           ),
 
         // -----------------------------------------------------------
-        // PLAYBACK — independent toggle. Defaults OPEN; tapping the
-        // header collapses/expands it without affecting the DOSE /
-        // PACING / NOTES accordion below.
+        // PLAYBACK — accordion member, default closed (Wave 18.2).
+        // Previously an independent toggle that defaulted open; now
+        // participates in the single-open accordion with DOSE / PACING
+        // / NOTES. All four start collapsed; opening one closes any
+        // other currently-open group.
         // -----------------------------------------------------------
         _GroupHeader(
           label: 'Playback',
-          expanded: _playbackOpen,
+          expanded: playbackOpen,
           hasNonDefaults: _playbackHasNonDefaults,
-          summary: _playbackOpen ? null : _playbackSummary(),
-          onTap: _togglePlayback,
+          summary: playbackOpen ? null : _playbackSummary(),
+          onTap: () => _toggleAccordion(_AccordionGroup.playback),
         ),
-        if (_playbackOpen) ...[
+        if (playbackOpen) ...[
           const SizedBox(height: 8),
           TreatmentTilesRow(
             exercise: widget.exercise,
@@ -718,16 +718,23 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
   }
 }
 
-/// Group-header label for the Studio card's expanded panel. Renders a
-/// chevron + 11pt uppercase label + optional trailing collapsed
-/// summary. Tapping fires [onTap]; the row is a 40pt-tall hit target
-/// spanning the full card width.
+/// Group-header label for the Studio card's expanded panel. Renders an
+/// optional leading coral dot + chevron + 11pt uppercase label +
+/// optional trailing collapsed summary. Tapping fires [onTap].
 ///
-/// Wave 18.1 additions:
-///   * [hasNonDefaults] — when true, the label bolds to w800 and a
-///     5pt coral dot appears between the chevron and the label. The
-///     dot is a signal that this group holds practitioner-curated
-///     content, even when collapsed.
+/// Wave 18.2 changes:
+///   * Coral dot moved to the LEFT of the chevron (was between
+///     chevron + label). Geometry: 5pt dot + 6pt gap. When the group
+///     is at-default, no ghost space — the chevron slides flush left.
+///   * Collapsed summary wraps to multiple lines, capped at 3 with
+///     ellipsis past that. Chevron + dot are top-aligned so a tall
+///     summary doesn't drag them into awkward middle positions.
+///   * Row height grows to fit 1/2/3 lines. The old fixed-40pt SizedBox
+///     is replaced by padding + `CrossAxisAlignment.start`.
+///
+/// Carried forward from Wave 18.1:
+///   * [hasNonDefaults] — when true, the label bolds to w800 (the dot
+///     is the primary signal; the weight change is a secondary one).
 ///   * Chevron rotation animates (180ms ease) between open/closed.
 ///   * Summary fades in/out with an AnimatedSwitcher so collapsing
 ///     doesn't flash.
@@ -744,8 +751,8 @@ class _GroupHeader extends StatelessWidget {
   final String? summary;
 
   /// Tap toggles the group's open/closed state. Every group header
-  /// is interactive in Wave 18.1 — PLAYBACK toggles independently,
-  /// DOSE/PACING/NOTES share a single-open accordion.
+  /// is interactive — PLAYBACK / DOSE / PACING / NOTES all share the
+  /// single-open accordion post-Wave-18.2.
   final VoidCallback onTap;
 
   const _GroupHeader({
@@ -761,67 +768,100 @@ class _GroupHeader extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        height: 40,
-        child: Align(
-          alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        // Retain a 40pt minimum row height for the 1-line case so the
+        // hit target doesn't shrink. Multi-line summaries push the row
+        // taller via the inner column.
+        constraints: const BoxConstraints(minHeight: 40),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
+            // Top-aligned so chevron + dot stay at the visual top when
+            // the summary wraps to 2 or 3 lines.
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AnimatedRotation(
-                turns: expanded ? 0 : -0.25,
-                duration: const Duration(milliseconds: 180),
-                curve: AppMotion.standard,
-                child: const Icon(
-                  Icons.expand_more,
-                  size: 18,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(width: 4),
+              // 1. Coral dot (only when non-default) — first, to the
+              // LEFT of the chevron per Wave 18.2 spec.
               if (hasNonDefaults) ...[
-                Container(
-                  width: 5,
-                  height: 5,
-                  decoration: const BoxDecoration(
-                    color: AppColors.primary,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                label.toUpperCase(),
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 11,
-                  fontWeight: hasNonDefaults
-                      ? FontWeight.w800
-                      : FontWeight.w700,
-                  letterSpacing: 0.8,
-                  color: AppColors.primary,
-                ),
-              ),
-              if (summary != null) ...[
-                const SizedBox(width: 6),
-                Flexible(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
-                    child: Text(
-                      '— $summary',
-                      key: ValueKey(summary),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.2,
-                        color: AppColors.textSecondaryOnDark,
-                      ),
+                Padding(
+                  // Baseline-nudge the dot so it sits roughly on the
+                  // label's x-height, matching the chevron below it.
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Container(
+                    width: 5,
+                    height: 5,
+                    decoration: const BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
                     ),
                   ),
                 ),
+                const SizedBox(width: 6),
               ],
+              // 2. Chevron — rotates on expand/collapse. Top-aligned
+              // via a small padding so it sits alongside the first
+              // line of the label even when the summary wraps.
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: AnimatedRotation(
+                  turns: expanded ? 0 : -0.25,
+                  duration: const Duration(milliseconds: 180),
+                  curve: AppMotion.standard,
+                  child: const Icon(
+                    Icons.expand_more,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              // 3. Label + optional summary as a single RichText span
+              // so the "— summary" text wraps fluidly onto additional
+              // lines instead of getting chopped by a fixed single-line
+              // cap. Capped at 3 lines with ellipsis past that.
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: Text.rich(
+                      key: ValueKey('${label}_$summary'),
+                      TextSpan(
+                        children: <InlineSpan>[
+                          TextSpan(
+                            text: label.toUpperCase(),
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                              fontWeight: hasNonDefaults
+                                  ? FontWeight.w800
+                                  : FontWeight.w700,
+                              letterSpacing: 0.8,
+                              color: AppColors.primary,
+                              height: 1.25,
+                            ),
+                          ),
+                          if (summary != null)
+                            TextSpan(
+                              text: '  — $summary',
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.2,
+                                color: AppColors.textSecondaryOnDark,
+                                height: 1.35,
+                              ),
+                            ),
+                        ],
+                      ),
+                      maxLines: 3,
+                      softWrap: true,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),

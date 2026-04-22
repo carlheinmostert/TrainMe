@@ -882,6 +882,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       backgroundColor: AppColors.surfaceBase,
       foregroundColor: AppColors.textOnDark,
       elevation: 0,
+      // Wave 18.2 — shrink the AppBar from the default 56pt to 48pt so
+      // the title-to-toolbar gap matches the toolbar-to-first-card gap
+      // below. Previously the baseline padding in the 56pt AppBar +
+      // the 40pt toolbar's bottom border opened an asymmetric breath —
+      // the gap above the toolbar read noticeably larger than the gap
+      // below. 48pt brings the header rhythm into balance.
+      toolbarHeight: 48,
       // Wave 18 — actions moved to the StudioToolbar below the AppBar.
       // Import + Preview were the only AppBar icons; Publish + Share
       // were on SessionCard. The toolbar unifies all four + keeps the
