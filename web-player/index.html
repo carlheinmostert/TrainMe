@@ -90,13 +90,14 @@
       </div>
     </div>
 
-    <!-- Active-slide header — exercise name + decoded grammar row, promoted
-         out of the card body into the top stack. Rendered by app.js on every
-         slide change + workout tick. Circuit context ("· Round 2 of 3") is
-         appended directly to the name for circuit slides. -->
+    <!-- Active-slide header — single-line row: "{name} · {decoded grammar}".
+         Promoted out of the card body into the top stack. Rendered by app.js
+         on every slide change + workout tick. Truncates with ellipsis if the
+         combined string doesn't fit the viewport — circuit-round suffix was
+         dropped because the progress-pill matrix already shows round position
+         visually. -->
     <div class="active-slide-header" id="active-slide-header">
-      <h2 class="active-slide-name" id="active-slide-name"></h2>
-      <div class="active-slide-grammar" id="active-slide-grammar"></div>
+      <h2 class="active-slide-title" id="active-slide-title"></h2>
     </div>
 
     <!-- Card viewport — the hero region. All chrome is overlaid on top

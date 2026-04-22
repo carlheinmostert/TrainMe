@@ -324,7 +324,10 @@ body {
   position: relative;
   flex-shrink: 0;
   margin: 2px 0 6px;
-  overflow: hidden;
+  /* Inner flex-distributes to fit viewport. Horizontal scroll is a fallback
+     for extreme cases (>50 pills × 6px min still overflows). */
+  overflow-x: auto;
+  overflow-y: hidden;
   touch-action: pan-y;
   -webkit-user-select: none;
   user-select: none;
@@ -348,8 +351,8 @@ body {
 }
 
 .progress-matrix-inner {
-  display: inline-grid;
-  grid-auto-flow: column;
+  display: flex;
+  flex-wrap: nowrap;
   gap: 8px;
   align-items: start;
   padding: 2px 16px;
@@ -366,6 +369,12 @@ body {
   gap: 8px;
   align-items: start;
   grid-auto-rows: min-content;
+  /* Fit-to-width: columns flex-distribute inside .progress-matrix-inner.
+     Pills cap at 22px on short plans, shrink to 6px min on long plans, then
+     the outer falls back to scroll beyond that. */
+  flex: 1 1 0;
+  min-width: 6px;
+  max-width: 22px;
 }
 
 .matrix-col.is-circuit {
@@ -394,16 +403,21 @@ body {
   color: var(--c-ink-secondary);
   font-family: var(--f-body);
   font-weight: 600;
-  flex-shrink: 0;
+  /* Standalone pills are direct flex children of .progress-matrix-inner via
+     their parent .matrix-col (flex: 1 1 0). Pills themselves fill the column
+     horizontally so width is entirely governed by the column's flex share. */
+  width: 100%;
   transition: transform 150ms var(--ease-standard),
               border-color 150ms var(--ease-standard);
   -webkit-tap-highlight-color: transparent;
   cursor: pointer;
 }
 
-.pill.size-spacious { width: 28px; height: 22px; font-size: 10px; letter-spacing: 0.5px; }
-.pill.size-medium   { width: 22px; height: 20px; font-size: 0; }
-.pill.size-dense    { width: 16px; height: 18px; font-size: 0; }
+/* Tier classes control HEIGHT + font only — width is flex-driven via
+   .matrix-col (1 1 0, capped 22px, floor 6px). */
+.pill.size-spacious { height: 22px; font-size: 10px; letter-spacing: 0.5px; }
+.pill.size-medium   { height: 20px; font-size: 0; }
+.pill.size-dense    { height: 18px; font-size: 0; }
 
 .pill .pill-content {
   position: relative;
@@ -486,6 +500,18 @@ body {
   50%      { box-shadow: 0 0 0 8px rgba(134, 239, 172, 0); }
 }
 
+/* Scale the glow down at dense tier so it stays proportional on narrow pills. */
+@keyframes pill-pulse-dense {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 53, 0.40); }
+  50%      { box-shadow: 0 0 0 4px rgba(255, 107, 53, 0); }
+}
+@keyframes pill-pulse-rest-dense {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(134, 239, 172, 0.40); }
+  50%      { box-shadow: 0 0 0 4px rgba(134, 239, 172, 0); }
+}
+.pill.size-dense.is-active { animation-name: pill-pulse-dense; }
+.pill.size-dense.is-rest.is-active { animation-name: pill-pulse-rest-dense; }
+
 .glyph-body {
   stroke: currentColor;
   stroke-width: 1.5;
@@ -517,20 +543,18 @@ body {
 .progress-matrix-chevron svg { width: 14px; height: 14px; }
 
 /* === Active-slide header (row 4) =================================
-   Exercise name (Montserrat 18pt 700) + decoded grammar (Inter 14pt
-   500). Lives between the pills and the video hero. Circuit round
-   context is appended to the name by JS — no separate line. */
+   Single-line row: "{exercise name} · {decoded grammar}". Name weight
+   is carried by the display-font treatment; grammar is part of the
+   same string separated by " · ". Truncates with ellipsis if the
+   string overflows the viewport width — never wraps. */
 .active-slide-header {
   flex-shrink: 0;
   padding: 6px 20px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
   background: var(--c-surface-bg);
   text-align: center;
 }
 
-.active-slide-name {
+.active-slide-title {
   font-family: var(--f-display);
   font-size: 18px;
   font-weight: 700;
@@ -538,23 +562,12 @@ body {
   color: var(--c-ink-primary);
   line-height: 1.25;
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.active-slide-grammar {
-  font-family: var(--f-body);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--c-ink-secondary);
-  letter-spacing: 0.1px;
-  line-height: 1.3;
-}
-
-.active-slide-grammar .sep {
-  color: var(--c-ink-muted);
-  margin: 0 4px;
-}
-
-.active-slide-grammar.is-rest {
+.active-slide-title.is-rest {
   color: var(--c-rest);
 }
 
@@ -1251,9 +1264,10 @@ video.is-prep-paused {
    When the viewport enters fullscreen (document.fullscreenElement is
    the root html element), JS adds `is-fullscreen` to <body>. In that
    state:
-     • Top-stack rows (plan-bar, matrix-eta-bar, progress-matrix,
-       active-slide-header) and the footer hide entirely — the
-       video fills the viewport.
+     • Only the plan-bar (session title + client name) and the footer
+       hide entirely. The scoreboard — matrix-eta, progress-matrix,
+       and single-line active-slide-title — stays visible so the
+       client can glance at circuit position + ETA during the workout.
      • Every coral overlay drops to ~30% alpha (mute, fullscreen,
        chevrons, notes, pause disc) — ambient, not attention-hungry.
      • Adding `chrome-visible` on a brief tap pops them to 100% alpha
@@ -1266,9 +1280,6 @@ body.is-fullscreen #app {
   padding-bottom: 0;
 }
 body.is-fullscreen .plan-bar,
-body.is-fullscreen .matrix-eta-bar,
-body.is-fullscreen .progress-matrix,
-body.is-fullscreen .active-slide-header,
 body.is-fullscreen .footer {
   display: none !important;
 }
