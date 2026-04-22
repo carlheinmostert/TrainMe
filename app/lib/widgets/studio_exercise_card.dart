@@ -83,6 +83,12 @@ class StudioExerciseCard extends StatefulWidget {
   /// caller surfaces the undo snackbar.
   final VoidCallback onDelete;
 
+  /// Optional sticky per-rep seed for DURATION PER REP's Manual seed
+  /// path (Wave 18.7). Parent looks up the client's
+  /// `custom_duration_per_rep` default and passes it through; null
+  /// means "no sticky default, fall back to 5s".
+  final int? stickyCustomDurationPerRep;
+
   const StudioExerciseCard({
     super.key,
     required this.exercise,
@@ -93,6 +99,7 @@ class StudioExerciseCard extends StatefulWidget {
     required this.onThumbnailTap,
     required this.onReplaceMedia,
     required this.onDelete,
+    this.stickyCustomDurationPerRep,
   });
 
   @override
@@ -662,15 +669,16 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
               }
             },
           ),
-          // Wave 18.5 — "Duration per rep" replaces the old "Use video
-          // length" toggle + "Custom duration" row. On video exercises
-          // with a probed videoDurationMs the widget renders a two-
-          // segment control (From video | Manual: Xs); on photos or
-          // videos without probed duration it renders a single tappable
-          // pill. customDurationSeconds == null ↔ "From video" (video)
-          // or auto-default (photo); != null ↔ explicit per-rep × reps
-          // override. Storage semantics unchanged — the total is still
-          // stored, display divides by reps for per-rep.
+          // Wave 18.7 — DURATION PER REP redesigned to mirror PREP:
+          // label + dashed-underline value on one row, From video /
+          // Manual toggle pair on the next row (video only). Editing
+          // the value auto-flips source to Manual. Photos + video-
+          // without-probe hide the toggle entirely.
+          //
+          // Storage semantics unchanged from Wave 18.5: customDuration
+          // Seconds stores TOTAL (per-rep × reps); null means "From
+          // video" (video) or unseeded (photo, which self-seeds on
+          // first render).
           _DurationPerRepRow(
             hasVideoLength: hasVideoLength,
             videoLengthSeconds: hasVideoLength
@@ -678,17 +686,23 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
                 : 0,
             customDurationSeconds: widget.exercise.customDurationSeconds,
             reps: _reps,
+            stickyPerRepSeed: widget.stickyCustomDurationPerRep,
             onSelectFromVideo: () {
               widget.onUpdate(
                 widget.exercise.copyWith(clearCustomDuration: true),
               );
             },
             onSelectManual: () {
-              // Seed at 5s × reps unless a stored customDurationSeconds
-              // is already present (treat that as the prior Manual value
-              // even if we just flipped between segments).
+              // Seed at sticky-per-rep × reps (fallback 5s × reps)
+              // unless a stored customDurationSeconds is already
+              // present (treat that as the prior Manual value even if
+              // we just flipped between segments). Writing the total
+              // immediately ensures the displayed per-rep matches
+              // runtime duration math — no stale ghost values.
               final existing = widget.exercise.customDurationSeconds;
-              final nextTotal = existing ?? (5 * _reps);
+              final seedPerRep =
+                  widget.stickyCustomDurationPerRep ?? 5;
+              final nextTotal = existing ?? (seedPerRep * _reps);
               widget.onUpdate(widget.exercise.copyWith(
                 customDurationSeconds: nextTotal,
               ));
@@ -854,10 +868,17 @@ class _GroupHeader extends StatelessWidget {
                     // differentiation carried by weight + uppercase +
                     // colour alone (label = w700 uppercase coral,
                     // summary = w500 normal-case secondary-grey).
+                    // Wave 18.7 — label bumped 13pt → 14pt to overcome
+                    // the coral-on-dark perceptual-contrast penalty. At
+                    // identical pt size the grey/white inner labels
+                    // read larger than the coral section header; a 1pt
+                    // bump on the LABEL only (summary stays 13pt)
+                    // re-establishes the visual tier so the header
+                    // dominates as designed.
                     text: TextSpan(
                       style: const TextStyle(
                         fontFamily: 'Inter',
-                        fontSize: 13,
+                        fontSize: 14,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.8,
                         color: AppColors.primary,
@@ -870,6 +891,11 @@ class _GroupHeader extends StatelessWidget {
                             text: ' · $summary',
                             style: const TextStyle(
                               fontFamily: 'Inter',
+                              // Wave 18.7 — summary stays 13pt; the
+                              // header label alone gets the bump. The
+                              // two-tier rhythm within the row (14pt
+                              // label · 13pt summary) reinforces the
+                              // label as the primary read.
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
                               letterSpacing: 0,
@@ -978,36 +1004,70 @@ class _ControlRow extends StatelessWidget {
   }
 }
 
-/// "Duration per rep" row inside PACING. Wave 18.5 redesign — replaces
-/// the old "Use video length as 1 rep" toggle + the separate
-/// "Custom duration Xs per rep" inline row. Two modes:
+/// "DURATION PER REP" row inside PACING. Wave 18.7 redesign — mirrors
+/// the PREP layout so both pacing controls read identically:
 ///
-///   * **Video exercise with probed videoDurationMs**: renders a
-///     segmented control `[ From video ] [ Manual: Xs ]`. The selected
-///     segment fills with coral + white label; the other is
-///     surfaceRaised + textOnDark. Exactly one segment is active at a
-///     time. Tapping `From video` clears [customDurationSeconds]
-///     (effective duration falls back to videoLength × reps at runtime).
-///     Tapping `Manual` seeds [customDurationSeconds] to 5s × reps if
-///     it's currently null. When `Manual` is active the per-rep number
-///     is tappable and opens inline numeric input for edit.
+///   DURATION PER REP
+///   3s                                       [value with dashed underline]
+///   [ From video ]  [ Manual ]               [source toggle — video only]
 ///
-///   * **Photo, or video without probed duration**: renders a single
-///     tappable value pill `Xs (tap to edit)`. No segmented control.
-///     Same inline-edit pattern as the Manual value.
+/// Behaviour:
+///   * The value (e.g. `3s`) is the primary control. Tap → inline
+///     `< Cancel   [_7_]   Done >` editor (via [InlineNumericEditor]).
+///     Committing writes per-rep × reps into `customDurationSeconds`
+///     AND auto-flips the source toggle to `Manual`.
+///   * On video-with-probed-duration, a source-toggle pair sits below
+///     the value. `From video` clears `customDurationSeconds` and the
+///     displayed value reflects `videoLengthSeconds`. `Manual` seeds
+///     `customDurationSeconds` (5 × reps, or `custom_duration_per_rep`
+///     sticky default × reps) and makes the value editable.
+///   * Photos + videos without probed duration hide the toggle
+///     entirely — there's only one source, so a mode indicator would
+///     be meaningless. Just the label + editable value.
 ///
-/// Storage semantics are unchanged — [customDurationSeconds] stores the
-/// TOTAL (per-rep × reps). This widget reads it divided by reps for
-/// display and writes back per-rep × reps on commit. Existing sessions
-/// read through cleanly; nothing about the data model changed.
+/// Storage semantics are unchanged from Wave 18.5 — `customDurationSeconds`
+/// stores the TOTAL (per-rep × reps). This widget reads it divided by
+/// reps for display and writes back per-rep × reps on commit.
+///
+/// Sticky seed — when Manual is first seeded on a fresh exercise
+/// (customDurationSeconds == null, user taps Manual OR user taps the
+/// value on a photo), this widget asks the parent for the client's
+/// sticky `custom_duration_per_rep` default (if any), falling back to
+/// 5s. The value is written through `onCommitManualPerRep` so the
+/// displayed value matches runtime duration math immediately.
 class _DurationPerRepRow extends StatefulWidget {
+  /// True when the exercise is a video with a probed videoDurationMs.
+  /// Drives whether the source-toggle pair renders at all.
   final bool hasVideoLength;
+
+  /// Video length in whole seconds (0 when hasVideoLength is false).
+  /// Used as the displayed per-rep value when From video is active.
   final int videoLengthSeconds;
+
+  /// Stored total — null means From video (for video) or unseeded
+  /// (for photo, at which point initState seeds it).
   final int? customDurationSeconds;
+
+  /// Current reps count. Used to convert per-rep ↔ total.
   final int reps;
+
+  /// Tap `From video` → parent clears customDurationSeconds.
   final VoidCallback onSelectFromVideo;
+
+  /// Tap `Manual` on a null customDurationSeconds → parent seeds with
+  /// seedPerRep × reps (parent resolves sticky default or 5s and calls
+  /// [onCommitManualPerRep]).
   final VoidCallback onSelectManual;
+
+  /// Commit a new per-rep value. Parent writes `newPerRep × reps` into
+  /// customDurationSeconds and (optionally) updates the sticky
+  /// `custom_duration_per_rep` default.
   final ValueChanged<int> onCommitManualPerRep;
+
+  /// Optional sticky per-rep seed — the parent looks up the client's
+  /// `custom_duration_per_rep` default and passes it through. Null
+  /// means "no sticky default; fall back to 5s".
+  final int? stickyPerRepSeed;
 
   const _DurationPerRepRow({
     required this.hasVideoLength,
@@ -1017,6 +1077,7 @@ class _DurationPerRepRow extends StatefulWidget {
     required this.onSelectFromVideo,
     required this.onSelectManual,
     required this.onCommitManualPerRep,
+    this.stickyPerRepSeed,
   });
 
   @override
@@ -1028,30 +1089,46 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
   final FocusNode _focusNode = FocusNode();
   bool _isEditing = false;
 
-  /// Per-rep seconds derived from the stored total. Shows 5 as a
-  /// harmless default when null — used only by the single-value branch
-  /// (photo / video-without-probe) where the value is the editable
-  /// target. Never written until the practitioner taps to edit.
-  int get _perRep {
+  /// True when Manual mode is active. Equivalent to
+  /// `customDurationSeconds != null` on video; always true on photo /
+  /// no-probe (since there's only one source).
+  bool get _isManual =>
+      !widget.hasVideoLength || widget.customDurationSeconds != null;
+
+  /// Per-rep seconds driving the displayed value.
+  ///
+  /// On Manual: `customDurationSeconds / reps`, or the fallback seed
+  /// if customDurationSeconds is null (photo pre-seed race).
+  /// On From video: `videoLengthSeconds`.
+  int get _displayedPerRep {
+    if (widget.hasVideoLength && widget.customDurationSeconds == null) {
+      // From video mode — value mirrors the probed length.
+      return widget.videoLengthSeconds.clamp(1, 999);
+    }
     final total = widget.customDurationSeconds;
-    if (total == null) return 5;
+    if (total == null) {
+      return (widget.stickyPerRepSeed ?? 5).clamp(1, 999);
+    }
     if (widget.reps <= 0) return total;
     return (total / widget.reps).round().clamp(1, 999);
   }
 
+  int get _seedPerRep => (widget.stickyPerRepSeed ?? 5).clamp(1, 999);
+
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: '$_perRep');
+    _controller = TextEditingController(text: '$_displayedPerRep');
     _focusNode.addListener(_onFocusChange);
-    // Photo + video-without-probe: seed customDurationSeconds on first
-    // render so the displayed "5s" matches what the runtime uses. On
-    // video-WITH-probe, "From video" is a legitimate null state — we
-    // only seed when the practitioner taps Manual. Wave 18.5.
+    // Photo + video-without-probe: no toggle, only one source.
+    // Seed customDurationSeconds on first render so the displayed value
+    // matches what the runtime uses. On video-WITH-probe, "From video"
+    // is a legitimate null state — we only seed when the practitioner
+    // taps Manual OR taps the value to edit.
     if (!widget.hasVideoLength && widget.customDurationSeconds == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        widget.onCommitManualPerRep(5);
+        widget.onCommitManualPerRep(_seedPerRep);
       });
     }
   }
@@ -1059,8 +1136,14 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
   @override
   void didUpdateWidget(covariant _DurationPerRepRow old) {
     super.didUpdateWidget(old);
-    if (!_isEditing && old.customDurationSeconds != widget.customDurationSeconds) {
-      _controller.text = '$_perRep';
+    // Refresh the text field if the external state shifted (parent
+    // wrote through, or user flipped the toggle). Don't stomp on an
+    // active edit.
+    if (!_isEditing &&
+        (old.customDurationSeconds != widget.customDurationSeconds ||
+            old.videoLengthSeconds != widget.videoLengthSeconds ||
+            old.reps != widget.reps)) {
+      _controller.text = '$_displayedPerRep';
     }
   }
 
@@ -1073,14 +1156,15 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
   }
 
   void _onFocusChange() {
-    if (!_focusNode.hasFocus && _isEditing) {
-      _commit();
-    }
+    // Wave 18.7 — focus-blur no longer auto-commits. The iOS number pad
+    // doesn't cleanly surrender focus on tap-outside, and blur-commit
+    // would clobber an intentional Cancel. Cancel + Done are the only
+    // close paths.
   }
 
   void _startEditing() {
     HapticFeedback.selectionClick();
-    _controller.text = '$_perRep';
+    _controller.text = '$_displayedPerRep';
     setState(() => _isEditing = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
@@ -1094,187 +1178,145 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
   void _commit() {
     final raw = _controller.text.trim();
     final parsed = int.tryParse(raw);
-    final currentPerRep = _perRep;
-    if (parsed != null && parsed > 0 && parsed != currentPerRep) {
+    if (parsed != null && parsed > 0) {
+      // Commit the new per-rep value. If we were in From video mode,
+      // this auto-flips the toggle to Manual because the parent now
+      // sees a non-null customDurationSeconds. Spec: editing the value
+      // implies Manual.
       widget.onCommitManualPerRep(parsed);
     } else {
-      _controller.text = '$currentPerRep';
+      // Invalid / empty — restore display, no write.
+      _controller.text = '$_displayedPerRep';
     }
+    setState(() => _isEditing = false);
+  }
+
+  void _cancel() {
+    HapticFeedback.selectionClick();
+    _controller.text = '$_displayedPerRep';
     setState(() => _isEditing = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    // Wave 18.6 — label + control stack vertically. Wave 18.5 rendered
-    // them on one row, which overflowed on iPhone (segmented control
-    // scrolled off-screen). Now the label sits on its own row, the
-    // segmented control (or single value pill) sits below with a ~6pt
-    // gap, and the control can take the full card content width without
-    // fighting the label for space.
+    // Mirror PREP layout:
+    //   DURATION PER REP                       (inner label, left)
+    //   3s                                     (value, dashed underline)
+    //   [ From video ]  [ Manual ]             (source toggle, video only)
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
-            'Duration per rep',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              // Wave 18.6 — matches the 13pt size of the rebalanced
-              // inner labels (REPS / SETS / HOLD / PREP). Mixed-case
-              // w500 in secondary-grey keeps this label visually
-              // distinct from the uppercase w600 tier while staying in
-              // the same size family.
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textSecondaryOnDark,
-            ),
+          Row(
+            children: [
+              const Text(
+                'DURATION PER REP',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  // Wave 18.7 — matches PREP / REPS / SETS / HOLD inner
+                  // labels (13pt Inter w600 uppercase secondary-grey
+                  // letter-spacing 0.5).
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                  color: AppColors.textSecondaryOnDark,
+                ),
+              ),
+              const Spacer(),
+              if (_isEditing)
+                InlineNumericEditor(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  accentColor: AppColors.primary,
+                  onCancel: _cancel,
+                  onCommit: _commit,
+                )
+              else
+                GestureDetector(
+                  onTap: _startEditing,
+                  behavior: HitTestBehavior.opaque,
+                  child: CustomPaint(
+                    painter:
+                        _DashedUnderlinePainter(color: AppColors.grey500),
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(
+                        '${_displayedPerRep}s',
+                        style: const TextStyle(
+                          fontFamily: 'JetBrainsMono',
+                          fontFamilyFallback: ['Menlo', 'Courier'],
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textOnDark,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
-          const SizedBox(height: 6),
-          widget.hasVideoLength
-              ? _buildSegmentedControl()
-              : _buildSingleValue(),
+          // Toggle pair only when we have a probed video length —
+          // otherwise the single source makes the toggle meaningless.
+          if (widget.hasVideoLength) ...[
+            const SizedBox(height: 6),
+            _SourceTogglePair(
+              isFromVideo: !_isManual,
+              onSelectFromVideo: () {
+                if (!_isManual) return; // already selected
+                HapticFeedback.selectionClick();
+                widget.onSelectFromVideo();
+              },
+              onSelectManual: () {
+                if (_isManual) return; // already selected
+                HapticFeedback.selectionClick();
+                widget.onSelectManual();
+              },
+            ),
+          ],
         ],
       ),
     );
   }
+}
 
-  /// Two-segment control for video exercises. `From video` sets
-  /// customDurationSeconds = null; `Manual: Xs` sets a persisted per-rep
-  /// × reps value. When `Manual` is active, its value is tappable and
-  /// swaps into an inline TextField for direct edit.
-  ///
-  /// Wave 18.6 — segments now Expanded inside a full-width container so
-  /// the control spans the card's content area. The label moved to its
-  /// own row above (see [build]) so there's no horizontal competition
-  /// for space.
-  Widget _buildSegmentedControl() {
-    final isManual = widget.customDurationSeconds != null;
-    final manualPerRep = _perRep;
-    return SizedBox(
-      width: double.infinity,
-      child: Container(
-        height: 32,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceRaised,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.surfaceBorder),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: _segment(
-                label: 'From video',
-                selected: !isManual,
-                onTap: () {
-                  if (!isManual) return;
-                  HapticFeedback.selectionClick();
-                  widget.onSelectFromVideo();
-                },
-              ),
-            ),
-            Expanded(
-              child: _segment(
-                label: 'Manual: ${manualPerRep}s',
-                selected: isManual,
-                onTap: () {
-                  if (isManual) {
-                    // Already Manual — tap swaps into edit mode for the
-                    // value pill.
-                    _startEditing();
-                  } else {
-                    HapticFeedback.selectionClick();
-                    widget.onSelectManual();
-                  }
-                },
-                editingChild:
-                    _isEditing && isManual ? _buildInlineInput() : null,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+/// Two-segment source toggle — From video | Manual. Matches the visual
+/// family of the treatment segmented control (coral fill for selected,
+/// surfaceRaised for unselected). Used by [_DurationPerRepRow] only
+/// when the exercise has a probed video length.
+///
+/// Wave 18.7 — moved out of the inline segmented control and into a
+/// standalone row beneath the value. The value is now the primary
+/// control; the toggle is a secondary affordance for switching source.
+class _SourceTogglePair extends StatelessWidget {
+  final bool isFromVideo;
+  final VoidCallback onSelectFromVideo;
+  final VoidCallback onSelectManual;
 
-  /// Single tappable value pill for photos (or videos without probed
-  /// duration). Tap swaps into inline TextField for edit.
-  ///
-  /// Wave 18.6 — the old Align(centerRight) wrapper was dropped when
-  /// the label stacked above on its own row. The pill now sits left-
-  /// anchored below the "Duration per rep" label, natural-width — big
-  /// enough to tap, small enough that a photo exercise's "5s" pill
-  /// doesn't feel like a full-width heavy slab.
-  Widget _buildSingleValue() {
-    if (_isEditing) return _buildInlineInput();
-    return GestureDetector(
-      onTap: _startEditing,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        height: 32,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.brandTintBg,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: AppColors.primary.withValues(alpha: 0.45),
-            width: 1,
-          ),
-        ),
-        child: Text(
-          '${_perRep}s',
-          style: const TextStyle(
-            fontFamily: 'JetBrainsMono',
-            fontFamilyFallback: ['Menlo', 'Courier'],
-            // Wave 18.6 — 14pt → 13pt (matches all other accordion
-            // value readouts).
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: AppColors.primary,
-          ),
-        ),
-      ),
-    );
-  }
+  const _SourceTogglePair({
+    required this.isFromVideo,
+    required this.onSelectFromVideo,
+    required this.onSelectManual,
+  });
 
-  Widget _buildInlineInput() {
-    return SizedBox(
-      width: 72,
-      height: 32,
-      child: TextField(
-        controller: _controller,
-        focusNode: _focusNode,
-        keyboardType: TextInputType.number,
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontFamily: 'JetBrainsMono',
-          fontFamilyFallback: ['Menlo', 'Courier'],
-          // Wave 18.6 — 14pt → 13pt (matches single-value + all other
-          // accordion readouts).
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: AppColors.textOnDark,
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _segment(
+          label: 'From video',
+          selected: isFromVideo,
+          onTap: onSelectFromVideo,
         ),
-        decoration: InputDecoration(
-          isDense: true,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          filled: true,
-          fillColor: AppColors.brandTintBg,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: AppColors.primary, width: 1),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: AppColors.primary, width: 2),
-          ),
+        const SizedBox(width: 6),
+        _segment(
+          label: 'Manual',
+          selected: !isFromVideo,
+          onTap: onSelectManual,
         ),
-        onSubmitted: (_) => _commit(),
-      ),
+      ],
     );
   }
 
@@ -1282,35 +1324,38 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
     required String label,
     required bool selected,
     required VoidCallback onTap,
-    Widget? editingChild,
   }) {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        margin: const EdgeInsets.all(3),
-        padding: editingChild != null
-            ? EdgeInsets.zero
-            : const EdgeInsets.symmetric(horizontal: 10),
-        height: 26,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected ? AppColors.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(9999),
-        ),
-        child: editingChild ??
-            Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                height: 1.0,
-                color: selected ? Colors.white : AppColors.textOnDark,
-              ),
+      child: IntrinsicWidth(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          height: 24,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? AppColors.primary : AppColors.surfaceRaised,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? AppColors.primary
+                  : AppColors.surfaceBorder,
+              width: 1,
             ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              height: 1.0,
+              color: selected ? Colors.white : AppColors.textOnDark,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1436,7 +1481,14 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
 
   void _startEditing() {
     HapticFeedback.selectionClick();
-    _controller.text = widget.currentValue?.toString() ?? '';
+    // Wave 18.7 — seed the editor with the currently-displayed value
+    // (override OR global default). Before, the editor opened empty
+    // when no override was set, which read as "please type from
+    // scratch". Now the field shows the default as a starting point,
+    // matching the dashed-underline value the practitioner just
+    // tapped.
+    _controller.text =
+        (widget.currentValue ?? widget.globalDefault).toString();
     setState(() => _editing = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
@@ -1458,6 +1510,13 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
       // matches the CHECK constraint on Supabase (prep_seconds > 0).
       if (parsed == null || parsed <= 0) {
         next = null;
+      } else if (parsed == widget.globalDefault) {
+        // Wave 18.7 — committing a value identical to the global
+        // default should clear the override, not persist a
+        // "coincidence override". Otherwise the non-default marker
+        // lights up for a value that matches the default. Keeps the
+        // override semantics crisp: override ≠ default by definition.
+        next = null;
       } else {
         next = parsed;
       }
@@ -1468,12 +1527,23 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
     setState(() => _editing = false);
   }
 
+  void _cancel() {
+    HapticFeedback.selectionClick();
+    setState(() => _editing = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasOverride = widget.currentValue != null;
-    final displayText = hasOverride
-        ? '${widget.currentValue}s'
-        : '${widget.globalDefault}s · default';
+    // Wave 18.7 — dropped the " · default" suffix. The dashed-underline
+    // affordance already signals "tap to edit"; the source label
+    // (default vs override) was noise. Both states render the same
+    // "{N}s" with dashed underline; the colour shift (muted when at
+    // default, white when set) remains as the subtle state indicator.
+    final displayValue = hasOverride
+        ? widget.currentValue!
+        : widget.globalDefault;
+    final displayText = '${displayValue}s';
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1491,64 +1561,20 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
             ),
           ),
           const Spacer(),
-          if (_editing) ...[
-            SizedBox(
-              width: 60,
-              child: TextField(
-                controller: _controller,
-                focusNode: _focusNode,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  fontFamily: 'JetBrainsMono',
-                  fontFamilyFallback: ['Menlo', 'Courier'],
-                  // Wave 18.6 — 14pt → 13pt (matches the display text
-                  // below + the _ControlRow value size).
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textOnDark,
-                ),
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                  suffixText: 's',
-                  suffixStyle: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    color: AppColors.textSecondaryOnDark,
-                  ),
-                ),
-                onSubmitted: (_) => _commit(),
-              ),
-            ),
-            // iOS number pad has no return key, so the TextField's
-            // onSubmitted never fires. Without an explicit Done button
-            // there's no way to commit an edit (Wave 3 item #8 fail —
-            // Carl: "no way of entering a new value"). Tapping Done
-            // also blurs the field, which fires _onFocusChange → commit.
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: _commit,
-              behavior: HitTestBehavior.opaque,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: const Text(
-                  'Done',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ] else
+          if (_editing)
+            // Wave 18.7 — inline editor now mirrors the chip row's
+            // `< Cancel   [_7_]   Done >` pattern. iOS numeric keypad
+            // has no return key, so explicit Cancel + Done affordances
+            // are the only way to close the editor. Cancel restores
+            // the prior display; Done commits.
+            InlineNumericEditor(
+              controller: _controller,
+              focusNode: _focusNode,
+              accentColor: AppColors.primary,
+              onCancel: _cancel,
+              onCommit: _commit,
+            )
+          else
             GestureDetector(
               onTap: _startEditing,
               behavior: HitTestBehavior.opaque,
@@ -1609,6 +1635,151 @@ class _DashedUnderlinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// Inline numeric editor row with explicit `< Cancel   [_N_]   Done >`
+/// buttons. iOS numeric keypad has no return key, so commit / dismiss
+/// need explicit affordances. Mirrors the pattern already in use on
+/// [PresetChipRow]'s `_CustomInputRow`.
+///
+/// Wave 18.7 — introduced for PREP + DURATION PER REP inline editors.
+/// Both editors previously either swallowed typed values (no way to
+/// commit) or relied on focus-blur to commit, which isn't a guaranteed
+/// gesture for the user. Cancel is now a first-class restore; Done is
+/// the explicit commit path.
+///
+/// The row is intentionally narrow — Cancel + 72pt field + Done — so it
+/// slots into the same horizontal space as the dashed-underline value
+/// it replaces. Caller is responsible for focus management.
+class InlineNumericEditor extends StatelessWidget {
+  /// TextEditingController owned by the caller. Lets the caller pre-seed
+  /// the field with the current value + retain state across rebuilds.
+  final TextEditingController controller;
+
+  /// FocusNode owned by the caller — the caller drives requestFocus()
+  /// after opening the editor so the number pad pops immediately.
+  final FocusNode focusNode;
+
+  /// Accent colour — coral on exercise card, sage on rest bar (future).
+  final Color accentColor;
+
+  /// Cancel restores the prior state without committing. Caller flips
+  /// editing back to closed.
+  final VoidCallback onCancel;
+
+  /// Done commits the typed value. Caller parses the controller, writes
+  /// through to the model, and flips editing back to closed.
+  final VoidCallback onCommit;
+
+  /// Optional suffix character inside the text field (e.g. 's' for
+  /// seconds). Drawn as a non-editable suffix via InputDecoration.
+  final String? suffix;
+
+  /// Optional fixed field width (default 72pt — roomy for 3 digits).
+  final double fieldWidth;
+
+  const InlineNumericEditor({
+    super.key,
+    required this.controller,
+    required this.focusNode,
+    required this.accentColor,
+    required this.onCancel,
+    required this.onCommit,
+    this.suffix,
+    this.fieldWidth = 72,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 40,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextButton(
+            onPressed: onCancel,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: fieldWidth,
+            child: TextField(
+              controller: controller,
+              focusNode: focusNode,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: 'JetBrainsMono',
+                fontFamilyFallback: ['Menlo', 'Courier'],
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textOnDark,
+              ),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 6,
+                ),
+                filled: true,
+                fillColor: AppColors.surfaceRaised,
+                suffixText: suffix,
+                suffixStyle: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 13,
+                  color: AppColors.textSecondaryOnDark,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: accentColor, width: 1),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: accentColor, width: 2),
+                ),
+              ),
+              onSubmitted: (_) => onCommit(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: onCommit,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              backgroundColor: accentColor,
+            ),
+            child: const Text(
+              'Done',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // -----------------------------------------------------------------------------

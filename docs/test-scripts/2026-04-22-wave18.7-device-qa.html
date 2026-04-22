@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA Wave 18.7 — polish round 4</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-22 · Wave 18.7 — polish round 4</div>
+    <h1>Device QA — Wave 18.7</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> five items from Wave 18.6 live QA. <strong>(1)</strong> <code>[+]</code> structural fix — CustomPaint now wraps the padded Container so the dashed border paints on the full pill area and the 12pt horizontal padding lives INSIDE the border. Before, the border was drawn on the canvas inside the padding, so the pill hugged the 18pt icon with ~0 visible padding. Fix makes the pill finally read as a ~42pt-wide padded pill with visible room around a centred icon. <strong>(2)</strong> PREP row drops the <code>· default</code> suffix — dashed-underline affordance is the only signal needed; source label was noise. <strong>(3)</strong> DURATION PER REP redesigned to mirror PREP — label + dashed-underline value + source-toggle pair (<code>[From video] [Manual]</code>) below. Editing the value auto-flips source to Manual; tapping From video auto-fills with video length. Photos + video-without-probed-length hide the toggle entirely. Seeds Manual from the client's sticky <code>custom_duration_per_rep</code> default (or 5s). <strong>(4)</strong> Inline numeric editors (PREP + DURATION PER REP) got explicit <code>&lt; Cancel &nbsp; [_N_] &nbsp; Done &gt;</code> buttons — iOS numeric keyboard has no return key, so explicit affordances are the only reliable commit path. <strong>(5)</strong> Section headers bumped 13pt → 14pt to overcome coral-on-dark perceptual-contrast penalty. Inner labels + values + summaries all stay 13pt.
+      <br><br>
+      <strong>In scope:</strong> mobile-only. <code>preset_chip_row.dart</code> (<code>[+]</code> nesting swap) + <code>studio_exercise_card.dart</code> (PREP suffix drop, section header font bump, DURATION PER REP redesign, InlineNumericEditor widget) + <code>studio_mode_screen.dart</code> (sticky <code>custom_duration_per_rep</code> plumbing).
+      <br><br>
+      <strong>Out of scope:</strong> anything already covered by Wave 18 / 18.1 / 18.2 / 18.3 / 18.4 / 18.5 / 18.6. Web player. Portal. Storage semantics of <code>customDurationSeconds</code> unchanged (still TOTAL = per-rep × reps). Chip long-press remove/undo, <code>[+]</code> long-press no-op, inline (not modal) input — all unchanged. Sticky propagation for the other six existing fields (reps / sets / hold / audio / treatment / prep) — unchanged.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Wave 18.6 merged (SHA <code>d94b5cd</code>). Wave 18.7 branch <code>fix/wave-18.7-polish</code> installed via <code>./install-device.sh</code>.</li>
+        <li>At least one session with: (a) a video exercise WITH a probed duration (record a 3–5s clip); (b) a photo exercise; (c) ideally, a second session for the same client so sticky-seed propagation can be verified across sessions.</li>
+        <li>iPhone 17 Pro or similar 393pt-wide device.</li>
+      </ul>
+    </div>
+
+    <h2>1 · <code>[+]</code> padding structural fix</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open any exercise card, expand DOSE. The <code>[+]</code> tail renders as a <strong>~42pt-wide pill with visible 12pt padding</strong> between the dashed border and the centred <code>+</code> icon. Compare against Wave 18.6: the old pill appeared to have <em>no</em> padding (icon pressed against the border) even though the width was correct. Now the icon floats in the middle with air around it.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Long-press <code>[+]</code> → <strong>no-op</strong> (no haptic, no action). Tap <code>[+]</code> → inline Cancel · numeric field · Done opens (NOT a modal, NOT a bottom sheet). Visual weight of the pill now matches the text chips <code>[15]</code>, <code>[12]</code>, <code>[10]</code> — same 32pt tall × 16pt radius family, just slightly narrower and dashed.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Section header font bump (13pt → 14pt)</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Expand an exercise card. Section header <code>DOSE</code> (coral w700 uppercase) reads <strong>visibly at least the same size or slightly larger than</strong> the inner label <code>REPS</code> (grey w600 uppercase). No perceptual inversion. Wave 18.6 had both at 13pt and the coral looked smaller due to contrast penalty; the 1pt bump re-establishes the header as the primary read.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Section header <strong>summary</strong> (text after the <code>·</code> separator — e.g. "<code>DOSE · 10 reps · 3 sets · 5s hold</code>") stays at 13pt — visibly smaller than the 14pt label. The row reads as label-then-summary cleanly, with the label dominating.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Inner label tier is unchanged: <code>REPS</code> / <code>SETS</code> / <code>HOLD</code> / <code>PREP</code> / <code>DURATION PER REP</code> all render at 13pt grey w600 uppercase. Inner value tier is unchanged: <code>45</code>, <code>30s</code>, <code>5s</code> all at 13pt mono w700 white.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · PREP row — no <code>· default</code> suffix</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Expand PACING on any fresh exercise (no PREP override). The row reads <code>PREP</code> on the left and <strong><code>5s</code> with dashed underline</strong> on the right. The text "<code> · default</code>" is <strong>NOT visible anywhere</strong> in the PREP row. The dashed-underline value alone is the "tap to edit" affordance.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">On a fresh (no-override) PREP row: tap <code>5s</code> → inline editor opens with <strong><code>&lt; Cancel &nbsp; [_5_] &nbsp; Done &gt;</code></strong>. The editor field is pre-filled with the current displayed value (5, matching the default). Tap Cancel → editor closes, value stays <code>5s</code> with dashed underline, no write happened. Tap <code>5s</code> again, type <code>7</code>, tap Done → row now reads <code>7s</code> in white with dashed underline (override set). Coral non-default dot now lights on PACING row header.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">On the same PREP row (now at <code>7s</code>): tap <code>7s</code>, clear the field, type <code>5</code> (matches the global default), tap Done → row reverts to "no-override" state (muted colour, non-default dot gone). Committing a value identical to the global default clears the override — no "coincidence override" persists.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · DURATION PER REP — PREP-style redesign</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">On a <strong>video exercise with probed duration</strong>, expand PACING. The DURATION PER REP row now renders as <strong>TWO rows</strong>: first row <code>DURATION PER REP</code> label (left) + <code>{video-length}s</code> value with dashed underline (right), matching the PREP row layout exactly. Second row: <strong><code>[ From video ]</code></strong> (coral-filled, selected) <strong><code>[ Manual ]</code></strong> (grey-filled, unselected). No more segmented-control-with-long-label from Wave 18.5/18.6.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">Tap <code>[ Manual ]</code> on the fresh video exercise → segment flips coral. The value above <strong>updates to the seed</strong> (5s by default, or the client's sticky <code>custom_duration_per_rep</code> if one was stored from a prior commit). <code>[ From video ]</code> flips to unselected. No haptic delay.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Tap <code>[ From video ]</code> → segment flips coral. Value returns to the video length (e.g. <code>3s</code>). <code>[ Manual ]</code> unselects. <code>customDurationSeconds</code> is now null; the effective duration falls back to video-length × reps at runtime.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+        <span class="num">12.</span>
+        <span class="text">With <code>[ From video ]</code> currently selected: tap the <strong>value</strong> (dashed underline) directly. Inline editor opens <code>&lt; Cancel &nbsp; [_N_] &nbsp; Done &gt;</code>, pre-filled with the current video-length number. Type <code>7</code>, tap Done → value updates to <code>7s</code> AND the toggle <strong>auto-flips to <code>[ Manual ]</code></strong> (no separate tap needed). Editing the value implies Manual.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
+        <span class="num">13.</span>
+        <span class="text">On a <strong>photo exercise</strong>, expand PACING. DURATION PER REP row renders <strong>WITHOUT the toggle pair</strong> — just the label on the left and the <code>{N}s</code> value with dashed underline on the right. Tap the value → inline editor opens. Commit a new value — persists. No mode indicator shown because the photo has only one source.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+        <span class="num">14.</span>
+        <span class="text">On a fresh video exercise with <code>[ From video ]</code> active: the PACING row header shows <strong>NO coral non-default dot</strong> — "From video" is the implicit default state for a video-with-probed-length, not a practitioner override. After Item 12 (editing the value flipped to Manual), the coral dot now lights on PACING because <code>customDurationSeconds</code> is set.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+        <span class="num">15.</span>
+        <span class="text">Capture a <strong>second video exercise</strong> for the same client, in a NEW session. Expand PACING on that exercise, tap <code>[ Manual ]</code> → the seed value matches what you committed on the prior exercise in Item 12 (e.g. <code>7s</code>), NOT the hard-coded 5. The sticky <code>custom_duration_per_rep</code> default propagated forward. Bonus: if you tap <code>[ Manual ]</code> on a fresh video exercise BEFORE any Manual commit has ever landed for this client, the seed is 5.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Regression guardrails</h2>
+    <ul class="checklist">
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
+        <span class="num">16.</span>
+        <span class="text">Text chips (<code>[15]</code>, <code>[10]</code>, etc.) render unchanged — 10pt horizontal padding, 16pt radius, 32pt tall, Inter w600 13pt label. 2pt inter-chip gap preserved. Three customs + canonical + <code>[+]</code> still fits one line on iPhone.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
+        <span class="num">17.</span>
+        <span class="text">Collapsed-group stack still tight — no regressions in card height with all four groups collapsed (Wave 18.6 spacing intact). Expanded group bodies still have breathing room (8pt inner spacing on control rows). Chevrons still rotate on open/close.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
+        <span class="num">18.</span>
+        <span class="text">Publish a plan with a mix of video + photo exercises, including a Manual duration on at least one video. Plan URL opens on the client web player. Effective durations per exercise match what the Studio card summary shows — Manual overrides still compute as per-rep × reps. Storage semantics unchanged by Wave 18.7.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 18.7 closes five items from Wave 18.6 live device QA. Wave 18.1 remains the canonical baseline (run if anything around DOSE / PACING / rest bar feels off). Storage semantics of <code>customDurationSeconds</code> (total = per-rep × reps) unchanged — legacy sessions read through cleanly. The only data-model addition is a new sticky-default key <code>custom_duration_per_rep</code> stored per-client in <code>client_exercise_defaults</code> jsonb; absent on prior captures, seeded on the next Manual commit.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-22-wave18.7-device-qa.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave-18.7', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

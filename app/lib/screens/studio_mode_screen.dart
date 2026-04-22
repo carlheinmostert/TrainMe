@@ -105,6 +105,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   String? _publishError;
   late UploadService _uploadService;
 
+  /// Wave 18.7 — cached sticky per-rep default for DURATION PER REP's
+  /// Manual seed path. Loaded once from the cached client's
+  /// `client_exercise_defaults.custom_duration_per_rep` key and
+  /// refreshed whenever the practitioner commits a new Manual value.
+  /// Null means "no sticky default; fall back to 5s". Keeps the Studio
+  /// card synchronous — the DurationPerRepRow receives a resolved int?
+  /// rather than a Future.
+  int? _stickyCustomDurationPerRep;
+
   @override
   void initState() {
     super.initState();
@@ -119,6 +128,40 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
+    // Wave 18.7 — prime the sticky per-rep cache for this session's
+    // client so the DURATION PER REP control can seed Manual from the
+    // client's last-used value (not just the hard-coded 5s).
+    unawaited(_loadStickyCustomDurationPerRep());
+  }
+
+  /// Wave 18.7 — load the client's sticky `custom_duration_per_rep`
+  /// default from the cached client row. Best-effort: failure silently
+  /// leaves the seed null (which the card then treats as "fall back
+  /// to 5s"). Called once on init and again whenever the practitioner
+  /// commits a new Manual value (so the next Manual seed inherits).
+  Future<void> _loadStickyCustomDurationPerRep() async {
+    final clientId = _session.clientId;
+    if (clientId == null || clientId.isEmpty) return;
+    try {
+      final cached =
+          await SyncService.instance.storage.getCachedClientById(clientId);
+      if (!mounted) return;
+      final raw =
+          cached?.clientExerciseDefaults['custom_duration_per_rep'];
+      int? parsed;
+      if (raw is int) {
+        parsed = raw;
+      } else if (raw is num) {
+        parsed = raw.toInt();
+      } else if (raw is String) {
+        parsed = int.tryParse(raw);
+      }
+      if (parsed != _stickyCustomDurationPerRep) {
+        setState(() => _stickyCustomDurationPerRep = parsed);
+      }
+    } catch (e) {
+      debugPrint('studio: loadStickyCustomDurationPerRep failed: $e');
+    }
   }
 
   @override
@@ -500,7 +543,53 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         before: previous,
         after: updated,
       );
+      // Wave 18.7 — persist per-rep custom duration as a separate
+      // sticky key so DURATION PER REP's Manual seed can mirror the
+      // client's last-used per-rep cadence on the NEXT new capture.
+      // (The existing `custom_duration_seconds` sticky key stores the
+      // TOTAL — a per-rep-aware seed needs per-rep granularity
+      // because reps can change between captures.)
+      _maybeRecordCustomDurationPerRep(previous, updated);
     }
+  }
+
+  /// Wave 18.7 — if the practitioner committed a Manual per-rep value
+  /// (customDurationSeconds changed and reps is known), queue a write
+  /// to the client's `custom_duration_per_rep` sticky key. Updates
+  /// the in-memory cache so the next card render seeds from the new
+  /// value.
+  void _maybeRecordCustomDurationPerRep(
+    ExerciseCapture before,
+    ExerciseCapture after,
+  ) {
+    final clientId = _session.clientId;
+    if (clientId == null || clientId.isEmpty) return;
+    final reps = after.reps ?? 0;
+    if (reps <= 0) return;
+    // Only write on transitions that look like a Manual commit — the
+    // "From video" clear path (after.customDurationSeconds == null) is
+    // NOT a sticky override, so we skip those.
+    final total = after.customDurationSeconds;
+    if (total == null) return;
+    if (total == before.customDurationSeconds &&
+        before.reps == after.reps) {
+      return; // no-op
+    }
+    final perRep = (total / reps).round();
+    if (perRep <= 0) return;
+    if (perRep == _stickyCustomDurationPerRep) return;
+    _stickyCustomDurationPerRep = perRep;
+    unawaited(SyncService.instance
+        .queueSetExerciseDefault(
+          clientId: clientId,
+          field: 'custom_duration_per_rep',
+          value: perRep,
+        )
+        .catchError((e, st) {
+      debugPrint('queueSetExerciseDefault(custom_duration_per_rep) '
+          'failed: $e');
+      return null;
+    }));
   }
 
   void _deleteExercise(int index) {
@@ -1079,6 +1168,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         exercise: exercise,
         isExpanded: _expandedIndex == dataIndex,
         isInCircuit: isInCircuit,
+        // Wave 18.7 — the card reads the sticky per-rep default when
+        // seeding DURATION PER REP's Manual mode. Null means "no sticky
+        // default for this client; fall back to 5s".
+        stickyCustomDurationPerRep: _stickyCustomDurationPerRep,
         onTap: () {
           setState(() {
             _expandedIndex =
