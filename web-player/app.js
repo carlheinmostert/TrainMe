@@ -191,8 +191,7 @@ const $etaCurrent = document.getElementById('matrix-eta-current');
 const $etaTotal = document.getElementById('matrix-eta-total');
 const $etaFinish = document.getElementById('matrix-eta-finish');
 const $activeSlideHeader = document.getElementById('active-slide-header');
-const $activeSlideName = document.getElementById('active-slide-name');
-const $activeSlideGrammar = document.getElementById('active-slide-grammar');
+const $activeSlideTitle = document.getElementById('active-slide-title');
 
 // Progress-pill matrix refs
 const $matrix = document.getElementById('progress-matrix');
@@ -424,10 +423,10 @@ function buildPrepOverlay() {
 }
 
 /**
- * Decoded grammar for the active slide — now rendered in the top-stack
- * row .active-slide-grammar (promoted out of the card body).
+ * Decoded grammar for the active slide — flat list of prescription tokens
+ * that gets appended to the exercise name on the single-line title row.
  *   Standalone exercise: `3 sets · 10 reps · 5s hold`
- *   Circuit exercise:    `10 reps · 5s hold`  (rounds appended to the name)
+ *   Circuit exercise:    `10 reps · 5s hold`  (sets suppressed — circuits own the count)
  *   Rest:                `30s rest`
  * Returns a plain string (no HTML) — the caller sets textContent.
  */
@@ -454,32 +453,27 @@ function buildDecodedGrammar(slide) {
 }
 
 /**
- * Top-stack active-slide header — exercise name + decoded grammar.
- * Renders the currently focused slide (or upcoming during prep). Circuit
- * context (" · Round X of Y") appends directly to the name so it reads
- * inline: "Goblet squat · Round 2 of 3".
+ * Top-stack active-slide header — single-line row "{name} · {grammar}".
+ * Renders the currently focused slide (or upcoming during prep). The circuit
+ * "Round X of Y" suffix was dropped — the progress-pill matrix already shows
+ * circuit position visually, so the extra text was redundant. The row uses
+ * CSS white-space:nowrap + text-overflow:ellipsis to truncate if the
+ * combined string is wider than the viewport.
  */
 function updateActiveSlideHeader() {
-  if (!$activeSlideName || !$activeSlideGrammar) return;
+  if (!$activeSlideTitle) return;
   const slide = slides[currentIndex];
   if (!slide) {
-    $activeSlideName.textContent = '';
-    $activeSlideGrammar.textContent = '';
+    $activeSlideTitle.textContent = '';
+    $activeSlideTitle.classList.remove('is-rest');
     return;
   }
 
-  let name;
-  if (slide.media_type === 'rest') {
-    name = 'Rest';
-  } else {
-    name = slide.name || `Exercise ${currentIndex + 1}`;
-    if (slide.circuitRound && slide.circuitTotalRounds) {
-      name += ` · Round ${slide.circuitRound} of ${slide.circuitTotalRounds}`;
-    }
-  }
-
-  $activeSlideName.textContent = name;
-  $activeSlideGrammar.textContent = buildDecodedGrammar(slide);
+  const isRest = slide.media_type === 'rest';
+  const name = isRest ? 'Rest' : (slide.name || `Exercise ${currentIndex + 1}`);
+  const grammar = buildDecodedGrammar(slide);
+  $activeSlideTitle.textContent = grammar ? `${name} · ${grammar}` : name;
+  $activeSlideTitle.classList.toggle('is-rest', isRest);
 }
 
 /**
@@ -608,8 +602,8 @@ function resolveTreatmentUrl(exercise, treatment) {
 
 // buildPrescription() was retired alongside .rx-pill in the top-stack v1
 // refactor — the decoded grammar (e.g. "3 sets · 10 reps · 5s hold") now
-// lives as plain text in .active-slide-grammar above the video. See
-// buildDecodedGrammar() + updateActiveSlideHeader().
+// lives as plain text appended to the exercise name in .active-slide-title
+// above the video. See buildDecodedGrammar() + updateActiveSlideHeader().
 
 // ============================================================
 // Progress-pill matrix

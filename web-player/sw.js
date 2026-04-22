@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v20-top-stack';
+const CACHE_NAME = 'homefit-player-v21-single-line-title';
 
 // App shell files — always cached
 const APP_SHELL = [
