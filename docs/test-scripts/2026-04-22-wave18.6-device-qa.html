@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA Wave 18.6 — polish round 3</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-22 · Wave 18.6 — polish round 3</div>
+    <h1>Device QA — Wave 18.6</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> five items from live QA of Wave 18.5. <strong>(1)</strong> <code>[+]</code> horizontal padding 6pt → 12pt so the pill reads as a proper pill (~42pt wide), matching the visual weight of text chips. <strong>(2)</strong> Rest-row outer container flipped from <code>surfaceRaised</code> to <code>surfaceBase</code> so the unselected chips (which fill with <code>surfaceRaised</code>) sit against a contrasting background — same chip-on-surface contrast as DOSE chips. <strong>(3)</strong> Collapsed group headers tightened: inner vertical padding 10pt → 2pt, inter-group <code>SizedBox(height: 16)</code> spacers removed entirely. Groups flow directly against each other with no divider lines. Card stack is visibly much shorter when all four groups collapsed. <strong>(4)</strong> "Duration per rep" label stacks above its control (segmented or single pill) instead of sharing a horizontal row — fixes the iPhone overflow where the segmented control scrolled off-screen. <strong>(5)</strong> Font rebalance across accordion groups: section headers (coral w700 uppercase), inner labels (grey w600 uppercase) and inner values (mono w700 white) ALL at 13pt. Hierarchy carried by font family + weight + colour + case alone.
+      <br><br>
+      <strong>In scope:</strong> mobile-only. <code>preset_chip_row.dart</code> (<code>[+]</code> padding bump) + <code>studio_mode_screen.dart</code> (rest row background) + <code>studio_exercise_card.dart</code> (group header spacing, Duration per rep stacked layout, font rebalance).
+      <br><br>
+      <strong>Out of scope:</strong> anything already covered by Wave 18 / 18.1 / 18.2 / 18.3 / 18.4 / 18.5. Web player. Portal. Storage semantics of <code>customDurationSeconds</code> unchanged (still total = per-rep × reps). Chip long-press remove/undo, <code>[+]</code> long-press no-op, inline (not modal) input — all unchanged.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Wave 18.5 merged (SHA <code>814573e</code>). Wave 18.6 branch <code>fix/wave-18.6-polish</code> installed via <code>./install-device.sh</code>.</li>
+        <li>At least one session with: (a) a rest period; (b) one VIDEO exercise with a probed video length; (c) one PHOTO exercise; (d) at least one custom rest value stored (tap <code>[+]</code> and add e.g. <code>20</code>) so the <code>[+]</code> padding change is easy to eyeball.</li>
+        <li>iPhone 17 Pro or similar 393pt-wide device.</li>
+      </ul>
+    </div>
+
+    <h2>1 · <code>[+]</code> pill padding</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open any exercise card, expand DOSE. The <code>[+]</code> tail at the end of the Reps chip row is <strong>visibly a pill (~42pt wide)</strong> — NOT square, NOT near-circle. Visual weight now matches a text chip like <code>[15]</code> or <code>[12]</code>. Compare against Wave 18.5: the old <code>[+]</code> was ~30pt and read near-square; the new one reads as a member of the same chip family, just dashed instead of filled and narrower only by a few pt. Long-press still no-op; tap still opens the inline input.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Rest row — chip contrast matches DOSE</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Open a session that has a rest row. The sage chip row (<code>[15s] [30s] [60s] [90s] [+]</code> + any customs) now sits against the <strong>SAME background colour as DOSE chips</strong> on the exercise card (the darker card body fill, <code>surfaceBase</code>). Compare: an exercise card expanded with DOSE visible, side-by-side with a rest row. Chip-on-surface contrast is identical. No more "blended into its container" rest chips.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · Collapsed group headers — tight stack, no dividers</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Expand an exercise card with <strong>all four group headers collapsed</strong> (PLAYBACK / DOSE / PACING / NOTES). The card is <strong>visibly much shorter than Wave 18.5</strong> — rows flow tight against each other, no visible gap between them. Carl's "multiples of the size of the header" complaint is gone; this is now closer to one-times-header per row.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Between any two collapsed group headers there is <strong>NO horizontal divider line</strong> and no visible solid separator. Pure whitespace flow. Chevrons remain flush-left; labels/summaries remain coral + secondary-grey as before.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Tap any collapsed group (e.g. DOSE). It expands. The body contents (chip rows, REPS / SETS / HOLD labels + values) still have <strong>normal breathing room</strong> — the 8pt inner spacing around control rows is unchanged. Nothing about the expanded-body layout is cramped.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Re-collapse the expanded group. Card snaps back to the tight stack. Rapid open/close of different groups: each open group's body has breathing room; between collapsed groups there's no visible gap. No layout jitter.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Tap target — each collapsed group header is still easily tappable (the 40pt minHeight is retained). Accidental taps on the wrong group do not happen despite the tighter stack.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · "Duration per rep" — stacked layout</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">On a <strong>video exercise with probed duration</strong>, expand PACING. The row reads <code>Duration per rep</code> on the <strong>first line</strong>, with a <strong>full-width segmented control</strong> <code>[ From video ] [ Manual: Xs ]</code> on the <strong>second line</strong> below it. The segmented control spans the full card content area — NOT scrolled off-screen, NOT truncated, NOT fighting the label for horizontal space. The two segments are equal width.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">On a <strong>photo exercise</strong>, expand PACING. The row reads <code>Duration per rep</code> on the first line, with a <strong>single tappable value pill</strong> <code>5s</code> left-anchored on the second line below. Tap it — inline numeric input opens. Commit a new value — persists. Behaviour unchanged from Wave 18.5; only the layout is stacked.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">On the video exercise, tap <code>Manual</code> — segment flips coral. Tap <code>Manual: Xs</code> AGAIN — inline numeric input opens inside the Manual segment. Type a new value + Done (or blur). Segment updates. Swap to <code>From video</code> — flips back cleanly. Storage semantics unchanged — verify effective duration in the card summary still reads the right per-rep × reps total.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">The "Duration per rep" label on the first line renders in <strong>secondary-grey</strong> (<code>textSecondaryOnDark</code>), w500, mixed-case — distinct from the w600-uppercase inner labels like REPS / PREP. Size is 13pt — same size family as the REPS / SETS / HOLD / PREP labels.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Font rebalance — all three tiers at 13pt</h2>
+    <ul class="checklist">
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+        <span class="num">12.</span>
+        <span class="text">Expand DOSE on any exercise. Compare visually: the coral uppercase section header <code>DOSE</code>, the grey uppercase inner label <code>REPS</code>, and the white mono inner value (e.g. <code>12</code>) — <strong>all three render at the same size (13pt)</strong>. Wave 18.5 regression is gone: the value at 14pt no longer looks larger than the 13pt header. Hierarchy is now carried by font family (mono vs Inter) + weight (w700 vs w600) + colour (coral vs grey vs white) + case (upper vs upper vs number).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
+        <span class="num">13.</span>
+        <span class="text">Expand PACING. The <code>PREP</code> label (grey uppercase) reads at the same size as the <code>PACING</code> section header above it. The Xs display next to PREP (and its inline TextField when editing) renders at 13pt mono white — same size family as the label and header.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+        <span class="num">14.</span>
+        <span class="text">Expand PLAYBACK. The "Muted" toggle label in <code>_ToggleRow</code> reads at 13pt — matches the PLAYBACK section header above it. No size discrepancy between any label inside an accordion group and its enclosing section header.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+        <span class="num">15.</span>
+        <span class="text">The single-value <code>5s</code> pill in PACING (photo-mode Duration per rep) renders at 13pt mono coral — same size family as all other accordion values. No 14pt outlier survives in the expanded-panel region.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 · Regression guardrails</h2>
+    <ul class="checklist">
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
+        <span class="num">16.</span>
+        <span class="text">Text chips (e.g. <code>[15]</code>, <code>[10]</code>) render unchanged — 10pt horizontal padding, 16pt radius, 32pt tall, Inter w600 13pt label. 2pt inter-chip gap preserved. Three customs + canonical + <code>[+]</code> still fits one line on iPhone.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
+        <span class="num">17.</span>
+        <span class="text">Long-press any text chip → removed with an Undo SnackBar. Long-press <code>[+]</code> → <strong>no-op</strong> (no haptic, no action). Tap <code>[+]</code> → inline Cancel · numeric field · Done opens (NOT a modal, NOT a bottom sheet). All Wave 18.1/18.4 chip semantics preserved.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
+        <span class="num">18.</span>
+        <span class="text">Publish a plan with a mix of video + photo exercises. Plan URL opens on the client web player. Effective durations per exercise match what the card summary shows — Manual overrides still compute as per-rep × reps. Storage semantics unchanged by any Wave 18.6 work.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 18.6 closes five items from Wave 18.5 live device QA. Wave 18.1 remains the canonical baseline (run if anything around DOSE / PACING / rest bar feels off). No storage-model changes — legacy sessions read through cleanly.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-22-wave18.6-device-qa.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave-18.6', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

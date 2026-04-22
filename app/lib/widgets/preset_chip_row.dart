@@ -372,9 +372,11 @@ class _Chip extends StatelessWidget {
 /// with a centred [Icons.add_rounded] glyph. Wave 18.5 reshaped the
 /// circle into a proper 32pt-tall, 16pt-radius dashed pill so the tail
 /// sits in the same visual family as the text chips (which are also
-/// 32pt tall with 16pt radius). The pill's width is intrinsic — sized
-/// to the icon + 6pt horizontal padding on each side — so it's still
-/// the narrowest pill in the row but reads as a PILL, not a circle.
+/// 32pt tall with 16pt radius). Wave 18.6 bumped the horizontal padding
+/// 6pt → 12pt so the pill is ~42pt wide instead of ~30pt — unambiguously
+/// pill-shaped, visual weight matching the text chips. The pill's width
+/// is still intrinsic (icon + 12pt each side) so it's in the same family
+/// but not artificially inflated.
 class _CustomTail extends StatelessWidget {
   final Color accentColor;
   final VoidCallback onTap;
@@ -394,12 +396,14 @@ class _CustomTail extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         child: Container(
           height: 32,
-          // Wave 18.5 — 6pt horizontal padding (was effectively 0 when
-          // the tail was a 32×32 square). Keeps the pill narrower than
-          // a text chip (which has 10pt padding + 2+ digits) so the row
-          // still reads "canonical, canonical, ... canonical, [+],
-          // custom, custom" with the tail as the subtle pill in the mix.
-          padding: const EdgeInsets.symmetric(horizontal: 6),
+          // Wave 18.6 — horizontal padding bumped 6pt → 12pt. At 6pt the
+          // pill was ~30pt wide and read near-square; at 12pt it's ~42pt
+          // wide, unambiguously pill-shaped, and matches the visual
+          // weight of the text chips (which run ~44-52pt wide for "15s",
+          // "12", etc.). The [+] still sits in the same 32pt × 16pt-
+          // radius family as the text chips — just slightly narrower and
+          // dashed instead of filled.
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: CustomPaint(
             painter: _DashedBorderPainter(color: accentColor),
             child: Center(
@@ -548,8 +552,9 @@ class _DashedBorderPainter extends CustomPainter {
 
     // Fixed 16pt radius matches the text chip's BorderRadius.circular(16),
     // so the dashed tail reads as the same visual family — a pill, not
-    // a circle. For a 32pt-tall × ~30pt-wide container the ends round
-    // out to near-caps (clamped by rect width) without going circular.
+    // a circle. Wave 18.6 — with 12pt horizontal padding the container
+    // is ~42pt wide at 32pt tall, so the 16pt radius traces a clean
+    // pill with visible straight sides between the rounded caps.
     final rrect = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, 0, size.width, size.height),
       const Radius.circular(16),
