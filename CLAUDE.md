@@ -151,7 +151,7 @@ Surfaces required to match:
 
 **MVP is in active QA.** Target shipped well ahead of 2026-05-02. Both surfaces (mobile + portal) are live, converged on a client-spine IA, offline-first on mobile, three-treatment playback wired, referral loop shipped with 5% lifetime credit-rebate model, line-drawing aesthetic LOCKED at v6. Carl has been running device QA; no open bugs on the live stack.
 
-**👉 For a fresh-session handoff, read `docs/CHECKPOINT_2026-04-20.md` first.** It captures account-setup, env vars, recent bug hunts, and a "how to resume" section.
+**👉 For a fresh-session handoff, read `docs/CHECKPOINT_2026-04-22.md` first.** It captures the Wave 18 Studio-UI polish chain (18 → 18.8), two Supabase migrations (`schema_fix_milestone_r_srf.sql`, `schema_fix_publish_replace_exercises.sql`), the paused web-player wireframe workshop at `docs/design/mockups/web-player-wireframe.html`, and a "how to resume" section. Earlier checkpoints (`2026-04-21`, `2026-04-20`, `2026-04-20-late`) remain authoritative for their era.
 
 **Milestones complete:**
 - **A** — Schema (practices, practice_members, credit_ledger, plan_issuances, plan.practice_id, plan.first_opened_at).
@@ -251,7 +251,7 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 ## Key Documents
 
 - `CLAUDE.md` — this file
-- **`docs/CHECKPOINT_2026-04-20.md` — READ FIRST on fresh session.** Session-handoff snapshot: account setup, env vars, recent bug hunts, line-drawing LOCKED baseline, how-to-resume.
+- **`docs/CHECKPOINT_2026-04-22.md` — READ FIRST on fresh session.** Studio-UI polish marathon (Wave 18 chain through 18.8), two Supabase migrations, paused web-player wireframe workshop, how-to-resume. Earlier checkpoints (`2026-04-21.md`, `2026-04-20.md`, `2026-04-20-late.md`) remain for historical reference.
 - `docs/POV_BRIEF.md` — Proof-of-value brief with vision and build plan (historic; POV passed)
 - `docs/MVP_PLAN.md` — Active 14-day plan to 2026-05-02 (Melissa onboarding + referral loop + PayFast prod + polish)
 - `docs/MARKET_RESEARCH.md` — Competitive landscape + business case validation
