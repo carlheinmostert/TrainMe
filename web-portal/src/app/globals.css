@@ -4,6 +4,8 @@
 
 :root {
   color-scheme: dark;
+  /* Shared loading rhythm — matrix-mark spinner + skeleton sweep. 1.2.0. */
+  --motion-loop: 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 html,
@@ -52,4 +54,29 @@ button:focus {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Matrix-mark spinner — 1.2.0. Outer ghost greys opacity-breathe with a
+   staggered 0 / 0.1s / 0.2s begin. Coral 4-cell + tint band: intentionally
+   static. Sage rest pill pulses opacity + scaleY. Geometry ref:
+   docs/design/project/logos/mark.svg. Consumer: MatrixMarkLoading.tsx. */
+.mark--loading .mark-grey-outer-1 { animation: mark-breathe-1 var(--motion-loop); }
+.mark--loading .mark-grey-outer-2 { animation: mark-breathe-2 var(--motion-loop) 0.1s; }
+.mark--loading .mark-grey-outer-3 { animation: mark-breathe-3 var(--motion-loop) 0.2s; }
+.mark--loading .mark-rest-pill {
+  animation: mark-pulse-sage var(--motion-loop);
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@keyframes mark-breathe-1 { 0%, 100% { opacity: 1; } 50% { opacity: 0.40; } }
+@keyframes mark-breathe-2 { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes mark-breathe-3 { 0%, 100% { opacity: 1; } 50% { opacity: 0.70; } }
+@keyframes mark-pulse-sage {
+  0%, 100% { opacity: 1; transform: scaleY(1); }
+  50%      { opacity: 0.6; transform: scaleY(1.1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark--loading * { animation: none !important; }
 }
