@@ -374,9 +374,18 @@ class _Chip extends StatelessWidget {
 /// sits in the same visual family as the text chips (which are also
 /// 32pt tall with 16pt radius). Wave 18.6 bumped the horizontal padding
 /// 6pt → 12pt so the pill is ~42pt wide instead of ~30pt — unambiguously
-/// pill-shaped, visual weight matching the text chips. The pill's width
-/// is still intrinsic (icon + 12pt each side) so it's in the same family
-/// but not artificially inflated.
+/// pill-shaped, visual weight matching the text chips.
+///
+/// Wave 18.7 — **structural fix**: CustomPaint now wraps the Container
+/// instead of sitting inside its padding. Before, the dashed border was
+/// drawn on the canvas INSIDE the 12pt padding, so the pill hugged the
+/// 18pt icon with ~0 visible padding and the 12pt ended up as invisible
+/// margin outside the visible border. Swapping the nesting paints the
+/// dashed border on the FULL pill area and leaves the 12pt padding as
+/// real space between the border and the icon. The pill finally reads
+/// as a padded pill — ~42pt wide with visible room around the centred
+/// icon. Intrinsic width preserved via the outer [IntrinsicWidth] so
+/// the pill still sizes to icon + 12pt × 2.
 class _CustomTail extends StatelessWidget {
   final Color accentColor;
   final VoidCallback onTap;
@@ -394,24 +403,21 @@ class _CustomTail extends StatelessWidget {
         // Long-press on [+] is explicitly a no-op (Wave 18.1). No
         // haptic, no action.
         behavior: HitTestBehavior.opaque,
-        child: Container(
-          height: 32,
-          // Wave 18.6 — horizontal padding bumped 6pt → 12pt. At 6pt the
-          // pill was ~30pt wide and read near-square; at 12pt it's ~42pt
-          // wide, unambiguously pill-shaped, and matches the visual
-          // weight of the text chips (which run ~44-52pt wide for "15s",
-          // "12", etc.). The [+] still sits in the same 32pt × 16pt-
-          // radius family as the text chips — just slightly narrower and
-          // dashed instead of filled.
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: CustomPaint(
-            painter: _DashedBorderPainter(color: accentColor),
-            child: Center(
-              child: Icon(
-                Icons.add_rounded,
-                size: 18,
-                color: accentColor,
-              ),
+        // Wave 18.7 — CustomPaint wraps the padded Container so the
+        // dashed border paints on the full pill area, and the 12pt
+        // horizontal padding lives INSIDE the border. Before the swap
+        // the border was painted on the reduced canvas (inside padding)
+        // so the pill looked like it had no padding at all.
+        child: CustomPaint(
+          painter: _DashedBorderPainter(color: accentColor),
+          child: Container(
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.add_rounded,
+              size: 18,
+              color: accentColor,
             ),
           ),
         ),
