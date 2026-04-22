@@ -1055,64 +1055,69 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // Card content (rest bar or exercise card). Always wrapped in a
     // ReorderableDelayedDragStartListener so ReorderableListView's
     // drag-to-reorder still works (buildDefaultDragHandles is off).
-    // Non-rest cards are ALSO wrapped in a Dismissible so swipe-left
-    // on the card fires delete with the standard undo SnackBar — the
-    // iOS-native pattern, matching user expectation. Long-press on the
-    // thumbnail still opens the Peek menu with an explicit Delete; both
-    // paths converge on _deleteExercise.
-    Widget cardBody = exercise.isRest
-        ? _buildRestRow(dataIndex)
-        : StudioExerciseCard(
-            key: ValueKey('card_${exercise.id}'),
-            exercise: exercise,
-            isExpanded: _expandedIndex == dataIndex,
-            isInCircuit: isInCircuit,
-            onTap: () {
-              setState(() {
-                _expandedIndex =
-                    _expandedIndex == dataIndex ? null : dataIndex;
-                _activeInsertIndex = null;
-              });
-            },
-            onUpdate: (u) => _updateExercise(dataIndex, u),
-            onThumbnailTap: () => _openMediaViewer(exercise),
-            onReplaceMedia: () => _replaceMedia(dataIndex),
-            onDelete: () {
-              if (_isPublishLocked) {
-                showPublishLockToast(context);
-                return;
-              }
-              _deleteExercise(dataIndex);
-            },
-          );
-
-    final Widget cardContent = Dismissible(
-      key: ValueKey('swipe_${exercise.id}'),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        margin: const EdgeInsets.symmetric(vertical: 2),
-        decoration: BoxDecoration(
-          color: AppColors.primary.withValues(alpha: 0.85),
-          borderRadius: BorderRadius.circular(14),
+    //
+    // Rest rows carry their OWN Dismissible wrapper inside
+    // _buildRestRow (Wave 18.1 fix — the PresetChipRow on the rest bar
+    // no longer scrolls horizontally, so the swipe-to-delete gesture
+    // is guaranteed to land). Non-rest cards wrap with the generic
+    // Dismissible below. Long-press on the thumbnail still opens the
+    // Peek menu with an explicit Delete; both paths converge on
+    // _deleteExercise.
+    final Widget cardContent;
+    if (exercise.isRest) {
+      cardContent = _buildRestRow(dataIndex);
+    } else {
+      final Widget cardBody = StudioExerciseCard(
+        key: ValueKey('card_${exercise.id}'),
+        exercise: exercise,
+        isExpanded: _expandedIndex == dataIndex,
+        isInCircuit: isInCircuit,
+        onTap: () {
+          setState(() {
+            _expandedIndex =
+                _expandedIndex == dataIndex ? null : dataIndex;
+            _activeInsertIndex = null;
+          });
+        },
+        onUpdate: (u) => _updateExercise(dataIndex, u),
+        onThumbnailTap: () => _openMediaViewer(exercise),
+        onReplaceMedia: () => _replaceMedia(dataIndex),
+        onDelete: () {
+          if (_isPublishLocked) {
+            showPublishLockToast(context);
+            return;
+          }
+          _deleteExercise(dataIndex);
+        },
+      );
+      cardContent = Dismissible(
+        key: ValueKey('swipe_${exercise.id}'),
+        direction: DismissDirection.endToStart,
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 20),
+          margin: const EdgeInsets.symmetric(vertical: 2),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.85),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: const Icon(
+            Icons.delete_outline,
+            color: Colors.white,
+            size: 24,
+          ),
         ),
-        child: const Icon(
-          Icons.delete_outline,
-          color: Colors.white,
-          size: 24,
-        ),
-      ),
-      confirmDismiss: (_) async {
-        if (_isPublishLocked) {
-          showPublishLockToast(context);
-          return false;
-        }
-        return true;
-      },
-      onDismissed: (_) => _deleteExercise(dataIndex),
-      child: cardBody,
-    );
+        confirmDismiss: (_) async {
+          if (_isPublishLocked) {
+            showPublishLockToast(context);
+            return false;
+          }
+          return true;
+        },
+        onDismissed: (_) => _deleteExercise(dataIndex),
+        child: cardBody,
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1190,22 +1195,69 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
   Widget _buildRestRow(int dataIndex) {
     final exercise = _session.exercises[dataIndex];
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      height: 52,
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: AppColors.rest.withValues(alpha: 0.3),
+    // Wave 18.1 — rest rows carry their own Dismissible (the generic
+    // wrapper in _buildRowWithContext only covers non-rest cards).
+    // The non-scrolling PresetChipRow inside _RestBar ensures the
+    // horizontal swipe lands here, not on a ListView below.
+    return Dismissible(
+      key: ValueKey('rest-${exercise.id}'),
+      direction: DismissDirection.endToStart,
+      background: const SizedBox.shrink(),
+      secondaryBackground: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        margin: const EdgeInsets.only(bottom: 6),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Delete',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+            SizedBox(width: 8),
+            Icon(
+              Icons.delete_outline,
+              color: Colors.white,
+              size: 22,
+            ),
+          ],
         ),
       ),
-      child: _RestBar(
-        exercise: exercise,
-        onUpdate: (u) => _updateExercise(dataIndex, u),
-        onDelete: () {
-          _deleteExercise(dataIndex);
-        },
+      confirmDismiss: (_) async {
+        if (_isPublishLocked) {
+          showPublishLockToast(context);
+          return false;
+        }
+        return true;
+      },
+      onDismissed: (_) => _deleteExercise(dataIndex),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        height: 52,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: AppColors.rest.withValues(alpha: 0.3),
+          ),
+        ),
+        child: _RestBar(
+          exercise: exercise,
+          onUpdate: (u) => _updateExercise(dataIndex, u),
+          onDelete: () {
+            _deleteExercise(dataIndex);
+          },
+        ),
       ),
     );
   }
@@ -1748,11 +1800,17 @@ class _RestBarState extends State<_RestBar> {
               displayFormat: _format,
               accentColor: AppColors.rest,
               undoLabel: 'rest',
+              // Wave 18.1 — non-scrolling chip row. The rest bar's
+              // horizontal extent is the swipe-to-delete gesture path;
+              // a horizontally-scrolling ListView would eat that swipe
+              // before the outer Dismissible could see it.
+              scrollable: false,
             ),
           ),
-          // Delete × removed — swipe-left on the whole rest row still
-          // triggers onDelete via the outer Dismissible in
-          // _buildRowWithContext. Consistent with exercise cards.
+          // Delete × removed — swipe-left on the whole rest row
+          // triggers onDelete via the rest-row Dismissible wired up in
+          // _buildRestRow. Consistent with exercise cards, which get
+          // their own Dismissible wrapper in _buildRowWithContext.
         ],
       ),
     );

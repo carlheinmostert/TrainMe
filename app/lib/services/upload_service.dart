@@ -605,16 +605,17 @@ class UploadService {
               })
           .toList();
 
-      // Upsert so a re-publish of an unchanged exercise set doesn't PK-collide.
-      await _api.upsertExercises(exerciseRows);
-
-      // ----------------------------------------------------------------
-      // Step 7: Delete OLD exercise rows for this plan that are not in
-      // the new id set. Rest-only sessions (empty exerciseRows) clear
-      // everything.
-      // ----------------------------------------------------------------
-      final newIds = exerciseRows.map((r) => r['id'] as String).toList();
-      await _api.deleteStaleExercises(planId: session.id, keepIds: newIds);
+      // Atomic replace-all — DELETE + INSERT in one transaction server-side
+      // (Wave 18.1). The previous `upsert + delete-stale` pair raced against
+      // the DEFERRABLE UNIQUE (plan_id, position) index on reorder, because
+      // each PostgREST HTTP hop auto-commits and the deferrable check never
+      // actually deferred. The RPC bundles both ops into ONE transaction so
+      // the index check holds until commit. Rest-only sessions (empty
+      // exerciseRows) clear everything.
+      await _api.replacePlanExercises(
+        planId: session.id,
+        rows: exerciseRows,
+      );
 
       // ----------------------------------------------------------------
       // Step 7.5: best-effort raw-archive upload.

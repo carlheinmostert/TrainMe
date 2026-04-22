@@ -99,19 +99,26 @@ class StudioExerciseCard extends StatefulWidget {
   State<StudioExerciseCard> createState() => _StudioExerciseCardState();
 }
 
+/// Which of the three accordion-grouped sections is currently expanded.
+/// At most one at a time — opening another closes the first. All three
+/// can end up closed if the practitioner taps the open one.
+enum _AccordionGroup { dose, pacing, notes }
+
 class _StudioExerciseCardState extends State<StudioExerciseCard> {
   late int _reps;
   late int _sets;
   late int _hold;
   late TextEditingController _notesController;
 
-  /// Per-group manual expand/collapse overrides. A null value means
-  /// "follow the auto-collapse rule": expand Playback + Dose always,
-  /// expand Pacing / Notes only when they hold non-default data.
-  /// Overrides reset whenever the card closes + reopens (no
-  /// SharedPreferences — the auto-rule is the source of truth).
-  bool? _pacingOverride;
-  bool? _notesOverride;
+  /// PLAYBACK is an independent accordion — its expanded state never
+  /// closes DOSE/PACING/NOTES. Defaults to open per Wave 18.1 spec.
+  bool _playbackOpen = true;
+
+  /// Single-open accordion for DOSE / PACING / NOTES. Null = all three
+  /// closed (the default on every card open, per Wave 18.1). Opening
+  /// one group closes the previously-open group; tapping the open
+  /// group closes it (null again).
+  _AccordionGroup? _openGroup;
 
   @override
   void initState() {
@@ -127,8 +134,8 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     if (old.exercise.id != widget.exercise.id) {
       _syncFromModel(widget.exercise);
       _notesController.text = widget.exercise.notes ?? '';
-      _pacingOverride = null;
-      _notesOverride = null;
+      _playbackOpen = true;
+      _openGroup = null;
     } else {
       // Same exercise, same open state — but the parent may have
       // written through a change (treatment pref, includeAudio, etc).
@@ -141,12 +148,23 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
       }
     }
     if (old.isExpanded && !widget.isExpanded) {
-      // Card just closed — drop manual overrides so a re-open lands
-      // on the auto-collapse rule (spec: "state persists only while
-      // the card stays mounted — resets on next open").
-      _pacingOverride = null;
-      _notesOverride = null;
+      // Card just closed — drop accordion state so a re-open lands on
+      // the spec default (PLAYBACK open, DOSE/PACING/NOTES all closed).
+      _playbackOpen = true;
+      _openGroup = null;
     }
+  }
+
+  void _toggleAccordion(_AccordionGroup group) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _openGroup = (_openGroup == group) ? null : group;
+    });
+  }
+
+  void _togglePlayback() {
+    HapticFeedback.selectionClick();
+    setState(() => _playbackOpen = !_playbackOpen);
   }
 
   void _syncFromModel(ExerciseCapture ex) {
@@ -355,11 +373,46 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     );
   }
 
-  /// Pacing group auto-collapses to its header when every field is at
-  /// the app-wide default. Non-default = prep override set OR
-  /// customDurationSeconds set OR the video-as-1-rep toggle implicitly
-  /// on (tracked via customDurationSeconds). Used to seed the default
-  /// expand/collapse state; practitioners can override via the header.
+  // ------------------------------------------------------------------
+  // Non-default markers — drive the coral dot + bolded label on each
+  // accordion group header. Wave 18.1 retires the auto-expand-on-non-
+  // defaults rule; the marker alone signals "there's something
+  // practitioner-curated in this group".
+  // ------------------------------------------------------------------
+
+  /// PLAYBACK is "non-default" when the practitioner has changed the
+  /// treatment away from Line OR muted the audio on a video.
+  bool get _playbackHasNonDefaults {
+    final ex = widget.exercise;
+    if (ex.preferredTreatment != null &&
+        ex.preferredTreatment != Treatment.line) {
+      return true;
+    }
+    if (ex.mediaType == MediaType.video && !ex.includeAudio) {
+      return true;
+    }
+    return false;
+  }
+
+  /// DOSE is "non-default" when reps/sets/hold differ from the app-wide
+  /// seed values. Sets are ignored inside circuits (the dose summary
+  /// skips them).
+  bool get _doseHasNonDefaults {
+    final ex = widget.exercise;
+    if ((ex.reps ?? StudioDefaults.reps) != StudioDefaults.reps) return true;
+    if (!widget.isInCircuit &&
+        (ex.sets ?? StudioDefaults.sets) != StudioDefaults.sets) {
+      return true;
+    }
+    if ((ex.holdSeconds ?? StudioDefaults.holdSeconds) !=
+        StudioDefaults.holdSeconds) {
+      return true;
+    }
+    return false;
+  }
+
+  /// PACING is "non-default" when prep override OR custom-duration is
+  /// set.
   bool get _pacingHasNonDefaults {
     final ex = widget.exercise;
     if (ex.prepSeconds != null) return true;
@@ -367,22 +420,54 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     return false;
   }
 
-  bool get _notesHasContent => (widget.exercise.notes ?? '').isNotEmpty;
+  /// NOTES is "non-default" when the notes field has any content.
+  bool get _notesHasNonDefaults => (widget.exercise.notes ?? '').isNotEmpty;
 
-  bool get _pacingExpanded => _pacingOverride ?? _pacingHasNonDefaults;
-  bool get _notesExpanded => _notesOverride ?? _notesHasContent;
+  // ------------------------------------------------------------------
+  // Collapsed-row summaries — shown next to each group header when the
+  // group is collapsed. Spec requires a summary for ALL four groups
+  // (Wave 18.1).
+  // ------------------------------------------------------------------
 
+  /// PLAYBACK collapsed summary — e.g. `Line · Audio on` / `B&W · Muted`.
+  /// Omits the audio segment for non-video exercises (there's no audio
+  /// to mute on a photo).
+  String _playbackSummary() {
+    final ex = widget.exercise;
+    final treatment = ex.preferredTreatment ?? Treatment.line;
+    final treatmentLabel = treatment.shortLabel;
+    if (ex.mediaType != MediaType.video) return treatmentLabel;
+    final audioLabel = ex.includeAudio ? 'Audio on' : 'Muted';
+    return '$treatmentLabel · $audioLabel';
+  }
+
+  /// DOSE collapsed summary — e.g. `10 reps · 3 sets · 5s hold`.
+  /// In circuits, sets are hidden (the circuit cycles replace them).
+  /// Hold of 0 renders as `Hold off`.
+  String _doseSummary() {
+    final parts = <String>['$_reps reps'];
+    if (!widget.isInCircuit) {
+      parts.add('$_sets sets');
+    }
+    parts.add(_hold == 0 ? 'Hold off' : '${_hold}s hold');
+    return parts.join(' · ');
+  }
+
+  /// PACING collapsed summary — `defaults` or comma-separated list.
   String _pacingSummary() {
     final parts = <String>[];
     final ex = widget.exercise;
     if (ex.prepSeconds != null) parts.add('${ex.prepSeconds}s prep');
     if (ex.customDurationSeconds != null) {
       parts.add('video-length on');
+      final perRep = _perRepFromCustom();
+      parts.add('custom ${perRep}s per rep');
     }
     if (parts.isEmpty) return 'defaults';
     return parts.join(', ');
   }
 
+  /// NOTES collapsed summary — `empty` or the first 28 chars quoted.
   String _notesSummary() {
     final raw = widget.exercise.notes ?? '';
     if (raw.isEmpty) return 'empty';
@@ -397,6 +482,11 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     final hasVideoLength =
         isVideo && (widget.exercise.videoDurationMs ?? 0) > 0;
     final customOn = widget.exercise.customDurationSeconds != null;
+
+    final doseOpen = _openGroup == _AccordionGroup.dose;
+    final pacingOpen = _openGroup == _AccordionGroup.pacing;
+    final notesOpen = _openGroup == _AccordionGroup.notes;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -434,110 +524,115 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           ),
 
         // -----------------------------------------------------------
-        // PLAYBACK — always expanded.
+        // PLAYBACK — independent toggle. Defaults OPEN; tapping the
+        // header collapses/expands it without affecting the DOSE /
+        // PACING / NOTES accordion below.
         // -----------------------------------------------------------
         _GroupHeader(
           label: 'Playback',
-          expanded: true,
-          // Playback is always-on (no auto-collapse); tap is a no-op so
-          // we don't mislead the practitioner into thinking it toggles.
-          onTap: null,
-          summary: null,
+          expanded: _playbackOpen,
+          hasNonDefaults: _playbackHasNonDefaults,
+          summary: _playbackOpen ? null : _playbackSummary(),
+          onTap: _togglePlayback,
         ),
-        const SizedBox(height: 8),
-        TreatmentTilesRow(
-          exercise: widget.exercise,
-          hasArchive: hasArchive,
-          onChanged: (t) {
-            HapticFeedback.selectionClick();
-            widget.onUpdate(
-              widget.exercise.copyWith(preferredTreatment: t),
-            );
-          },
-        ),
-        if (isVideo) ...[
-          const SizedBox(height: 4),
-          _ToggleRow(
-            label: 'Muted',
-            value: !widget.exercise.includeAudio,
-            onChanged: (muted) {
+        if (_playbackOpen) ...[
+          const SizedBox(height: 8),
+          TreatmentTilesRow(
+            exercise: widget.exercise,
+            hasArchive: hasArchive,
+            onChanged: (t) {
+              HapticFeedback.selectionClick();
               widget.onUpdate(
-                widget.exercise.copyWith(includeAudio: !muted),
+                widget.exercise.copyWith(preferredTreatment: t),
               );
             },
           ),
+          if (isVideo) ...[
+            const SizedBox(height: 4),
+            _ToggleRow(
+              label: 'Muted',
+              value: !widget.exercise.includeAudio,
+              onChanged: (muted) {
+                widget.onUpdate(
+                  widget.exercise.copyWith(includeAudio: !muted),
+                );
+              },
+            ),
+          ],
         ],
 
         // -----------------------------------------------------------
-        // DOSE — always expanded. Reps + Sets (skip in circuit) + Hold.
+        // DOSE — accordion member, default closed. Reps + Sets (skip
+        // in circuit) + Hold.
         // -----------------------------------------------------------
         const SizedBox(height: 16),
         _GroupHeader(
           label: 'Dose',
-          expanded: true,
-          onTap: null,
-          summary: null,
+          expanded: doseOpen,
+          hasNonDefaults: _doseHasNonDefaults,
+          summary: doseOpen ? null : _doseSummary(),
+          onTap: () => _toggleAccordion(_AccordionGroup.dose),
         ),
-        const SizedBox(height: 8),
-        _ControlRow(
-          label: 'Reps',
-          value: _reps,
-          displayFormat: (v) => '$v',
-          child: PresetChipRow(
-            controlKey: 'reps',
-            canonicalPresets: const <num>[5, 8, 10, 12, 15],
-            currentValue: _reps,
-            onChanged: _pushReps,
-            accentColor: AppColors.primary,
-            undoLabel: 'reps',
-          ),
-        ),
-        if (!widget.isInCircuit) ...[
+        if (doseOpen) ...[
           const SizedBox(height: 8),
           _ControlRow(
-            label: 'Sets',
-            value: _sets,
+            label: 'Reps',
+            value: _reps,
             displayFormat: (v) => '$v',
             child: PresetChipRow(
-              controlKey: 'sets',
-              canonicalPresets: const <num>[1, 2, 3, 4, 5],
-              currentValue: _sets,
-              onChanged: _pushSets,
+              controlKey: 'reps',
+              canonicalPresets: const <num>[5, 8, 10, 12, 15],
+              currentValue: _reps,
+              onChanged: _pushReps,
               accentColor: AppColors.primary,
-              undoLabel: 'sets',
+              undoLabel: 'reps',
+            ),
+          ),
+          if (!widget.isInCircuit) ...[
+            const SizedBox(height: 8),
+            _ControlRow(
+              label: 'Sets',
+              value: _sets,
+              displayFormat: (v) => '$v',
+              child: PresetChipRow(
+                controlKey: 'sets',
+                canonicalPresets: const <num>[1, 2, 3, 4, 5],
+                currentValue: _sets,
+                onChanged: _pushSets,
+                accentColor: AppColors.primary,
+                undoLabel: 'sets',
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          _ControlRow(
+            label: 'Hold',
+            value: _hold,
+            displayFormat: (v) => v == 0 ? 'Off' : '${v}s',
+            child: PresetChipRow(
+              controlKey: 'hold',
+              canonicalPresets: const <num>[0, 5, 10, 30, 60],
+              currentValue: _hold,
+              onChanged: _pushHold,
+              accentColor: AppColors.primary,
+              displayFormat: (v) => v == 0 ? 'Off' : '${v}s',
+              undoLabel: 'hold',
             ),
           ),
         ],
-        const SizedBox(height: 8),
-        _ControlRow(
-          label: 'Hold',
-          value: _hold,
-          displayFormat: (v) => v == 0 ? 'Off' : '${v}s',
-          child: PresetChipRow(
-            controlKey: 'hold',
-            canonicalPresets: const <num>[0, 5, 10, 30, 60],
-            currentValue: _hold,
-            onChanged: _pushHold,
-            accentColor: AppColors.primary,
-            displayFormat: (v) => v == 0 ? 'Off' : '${v}s',
-            undoLabel: 'hold',
-          ),
-        ),
 
         // -----------------------------------------------------------
-        // PACING — auto-collapsed when every field is default.
+        // PACING — accordion member, default closed.
         // -----------------------------------------------------------
         const SizedBox(height: 16),
         _GroupHeader(
           label: 'Pacing',
-          expanded: _pacingExpanded,
-          summary: _pacingExpanded ? null : _pacingSummary(),
-          onTap: () {
-            HapticFeedback.selectionClick();
-            setState(() => _pacingOverride = !_pacingExpanded);
-          },
+          expanded: pacingOpen,
+          hasNonDefaults: _pacingHasNonDefaults,
+          summary: pacingOpen ? null : _pacingSummary(),
+          onTap: () => _toggleAccordion(_AccordionGroup.pacing),
         ),
-        if (_pacingExpanded) ...[
+        if (pacingOpen) ...[
           const SizedBox(height: 8),
           _PrepSecondsRow(
             currentValue: widget.exercise.prepSeconds,
@@ -584,19 +679,17 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
         ],
 
         // -----------------------------------------------------------
-        // NOTES — auto-collapsed when empty.
+        // NOTES — accordion member, default closed.
         // -----------------------------------------------------------
         const SizedBox(height: 16),
         _GroupHeader(
           label: 'Notes',
-          expanded: _notesExpanded,
-          summary: _notesExpanded ? null : _notesSummary(),
-          onTap: () {
-            HapticFeedback.selectionClick();
-            setState(() => _notesOverride = !_notesExpanded);
-          },
+          expanded: notesOpen,
+          hasNonDefaults: _notesHasNonDefaults,
+          summary: notesOpen ? null : _notesSummary(),
+          onTap: () => _toggleAccordion(_AccordionGroup.notes),
         ),
-        if (_notesExpanded)
+        if (notesOpen)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: TextField(
@@ -625,77 +718,46 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
   }
 }
 
-/// Group-header label for the Studio card's expanded panel. Renders an
-/// 11pt uppercase coral label + optional em-dash summary + chevron
-/// glyph. Tapping toggles the override; the label row is a 48pt tall
-/// hit target spanning the full card width.
+/// Group-header label for the Studio card's expanded panel. Renders a
+/// chevron + 11pt uppercase label + optional trailing collapsed
+/// summary. Tapping fires [onTap]; the row is a 40pt-tall hit target
+/// spanning the full card width.
+///
+/// Wave 18.1 additions:
+///   * [hasNonDefaults] — when true, the label bolds to w800 and a
+///     5pt coral dot appears between the chevron and the label. The
+///     dot is a signal that this group holds practitioner-curated
+///     content, even when collapsed.
+///   * Chevron rotation animates (180ms ease) between open/closed.
+///   * Summary fades in/out with an AnimatedSwitcher so collapsing
+///     doesn't flash.
 class _GroupHeader extends StatelessWidget {
   final String label;
   final bool expanded;
 
-  /// Trailing em-dash summary for collapsed state. Null = no summary
-  /// (the group is forced-open, e.g. Playback / Dose).
+  /// Non-default marker — drives the coral dot + bold label weight.
+  final bool hasNonDefaults;
+
+  /// Trailing em-dash summary for collapsed state. Non-null in both
+  /// states post-Wave-18.1 (all four groups render a summary when
+  /// collapsed).
   final String? summary;
 
-  /// Tap toggles the override. Null = non-interactive (Playback / Dose
-  /// render the label + divider only).
-  final VoidCallback? onTap;
+  /// Tap toggles the group's open/closed state. Every group header
+  /// is interactive in Wave 18.1 — PLAYBACK toggles independently,
+  /// DOSE/PACING/NOTES share a single-open accordion.
+  final VoidCallback onTap;
 
   const _GroupHeader({
     required this.label,
     required this.expanded,
+    required this.hasNonDefaults,
     required this.summary,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final child = Row(
-      children: [
-        if (onTap != null)
-          AnimatedRotation(
-            turns: expanded ? 0 : -0.25,
-            duration: AppMotion.fast,
-            curve: AppMotion.standard,
-            child: const Icon(
-              Icons.expand_more,
-              size: 18,
-              color: AppColors.primary,
-            ),
-          ),
-        if (onTap != null) const SizedBox(width: 4),
-        Text(
-          label.toUpperCase(),
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.8,
-            color: AppColors.primary,
-          ),
-        ),
-        if (summary != null) ...[
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              '— $summary',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0.2,
-                color: AppColors.textSecondaryOnDark,
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-    if (onTap == null) {
-      return SizedBox(height: 32, child: Align(alignment: Alignment.centerLeft, child: child));
-    }
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -703,7 +765,65 @@ class _GroupHeader extends StatelessWidget {
         height: 40,
         child: Align(
           alignment: Alignment.centerLeft,
-          child: child,
+          child: Row(
+            children: [
+              AnimatedRotation(
+                turns: expanded ? 0 : -0.25,
+                duration: const Duration(milliseconds: 180),
+                curve: AppMotion.standard,
+                child: const Icon(
+                  Icons.expand_more,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 4),
+              if (hasNonDefaults) ...[
+                Container(
+                  width: 5,
+                  height: 5,
+                  decoration: const BoxDecoration(
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                label.toUpperCase(),
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: hasNonDefaults
+                      ? FontWeight.w800
+                      : FontWeight.w700,
+                  letterSpacing: 0.8,
+                  color: AppColors.primary,
+                ),
+              ),
+              if (summary != null) ...[
+                const SizedBox(width: 6),
+                Flexible(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: Text(
+                      '— $summary',
+                      key: ValueKey(summary),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.2,
+                        color: AppColors.textSecondaryOnDark,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
