@@ -894,29 +894,22 @@ class _GroupHeader extends StatelessWidget {
                         : (singleLineSummary ? 1 : 3),
                     softWrap: !expanded && !singleLineSummary,
                     overflow: TextOverflow.ellipsis,
-                    // Wave 18.4 — label bumped 11pt → 13pt so PLAYBACK /
-                    // DOSE / PACING / NOTES read clearly against the
-                    // 13-14pt body content. Wave 18.5 — summary bumped
-                    // 11pt → 13pt to match so the row reads as unified;
-                    // differentiation carried by weight + uppercase +
-                    // colour alone (label = w700 uppercase coral,
-                    // summary = w500 normal-case secondary-grey).
-                    // Wave 18.7 — label bumped 13pt → 14pt to overcome
-                    // the coral-on-dark perceptual-contrast penalty.
-                    // Wave 18.8 — label AND summary both bumped to
-                    // 16pt. Even at 14pt the coral label perceptually
-                    // read smaller than the 13pt grey inner labels;
-                    // coral on dark loses the contrast battle. 16pt
-                    // label + 16pt summary vs 13pt inner tier gives an
-                    // absolute 3pt gap so the section header finally
-                    // dominates as designed. Label/summary
-                    // differentiation now carried purely by weight +
-                    // case + colour (w700 uppercase coral vs w500
-                    // mixed-case secondary-grey).
+                    // Wave 18.9 — header bumped 16pt → 18pt AND swapped
+                    // Inter → Montserrat. Brand spec reserves
+                    // Montserrat for headings; using Inter for the
+                    // section header was a body-tier choice that held
+                    // back the coral-on-dark hierarchy. Montserrat's
+                    // display-ready letterforms give the coral label
+                    // real presence. Pairs with a matching 13pt → 12pt
+                    // shrink on the inner tier (labels + values) in
+                    // `_ControlRow` / `_PrepSecondsRow` /
+                    // `_DurationPerRepRow`. Inner tier now 6pt below
+                    // the header vs Wave 18.8's 3pt — hierarchy finally
+                    // reads at a glance.
                     text: TextSpan(
                       style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 16,
+                        fontFamily: 'Montserrat',
+                        fontSize: 18,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.8,
                         color: AppColors.primary,
@@ -928,12 +921,8 @@ class _GroupHeader extends StatelessWidget {
                           TextSpan(
                             text: ' · $summary',
                             style: const TextStyle(
-                              fontFamily: 'Inter',
-                              // Wave 18.8 — summary matches label at
-                              // 16pt. Differentiation between label
-                              // and summary within the header row is
-                              // now purely weight + case + colour.
-                              fontSize: 16,
+                              fontFamily: 'Montserrat',
+                              fontSize: 18,
                               fontWeight: FontWeight.w500,
                               letterSpacing: 0,
                               color: AppColors.textSecondaryOnDark,
@@ -953,10 +942,10 @@ class _GroupHeader extends StatelessWidget {
               if (hasNonDefaults) ...[
                 const SizedBox(width: 8),
                 Padding(
-                  // Align to the first-line label baseline. Wave 18.4
-                  // bumped from 7 to 9 to follow the 13pt label's
-                  // taller line box.
-                  padding: const EdgeInsets.only(top: 9),
+                  // Align to the first-line label baseline. Wave 18.9
+                  // bumped from 9 to 11 to follow the 18pt Montserrat
+                  // label's taller line box.
+                  padding: const EdgeInsets.only(top: 11),
                   child: Container(
                     width: 5,
                     height: 5,
@@ -1008,12 +997,9 @@ class _ControlRow extends StatelessWidget {
                 label.toUpperCase(),
                 style: const TextStyle(
                   fontFamily: 'Inter',
-                  // Wave 18.6 — inner label bumped 11pt → 13pt to match
-                  // section header size. Differentiation stays via w600
-                  // (vs w700), secondary-grey (vs coral), and the 0.5
-                  // letterSpacing. All three tiers (header / inner label /
-                  // inner value) now render at 13pt.
-                  fontSize: 13,
+                  // Wave 18.9 — 13pt → 12pt to widen the gap vs the
+                  // 18pt section header.
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.5,
                   color: AppColors.textSecondaryOnDark,
@@ -1024,10 +1010,9 @@ class _ControlRow extends StatelessWidget {
                 style: const TextStyle(
                   fontFamily: 'JetBrainsMono',
                   fontFamilyFallback: ['Menlo', 'Courier'],
-                  // Wave 18.6 — value shrunk 14pt → 13pt so it doesn't
-                  // out-size the 13pt section header above it. Hierarchy
-                  // carried by family (mono vs Inter) + w700 + white.
-                  fontSize: 13,
+                  // Wave 18.9 — 13pt → 12pt to widen the gap vs the
+                  // 18pt section header.
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: AppColors.textOnDark,
                 ),
@@ -1240,43 +1225,35 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
     //   DURATION PER REP                       (inner label, left)
     //   3s                                     (value, dashed underline)
     //   [ From video ]  [ Manual ]             (source toggle, video only)
+    //
+    // Wave 18.9 — editor now stacks full-width below the label when
+    // editing, instead of sharing a row. DURATION PER REP's 175pt label
+    // left no room for the editor even with `Expanded`. Stacking
+    // applies to both PREP and DURATION PER REP for visual consistency.
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Wave 18.8 — when editing, the editor takes the full remaining
-          // row width via Expanded so the `< Cancel [_N_] Done >` fits
-          // entirely inside the card's content area. When not editing,
-          // the Spacer still pushes the dashed value to the right.
+          // Inline row: label + right-aligned value (when not editing)
+          // OR just the label (when editing — the editor stretches
+          // full-width below).
           Row(
             children: [
               const Text(
                 'DURATION PER REP',
                 style: TextStyle(
                   fontFamily: 'Inter',
-                  // Wave 18.7 — matches PREP / REPS / SETS / HOLD inner
-                  // labels (13pt Inter w600 uppercase secondary-grey
-                  // letter-spacing 0.5).
-                  fontSize: 13,
+                  // Wave 18.9 — 13pt → 12pt to widen the gap vs the
+                  // 18pt section header.
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.5,
                   color: AppColors.textSecondaryOnDark,
                 ),
               ),
-              if (_isEditing) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: InlineNumericEditor(
-                    controller: _controller,
-                    focusNode: _focusNode,
-                    accentColor: AppColors.primary,
-                    onCancel: _cancel,
-                    onCommit: _commit,
-                  ),
-                ),
-              ] else ...[
+              if (!_isEditing) ...[
                 const Spacer(),
                 GestureDetector(
                   onTap: _startEditing,
@@ -1291,7 +1268,9 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
                         style: const TextStyle(
                           fontFamily: 'JetBrainsMono',
                           fontFamilyFallback: ['Menlo', 'Courier'],
-                          fontSize: 13,
+                          // Wave 18.9 — 13pt → 12pt to widen the gap
+                          // vs the 18pt section header.
+                          fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: AppColors.textOnDark,
                         ),
@@ -1302,6 +1281,18 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
               ],
             ],
           ),
+          if (_isEditing) ...[
+            const SizedBox(height: 6),
+            // Full-width editor — the enclosing Column stretches it
+            // via crossAxisAlignment, so no Expanded wrapper needed.
+            InlineNumericEditor(
+              controller: _controller,
+              focusNode: _focusNode,
+              accentColor: AppColors.primary,
+              onCancel: _cancel,
+              onCommit: _commit,
+            ),
+          ],
           // Toggle pair only when we have a probed video length —
           // otherwise the single source makes the toggle meaningless.
           if (widget.hasVideoLength) ...[
@@ -1590,67 +1581,70 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
         : widget.globalDefault;
     final displayText = '${displayValue}s';
 
+    // Wave 18.9 — editor now stacks full-width below the label when
+    // editing, instead of sharing a row. DURATION PER REP's 175pt label
+    // left no room for the editor even with `Expanded`. Stacking
+    // applies to both PREP and DURATION PER REP for visual consistency.
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      // Wave 18.8 — when editing, the editor takes the full remaining
-      // row width via Expanded so the `< Cancel [_N_] Done >` row fits
-      // entirely inside the card's content area. Otherwise the 72pt
-      // field + Cancel + Done + margins would overflow the card's
-      // right edge on narrow phones.
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
-            'PREP',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              // Wave 18.6 — 11pt → 13pt (matches _ControlRow).
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.5,
-              color: AppColors.textSecondaryOnDark,
-            ),
-          ),
-          if (_editing) ...[
-            const SizedBox(width: 8),
-            // Wave 18.7 — inline editor now mirrors the chip row's
-            // `< Cancel   [_7_]   Done >` pattern. iOS numeric keypad
-            // has no return key, so explicit Cancel + Done affordances
-            // are the only way to close the editor. Cancel restores
-            // the prior display; Done commits.
-            Expanded(
-              child: InlineNumericEditor(
-                controller: _controller,
-                focusNode: _focusNode,
-                accentColor: AppColors.primary,
-                onCancel: _cancel,
-                onCommit: _commit,
+          Row(
+            children: [
+              const Text(
+                'PREP',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  // Wave 18.9 — 13pt → 12pt to widen the gap vs the
+                  // 18pt section header.
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                  color: AppColors.textSecondaryOnDark,
+                ),
               ),
-            ),
-          ] else ...[
-            const Spacer(),
-            GestureDetector(
-              onTap: _startEditing,
-              behavior: HitTestBehavior.opaque,
-              child: CustomPaint(
-                painter: _DashedUnderlinePainter(color: AppColors.grey500),
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
-                  child: Text(
-                    displayText,
-                    style: TextStyle(
-                      fontFamily: 'JetBrainsMono',
-                      fontFamilyFallback: const ['Menlo', 'Courier'],
-                      // Wave 18.6 — 14pt → 13pt (matches _ControlRow value).
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: hasOverride
-                          ? AppColors.textOnDark
-                          : AppColors.textSecondaryOnDark
-                              .withValues(alpha: 0.7),
+              if (!_editing) ...[
+                const Spacer(),
+                GestureDetector(
+                  onTap: _startEditing,
+                  behavior: HitTestBehavior.opaque,
+                  child: CustomPaint(
+                    painter: _DashedUnderlinePainter(color: AppColors.grey500),
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(
+                        displayText,
+                        style: TextStyle(
+                          fontFamily: 'JetBrainsMono',
+                          fontFamilyFallback: const ['Menlo', 'Courier'],
+                          // Wave 18.9 — 13pt → 12pt to widen the gap
+                          // vs the 18pt section header.
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: hasOverride
+                              ? AppColors.textOnDark
+                              : AppColors.textSecondaryOnDark
+                                  .withValues(alpha: 0.7),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
+            ],
+          ),
+          if (_editing) ...[
+            const SizedBox(height: 6),
+            // Full-width editor — the enclosing Column stretches it
+            // via crossAxisAlignment, so no Expanded wrapper needed.
+            InlineNumericEditor(
+              controller: _controller,
+              focusNode: _focusNode,
+              accentColor: AppColors.primary,
+              onCancel: _cancel,
+              onCommit: _commit,
             ),
           ],
         ],
@@ -1705,10 +1699,13 @@ class _DashedUnderlinePainter extends CustomPainter {
 /// Wave 18.8 — editor now consumes the full horizontal width offered by
 /// its parent. The text field uses [Expanded] instead of a fixed
 /// [fieldWidth] (retained as an ignored param for compat), so the row
-/// fits exactly within the card's content area. Call sites must wrap
-/// this widget in [Expanded] (or a bounded-width parent) when placing
-/// it inside a [Row]; otherwise the [Expanded] on the field asserts.
-/// PREP + DURATION PER REP both do this.
+/// fits exactly within the card's content area.
+///
+/// Wave 18.9 — callers wrap in [Expanded] (or stretch via parent
+/// [Column]) to give the editor a bounded width. PREP + DURATION PER
+/// REP now use a stretched [Column] instead of an [Expanded]-in-[Row]
+/// pattern — the 175pt DURATION PER REP label left no room for the
+/// editor on its own row.
 class InlineNumericEditor extends StatelessWidget {
   /// TextEditingController owned by the caller. Lets the caller pre-seed
   /// the field with the current value + retain state across rebuilds.
