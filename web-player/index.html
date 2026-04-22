@@ -46,7 +46,16 @@
     </div>
   </div>
 
-  <!-- Main app -->
+  <!-- Main app ===============================================================
+       Top-stack v1 layout (workshop sign-off 2026-04-22):
+         Row 1  plan-bar       (plan-title + header-client)
+         Row 2  matrix-eta     (full-width centered; 3-number time row)
+         Row 3  progress-matrix (pills)
+         Row 4  active-slide-header (exercise name + decoded grammar)
+         Hero   card-viewport  (video fills; all chrome overlaid)
+         Footer footer         (powered by homefit.studio)
+       Retired in this refactor: nav-dots, peek-panel, treatment-seg,
+       card-position, nav-bar, swipe-hint. See app.js header comment. -->
   <div id="app" hidden>
     <!-- Plan title bar -->
     <div class="plan-bar">
@@ -57,12 +66,21 @@
       <div id="progress" class="progress-label"></div>
     </div>
 
-    <!-- Progress-pill matrix — replaces the legacy single linear bar.
-         Horizontally scrolling grid of exercise pills. Auto-centres on the
-         active pill, stacks circuit cycles vertically, supports long-press
-         peek + slide to jump. See docs/design/mockups/progress-pills.html.
-         The ETA widget lives inside .progress-matrix-inner so it scrolls
-         with the matrix. -->
+    <!-- Matrix ETA (promoted above the pills) — 3-number time row:
+         current-slide remaining · total remaining · ~finish wall clock.
+         Sits full-width between plan-bar and the pill matrix; no longer
+         scrolls with the pills. -->
+    <div class="matrix-eta-bar" id="matrix-eta-bar" aria-live="polite">
+      <span class="matrix-eta-current" id="matrix-eta-current">0:00</span>
+      <span class="matrix-eta-sep">·</span>
+      <span class="matrix-eta-total" id="matrix-eta-total">0:00</span>
+      <span class="matrix-eta-sep">·</span>
+      <span class="matrix-eta-finish" id="matrix-eta-finish">~--:--</span>
+    </div>
+
+    <!-- Progress-pill matrix — horizontally scrolling grid of exercise
+         pills. Auto-centres on the active pill, stacks circuit cycles
+         vertically. See docs/design/mockups/progress-pills.html. -->
     <div class="progress-matrix" id="progress-matrix">
       <div class="progress-matrix-inner" id="progress-matrix-inner"></div>
       <div class="progress-matrix-chevron" id="progress-matrix-chevron" hidden>
@@ -72,32 +90,73 @@
       </div>
     </div>
 
-    <!-- Centered scrub/teaching peek (item 9) — name + decoded grammar.
-         Auto-shows for 2s on preview start as a teaching peek (R-09); then
-         only surfaces during long-press scrubbing. No thumbnail, no hint
-         text — just the two lines the user actually reads. -->
-    <div class="peek-panel" id="peek-panel" hidden>
-      <div class="peek-name" id="peek-name"></div>
-      <div class="peek-meta" id="peek-meta"></div>
+    <!-- Active-slide header — exercise name + decoded grammar row, promoted
+         out of the card body into the top stack. Rendered by app.js on every
+         slide change + workout tick. Circuit context ("· Round 2 of 3") is
+         appended directly to the name for circuit slides. -->
+    <div class="active-slide-header" id="active-slide-header">
+      <h2 class="active-slide-name" id="active-slide-name"></h2>
+      <div class="active-slide-grammar" id="active-slide-grammar"></div>
     </div>
 
-    <!-- Card viewport -->
+    <!-- Card viewport — the hero region. All chrome is overlaid on top
+         of the video: chevron nav (left/right edges), mute + fullscreen
+         toggles (top-right), notes (bottom), prep countdown + pause disc
+         (centered). -->
     <main id="card-viewport" class="card-viewport">
       <div id="card-track" class="card-track">
         <!-- Cards injected by JS -->
       </div>
-    </main>
 
-    <!-- Dedicated timer chip REMOVED per item 7 of mobile parity.
-         Pause/play is now a single mode-aware gesture: tapping the active
-         slide's media area dispatches by mode (prep → skip; running → pause;
-         paused → resume). See .media-pause-overlay injected into each card. -->
-    <div id="timer-overlay" hidden></div>
+      <!-- Edge chevron nav — subtle coral, mid-height over the video.
+           Swipe still works on touch; these are the visible affordance. -->
+      <button id="btn-prev" class="edge-nav edge-nav--prev" aria-label="Previous exercise" disabled>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+      </button>
+      <button id="btn-next" class="edge-nav edge-nav--next" aria-label="Next exercise">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+      </button>
+
+      <!-- Fullscreen toggle (top-right; mute sits beside it, rendered
+           per-slide inside the active card). -->
+      <button id="btn-fullscreen" class="fullscreen-toggle" aria-label="Enter fullscreen" aria-pressed="false">
+        <svg class="fs-icon-enter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="4 9 4 4 9 4"/>
+          <polyline points="20 9 20 4 15 4"/>
+          <polyline points="4 15 4 20 9 20"/>
+          <polyline points="20 15 20 20 15 20"/>
+        </svg>
+        <svg class="fs-icon-exit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+          <polyline points="9 4 9 9 4 9"/>
+          <polyline points="15 4 15 9 20 9"/>
+          <polyline points="9 20 9 15 4 15"/>
+          <polyline points="15 20 15 15 20 15"/>
+        </svg>
+      </button>
+
+      <!-- Rest countdown — big coral number overlaid on the last visible
+           frame during rest slides. Reuses .prep-overlay-number styling. -->
+      <div id="rest-countdown-overlay" class="rest-countdown-overlay" hidden>
+        <div class="rest-countdown-number" id="rest-countdown-number">0</div>
+      </div>
+
+      <!-- Card notes — optional practitioner note, overlaid at the bottom
+           of the video as plain coral text (no box). 3-line clamp; tap to
+           expand. Populated by app.js per active slide. -->
+      <button id="card-notes" class="card-notes-overlay" type="button" hidden aria-expanded="false">
+        <span class="card-notes-text" id="card-notes-text"></span>
+      </button>
+    </main>
 
     <!-- Workout complete overlay -->
     <div id="workout-complete" class="workout-complete" hidden>
       <div class="workout-complete-inner">
-        <div class="workout-complete-icon">
+        <div class="workout-complete-glow" aria-hidden="true"></div>
+        <div class="workout-complete-icon" id="workout-complete-icon">
           <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="24" cy="24" r="20"/>
             <polyline points="16 24 22 30 32 18"/>
@@ -109,7 +168,7 @@
       </div>
     </div>
 
-    <!-- Start Workout button (floating) -->
+    <!-- Start Workout button (centered over the video as CTA) -->
     <button id="start-workout-btn" class="start-workout-btn" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="10"/>
@@ -118,30 +177,12 @@
       Start Workout
     </button>
 
-    <!-- Navigation -->
-    <nav class="nav-bar">
-      <button id="btn-prev" class="nav-btn nav-btn--prev" aria-label="Previous exercise" disabled>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="15 18 9 12 15 6"></polyline>
-        </svg>
-        <span class="nav-btn-label">Prev</span>
-      </button>
+    <!-- Legacy timer overlay stub — kept hidden so pre-parity call sites
+         no-op instead of throwing on querySelector lookups. -->
+    <div id="timer-overlay" hidden></div>
 
-      <div class="nav-dots" id="nav-dots"></div>
-
-      <button id="btn-next" class="nav-btn nav-btn--next" aria-label="Next exercise">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="9 18 15 12 9 6"></polyline>
-        </svg>
-        <span class="nav-btn-label">Next</span>
-      </button>
-    </nav>
-
-    <!-- Footer — HomefitLogo v2 (item 10): a slice of the progress-pill
-         matrix — 3 ghost pills tapering in → 2×2 circuit in a coral band
-         → sage rest → 3 ghost pills mirrored. Matrix-only variant here
-         (the footer renders "powered by homefit.studio" separately next
-         to it). See /app.js buildHomefitLogoSvg(). -->
+    <!-- Footer — HomefitLogo v2 (a slice of the progress-pill matrix) +
+         "powered by homefit.studio" wordmark. Stays at the very bottom. -->
     <footer class="footer">
       <div class="footer-brand">
         <span class="footer-preamble">powered by</span>
