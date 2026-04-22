@@ -1074,7 +1074,11 @@ video.is-prep-paused {
     rgba(255, 107, 53, 0) 70%
   );
   pointer-events: none;
-  animation: complete-glow 2s ease-out;
+  opacity: 0;
+}
+
+.workout-complete.is-live .workout-complete-glow {
+  animation: complete-glow 2s ease-out forwards;
 }
 
 @keyframes complete-glow {
@@ -1088,6 +1092,9 @@ video.is-prep-paused {
   width: 72px;
   height: 72px;
   color: var(--c-brand);
+}
+
+.workout-complete.is-live .workout-complete-icon {
   animation: complete-check 200ms var(--ease-emphasized) both;
 }
 
