@@ -22,11 +22,14 @@ import 'undo_snackbar.dart';
 /// Chips rendered by this widget:
 ///   * Unselected → surfaceRaised fill, textOnDark label.
 ///   * Selected   → [accentColor] fill, white label.
-///   * `[Custom]` → dashed [accentColor] border (1.5pt),
-///                  [accentColor] label. Tapping toggles INLINE input
-///                  mode; no bottom sheet, no modal (R-01, load-bearing
-///                  — don't regress to a popup here). Long-press is a
-///                  no-op.
+///   * `[+]` tail → dashed [accentColor] circle (32×32pt, 1.5pt border)
+///                  with a centred [Icons.add_rounded] glyph. Tapping
+///                  toggles INLINE input mode; no bottom sheet, no
+///                  modal (R-01, load-bearing — don't regress to a
+///                  popup here). Long-press is a no-op. Wave 18.4 —
+///                  replaced the old "Custom" text pill with this icon
+///                  to save ~40pt of horizontal room so 4 canonicals +
+///                  [+] + 1-2 customs fit one line on iPhone.
 ///
 /// Storage lives in [PractitionerCustomPresets] as a unified list (MRU
 /// cap 8 per controlKey). The first read for a control seeds the
@@ -34,11 +37,11 @@ import 'undo_snackbar.dart';
 /// removals. See `getMerged` for the migration path.
 ///
 /// Haptics:
-///   - Tap any chip / `[Custom]`: selectionClick.
+///   - Tap any chip / `[+]`: selectionClick.
 ///   - Commit NEW value via Done: mediumImpact.
 ///   - Commit value that matches an existing chip: selectionClick.
 ///   - Long-press chip: selectionClick (then undo SnackBar).
-///   - Long-press `[Custom]`: no haptic (no-op).
+///   - Long-press `[+]`: no haptic (no-op).
 class PresetChipRow extends StatefulWidget {
   /// Opaque key identifying which preset array in
   /// [PractitionerCustomPresets] to read from. e.g. "reps", "sets",
@@ -249,19 +252,22 @@ class _PresetChipRowState extends State<PresetChipRow> {
             direction: Axis.horizontal,
             alignment: WrapAlignment.start,
             crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 6,
-            runSpacing: 6,
+            // Wave 18.4 — tightened from 6pt to 4pt so a full canonical
+            // + [+] + a custom or two fits one line on iPhone.
+            spacing: 4,
+            runSpacing: 4,
             children: wrapChildren,
           ),
         ),
       );
     }
 
-    // Scrollable variant (DOSE rows): horizontal ListView unchanged.
+    // Scrollable variant (DOSE rows): horizontal ListView.
+    // Wave 18.4 — padding tightened 6pt → 4pt per chip (same as Wrap).
     final children = <Widget>[
       for (final value in presets)
         Padding(
-          padding: const EdgeInsets.only(right: 6),
+          padding: const EdgeInsets.only(right: 4),
           child: _Chip(
             label: _format(value),
             selected: value == widget.currentValue,
@@ -273,7 +279,7 @@ class _PresetChipRowState extends State<PresetChipRow> {
             onLongPress: () => _removeChip(value),
           ),
         ),
-      // [Custom] tail — long-press is a no-op (spec: Wave 18.1).
+      // [+] tail — long-press is a no-op (spec: Wave 18.1; glyph: 18.4).
       _CustomTail(
         accentColor: widget.accentColor,
         onTap: _openCustomInput,
@@ -348,9 +354,15 @@ class _Chip extends StatelessWidget {
   }
 }
 
-/// Dashed-border `[Custom]` tail chip. Tapping opens the inline input.
+/// Dashed-border `[+]` tail chip. Tapping opens the inline input.
 /// Long-press is a no-op per Wave 18.1 — only value chips can be
 /// removed, and the tail isn't a value.
+///
+/// Wave 18.4 — retired the "Custom" text pill. The tail is now a 32×32
+/// dashed coral/sage circle with a centred [Icons.add_rounded] glyph.
+/// Saves ~40pt per chip row so 4 canonicals + [+] + 1-2 customs fit
+/// one line on iPhone. Dashed-border painter's corner radius bumped to
+/// 16 (half the square) so the dashes trace a clean circle.
 class _CustomTail extends StatelessWidget {
   final Color accentColor;
   final VoidCallback onTap;
@@ -362,40 +374,26 @@ class _CustomTail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Wave 18.3.1 — same IntrinsicWidth wrapper as _Chip to prevent the
-    // Container's alignment from forcing full-width expansion inside
-    // the non-scrollable Wrap.
     return IntrinsicWidth(
       child: GestureDetector(
-      onTap: onTap,
-      // Long-press on [Custom] is explicitly a no-op (Wave 18.1). No
-      // haptic, no action.
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        height: 32,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        alignment: Alignment.center,
-        decoration: const BoxDecoration(),
+        onTap: onTap,
+        // Long-press on [+] is explicitly a no-op (Wave 18.1). No
+        // haptic, no action.
+        behavior: HitTestBehavior.opaque,
         child: CustomPaint(
           painter: _DashedBorderPainter(color: accentColor),
-          // Wave 18.2 — `height: 1.0` matches the _Chip fix above so
-          // [Custom] baseline aligns with the numeric chips next to it.
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Text(
-              'Custom',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                height: 1.0,
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: Center(
+              child: Icon(
+                Icons.add_rounded,
+                size: 20,
                 color: accentColor,
               ),
             ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -509,9 +507,12 @@ class _CustomInputRow extends StatelessWidget {
   }
 }
 
-/// Dashed-border painter for the `[Custom]` tail chip. Mirrors the
-/// pattern `InlineEditableText` uses for dashed underlines; kept here
-/// so the chip is self-contained.
+/// Dashed-border painter for the `[+]` tail chip. Mirrors the pattern
+/// `InlineEditableText` uses for dashed underlines; kept here so the
+/// chip is self-contained.
+///
+/// Wave 18.4 — with a 32×32 square and radius = shortestSide/2, the
+/// outline becomes a perfect dashed circle.
 class _DashedBorderPainter extends CustomPainter {
   final Color color;
 
@@ -524,9 +525,12 @@ class _DashedBorderPainter extends CustomPainter {
       ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke;
 
+    // Radius = shortestSide/2 makes a perfect circle for 32×32 but
+    // degrades gracefully to a pill for any wider-than-tall container.
+    final r = size.shortestSide / 2;
     final rrect = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, 0, size.width, size.height),
-      const Radius.circular(16),
+      Radius.circular(r),
     );
 
     // Draw dashed outline by stroking a path with a dash pattern.
