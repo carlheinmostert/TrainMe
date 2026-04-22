@@ -119,157 +119,269 @@
 </head>
 <body>
   <div class="wrap">
-    <div class="kicker">2026-04-22 · Wave 18.1 — patch wave</div>
-    <h1>Device QA — Wave 18.1 patch wave</h1>
+    <div class="kicker">2026-04-22 · Wave 18.1 — canonical (supersedes Wave 18)</div>
+    <h1>Device QA — Wave 18.1</h1>
     <p class="lede">
-      <strong>Purpose:</strong> five locked follow-ups from live device feedback on Wave 18. The biggest landing is the atomic <code>replace_plan_exercises</code> RPC that closes the 23505 regression on publishing reordered sessions. The exercise card retires its auto-expand-on-non-defaults rule in favour of a proper single-open accordion (DOSE / PACING / NOTES share one open slot; PLAYBACK toggles independently). Preset chip rows unify canonical + custom into one mutable list; long-press removes any chip. Studio toolbar tightens from 52pt → 40pt. Rest row gets its own Dismissible + non-scrolling chip row so swipe-to-delete works again.
+      <strong>Scope:</strong> consolidated canonical test covering everything that should be true of the 18.1 binary. <strong>This replaces the Wave 18 script</strong> — Wave 18 is now in Past waves (some of its items were superseded by 18.1). Work this script top-to-bottom; failing items feed the next wave's backlog, passing items confirm the current binary's contract.
       <br><br>
-      <strong>In scope:</strong> mobile-only (no R-10 mirror — practitioner-facing surfaces only). Exercise card accordion; preset chip row; studio toolbar; rest row; publish RPC.
+      <strong>In scope:</strong> Home + Client header + Studio shell (toolbar, summary chip), Exercise card (accordion, chip rows, status), Rest rows (swipe, chips), Media Viewer (mute pill, coral dots), Publish flow (23505 fix + dirty-on-capture + SessionCard cleanup), Migration (Wave 18 presets carry forward).
       <br><br>
-      <strong>Out of scope:</strong> web player, portal. Wave 17 verification + analytics consent still open.
+      <strong>Out of scope:</strong> web player, portal. Wave 17 transparency + analytics consent still open.
     </p>
 
     <div class="oos">
       <h3>Prerequisites</h3>
       <ul>
-        <li>Main through Wave 18 merged. Wave 18.1 branch <code>fix/wave-18.1-patch</code> installed via <code>./install-device.sh</code>.</li>
-        <li>Supabase migration <code>supabase/schema_fix_publish_replace_exercises.sql</code> applied via <code>supabase db query --linked --file ...</code> (already done during implementation — re-running is idempotent).</li>
-        <li>At least one published session on the device with 3+ exercises (needed for the reorder-and-publish test). Ideally one session already in the cap-3 preset-memory state (custom values stored under Wave 18).</li>
+        <li>Main through Wave 18.1 merged. Branch <code>fix/wave-18.1-patch</code> built and installed via <code>./install-device.sh</code>.</li>
+        <li>Supabase migration <code>supabase/schema_fix_publish_replace_exercises.sql</code> applied (idempotent — already live).</li>
+        <li>At least one <strong>published</strong> session on the device with 3+ exercises (reorder-and-publish test). Ideally one session already carries Wave 18 custom presets (e.g. a custom reps value) for the migration test.</li>
       </ul>
     </div>
 
-    <h2>1 · Exercise card accordion</h2>
+    <h2>1 · Home, client list, studio shell</h2>
     <ul class="checklist">
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
         <span class="num">1.</span>
-        <span class="text">Open any fresh (all defaults) exercise card. PLAYBACK is expanded by default — treatment tiles + Muted toggle visible. DOSE / PACING / NOTES are ALL collapsed with a chevron + label + em-dash summary on each row.</span>
+        <span class="text"><strong>Home — Settings top-right.</strong> The Settings gear sits in the top-right corner of Home, alone in its corner (not competing with the PracticeChip + OfflineSyncChip row). Tap it — Settings screen opens. Tap target feels roomy.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="2" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
         <span class="num">2.</span>
-        <span class="text">Tap <strong>DOSE</strong> header. DOSE expands (reps + sets + hold chip rows visible). PACING + NOTES stay collapsed. PLAYBACK stays open — unaffected by the accordion.</span>
+        <span class="text"><strong>Client detail header.</strong> Open any client. The header row under the client name shows <strong>only</strong> the consent chip — no "N sessions" text beside it. Session count lives only in the list items below (mobile saves space; portal keeps its count).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="3" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
         <span class="num">3.</span>
-        <span class="text">Tap <strong>PACING</strong> header. PACING expands. DOSE collapses automatically (only one of the three accordion members can be open at a time). PLAYBACK still open. Chevron rotates 180ms ease, haptic <code>selectionClick</code> on the tap.</span>
+        <span class="text"><strong>SessionCard clean.</strong> In the client-detail session list, each session card shows title + chevron only — <strong>no Publish icon, no Share icon</strong> on the card. Publishing lives inside Studio now.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
         <span class="num">4.</span>
-        <span class="text">Tap <strong>NOTES</strong> header. NOTES expands; PACING collapses. Tap NOTES again → it collapses, all three accordion members now closed. PLAYBACK still open (independent toggle).</span>
+        <span class="text"><strong>Studio toolbar exists.</strong> Open a session. Directly under the session title is a new toolbar with 4 icons in order: Import / Preview / Publish / Share, separated by small right-pointing coral triangles. Icons centred as a group.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="5" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
         <span class="num">5.</span>
-        <span class="text">Tap <strong>PLAYBACK</strong> header. PLAYBACK collapses to header row. Tap again → expands. The DOSE/PACING/NOTES accordion state is unchanged by these taps — PLAYBACK is an independent toggle.</span>
+        <span class="text"><strong>Triangle dim echoes state (Variant C1).</strong> On a never-published session, the triangle feeding <strong>Share</strong> is dim (45% opacity) because Share itself is dim. Once published, that triangle is full coral.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="6" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
         <span class="num">6.</span>
-        <span class="text">Set a non-default PACING value (e.g. edit prep-seconds to 8 or turn on the video-length-as-rep toggle on a video). Close + reopen the card. The PACING header row renders with (a) a <strong>5pt coral dot</strong> between the chevron and the label, and (b) the label text <strong>bolds to w800</strong>. The card DOES NOT auto-expand PACING — the accordion starts closed per Wave 18.1 spec.</span>
+        <span class="text"><strong>No exercise-count summary chip.</strong> Above the exercise list — nothing. No "N exercises" pill, no summary row. Straight from toolbar to first exercise card.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="7" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
         <span class="num">7.</span>
-        <span class="text">Add a short note (e.g. "Keep back straight"). Close + reopen the card. NOTES header renders with the same coral dot + bolded label. Still collapsed by default — no auto-expand on non-default content.</span>
+        <span class="text"><strong>Toolbar is tight.</strong> Visibly tighter than Wave 18 (40pt vs 52pt). Icons at 22pt visible glyph, coral triangles between. Compact density — tap targets still respond reliably to taps on/near the icons.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
+    </ul>
+
+    <h2>2 · Exercise card — shape &amp; conversion signal</h2>
+    <ul class="checklist">
       <li data-num="8" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
         <span class="num">8.</span>
-        <span class="text">Collapsed PLAYBACK summary on a VIDEO exercise reads <code>Line · Audio on</code> (or <code>B&amp;W · Muted</code> / <code>Original · Audio on</code>, depending on the exercise's preferred treatment + mute state). On a PHOTO, the audio segment is omitted — e.g. <code>Line</code> on its own.</span>
+        <span class="text"><strong>No right-side status dot.</strong> Exercise card header: thumbnail (with green check on converted videos) + name + ALL-CAPS summary caps line (e.g. <code>3 REPS · 1 SET · 5S HOLD</code>). Right side is clean — no status dot (the thumbnail already signals conversion state).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
+    </ul>
+
+    <h2>3 · Exercise card accordion</h2>
+    <ul class="checklist">
       <li data-num="9" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
         <span class="num">9.</span>
-        <span class="text">Collapsed DOSE summary reads <code>10 reps · 3 sets · 5s hold</code> (standalone) or <code>10 reps · 5s hold</code> (inside a circuit — sets hidden). A hold of 0 renders as <code>Hold off</code>. Changing any field updates the summary live when the card is next collapsed.</span>
+        <span class="text">Open a fresh (all-default) exercise card. <strong>PLAYBACK is expanded by default</strong> — treatment tiles + Muted toggle visible. DOSE / PACING / NOTES are ALL collapsed with chevron + label + em-dash summary on each row.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="10" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
         <span class="num">10.</span>
-        <span class="text">Collapsed PACING summary reads <code>defaults</code> when all pacing fields are at the default, or a comma-separated list when not: e.g. <code>2s prep, video-length on, custom 24s per rep</code>.</span>
+        <span class="text">Tap <strong>DOSE</strong>. DOSE expands (reps + sets + hold chip rows). PACING + NOTES stay collapsed. PLAYBACK stays open (independent toggle).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="11" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
         <span class="num">11.</span>
-        <span class="text">Collapsed NOTES summary reads <code>empty</code> when no note, or the first 28 chars quoted with an ellipsis if longer: e.g. <code>"Keep back straight, slow on…"</code>.</span>
+        <span class="text">Tap <strong>PACING</strong>. PACING expands; DOSE collapses (single-open accordion). PLAYBACK still open. Chevron rotates 180ms ease; haptic <code>selectionClick</code> on tap.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>2 · Preset chip row unification</h2>
-    <ul class="checklist">
       <li data-num="12" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
         <span class="num">12.</span>
-        <span class="text">Expand DOSE on any exercise. Long-press <code>[12]</code> in the Reps chip row. Haptic <code>selectionClick</code> fires, the chip is removed from the row, and a <strong>Undo</strong> SnackBar appears reading "Removed reps 12".</span>
+        <span class="text">Tap <strong>NOTES</strong>. NOTES expands; PACING collapses. Tap NOTES again → it collapses. All three accordion members can be closed together.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="13" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
         <span class="num">13.</span>
-        <span class="text">Tap <strong>Undo</strong> in the SnackBar from item 12. The <code>[12]</code> chip reappears in the row in the same sorted position. Fires <code>selectionClick</code> haptic.</span>
+        <span class="text">Tap <strong>PLAYBACK</strong>. It collapses. Tap again — expands. DOSE/PACING/NOTES accordion state is unaffected. PLAYBACK is an independent toggle.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="14" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
         <span class="num">14.</span>
-        <span class="text">Long-press on <code>[Custom]</code> tail. NOTHING happens — no haptic, no action, no SnackBar. Tap (not long-press) still opens the inline input.</span>
+        <span class="text">Set a non-default PACING (e.g. prep to 8). Close + reopen the card. PACING header row shows <strong>5pt coral dot</strong> between chevron and label + label bolds to w800. PACING stays collapsed — no auto-expand.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="15" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
         <span class="num">15.</span>
-        <span class="text">All chips in the row look identical — flat fill, no little coral dot in any corner on any chip. Selected chip is coral-filled with white label; unselected chips are <code>surfaceRaised</code>-filled with <code>textOnDark</code> labels. <code>[Custom]</code> tail stays dashed-coral.</span>
+        <span class="text">Add a short note. Close + reopen. NOTES shows the same coral dot + bolded label. Still collapsed by default.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>3 · Rest row + toolbar</h2>
-    <ul class="checklist">
       <li data-num="16" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
         <span class="num">16.</span>
-        <span class="text">Swipe-left on a rest row. A red background with the label <strong>Delete</strong> + trash icon slides in from the right; releasing past the threshold removes the rest row + shows the Undo SnackBar. Swipe works identically to exercise-card swipe-to-delete.</span>
+        <span class="text">Collapsed PLAYBACK summary on VIDEO: <code>Line · Audio on</code> / <code>B&amp;W · Muted</code> / <code>Original · Audio on</code>. On PHOTO, audio omitted — e.g. <code>Line</code>.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="17" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
         <span class="num">17.</span>
-        <span class="text">Rest bar's chip row does NOT scroll horizontally. All four canonical chips (<code>[15s][30s][60s][90s]</code>) + the <code>[Custom]</code> tail fit in the visible row. Try to swipe horizontally inside the chip row — the gesture is not captured by the chip row; it triggers the rest-row swipe-to-delete instead.</span>
+        <span class="text">Collapsed DOSE summary: <code>10 reps · 3 sets · 5s hold</code> (standalone) / <code>10 reps · 5s hold</code> (in circuit — sets hidden). <code>0s hold</code> → <code>Hold off</code>.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="18" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
         <span class="num">18.</span>
-        <span class="text">Compare the Studio toolbar to the Wave 18 screenshot (or a side-by-side device). The toolbar is visibly tighter — it's 40pt tall, not 52pt. Icons stay 22pt visible glyph; triangles stay the same visual size. No change to any of the four icons' semantics (Import / Preview / Publish / Share).</span>
+        <span class="text">Collapsed PACING summary: <code>defaults</code> or comma-separated non-default list — <code>2s prep, video-length on, custom 24s per rep</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="19" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 19">✓</button><button class="fail" type="button" aria-label="Fail 19">✗</button></div>
+        <span class="num">19.</span>
+        <span class="text">Collapsed NOTES summary: <code>empty</code> or quoted first 28 chars with ellipsis: <code>"Keep back straight, slow on…"</code>.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>4 · Publish + migration</h2>
+    <h2>4 · Preset chip rows</h2>
     <ul class="checklist">
-      <li data-num="19" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 19">✓</button><button class="fail" type="button" aria-label="Fail 19">✗</button></div>
-        <span class="num">19.</span>
-        <span class="text"><strong>Core regression fix.</strong> Open a published session with 3+ exercises. Reorder at least one exercise (long-press + drag) so positions change. Tap the <strong>Publish</strong> icon in the toolbar. The publish spinner shows, then the success toast ("Published v{N+1}"). NO 23505 error toast appears. Open the plan URL on a second device / incognito browser — the new order loads.</span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="20" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 20">✓</button><button class="fail" type="button" aria-label="Fail 20">✗</button></div>
         <span class="num">20.</span>
-        <span class="text"><strong>Preset-memory migration.</strong> On a device that already had Wave 18 installed with at least one custom preset (e.g. a custom <code>13</code> reps chip under the old cap-3 model), install the Wave 18.1 build. Open any DOSE section. The Reps chip row renders a unified list — the canonical <code>[5][8][10][12][15]</code> seeds AND the prior custom <code>[13]</code>, sorted in numerical order. Nothing was lost in the migration.</span>
+        <span class="text"><strong>Canonical tap selects.</strong> Expand DOSE. Reps row shows <code>[5][8][10][12][15]</code> + <code>[Custom]</code> tail. Tap <code>[12]</code>. Chip becomes selected (coral fill, white label). Stored value on the exercise becomes 12. Haptic <code>selectionClick</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="21" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 21">✓</button><button class="fail" type="button" aria-label="Fail 21">✗</button></div>
+        <span class="num">21.</span>
+        <span class="text"><strong>Custom inline input.</strong> Tap <code>[Custom]</code>. Row inlines: <code>&lt; Cancel [_13_] Done &gt;</code>. Type 13, tap Done. New <code>[13]</code> chip lands in numerically-sorted position, selected. Haptic <code>mediumImpact</code> on new-value commit.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="22" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 22">✓</button><button class="fail" type="button" aria-label="Fail 22">✗</button></div>
+        <span class="num">22.</span>
+        <span class="text"><strong>Long-press removes (any chip).</strong> Long-press <code>[12]</code>. Chip removed + Undo SnackBar "Removed reps 12". Haptic <code>selectionClick</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="23" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 23">✓</button><button class="fail" type="button" aria-label="Fail 23">✗</button></div>
+        <span class="num">23.</span>
+        <span class="text"><strong>Undo re-inserts.</strong> Tap <strong>Undo</strong> in the SnackBar. <code>[12]</code> returns to its sorted position.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="24" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 24">✓</button><button class="fail" type="button" aria-label="Fail 24">✗</button></div>
+        <span class="num">24.</span>
+        <span class="text"><strong>Long-press Custom = no-op.</strong> Long-press the <code>[Custom]</code> tail. NOTHING — no haptic, no action. Tap (not long-press) still opens the inline input.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="25" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 25">✓</button><button class="fail" type="button" aria-label="Fail 25">✗</button></div>
+        <span class="num">25.</span>
+        <span class="text"><strong>Uniform chip styling.</strong> All chips look identical. No tiny coral dot in any corner. Selected = coral fill + white label. Unselected = <code>surfaceRaised</code> + <code>textOnDark</code>. <code>[Custom]</code> tail stays dashed-coral.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Rest rows</h2>
+    <ul class="checklist">
+      <li data-num="26" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 26">✓</button><button class="fail" type="button" aria-label="Fail 26">✗</button></div>
+        <span class="num">26.</span>
+        <span class="text"><strong>Sage chip row.</strong> A rest bar shows <code>[15s][30s][60s][90s]</code> + <code>[Custom]</code>, sage-tinted. No slider. Tap any chip updates the rest duration in place.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="27" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 27">✓</button><button class="fail" type="button" aria-label="Fail 27">✗</button></div>
+        <span class="num">27.</span>
+        <span class="text"><strong>No horizontal scroll on rest chips.</strong> All four canonical chips + the <code>[Custom]</code> tail fit the row. Try to swipe horizontally inside the chip row — gesture is NOT captured; it triggers rest-row swipe-to-delete instead.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="28" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 28">✓</button><button class="fail" type="button" aria-label="Fail 28">✗</button></div>
+        <span class="num">28.</span>
+        <span class="text"><strong>Swipe-left deletes rest.</strong> Swipe-left on a rest row. Red background + "Delete" label + trash icon slide in. Past the threshold — row removed + Undo SnackBar. Tap Undo — row returns.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 · Media Viewer</h2>
+    <ul class="checklist">
+      <li data-num="29" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 29">✓</button><button class="fail" type="button" aria-label="Fail 29">✗</button></div>
+        <span class="num">29.</span>
+        <span class="text"><strong>Mute pill bottom-left, coral.</strong> Tap an exercise thumbnail → Media Viewer opens. Mute control is a <strong>coral pill at the bottom-LEFT</strong> (no longer top-right). Reads <code>Muted</code> (coral fill, white icon) or <code>Audio on</code> (coral outline, coral icon), mirroring the exercise's <code>includeAudio</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="30" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 30">✓</button><button class="fail" type="button" aria-label="Fail 30">✗</button></div>
+        <span class="num">30.</span>
+        <span class="text"><strong>Tap mute persists.</strong> Tap the pill. State flips AND the exercise's stored <code>includeAudio</code> is written (NOT a transient mute). Haptic <code>selectionClick</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="31" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 31">✓</button><button class="fail" type="button" aria-label="Fail 31">✗</button></div>
+        <span class="num">31.</span>
+        <span class="text"><strong>Swipe updates pill.</strong> Swipe to the neighbour exercise. The pill's state reflects the NEW exercise's <code>includeAudio</code> — it may flip state mid-swipe if the two differ.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="32" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 32">✓</button><button class="fail" type="button" aria-label="Fail 32">✗</button></div>
+        <span class="num">32.</span>
+        <span class="text"><strong>Coral dot indicator.</strong> When the session has 2–10 exercises, the dot indicator at the bottom of the viewer uses <strong>coral</strong> for the active dot and a muted coral/grey for inactive dots.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>7 · Publish flow</h2>
+    <ul class="checklist">
+      <li data-num="33" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 33">✓</button><button class="fail" type="button" aria-label="Fail 33">✗</button></div>
+        <span class="num">33.</span>
+        <span class="text"><strong>Camera capture dirties a published session.</strong> On a previously-published session, enter Camera mode and capture a new exercise. Return to Studio. The toolbar's Publish icon is now coral <code>cloud_upload_outlined</code> (dirty), not sage <code>check_circle</code>. (This was the bug Wave 18 prep closed — storage-layer stamp on <code>saveExercise</code>.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="34" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 34">✓</button><button class="fail" type="button" aria-label="Fail 34">✗</button></div>
+        <span class="num">34.</span>
+        <span class="text"><strong>Media Viewer mute dirties a published session.</strong> On a published session, open the Media Viewer on any exercise, flip the mute pill. Close the viewer. The toolbar's Publish icon is coral dirty.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="35" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 35">✓</button><button class="fail" type="button" aria-label="Fail 35">✗</button></div>
+        <span class="num">35.</span>
+        <span class="text"><strong>Core regression — reorder + publish, no 23505.</strong> Open a published session with 3+ exercises. Reorder at least one (long-press + drag). Tap the Publish icon. Spinner → success toast "Published v{N+1}". NO 23505 error. Open the plan URL on a second device / incognito browser — the new order loads.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>8 · Migration</h2>
+    <ul class="checklist">
+      <li data-num="36" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 36">✓</button><button class="fail" type="button" aria-label="Fail 36">✗</button></div>
+        <span class="num">36.</span>
+        <span class="text"><strong>Preset-memory migration.</strong> On a device that had Wave 18 installed with at least one custom preset (e.g. custom <code>13</code> reps under the old cap-3 model), install the Wave 18.1 build. Open any DOSE section. Reps row renders the unified list: canonical <code>[5][8][10][12][15]</code> seeds merged with the prior custom <code>[13]</code>, sorted numerically. Nothing lost.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>

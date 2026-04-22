@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Web Player — Wireframe Workshop</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --sunken: #0B0D13;
+    --border: rgba(255,255,255,0.10);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.15);
+    --coral-border: rgba(255,107,53,0.50);
+    --sage: #86EFAC;
+    --sage-bg: rgba(134,239,172,0.12);
+    --sage-border: rgba(134,239,172,0.40);
+    --slate: #475569;
+    --slate-bg: rgba(71,85,105,0.20);
+    --slate-border: rgba(71,85,105,0.55);
+    --violet: #A78BFA;
+    --violet-bg: rgba(167,139,250,0.15);
+    --violet-border: rgba(167,139,250,0.45);
+    --amber: #FBBF24;
+    --amber-bg: rgba(251,191,36,0.15);
+    --amber-border: rgba(251,191,36,0.40);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.5; margin: 0; padding: 0;
+  }
+  header.page-header {
+    padding: 32px 40px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .page-header h1 {
+    font-family: Montserrat, sans-serif; font-weight: 700;
+    font-size: 26px; letter-spacing: -0.4px; margin: 0 0 8px;
+  }
+  .page-header .lede {
+    color: var(--text-mute); max-width: 720px; margin: 0;
+  }
+  .page-header .lede strong { color: var(--text); }
+  .legend {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    margin: 18px 0 0; padding: 14px 16px;
+    background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border); font-size: 12px;
+  }
+  .legend-item {
+    display: inline-flex; align-items: center; gap: 8px;
+    color: var(--text-mute);
+  }
+  .legend-dot {
+    width: 10px; height: 10px; border-radius: 3px;
+  }
+  .frames {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 32px; padding: 32px 40px;
+  }
+  @media (max-width: 960px) {
+    .frames { grid-template-columns: 1fr; }
+  }
+  .frame {
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .frame-title {
+    font-family: Montserrat, sans-serif; font-weight: 700;
+    font-size: 16px; letter-spacing: -0.2px;
+    margin: 0 0 4px;
+  }
+  .frame-subtitle {
+    color: var(--text-mute); font-size: 12px;
+    margin: 0 0 18px;
+  }
+  .phone {
+    width: 360px; max-width: 100%;
+    background: var(--sunken);
+    border: 2px solid var(--border);
+    border-radius: 36px;
+    padding: 20px 16px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+  }
+  .phone-notch {
+    width: 90px; height: 5px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 3px;
+    margin: 0 auto 12px;
+  }
+  .sortable { list-style: none; padding: 0; margin: 0; }
+  .region {
+    padding: 12px 14px;
+    margin: 6px 0;
+    border-radius: 8px;
+    border: 1.5px solid var(--slate-border);
+    background: var(--slate-bg);
+    cursor: grab;
+    user-select: none;
+    transition: transform 120ms, border-color 120ms, background 120ms;
+    position: relative;
+  }
+  .region:active { cursor: grabbing; }
+  .region:hover {
+    transform: translateX(2px);
+    border-color: rgba(255,255,255,0.30);
+  }
+  .region.sortable-ghost {
+    opacity: 0.35;
+  }
+  .region.sortable-chosen {
+    border-color: var(--coral) !important;
+    box-shadow: 0 0 0 3px var(--coral-bg);
+  }
+  .region[data-tone="content"] {
+    border-color: var(--coral-border);
+    background: var(--coral-bg);
+  }
+  .region[data-tone="nav"] {
+    border-color: var(--slate-border);
+    background: var(--slate-bg);
+  }
+  .region[data-tone="overlay"] {
+    border-color: var(--violet-border);
+    background: var(--violet-bg);
+    border-style: dashed;
+  }
+  .region[data-tone="footer"] {
+    border-color: var(--border);
+    background: rgba(255,255,255,0.02);
+  }
+  .region[data-tone="rest"] {
+    border-color: var(--sage-border);
+    background: var(--sage-bg);
+  }
+  .region[data-tone="alert"] {
+    border-color: var(--amber-border);
+    background: var(--amber-bg);
+  }
+  .region-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px;
+  }
+  .region-name {
+    font-weight: 700; font-size: 13px;
+    letter-spacing: 0.2px;
+    color: var(--text);
+  }
+  .region-badges { display: inline-flex; gap: 4px; }
+  .badge {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-mute);
+    background: rgba(255,255,255,0.08);
+  }
+  .badge.float {
+    background: var(--violet-bg);
+    color: var(--violet);
+  }
+  .badge.conditional {
+    background: var(--amber-bg);
+    color: var(--amber);
+  }
+  .region-purpose {
+    font-size: 11px;
+    color: var(--text-mute);
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+  .frame-actions {
+    display: flex; gap: 10px; margin-top: 14px;
+  }
+  .btn {
+    background: transparent;
+    color: var(--text-mute);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 120ms;
+  }
+  .btn:hover {
+    color: var(--text);
+    border-color: var(--coral);
+  }
+  .btn.primary {
+    background: var(--coral-bg);
+    color: var(--coral);
+    border-color: var(--coral-border);
+  }
+  .order-display {
+    margin-top: 16px;
+    padding: 10px 12px;
+    background: var(--raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--text-mute);
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  .order-display strong { color: var(--coral); }
+  footer.page-footer {
+    padding: 24px 40px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 12px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+  <header class="page-header">
+    <h1>Web Player — Wireframe Workshop</h1>
+    <p class="lede">
+      Every named region of <strong>session.homefit.studio</strong> (the client-facing player) and the <strong>exercise card</strong> inside it. Drag-reorder within each phone to propose new layouts. Names are stable — refer to them in conversation.
+      <br><br>
+      Colour is not hierarchy — it flags <em>kind</em>. Dashed violet borders mark <strong>overlays</strong> that float above the stack instead of occupying vertical space. Amber marks <strong>conditional</strong> regions that only render in specific states.
+    </p>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-dot" style="background: var(--coral)"></span>Content surface</span>
+      <span class="legend-item"><span class="legend-dot" style="background: var(--slate)"></span>Nav / chrome</span>
+      <span class="legend-item"><span class="legend-dot" style="background: var(--sage)"></span>Rest category</span>
+      <span class="legend-item"><span class="legend-dot" style="background: var(--violet)"></span>Overlay (floats)</span>
+      <span class="legend-item"><span class="legend-dot" style="background: var(--amber)"></span>Conditional</span>
+      <span class="legend-item"><span class="legend-dot" style="background: rgba(255,255,255,0.25)"></span>Footer / brand</span>
+    </div>
+  </header>
+
+  <main class="frames">
+
+    <!-- ============ PAGE LAYOUT ============ -->
+    <section class="frame">
+      <h2 class="frame-title">Page layout</h2>
+      <p class="frame-subtitle">What the client sees when opening <code>session.homefit.studio/p/{id}</code>. Drag to re-arrange the vertical stack.</p>
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <ul class="sortable" id="page-regions">
+
+          <li class="region" data-tone="content" data-key="plan-bar">
+            <div class="region-head">
+              <span class="region-name">Plan bar</span>
+              <span class="region-badges"><span class="badge">top</span></span>
+            </div>
+            <div class="region-purpose">Plan title (left), client name (left, sub-line), progress indicator "3 / 10" (right). Brand anchor + location.</div>
+          </li>
+
+          <li class="region" data-tone="content" data-key="progress-matrix">
+            <div class="region-head">
+              <span class="region-name">Progress pill matrix</span>
+              <span class="region-badges"></span>
+            </div>
+            <div class="region-purpose">Horizontally scrolling row of small pills, one per exercise. Coloured by state: empty (upcoming), full coral (done), sage (rest), pulse on active. Auto-centres on active pill. ETA widget ("1:36 · 7:42 left · ~7:42 PM") lives inside this matrix's right end.</div>
+          </li>
+
+          <li class="region" data-tone="content" data-key="card-viewport">
+            <div class="region-head">
+              <span class="region-name">Card viewport</span>
+              <span class="region-badges"><span class="badge">swipeable</span></span>
+            </div>
+            <div class="region-purpose">The primary content area — swipeable carousel of exercise / rest cards. Tap to pause, swipe to skip. See the right-hand frame for its internal anatomy.</div>
+          </li>
+
+          <li class="region" data-tone="nav" data-key="nav-bar">
+            <div class="region-head">
+              <span class="region-name">Nav bar</span>
+              <span class="region-badges"><span class="badge">bottom</span></span>
+            </div>
+            <div class="region-purpose">Prev button (left), dot indicators (centre, hidden past 10 slides), Next button (right). Secondary to swipe — visible primarily on desktop.</div>
+          </li>
+
+          <li class="region" data-tone="footer" data-key="footer-brand">
+            <div class="region-head">
+              <span class="region-name">Footer brand</span>
+              <span class="region-badges"><span class="badge">bottom</span></span>
+            </div>
+            <div class="region-purpose">"powered by homefit.studio" wordmark + matrix-logo glyph. Subtle, low-contrast.</div>
+          </li>
+
+          <li class="region" data-tone="overlay" data-key="peek-panel">
+            <div class="region-head">
+              <span class="region-name">Peek panel</span>
+              <span class="region-badges"><span class="badge float">floats</span></span>
+            </div>
+            <div class="region-purpose">Centered floating card. Shows exercise name + decoded grammar ("3 × 12 · 5s hold"). Auto-appears 2s on preview start (teaching peek), then surfaces only during long-press scrubbing.</div>
+          </li>
+
+          <li class="region" data-tone="overlay" data-key="start-workout">
+            <div class="region-head">
+              <span class="region-name">Start Workout button</span>
+              <span class="region-badges"><span class="badge float">floats</span><span class="badge conditional">cond.</span></span>
+            </div>
+            <div class="region-purpose">Coral pill, floating near bottom. Shown only before first exercise begins. Tapping kicks off 15s prep countdown.</div>
+          </li>
+
+          <li class="region" data-tone="overlay" data-key="pause-overlay">
+            <div class="region-head">
+              <span class="region-name">Pause overlay</span>
+              <span class="region-badges"><span class="badge float">floats</span><span class="badge conditional">cond.</span></span>
+            </div>
+            <div class="region-purpose">Centered play-triangle glyph shown only when the current video is paused. Tap media → pause / resume.</div>
+          </li>
+
+          <li class="region" data-tone="overlay" data-key="prep-overlay">
+            <div class="region-head">
+              <span class="region-name">Prep countdown overlay</span>
+              <span class="region-badges"><span class="badge float">floats</span><span class="badge conditional">cond.</span></span>
+            </div>
+            <div class="region-purpose">Big coral countdown numbers overlayed on the current card's media during the 15s pre-exercise window. Top-bar tokens flash in sync at 1 Hz.</div>
+          </li>
+
+          <li class="region" data-tone="overlay" data-key="workout-complete">
+            <div class="region-head">
+              <span class="region-name">Workout Complete</span>
+              <span class="region-badges"><span class="badge float">floats</span><span class="badge conditional">end</span></span>
+            </div>
+            <div class="region-purpose">Full-screen final state: circled check glyph, "Workout Complete!" title, total time, Close button. Only shown after the last exercise finishes.</div>
+          </li>
+
+          <li class="region" data-tone="alert" data-key="loading">
+            <div class="region-head">
+              <span class="region-name">Loading screen</span>
+              <span class="region-badges"><span class="badge conditional">init</span></span>
+            </div>
+            <div class="region-purpose">Initial state before the plan fetches. Pulse-mark logo + "Loading your plan…". Replaced by app once data arrives.</div>
+          </li>
+
+          <li class="region" data-tone="alert" data-key="error">
+            <div class="region-head">
+              <span class="region-name">Error screen</span>
+              <span class="region-badges"><span class="badge conditional">error</span></span>
+            </div>
+            <div class="region-purpose">Shown when the plan ID is invalid / expired. "!" icon + "Plan not found" + contact-practitioner hint. Full-screen, replaces app.</div>
+          </li>
+
+        </ul>
+        <div class="frame-actions">
+          <button class="btn" id="page-reset">Reset order</button>
+          <button class="btn" id="page-copy">Copy current order</button>
+        </div>
+        <div class="order-display" id="page-order"></div>
+      </div>
+    </section>
+
+    <!-- ============ CARD LAYOUT ============ -->
+    <section class="frame">
+      <h2 class="frame-title">Exercise card (inside viewport)</h2>
+      <p class="frame-subtitle">Anatomy of a single exercise card. This is what the Card viewport renders per slide. Rest slides are a sibling variant — see Rest card below.</p>
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <ul class="sortable" id="card-regions">
+
+          <li class="region" data-tone="content" data-key="exercise-name">
+            <div class="region-head">
+              <span class="region-name">Exercise name</span>
+              <span class="region-badges"></span>
+            </div>
+            <div class="region-purpose">Bold title, e.g. "Goblet squat" or "Hip hinge". Optionally with a small index "3 of 10".</div>
+          </li>
+
+          <li class="region" data-tone="content" data-key="treatment-toggle">
+            <div class="region-head">
+              <span class="region-name">Treatment toggle</span>
+              <span class="region-badges"></span>
+            </div>
+            <div class="region-purpose">Three-segment coral control: <code>Line · B&amp;W · Original</code>. Locked segments (per client consent) show a lock glyph. Controls what video/image the media area renders.</div>
+          </li>
+
+          <li class="region" data-tone="content" data-key="media">
+            <div class="region-head">
+              <span class="region-name">Media area</span>
+              <span class="region-badges"><span class="badge">tap = pause</span></span>
+            </div>
+            <div class="region-purpose">The video or photo itself. Fills most of the card height. Auto-plays muted + looped on active slide. Tap = mode-aware pause/play/skip-prep.</div>
+          </li>
+
+          <li class="region" data-tone="content" data-key="decoded-grammar">
+            <div class="region-head">
+              <span class="region-name">Decoded grammar</span>
+              <span class="region-badges"></span>
+            </div>
+            <div class="region-purpose">Bottom text line — "3 × 12 reps · 5s hold" or circuit context "Circuit · Round 2 of 3 · Exercise 1 of 3".</div>
+          </li>
+
+          <li class="region" data-tone="content" data-key="notes">
+            <div class="region-head">
+              <span class="region-name">Notes</span>
+              <span class="region-badges"><span class="badge conditional">if present</span></span>
+            </div>
+            <div class="region-purpose">Practitioner's free-text cue, e.g. "Keep back straight, slow on the way down". Only renders if populated.</div>
+          </li>
+
+          <li class="region" data-tone="overlay" data-key="timer-chip">
+            <div class="region-head">
+              <span class="region-name">Timer chip</span>
+              <span class="region-badges"><span class="badge float">floats</span></span>
+            </div>
+            <div class="region-purpose">Bottom-right of the card. Three modes: <em>prep</em> (countdown ticking down 15 → 0), <em>running</em> (per-set timer), <em>paused</em> (play-triangle). Tap → skip prep / toggle pause.</div>
+          </li>
+
+          <li class="region" data-tone="rest" data-key="rest-variant">
+            <div class="region-head">
+              <span class="region-name">Rest card variant</span>
+              <span class="region-badges"><span class="badge conditional">rest-type</span></span>
+            </div>
+            <div class="region-purpose">Sibling card shape for rest slides: sage-tinted body, "Rest · 90s" centred, timer chip still bottom-right. No media, no treatment toggle, no notes.</div>
+          </li>
+
+        </ul>
+        <div class="frame-actions">
+          <button class="btn" id="card-reset">Reset order</button>
+          <button class="btn" id="card-copy">Copy current order</button>
+        </div>
+        <div class="order-display" id="card-order"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="page-footer">
+    Wireframe for design workshop — <code>session.homefit.studio</code> web player. State persists in localStorage.
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script>
+    (function() {
+      const LS_KEY = 'homefit.web-player-wireframe.v1';
+
+      function saveState() {
+        const state = {
+          page: Array.from(document.querySelectorAll('#page-regions .region')).map(el => el.dataset.key),
+          card: Array.from(document.querySelectorAll('#card-regions .region')).map(el => el.dataset.key),
+        };
+        try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) {}
+        renderOrders();
+      }
+
+      function renderOrders() {
+        const pageList = Array.from(document.querySelectorAll('#page-regions .region'))
+          .map((el, i) => `${String(i + 1).padStart(2, '0')}. <strong>${el.dataset.key}</strong>`)
+          .join('<br>');
+        const cardList = Array.from(document.querySelectorAll('#card-regions .region'))
+          .map((el, i) => `${String(i + 1).padStart(2, '0')}. <strong>${el.dataset.key}</strong>`)
+          .join('<br>');
+        document.getElementById('page-order').innerHTML = pageList;
+        document.getElementById('card-order').innerHTML = cardList;
+      }
+
+      function applyState() {
+        let state = {};
+        try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (_) {}
+        ['page', 'card'].forEach(frame => {
+          const keys = state[frame];
+          if (!keys || !keys.length) return;
+          const list = document.getElementById(frame + '-regions');
+          if (!list) return;
+          const byKey = {};
+          Array.from(list.querySelectorAll('.region')).forEach(el => {
+            byKey[el.dataset.key] = el;
+          });
+          keys.forEach(k => {
+            if (byKey[k]) list.appendChild(byKey[k]);
+          });
+        });
+      }
+
+      function copyOrder(frame) {
+        const keys = Array.from(document.querySelectorAll('#' + frame + '-regions .region'))
+          .map(el => el.dataset.key);
+        const text = `${frame}:\n` + keys.map((k, i) => `  ${String(i + 1).padStart(2, '0')}. ${k}`).join('\n');
+        navigator.clipboard.writeText(text).then(() => {
+          const btn = document.getElementById(frame + '-copy');
+          const orig = btn.textContent;
+          btn.textContent = 'Copied';
+          setTimeout(() => btn.textContent = orig, 1200);
+        });
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        applyState();
+        renderOrders();
+
+        ['page-regions', 'card-regions'].forEach(id => {
+          new Sortable(document.getElementById(id), {
+            animation: 180,
+            ghostClass: 'sortable-ghost',
+            chosenClass: 'sortable-chosen',
+            onEnd: saveState,
+          });
+        });
+
+        document.getElementById('page-reset').addEventListener('click', () => {
+          localStorage.removeItem(LS_KEY);
+          location.reload();
+        });
+        document.getElementById('card-reset').addEventListener('click', () => {
+          localStorage.removeItem(LS_KEY);
+          location.reload();
+        });
+        document.getElementById('page-copy').addEventListener('click', () => copyOrder('page'));
+        document.getElementById('card-copy').addEventListener('click', () => copyOrder('card'));
+      });
+    })();
+  </script>
+</body>
+</html>
