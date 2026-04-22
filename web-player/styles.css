@@ -355,6 +355,7 @@ body {
   flex-wrap: nowrap;
   gap: 8px;
   align-items: start;
+  justify-content: center;
   padding: 2px 16px;
   transition: transform 300ms var(--ease-emphasized);
   will-change: transform;
@@ -1315,6 +1316,16 @@ body.is-fullscreen #app {
 body.is-fullscreen .plan-bar,
 body.is-fullscreen .footer {
   display: none !important;
+}
+
+/* In fullscreen the app fills the viewport, so drop the pill max-widths
+   and let flex-distribute scale pills to the full width. Otherwise the
+   matrix clamps at ~480px and leaves the right half of the screen empty. */
+body.is-fullscreen .matrix-col {
+  max-width: none;
+}
+body.is-fullscreen .matrix-circuit {
+  max-width: none;
 }
 
 body.is-fullscreen .card-media .mute-toggle,
