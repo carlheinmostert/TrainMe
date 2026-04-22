@@ -345,9 +345,10 @@ function buildCard(slide, index) {
   }
 
   const mediaHTML = buildMedia(slide, index);
+  const mediaType = slide.media_type === 'video' ? 'video' : 'photo';
 
   return `
-    <div class="exercise-card" data-index="${index}">
+    <div class="exercise-card" data-index="${index}" data-media-type="${mediaType}">
       <div class="card-inner">
         <div class="card-media" data-media-index="${index}">
           ${mediaHTML}

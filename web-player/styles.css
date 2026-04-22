@@ -1229,7 +1229,13 @@ video.is-prep-paused {
 /* Running (workout live + timer ticking) — dim the pause icon so it's
    legible as a toggle hint without fighting the video for attention. */
 .media-pause-overlay.is-visible.is-running {
-  opacity: 0.35;
+  opacity: 0.7;
+}
+/* Photo slides don't have play/pause semantics (nothing's animating), so
+   suppress the overlay entirely — Carl flagged it as visually misleading
+   on image exercises. Hold-duration timing still runs in the background. */
+.exercise-card[data-media-type="photo"] .media-pause-overlay {
+  display: none;
 }
 .media-pause-overlay .pause-disc {
   width: 96px;
@@ -1344,8 +1350,10 @@ body.is-fullscreen .footer {
   bottom: 0;
   z-index: 20;
   pointer-events: none;
-  background: transparent;
-  opacity: 0.55;
+  /* Subtle gradient scrim so the wordmark is legible over bright video
+     content without leaning on a hard bar. Darkens only the bottom 80px. */
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.65) 0%, rgba(0, 0, 0, 0.35) 60%, transparent 100%);
+  opacity: 0.85;
   transition: opacity 220ms var(--ease-standard);
 }
 body.is-fullscreen.chrome-visible .footer {
