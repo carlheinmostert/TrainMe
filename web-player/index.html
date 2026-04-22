@@ -47,14 +47,14 @@
   </div>
 
   <!-- Main app ===============================================================
-       Top-stack v1 layout (workshop sign-off 2026-04-22):
-         Row 1  plan-bar       (plan-title + header-client)
-         Row 2  matrix-eta     (full-width centered; 3-number time row)
-         Row 3  progress-matrix (pills)
-         Row 4  active-slide-header (exercise name + decoded grammar)
-         Hero   card-viewport  (video fills; all chrome overlaid)
-         Footer footer         (powered by homefit.studio)
-       Retired in this refactor: nav-dots, peek-panel, treatment-seg,
+       Top-stack v2 layout (Wave 19 polish round 2 — 2026-04-22):
+         Row 1  plan-bar             (plan-title + header-client)
+         Row 2  active-slide-header  (exercise name + decoded grammar) — promoted above time
+         Row 3  matrix-eta           (full-width centered; 3-number time row)
+         Row 4  progress-matrix      (pills; circuits are row-first grids)
+         Hero   card-viewport        (video fills; all chrome overlaid)
+         Footer footer               (powered by homefit.studio)
+       Retired in prior waves: nav-dots, peek-panel, treatment-seg,
        card-position, nav-bar, swipe-hint. See app.js header comment. -->
   <div id="app" hidden>
     <!-- Plan title bar -->
@@ -66,10 +66,20 @@
       <div id="progress" class="progress-label"></div>
     </div>
 
-    <!-- Matrix ETA (promoted above the pills) — 3-number time row:
+    <!-- Active-slide header — single-line row: "{name} · {decoded grammar}".
+         Promoted ABOVE the time row (Wave 19): the "what" comes before the
+         "how long". Rendered by app.js on every slide change + workout tick.
+         Truncates with ellipsis if the combined string doesn't fit the
+         viewport — circuit-round suffix was dropped because the progress-pill
+         matrix already shows round position visually. -->
+    <div class="active-slide-header" id="active-slide-header">
+      <h2 class="active-slide-title" id="active-slide-title"></h2>
+    </div>
+
+    <!-- Matrix ETA — 3-number time row:
          current-slide remaining · total remaining · ~finish wall clock.
-         Sits full-width between plan-bar and the pill matrix; no longer
-         scrolls with the pills. -->
+         Sits full-width between the active-slide header and the pill matrix;
+         no longer scrolls with the pills. -->
     <div class="matrix-eta-bar" id="matrix-eta-bar" aria-live="polite">
       <span class="matrix-eta-current" id="matrix-eta-current">0:00</span>
       <span class="matrix-eta-sep">·</span>
@@ -79,8 +89,10 @@
     </div>
 
     <!-- Progress-pill matrix — horizontally scrolling grid of exercise
-         pills. Auto-centres on the active pill, stacks circuit cycles
-         vertically. See docs/design/mockups/progress-pills.html. -->
+         pills. Auto-centres on the active pill. Circuits render as a
+         row-first grid: each row is one round (all exercises L→R), and
+         rounds stack downward with a coral tint band per row.
+         See docs/design/mockups/progress-pills.html. -->
     <div class="progress-matrix" id="progress-matrix">
       <div class="progress-matrix-inner" id="progress-matrix-inner"></div>
       <div class="progress-matrix-chevron" id="progress-matrix-chevron" hidden>
@@ -88,16 +100,6 @@
           <polyline points="8 3 4 6 8 9"/>
         </svg>
       </div>
-    </div>
-
-    <!-- Active-slide header — single-line row: "{name} · {decoded grammar}".
-         Promoted out of the card body into the top stack. Rendered by app.js
-         on every slide change + workout tick. Truncates with ellipsis if the
-         combined string doesn't fit the viewport — circuit-round suffix was
-         dropped because the progress-pill matrix already shows round position
-         visually. -->
-    <div class="active-slide-header" id="active-slide-header">
-      <h2 class="active-slide-title" id="active-slide-title"></h2>
     </div>
 
     <!-- Card viewport — the hero region. All chrome is overlaid on top

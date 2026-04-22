@@ -680,21 +680,29 @@ function pillGrammarLabel(slide) {
 }
 
 /**
- * Collapse the unrolled slides into column descriptors. Standalone slides
- * produce a 1-row column; circuit groups produce one column per position,
- * with one row per cycle (cycle 1 on top).
+ * Collapse the unrolled slides into a flat block list for the matrix.
  *
- * Returns { columns: [{ slideIndices: [...], isCircuit, circuitId }], bands }
- * where `bands` describes contiguous runs of same-circuit columns for the
- * coral tint band.
+ * Wave 19 change (2026-04-22): Circuits now render ROW-FIRST instead of
+ * column-first. A circuit becomes ONE .matrix-circuit block whose children
+ * are N_rounds × N_exercises pills, laid out row-by-row so round 1's pills
+ * (exercise A, B, C) sit on the top row, round 2's on the next row, etc.
+ * Each row gets a coral tint band. This matches real execution order:
+ * do A, B, C (round 1), then A, B, C (round 2), ...
+ *
+ * Standalone (non-circuit) slides still render as a .matrix-col with one pill.
+ *
+ * Returns blocks: [
+ *   { kind: 'single', slideIndex },
+ *   { kind: 'circuit', circuitId, rounds: [[slideIdx,...], ...], groupSize },
+ * ]
  */
-function buildMatrixColumns() {
-  const columns = [];
+function buildMatrixBlocks() {
+  const blocks = [];
   let i = 0;
   while (i < slides.length) {
     const s = slides[i];
     if (!s.circuitRound) {
-      columns.push({ slideIndices: [i], isCircuit: false, circuitId: null });
+      blocks.push({ kind: 'single', slideIndex: i });
       i++;
       continue;
     }
@@ -712,51 +720,75 @@ function buildMatrixColumns() {
     })();
     const groupSize = firstCycleEnd - groupStart;
     const total = s.circuitTotalRounds || 1;
-    for (let pos = 0; pos < groupSize; pos++) {
-      const slideIndices = [];
-      for (let cycle = 1; cycle <= total; cycle++) {
-        slideIndices.push(groupStart + (cycle - 1) * groupSize + pos);
+    // rounds[roundIdx] = [slideIdx_exerciseA, slideIdx_exerciseB, ...]
+    const rounds = [];
+    for (let cycle = 1; cycle <= total; cycle++) {
+      const row = [];
+      for (let pos = 0; pos < groupSize; pos++) {
+        row.push(groupStart + (cycle - 1) * groupSize + pos);
       }
-      columns.push({ slideIndices, isCircuit: true, circuitId });
+      rounds.push(row);
     }
+    blocks.push({ kind: 'circuit', circuitId, rounds, groupSize });
     i = groupStart + groupSize * total;
   }
-  return columns;
+  return blocks;
+}
+
+/**
+ * Backwards-compat shim for call sites that still ask for "columns".
+ * Returns the flattened column count the matrix will paint — a single is
+ * 1 column, a circuit contributes groupSize columns (one per exercise slot).
+ * Used by chooseMatrixSizeTier() to pick a size tier that fits the viewport.
+ */
+function countMatrixColumns(blocks) {
+  let n = 0;
+  for (const b of blocks) {
+    if (b.kind === 'single') n += 1;
+    else n += b.groupSize;
+  }
+  return n;
 }
 
 // Legacy glyph/label helpers removed — pills are empty per item 1. The
 // pillGrammarLabel() function (defined above) preserves the number-grammar
 // spec (item 12) for a future re-enable.
 
-/** Build the DOM for the matrix (columns + pills). One-time per render. */
+/** Build the DOM for the matrix (singles + circuit blocks). One-time per render. */
 function buildProgressMatrix() {
   if (!$matrixInner) return;
 
-  const columns = buildMatrixColumns();
+  const blocks = buildMatrixBlocks();
   const viewportWidth = window.innerWidth || 375;
-  matrixSizeTier = chooseMatrixSizeTier(columns.length, viewportWidth);
+  matrixSizeTier = chooseMatrixSizeTier(countMatrixColumns(blocks), viewportWidth);
 
   $matrixInner.className = 'progress-matrix-inner';
-  const columnsHTML = columns.map((col, colIdx) => {
-    const rowsHTML = col.slideIndices.map((slideIdx) => {
-      const slide = slides[slideIdx];
-      const isRest = slide.media_type === 'rest';
-      const sizeClass = 'size-' + matrixSizeTier;
-      const restClass = isRest ? ' is-rest' : '';
-      // Item 1: pills are EMPTY — no glyph, no label. Just the hull + fill
-      // bar. The macro fill-up effect (item 2) and colour coding carry all
-      // the information the user needs at a glance. Grammar helper lives in
-      // pillGrammarLabel() for future re-enable.
-      return `<div class="pill ${sizeClass}${restClass}" data-slide="${slideIdx}">
-                <span class="pill-fill"></span>
-              </div>`;
-    }).join('');
+  const sizeClass = 'size-' + matrixSizeTier;
 
-    const circuitClass = col.isCircuit ? ' is-circuit' : '';
-    return `<div class="matrix-col${circuitClass}" data-col="${colIdx}">${rowsHTML}</div>`;
+  /** Render a single pill's HTML. Item 1: pills are EMPTY — just hull + fill. */
+  const pillHTML = (slideIdx) => {
+    const slide = slides[slideIdx];
+    const isRest = slide.media_type === 'rest';
+    const restClass = isRest ? ' is-rest' : '';
+    return `<div class="pill ${sizeClass}${restClass}" data-slide="${slideIdx}">
+              <span class="pill-fill"></span>
+            </div>`;
+  };
+
+  const blocksHTML = blocks.map((block, blockIdx) => {
+    if (block.kind === 'single') {
+      return `<div class="matrix-col" data-col="${blockIdx}">${pillHTML(block.slideIndex)}</div>`;
+    }
+    // Circuit: row-first grid. Each round is a coral-tinted row of N pills.
+    const { rounds, groupSize } = block;
+    const roundsHTML = rounds.map((row, roundIdx) => {
+      const rowPills = row.map((slideIdx) => pillHTML(slideIdx)).join('');
+      return `<div class="matrix-circuit-row" data-round="${roundIdx + 1}" style="grid-template-columns: repeat(${groupSize}, 1fr);">${rowPills}</div>`;
+    }).join('');
+    return `<div class="matrix-circuit" data-circuit="${block.circuitId}" data-col="${blockIdx}" style="--circuit-cols: ${groupSize};">${roundsHTML}</div>`;
   }).join('');
 
-  $matrixInner.innerHTML = columnsHTML;
+  $matrixInner.innerHTML = blocksHTML;
 
   // Force layout to run so offsetLeft queries are accurate before first updateUI.
   void $matrixInner.offsetWidth;
@@ -795,15 +827,20 @@ function updateProgressMatrix() {
   });
 
   // Centre the active pill.
+  // Wave 19: pills can be nested either directly in a .matrix-col (singles)
+  // OR inside .matrix-circuit-row > .matrix-circuit (row-first circuit grid).
+  // Walk the offsetParent chain up to $matrixInner so we sum the correct
+  // ancestors regardless of nesting depth.
   const activePill = $matrixInner.querySelector(`.pill[data-slide="${activeIdx}"]`);
   const viewportWidth = $matrix.clientWidth || window.innerWidth || 375;
   let centeringOffset = 0;
   if (activePill) {
-    // activePill is inside a .matrix-col which is the direct grid child.
-    const col = activePill.parentElement;
-    const colLeft = col.offsetLeft;
-    // pill.offsetLeft is relative to its column; add both.
-    const pillLeft = colLeft + activePill.offsetLeft;
+    let pillLeft = 0;
+    let node = activePill;
+    while (node && node !== $matrixInner) {
+      pillLeft += node.offsetLeft;
+      node = node.offsetParent;
+    }
     const pillCentre = pillLeft + activePill.offsetWidth / 2;
     centeringOffset = viewportWidth / 2 - pillCentre;
   }
@@ -920,11 +957,12 @@ function onMatrixTouchStart(e) {
 /** When the matrix fits the viewport without scroll, drag is disabled. */
 function matrixFitsViewport() {
   if (!$matrixInner) return true;
-  const columns = buildMatrixColumns();
+  const blocks = buildMatrixBlocks();
+  const colCount = countMatrixColumns(blocks);
   const viewportWidth = window.innerWidth || 375;
   const available = viewportWidth - MATRIX_SIDE_PADDING;
   const spec = MATRIX_SPECS[matrixSizeTier] || MATRIX_SPECS.dense;
-  return columns.length * (spec.width + spec.gap) <= available;
+  return colCount * (spec.width + spec.gap) <= available;
 }
 
 function onMatrixTouchMove(e) {
@@ -2173,8 +2211,8 @@ async function init() {
       // Re-choose size tier on viewport resize — rebuild is cheap.
       window.addEventListener('resize', () => {
         const prev = matrixSizeTier;
-        const cols = buildMatrixColumns();
-        const nextTier = chooseMatrixSizeTier(cols.length, window.innerWidth);
+        const blocks = buildMatrixBlocks();
+        const nextTier = chooseMatrixSizeTier(countMatrixColumns(blocks), window.innerWidth);
         if (nextTier !== prev) {
           buildProgressMatrix();
           updateProgressMatrix();

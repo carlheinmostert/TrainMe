@@ -370,22 +370,41 @@ body {
   align-items: start;
   grid-auto-rows: min-content;
   /* Fit-to-width: columns flex-distribute inside .progress-matrix-inner.
-     Pills cap at 22px on short plans, shrink to 6px min on long plans, then
-     the outer falls back to scroll beyond that. */
+     Pills shrink to 6px min on long plans, then the outer falls back to
+     scroll. Wave 19 bumped max-width 22 → 32 so singles render as proper
+     rectangles instead of near-round squares on short sessions. */
   flex: 1 1 0;
   min-width: 6px;
-  max-width: 22px;
+  max-width: 32px;
 }
 
-.matrix-col.is-circuit {
+/* ── Row-first circuit block (Wave 19) ─────────────────────────────────
+   A circuit renders as ONE block whose children are coral-tinted rows,
+   each row = one round (all exercises L→R). The block flex-distributes
+   alongside .matrix-col singles so the matrix still fits the viewport
+   width. Inside the block, rows stack; each row is a grid with
+   N_exercises equal columns. */
+.matrix-circuit {
+  /* Take up horizontal space proportional to N_exercises in the circuit
+     so a 3-exercise circuit is ~3× wider than a single. This keeps pill
+     widths visually consistent across the matrix. */
+  flex: var(--circuit-cols, 1) 1 0;
+  min-width: calc(6px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  margin: -4px 0;
+}
+
+.matrix-circuit-row {
+  display: grid;
+  /* grid-template-columns is set inline by app.js based on N_exercises. */
+  gap: 4px;
+  align-items: center;
   background: var(--c-brand-tint-bg);
   border-radius: var(--radius-md);
-  padding: 6px;
-  margin: -6px 0;
-}
-
-.matrix-col.is-circuit + .matrix-col.is-circuit {
-  margin-left: -4px;
+  padding: 4px;
 }
 
 /* === Pill primitives ============================================= */
@@ -842,20 +861,27 @@ video.is-prep-paused {
   /* No visual; semantic marker only. */
 }
 
-/* === Card notes overlay — bottom of the video hero ================
-   Plain coral text over the video (NO box per workshop spec).
-   3-line clamp by default; clicking expands to full. */
+/* === Card notes overlay — centered soft-card (Wave 19 variant A) ====
+   Centered horizontally above the bottom edge, rendered as a dark
+   blurred pill with a subtle coral border. Off-white text for
+   readability; coral reserved for accent budget. 3-line clamp by
+   default; clicking expands to full. */
 .card-notes-overlay {
   position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 14px;
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%);
   z-index: 12;
   text-align: left;
-  border: none;
-  background: transparent;
-  padding: 8px 10px;
-  color: var(--c-brand);
+  background: rgba(15, 17, 23, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 107, 53, 0.35);
+  border-radius: 10px;
+  padding: 12px 16px;
+  max-width: 72%;
+  min-width: 180px;
+  color: #F5F5F7;
   cursor: pointer;
   font-family: var(--f-body);
   font-size: 14px;
@@ -863,8 +889,7 @@ video.is-prep-paused {
   line-height: 1.4;
   letter-spacing: 0.1px;
   -webkit-tap-highlight-color: transparent;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75), 0 0 18px rgba(0, 0, 0, 0.4);
-  transition: opacity 180ms ease;
+  transition: opacity 180ms ease, border-color 180ms ease;
 }
 .card-notes-overlay .card-notes-text {
   display: block;
@@ -882,7 +907,6 @@ video.is-prep-paused {
 .card-notes-overlay:focus-visible {
   outline: 2px solid var(--c-brand);
   outline-offset: 2px;
-  border-radius: 4px;
 }
 
 /* === Rest countdown overlay ======================================

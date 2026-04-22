@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 19 web-player polish round 2</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-22 · Wave 19 · Web-player polish round 2</div>
+    <h1>Device QA — Web-player polish round 2</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify four targeted polish changes to the unified web-player bundle (<code>web-player/</code>). Lands on <code>feat/web-player-polish-round2</code>. <strong>Four changes:</strong>
+      <strong>(1)</strong> Title row promoted above the time row — exercise name + decoded grammar now precedes the 3-number ETA row.
+      <strong>(2)</strong> Circuit pill grid flipped from column-first to row-first: each row = one round (all exercises left-to-right), rounds stack downward, coral tint band wraps each row.
+      <strong>(3)</strong> Exercise notes redesigned as a centered dark soft-card box with subtle coral border + backdrop blur (replaces plain coral text).
+      <strong>(4)</strong> Matrix pill <code>max-width</code> bumped <code>22 → 32px</code> so single (non-circuit) pills render as rectangles on short sessions instead of near-rounded squares.
+      <br><br>
+      <strong>In scope:</strong> web-player bundle (<code>web-player/index.html</code> + <code>styles.css</code> + <code>app.js</code> + <code>sw.js</code>); propagates to the Flutter practitioner preview via the WKURLSchemeHandler (R-10 parity enforced by the unified-player bundle).
+      <br><br>
+      <strong>Out of scope:</strong> Flutter code. Backend / Supabase. Middleware. Portal. Audio / treatment logic (unchanged). Desktop / landscape layouts.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li><code>feat/web-player-polish-round2</code> deployed to the Vercel preview URL (auto-deploys on push), OR the branch installed onto the device via <code>./install-device.sh</code> so the embedded WebView picks up the new bundle.</li>
+        <li>Hard-reload the player URL — the service worker bumps from <code>v22-matrix-fit-to-width</code> to <code>v23-player-polish-round2</code> but needs one cold load.</li>
+        <li>A published plan with: at least one exercise that has practitioner notes, and at least one circuit with <strong>≥ 2 exercises and ≥ 2 rounds</strong> (so the row-first grid is observable).</li>
+      </ul>
+    </div>
+
+    <h2>1 · Title row above time row</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open the plan link in Safari. The chrome above the video reads, top-to-bottom: <strong>(a)</strong> plan title + client name (with slide progress on the right); <strong>(b)</strong> the exercise name + decoded grammar line (e.g. <code>Goblet squat · 3 sets · 10 reps</code>); <strong>(c)</strong> the 3-number ETA row full-width centered (current · total · ~finish); <strong>(d)</strong> the progress-pill matrix. The order is title → time → pills (NOT time → title → pills as before).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Circuit pills read row-first (round as band)</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Open a plan with a circuit of ≥ 2 exercises and ≥ 2 rounds. Inside the progress-pill matrix, the circuit reads as a <strong>stack of horizontal bands</strong>. Each band = one round, with all that round's exercises left-to-right (A, B, C). Rounds stack downward. The <strong>coral tint wraps the ROW, not the column</strong>. Contrast with the old layout where each column was one exercise's rounds stacked vertically inside a coral column-band. Non-circuit (single) pills between circuits are unaffected.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · Single pills render as rectangles</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">On a short plan (≤ 8 slides so flex-distribution gives each pill real estate), single non-circuit pills look like <strong>taller-than-wide rectangles</strong> with distinct rounded corners — they do <strong>not</strong> read as near-round circles anymore. (Previously max-width was 22px and singles squared off to ~14–18px × 20px; Wave 19 bumped max-width to 32px so there's room for a clear rectangular silhouette.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · Notes render as centered soft-card</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">On an exercise slide that has practitioner notes, the note renders as a <strong>centered dark soft-card</strong> sitting roughly 12% up from the bottom edge of the video (not flush, not left-aligned). The card has a <strong>subtle coral border</strong> (1px at ~35% alpha), a <strong>backdrop blur</strong> behind it so the video softens where it overlaps, rounded corners (~10px), and <strong>off-white text</strong> (not coral — coral is reserved for accent elements). Max width is ~72% of the video; min width keeps single-word notes from shrinking to nothing.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Notes tap expands, tap again collapses</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Use an exercise with notes long enough to exceed 3 lines. On first render the notes card clamps to 3 lines with an ellipsis. <strong>Tap the card</strong> → the full note expands inline; the card grows taller but stays horizontally centered + within the max-width. <strong>Tap again</strong> → it collapses back to the 3-line clamp. Navigating to another slide and returning resets it to the 3-line clamp.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 · Fullscreen preserves title + time + matrix</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Tap the fullscreen toggle (top-right of the video). The <strong>plan-bar + footer hide</strong> (per existing fullscreen ambient mode), but the <strong>active-slide title</strong>, the <strong>3-number ETA row</strong>, and the <strong>progress-pill matrix</strong> all remain visible — in their new order (title above time). The coral overlays (mute, chevrons, notes card, pause disc) drop to ~30% alpha; the fullscreen toggle itself stays at 100%. Exit fullscreen and the plan-bar / footer restore.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>7 · Service worker bumped cleanly</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Open Safari → Advanced → Web Inspector → Storage on the session.homefit.studio (or preview) page. The Cache Storage name reads <code>homefit-player-v23-player-polish-round2</code> (not the old <code>v22-matrix-fit-to-width</code>). If the old cache lingers, one more hard reload clears it. No console errors from <code>app.js</code> about missing DOM refs or broken <code>buildMatrixColumns</code> references.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 19 polish round 2 lands on <code>feat/web-player-polish-round2</code>. Four-file touch (<code>web-player/index.html</code>, <code>web-player/styles.css</code>, <code>web-player/app.js</code>, <code>web-player/sw.js</code>) + this test script. R-10 parity preserved via the unified-player bundle — no Flutter code changed.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-22-wave19-player-polish.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave19-player-polish', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>
