@@ -1250,7 +1250,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       onDismissed: (_) => _deleteExercise(dataIndex),
       child: Container(
         margin: const EdgeInsets.only(bottom: 6),
-        height: 52,
+        // Wave 18.3.1 — rest chip row can wrap to multiple lines when
+        // custom values accumulate. Hardcoded `height: 52` was forcing
+        // the inner Wrap into a tight cross-axis constraint which made
+        // it render chips vertically (one-per-row). minHeight keeps the
+        // single-line visual identical while letting the row grow.
+        constraints: const BoxConstraints(minHeight: 52),
         decoration: BoxDecoration(
           color: AppColors.surfaceRaised,
           borderRadius: BorderRadius.circular(12),
@@ -1773,24 +1778,32 @@ class _RestBarState extends State<_RestBar> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
+        // Wave 18.3.1 — top-align so icon + "Rest" label stay anchored
+        // at the top of the row when the chip row wraps to multiple
+        // lines. CrossAxisAlignment.center (default) would drift them
+        // down as the chip row grows, which looks awkward.
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Padding(
-            padding: EdgeInsets.only(left: 4, right: 8),
+            padding: EdgeInsets.only(left: 4, right: 8, top: 6),
             child: Icon(
               Icons.self_improvement,
               size: 18,
               color: AppColors.rest,
             ),
           ),
-          const Text(
-            'Rest',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppColors.rest,
+          const Padding(
+            padding: EdgeInsets.only(top: 5),
+            child: Text(
+              'Rest',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.rest,
+              ),
             ),
           ),
           const SizedBox(width: 10),
