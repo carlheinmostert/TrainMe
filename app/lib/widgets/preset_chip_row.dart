@@ -311,31 +311,36 @@ class _Chip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        height: 32,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: selected ? accentColor : AppColors.surfaceRaised,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        alignment: Alignment.center,
-        // Wave 18.2 — `height: 1.0` strips Inter's natural descender
-        // padding so the label sits dead-centre inside the 32pt pill.
-        // Previously the inner symmetric-6pt padding + Inter's default
-        // 1.25 line-height drifted text ~1-2pt below the visual midpoint.
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            height: 1.0,
-            color: selected ? Colors.white : AppColors.textOnDark,
+    // Wave 18.3.1 — IntrinsicWidth forces the Container to size to its
+    // text's natural width. Without it, `Container(alignment: center)`
+    // with bounded parent constraints (as inside the non-scrollable
+    // Wrap) expands to the full parent width, making each chip a full
+    // row and producing the "chips stacked vertically" regression.
+    return IntrinsicWidth(
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: selected ? accentColor : AppColors.surfaceRaised,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          alignment: Alignment.center,
+          // Wave 18.2 — `height: 1.0` strips Inter's natural descender
+          // padding so the label sits dead-centre inside the 32pt pill.
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1.0,
+              color: selected ? Colors.white : AppColors.textOnDark,
+            ),
           ),
         ),
       ),
@@ -357,7 +362,11 @@ class _CustomTail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    // Wave 18.3.1 — same IntrinsicWidth wrapper as _Chip to prevent the
+    // Container's alignment from forcing full-width expansion inside
+    // the non-scrollable Wrap.
+    return IntrinsicWidth(
+      child: GestureDetector(
       onTap: onTap,
       // Long-press on [Custom] is explicitly a no-op (Wave 18.1). No
       // haptic, no action.
@@ -386,6 +395,7 @@ class _CustomTail extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }
