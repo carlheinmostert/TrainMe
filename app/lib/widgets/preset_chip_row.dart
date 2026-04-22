@@ -215,6 +215,14 @@ class _PresetChipRowState extends State<PresetChipRow> {
     // narrow phones). Wrap has no scrolling so it doesn't contest the
     // outer Dismissible for horizontal drag, and its vertical extent
     // grows as needed — a 2-line wrap reads as ~2 × row height.
+    //
+    // Wave 18.3 — the outer SizedBox(width: double.infinity) is
+    // load-bearing: without a bounded-width parent, the Wrap receives
+    // loose horizontal constraints and each child lays out on its own
+    // "run" (i.e. stacks vertically). Even when PresetChipRow lives
+    // inside Expanded, that bound only reaches the Padding; forcing
+    // width: double.infinity here pins the Wrap's parent axis so chips
+    // flow horizontally and wrap onto a new row only when needed.
     if (!widget.scrollable) {
       final wrapChildren = <Widget>[
         for (final value in presets)
@@ -235,10 +243,16 @@ class _PresetChipRowState extends State<PresetChipRow> {
       ];
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: wrapChildren,
+        child: SizedBox(
+          width: double.infinity,
+          child: Wrap(
+            direction: Axis.horizontal,
+            alignment: WrapAlignment.start,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 6,
+            runSpacing: 6,
+            children: wrapChildren,
+          ),
         ),
       );
     }

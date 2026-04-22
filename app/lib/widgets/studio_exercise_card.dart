@@ -532,7 +532,9 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           label: 'Playback',
           expanded: playbackOpen,
           hasNonDefaults: _playbackHasNonDefaults,
-          summary: playbackOpen ? null : _playbackSummary(),
+          // Wave 18.3 — summary persists in BOTH states. Expanded
+          // collapses to single-line ellipsis inside _GroupHeader.
+          summary: _playbackSummary(),
           onTap: () => _toggleAccordion(_AccordionGroup.playback),
         ),
         if (playbackOpen) ...[
@@ -570,7 +572,8 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           label: 'Dose',
           expanded: doseOpen,
           hasNonDefaults: _doseHasNonDefaults,
-          summary: doseOpen ? null : _doseSummary(),
+          // Wave 18.3 — summary persists in BOTH states.
+          summary: _doseSummary(),
           onTap: () => _toggleAccordion(_AccordionGroup.dose),
         ),
         if (doseOpen) ...[
@@ -629,7 +632,8 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           label: 'Pacing',
           expanded: pacingOpen,
           hasNonDefaults: _pacingHasNonDefaults,
-          summary: pacingOpen ? null : _pacingSummary(),
+          // Wave 18.3 — summary persists in BOTH states.
+          summary: _pacingSummary(),
           onTap: () => _toggleAccordion(_AccordionGroup.pacing),
         ),
         if (pacingOpen) ...[
@@ -686,7 +690,8 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           label: 'Notes',
           expanded: notesOpen,
           hasNonDefaults: _notesHasNonDefaults,
-          summary: notesOpen ? null : _notesSummary(),
+          // Wave 18.3 — summary persists in BOTH states.
+          summary: _notesSummary(),
           onTap: () => _toggleAccordion(_AccordionGroup.notes),
         ),
         if (notesOpen)
@@ -718,36 +723,47 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
   }
 }
 
-/// Group-header label for the Studio card's expanded panel. Renders an
-/// optional leading coral dot + chevron + 11pt uppercase label +
-/// optional trailing collapsed summary. Tapping fires [onTap].
+/// Group-header label for the Studio card's expanded panel. Renders a
+/// leading chevron + 11pt uppercase label + same-row summary + an
+/// optional trailing coral dot. Tapping fires [onTap].
 ///
-/// Wave 18.2 changes:
-///   * Coral dot moved to the LEFT of the chevron (was between
-///     chevron + label). Geometry: 5pt dot + 6pt gap. When the group
-///     is at-default, no ghost space — the chevron slides flush left.
-///   * Collapsed summary wraps to multiple lines, capped at 3 with
-///     ellipsis past that. Chevron + dot are top-aligned so a tall
-///     summary doesn't drag them into awkward middle positions.
-///   * Row height grows to fit 1/2/3 lines. The old fixed-40pt SizedBox
-///     is replaced by padding + `CrossAxisAlignment.start`.
+/// Wave 18.3 changes:
+///   * Coral dot relocated from LEFT of chevron → RIGHT-aligned
+///     trailing position (5pt dot, 12pt from the card edge). Chevron
+///     is now always flush-left, so chevrons line up vertically across
+///     all four groups regardless of whether the group has non-defaults.
+///   * Summary persists when the group is expanded (previously dropped
+///     to null on expand, which made the header feel like it was
+///     shedding content). Expanded state caps summary to a single line
+///     with ellipsis; collapsed keeps the up-to-3-line wrap.
+///   * Label stays left-anchored in both states. The previous
+///     AnimatedSwitcher (with `— summary`) was also causing a layout
+///     jitter when `ValueKey` swapped — dropped in favour of a plain
+///     [RichText] whose `maxLines` flips between states.
+///   * `hasNonDefaults` no longer changes the label's font weight —
+///     the dot alone signals "this group has content" (w700 in all
+///     cases). The dot slot exists only when `hasNonDefaults` is true;
+///     absence doesn't leave ghost space on the right because the row
+///     simply ends at the label-gap + 12pt right-edge padding.
 ///
-/// Carried forward from Wave 18.1:
-///   * [hasNonDefaults] — when true, the label bolds to w800 (the dot
-///     is the primary signal; the weight change is a secondary one).
+/// Carried forward from Wave 18.2:
 ///   * Chevron rotation animates (180ms ease) between open/closed.
-///   * Summary fades in/out with an AnimatedSwitcher so collapsing
-///     doesn't flash.
+///   * `crossAxisAlignment: CrossAxisAlignment.start` keeps the
+///     chevron + dot top-aligned when the label/summary wraps to 2 or
+///     3 lines in collapsed state.
 class _GroupHeader extends StatelessWidget {
   final String label;
   final bool expanded;
 
-  /// Non-default marker — drives the coral dot + bold label weight.
+  /// Non-default marker — drives the trailing coral dot. Label weight
+  /// no longer changes (Wave 18.3 — dot is the sole "non-default"
+  /// signal; label stays at w700).
   final bool hasNonDefaults;
 
-  /// Trailing em-dash summary for collapsed state. Non-null in both
-  /// states post-Wave-18.1 (all four groups render a summary when
-  /// collapsed).
+  /// Trailing summary text. Non-null in both collapsed AND expanded
+  /// states (Wave 18.3 — summary persists on expand). Rendered on the
+  /// same row as the label, joined by a ` · ` separator. Collapsed
+  /// wraps up to 3 lines; expanded clamps to 1 line + ellipsis.
   final String? summary;
 
   /// Tap toggles the group's open/closed state. Every group header
@@ -771,36 +787,19 @@ class _GroupHeader extends StatelessWidget {
       child: ConstrainedBox(
         // Retain a 40pt minimum row height for the 1-line case so the
         // hit target doesn't shrink. Multi-line summaries push the row
-        // taller via the inner column.
+        // taller via the inner column (collapsed state only).
         constraints: const BoxConstraints(minHeight: 40),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
             // Top-aligned so chevron + dot stay at the visual top when
-            // the summary wraps to 2 or 3 lines.
+            // the label/summary wraps to 2 or 3 lines.
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. Coral dot (only when non-default) — first, to the
-              // LEFT of the chevron per Wave 18.2 spec.
-              if (hasNonDefaults) ...[
-                Padding(
-                  // Baseline-nudge the dot so it sits roughly on the
-                  // label's x-height, matching the chevron below it.
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Container(
-                    width: 5,
-                    height: 5,
-                    decoration: const BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
-              ],
-              // 2. Chevron — rotates on expand/collapse. Top-aligned
-              // via a small padding so it sits alongside the first
-              // line of the label even when the summary wraps.
+              // 1. Chevron — always flush-left, rotates on open/close.
+              //    Wave 18.3 relocated the dot to the trailing edge so
+              //    the chevron's horizontal position never shifts
+              //    between default + non-default rows.
               Padding(
                 padding: const EdgeInsets.only(top: 1),
                 child: AnimatedRotation(
@@ -814,54 +813,68 @@ class _GroupHeader extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 4),
-              // 3. Label + optional summary as a single RichText span
-              // so the "— summary" text wraps fluidly onto additional
-              // lines instead of getting chopped by a fixed single-line
-              // cap. Capped at 3 lines with ellipsis past that.
+              const SizedBox(width: 8),
+              // 2. Label + summary — persists in BOTH states. Collapsed
+              //    allows up to 3 lines; expanded clamps to 1 line with
+              //    ellipsis. Label stays left-anchored in either case.
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
-                    child: Text.rich(
-                      key: ValueKey('${label}_$summary'),
-                      TextSpan(
-                        children: <InlineSpan>[
+                  padding: const EdgeInsets.only(top: 3),
+                  child: RichText(
+                    maxLines: expanded ? 1 : 3,
+                    softWrap: !expanded,
+                    overflow: TextOverflow.ellipsis,
+                    text: TextSpan(
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                        color: AppColors.primary,
+                        height: 1.25,
+                      ),
+                      children: <InlineSpan>[
+                        TextSpan(text: label.toUpperCase()),
+                        if (summary != null && summary!.isNotEmpty)
                           TextSpan(
-                            text: label.toUpperCase(),
-                            style: TextStyle(
+                            text: ' · $summary',
+                            style: const TextStyle(
                               fontFamily: 'Inter',
                               fontSize: 11,
-                              fontWeight: hasNonDefaults
-                                  ? FontWeight.w800
-                                  : FontWeight.w700,
-                              letterSpacing: 0.8,
-                              color: AppColors.primary,
-                              height: 1.25,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 0,
+                              color: AppColors.textSecondaryOnDark,
+                              height: 1.35,
                             ),
                           ),
-                          if (summary != null)
-                            TextSpan(
-                              text: '  — $summary',
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 0.2,
-                                color: AppColors.textSecondaryOnDark,
-                                height: 1.35,
-                              ),
-                            ),
-                        ],
-                      ),
-                      maxLines: 3,
-                      softWrap: true,
-                      overflow: TextOverflow.ellipsis,
+                      ],
                     ),
                   ),
                 ),
               ),
+              // 3. Coral dot (only when non-default) — Wave 18.3 moved
+              //    it from the leading position to a trailing slot.
+              //    Slot exists only when hasNonDefaults = true; absence
+              //    doesn't leave ghost space because the row still has
+              //    its 12pt right-edge padding below.
+              if (hasNonDefaults) ...[
+                const SizedBox(width: 8),
+                Padding(
+                  // Align to the first-line label baseline.
+                  padding: const EdgeInsets.only(top: 7),
+                  child: Container(
+                    width: 5,
+                    height: 5,
+                    decoration: const BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+              // 4. 12pt right-edge padding so the dot (or the end of
+              //    the label+summary) never touches the card border.
+              const SizedBox(width: 12),
             ],
           ),
         ),
