@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA Wave 18.10 — polish round 7</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-22 · Wave 18.10 — polish round 7</div>
+    <h1>Device QA — Wave 18.10</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> three more Studio-card polish items from Wave 18.9 live device QA. <strong>(1) Chevron realign.</strong> Wave 18.9's Montserrat 18pt header left the chevron's Wave-18.3-era <code>top: 1</code> padding stranded — chevron floated high against the taller line box. Retuned to <code>top: 5</code> (and the coral non-default dot bumped <code>11 → 13</code> to track). <strong>(2) Asymmetric section-header padding.</strong> Wave 18.6's symmetric <code>vertical: 2</code> made section breaks feel like continuations of the previous body. Now <code>top: 12, bottom: 2</code> — generous breathing room ABOVE each header, tight space below. First header (PLAYBACK) passes <code>isFirst: true</code> to suppress the top-12 (card's own top inset already covers it). <strong>(3) Expanded-body tray.</strong> New <code>_ExpandedBody</code> wrapper gives every open accordion section a darker recessed fill (<code>surfaceBg</code> vs the card's <code>surfaceBase</code>) + 2pt coral hairline on the left edge. Signals "this is the live drawer". All hierarchy from Wave 18.9 (Montserrat 18pt header / 12pt inner tier / stacked editors) preserved.
+      <br><br>
+      <strong>In scope:</strong> mobile-only. One file — <code>studio_exercise_card.dart</code> (chevron padding retune + <code>isFirst</code> param + asymmetric header padding + new <code>_ExpandedBody</code> wrapper around all four bodies).
+      <br><br>
+      <strong>Out of scope:</strong> anything already covered by Wave 18 / 18.1 through 18.9. Web player. Portal. Font sizes / weights unchanged. Storage semantics unchanged. <code>InlineNumericEditor</code> / <code>_ControlRow</code> / <code>_PrepSecondsRow</code> / <code>_DurationPerRepRow</code> internals unchanged — only the containers around them.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Wave 18.9 merged. Wave 18.10 branch <code>fix/wave-18.10-polish</code> installed via <code>./install-device.sh</code>.</li>
+        <li>At least one session with: (a) a video exercise with at least one non-default value (e.g. reps=10 or preferred treatment set) so the coral non-default dot appears on a group header; (b) NOTES with multi-paragraph text to confirm its expanded body wraps cleanly inside the recessed tray.</li>
+        <li>iPhone 17 Pro or similar 393pt-wide device.</li>
+      </ul>
+    </div>
+
+    <h2>1 · Chevron + coral dot realign</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open any exercise card. On every collapsed section header (<code>PLAYBACK</code> / <code>DOSE</code> / <code>PACING</code> / <code>NOTES</code>), the leading chevron icon visually aligns with the middle of the <strong>Montserrat 18pt label line box</strong> — no more floating high above the letterforms. Compare to Wave 18.9 where the chevron was sitting roughly at the cap-height top. Check all four headers. If a header has a coral non-default dot (trailing), the dot also aligns — chevron and dot read as a pair on the label's cap-height centre.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Asymmetric header padding</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Expand any one group (say DOSE). The gap BETWEEN the end of the expanded DOSE body and the NEXT section header (PACING) feels like a <strong>real section break</strong> — ~12pt of breathing room. Wave 18.8's tight run-on feel is gone. Conversely, the gap between DOSE's own header and its expanded body stays tight (~2pt below the header — Wave 18.8 behaviour preserved). PLAYBACK (the first header) sits close to the card's top edge with no double-padding — its <code>isFirst: true</code> suppresses the top-12 that other headers get.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · Recessed expanded-body tray</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Expand DOSE. The expanded body (REPS / SETS / HOLD rows and their chip rails) sits on a <strong>visibly DARKER fill</strong> than the rest of the card. The contrast is subtle but clearly a distinct "tray" — the card's own <code>surfaceBase</code> (<code>#1A1D27</code>) vs the body's <code>surfaceBg</code> (<code>#0F1117</code>, matching the app root). Content reads as contained. Same treatment on PLAYBACK, PACING, NOTES.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Expand DOSE. The <strong>LEFT edge of the expanded body</strong> has a 2pt vertical stroke running its full height, coloured muted coral (coral at ~45% alpha — subtle, not screaming). Confirms "this section is open / live". Only the left edge — no border on top, right, or bottom. Same treatment on PLAYBACK, PACING, NOTES when expanded.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · Accordion rhythm preserved</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Rapid-switch between sections: tap PLAYBACK (opens); tap DOSE (PLAYBACK closes, DOSE opens with its recessed+hairline body); tap NOTES (DOSE closes, NOTES opens; TextField editable inside the recessed body). Transitions feel smooth — no flash, no layout jump beyond the body itself swapping. Text field in NOTES still captures input. All Wave 18.9 hierarchy (Montserrat 18pt header / 12pt inner tier / stacked editors in PACING) preserved.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 18.10 closes three items from Wave 18.9 live device QA (see <a href="./2026-04-22-wave18.9-device-qa.html" style="color: var(--coral);">wave18.9</a>). Wave 18.1 remains the canonical baseline — run that if anything around DOSE / PACING / rest bar feels off. Storage semantics of <code>customDurationSeconds</code>, <code>prepSeconds</code>, <code>notes</code>, and all other model fields unchanged by Wave 18.10 — display-only adjustments.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-22-wave18.10-device-qa.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave-18.10', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

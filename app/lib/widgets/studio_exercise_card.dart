@@ -558,37 +558,39 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           // Wave 18.3 — summary persists in BOTH states. Expanded
           // collapses to single-line ellipsis inside _GroupHeader.
           summary: _playbackSummary(),
+          // Wave 18.10 — PLAYBACK is the first section header; suppress
+          // the top: 12 asymmetric padding so it doesn't double-pad
+          // with the card's own top inset.
+          isFirst: true,
           onTap: () => _toggleAccordion(_AccordionGroup.playback),
         ),
-        if (playbackOpen) ...[
-          // Wave 18.8 — header → first-content gap tightened 8pt → 2pt.
-          // Makes the expanded body feel like one connected unit with
-          // the section header. Intra-content spacing (between Toggle
-          // rows inside this body) stays unchanged.
-          const SizedBox(height: 2),
-          TreatmentTilesRow(
-            exercise: widget.exercise,
-            hasArchive: hasArchive,
-            onChanged: (t) {
-              HapticFeedback.selectionClick();
-              widget.onUpdate(
-                widget.exercise.copyWith(preferredTreatment: t),
-              );
-            },
+        if (playbackOpen)
+          _ExpandedBody(
+            children: [
+              TreatmentTilesRow(
+                exercise: widget.exercise,
+                hasArchive: hasArchive,
+                onChanged: (t) {
+                  HapticFeedback.selectionClick();
+                  widget.onUpdate(
+                    widget.exercise.copyWith(preferredTreatment: t),
+                  );
+                },
+              ),
+              if (isVideo) ...[
+                const SizedBox(height: 4),
+                _ToggleRow(
+                  label: 'Muted',
+                  value: !widget.exercise.includeAudio,
+                  onChanged: (muted) {
+                    widget.onUpdate(
+                      widget.exercise.copyWith(includeAudio: !muted),
+                    );
+                  },
+                ),
+              ],
+            ],
           ),
-          if (isVideo) ...[
-            const SizedBox(height: 4),
-            _ToggleRow(
-              label: 'Muted',
-              value: !widget.exercise.includeAudio,
-              onChanged: (muted) {
-                widget.onUpdate(
-                  widget.exercise.copyWith(includeAudio: !muted),
-                );
-              },
-            ),
-          ],
-        ],
 
         // -----------------------------------------------------------
         // DOSE — accordion member, default closed. Reps + Sets (skip
@@ -606,56 +608,55 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           summary: _doseSummary(),
           onTap: () => _toggleAccordion(_AccordionGroup.dose),
         ),
-        if (doseOpen) ...[
-          // Wave 18.8 — header → first-content gap tightened 8pt → 2pt.
-          // Intra-content rows (REPS → SETS → HOLD, 8pt between) stay
-          // unchanged below.
-          const SizedBox(height: 2),
-          _ControlRow(
-            label: 'Reps',
-            value: _reps,
-            displayFormat: (v) => '$v',
-            child: PresetChipRow(
-              controlKey: 'reps',
-              canonicalPresets: const <num>[5, 8, 10, 12, 15],
-              currentValue: _reps,
-              onChanged: _pushReps,
-              accentColor: AppColors.primary,
-              undoLabel: 'reps',
-            ),
-          ),
-          if (!widget.isInCircuit) ...[
-            const SizedBox(height: 8),
-            _ControlRow(
-              label: 'Sets',
-              value: _sets,
-              displayFormat: (v) => '$v',
-              child: PresetChipRow(
-                controlKey: 'sets',
-                canonicalPresets: const <num>[1, 2, 3, 4, 5],
-                currentValue: _sets,
-                onChanged: _pushSets,
-                accentColor: AppColors.primary,
-                undoLabel: 'sets',
+        if (doseOpen)
+          _ExpandedBody(
+            children: [
+              _ControlRow(
+                label: 'Reps',
+                value: _reps,
+                displayFormat: (v) => '$v',
+                child: PresetChipRow(
+                  controlKey: 'reps',
+                  canonicalPresets: const <num>[5, 8, 10, 12, 15],
+                  currentValue: _reps,
+                  onChanged: _pushReps,
+                  accentColor: AppColors.primary,
+                  undoLabel: 'reps',
+                ),
               ),
-            ),
-          ],
-          const SizedBox(height: 8),
-          _ControlRow(
-            label: 'Hold',
-            value: _hold,
-            displayFormat: (v) => v == 0 ? 'Off' : '${v}s',
-            child: PresetChipRow(
-              controlKey: 'hold',
-              canonicalPresets: const <num>[0, 5, 10, 30, 60],
-              currentValue: _hold,
-              onChanged: _pushHold,
-              accentColor: AppColors.primary,
-              displayFormat: (v) => v == 0 ? 'Off' : '${v}s',
-              undoLabel: 'hold',
-            ),
+              if (!widget.isInCircuit) ...[
+                const SizedBox(height: 8),
+                _ControlRow(
+                  label: 'Sets',
+                  value: _sets,
+                  displayFormat: (v) => '$v',
+                  child: PresetChipRow(
+                    controlKey: 'sets',
+                    canonicalPresets: const <num>[1, 2, 3, 4, 5],
+                    currentValue: _sets,
+                    onChanged: _pushSets,
+                    accentColor: AppColors.primary,
+                    undoLabel: 'sets',
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              _ControlRow(
+                label: 'Hold',
+                value: _hold,
+                displayFormat: (v) => v == 0 ? 'Off' : '${v}s',
+                child: PresetChipRow(
+                  controlKey: 'hold',
+                  canonicalPresets: const <num>[0, 5, 10, 30, 60],
+                  currentValue: _hold,
+                  onChanged: _pushHold,
+                  accentColor: AppColors.primary,
+                  displayFormat: (v) => v == 0 ? 'Off' : '${v}s',
+                  undoLabel: 'hold',
+                ),
+              ),
+            ],
           ),
-        ],
 
         // -----------------------------------------------------------
         // PACING — accordion member, default closed.
@@ -669,69 +670,70 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           summary: _pacingSummary(),
           onTap: () => _toggleAccordion(_AccordionGroup.pacing),
         ),
-        if (pacingOpen) ...[
-          // Wave 18.8 — header → first-content gap tightened 8pt → 2pt.
-          const SizedBox(height: 2),
-          _PrepSecondsRow(
-            currentValue: widget.exercise.prepSeconds,
-            globalDefault: StudioDefaults.prepSeconds,
-            onCommit: (override) {
-              if (override == null) {
-                widget.onUpdate(
-                  widget.exercise.copyWith(clearPrepSeconds: true),
-                );
-              } else {
-                widget.onUpdate(
-                  widget.exercise.copyWith(prepSeconds: override),
-                );
-              }
-            },
+        if (pacingOpen)
+          _ExpandedBody(
+            children: [
+              _PrepSecondsRow(
+                currentValue: widget.exercise.prepSeconds,
+                globalDefault: StudioDefaults.prepSeconds,
+                onCommit: (override) {
+                  if (override == null) {
+                    widget.onUpdate(
+                      widget.exercise.copyWith(clearPrepSeconds: true),
+                    );
+                  } else {
+                    widget.onUpdate(
+                      widget.exercise.copyWith(prepSeconds: override),
+                    );
+                  }
+                },
+              ),
+              // Wave 18.7 — DURATION PER REP redesigned to mirror PREP:
+              // label + dashed-underline value on one row, From video /
+              // Manual toggle pair on the next row (video only). Editing
+              // the value auto-flips source to Manual. Photos + video-
+              // without-probe hide the toggle entirely.
+              //
+              // Storage semantics unchanged from Wave 18.5: customDuration
+              // Seconds stores TOTAL (per-rep × reps); null means "From
+              // video" (video) or unseeded (photo, which self-seeds on
+              // first render).
+              _DurationPerRepRow(
+                hasVideoLength: hasVideoLength,
+                videoLengthSeconds: hasVideoLength
+                    ? (widget.exercise.videoDurationMs! / 1000).round()
+                    : 0,
+                customDurationSeconds: widget.exercise.customDurationSeconds,
+                reps: _reps,
+                stickyPerRepSeed: widget.stickyCustomDurationPerRep,
+                onSelectFromVideo: () {
+                  widget.onUpdate(
+                    widget.exercise.copyWith(clearCustomDuration: true),
+                  );
+                },
+                onSelectManual: () {
+                  // Seed at sticky-per-rep × reps (fallback 5s × reps)
+                  // unless a stored customDurationSeconds is already
+                  // present (treat that as the prior Manual value even if
+                  // we just flipped between segments). Writing the total
+                  // immediately ensures the displayed per-rep matches
+                  // runtime duration math — no stale ghost values.
+                  final existing = widget.exercise.customDurationSeconds;
+                  final seedPerRep =
+                      widget.stickyCustomDurationPerRep ?? 5;
+                  final nextTotal = existing ?? (seedPerRep * _reps);
+                  widget.onUpdate(widget.exercise.copyWith(
+                    customDurationSeconds: nextTotal,
+                  ));
+                },
+                onCommitManualPerRep: (newPerRep) {
+                  widget.onUpdate(widget.exercise.copyWith(
+                    customDurationSeconds: newPerRep * _reps,
+                  ));
+                },
+              ),
+            ],
           ),
-          // Wave 18.7 — DURATION PER REP redesigned to mirror PREP:
-          // label + dashed-underline value on one row, From video /
-          // Manual toggle pair on the next row (video only). Editing
-          // the value auto-flips source to Manual. Photos + video-
-          // without-probe hide the toggle entirely.
-          //
-          // Storage semantics unchanged from Wave 18.5: customDuration
-          // Seconds stores TOTAL (per-rep × reps); null means "From
-          // video" (video) or unseeded (photo, which self-seeds on
-          // first render).
-          _DurationPerRepRow(
-            hasVideoLength: hasVideoLength,
-            videoLengthSeconds: hasVideoLength
-                ? (widget.exercise.videoDurationMs! / 1000).round()
-                : 0,
-            customDurationSeconds: widget.exercise.customDurationSeconds,
-            reps: _reps,
-            stickyPerRepSeed: widget.stickyCustomDurationPerRep,
-            onSelectFromVideo: () {
-              widget.onUpdate(
-                widget.exercise.copyWith(clearCustomDuration: true),
-              );
-            },
-            onSelectManual: () {
-              // Seed at sticky-per-rep × reps (fallback 5s × reps)
-              // unless a stored customDurationSeconds is already
-              // present (treat that as the prior Manual value even if
-              // we just flipped between segments). Writing the total
-              // immediately ensures the displayed per-rep matches
-              // runtime duration math — no stale ghost values.
-              final existing = widget.exercise.customDurationSeconds;
-              final seedPerRep =
-                  widget.stickyCustomDurationPerRep ?? 5;
-              final nextTotal = existing ?? (seedPerRep * _reps);
-              widget.onUpdate(widget.exercise.copyWith(
-                customDurationSeconds: nextTotal,
-              ));
-            },
-            onCommitManualPerRep: (newPerRep) {
-              widget.onUpdate(widget.exercise.copyWith(
-                customDurationSeconds: newPerRep * _reps,
-              ));
-            },
-          ),
-        ],
 
         // -----------------------------------------------------------
         // NOTES — accordion member, default closed.
@@ -750,20 +752,20 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           onTap: () => _toggleAccordion(_AccordionGroup.notes),
         ),
         if (notesOpen)
-          Padding(
-            // Wave 18.8 — header → first-content gap tightened 8pt → 2pt.
-            padding: const EdgeInsets.only(top: 2),
-            child: TextField(
-              controller: _notesController,
-              maxLines: 3,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                hintText: 'e.g. Keep back straight, slow on the way down',
-                border: OutlineInputBorder(),
-                isDense: true,
+          _ExpandedBody(
+            children: [
+              TextField(
+                controller: _notesController,
+                maxLines: 3,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  hintText: 'e.g. Keep back straight, slow on the way down',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onChanged: (_) => _pushNotes(),
               ),
-              onChanged: (_) => _pushNotes(),
-            ),
+            ],
           ),
         const SizedBox(height: 8),
       ],
@@ -834,6 +836,12 @@ class _GroupHeader extends StatelessWidget {
   /// collapsed. Expanded state is always single-line regardless.
   final bool singleLineSummary;
 
+  /// True for the first section header inside the card (PLAYBACK). The
+  /// card's own top padding already supplies space above this header,
+  /// so the Wave 18.10 asymmetric `top: 12` is suppressed here to avoid
+  /// double-padding. All other headers pass `false` (default).
+  final bool isFirst;
+
   const _GroupHeader({
     required this.label,
     required this.expanded,
@@ -841,6 +849,7 @@ class _GroupHeader extends StatelessWidget {
     required this.summary,
     required this.onTap,
     this.singleLineSummary = false,
+    this.isFirst = false,
   });
 
   @override
@@ -854,22 +863,25 @@ class _GroupHeader extends StatelessWidget {
         // taller via the inner column (collapsed state only).
         constraints: const BoxConstraints(minHeight: 40),
         child: Padding(
-          // Wave 18.6 — vertical padding tightened 10pt → 2pt so the
-          // collapsed header row runs tight. When all four groups are
-          // collapsed the card stack is ~4× denser than Wave 18.5. The
-          // 40pt minHeight above still keeps the hit target usable.
-          padding: const EdgeInsets.symmetric(vertical: 2),
+          // Wave 18.10 — asymmetric padding: top: 12 before every
+          // section header (except the first, which sits right under
+          // the card's own top padding), bottom: 2 below. Section
+          // breaks now feel like real section breaks instead of
+          // continuations of the previous body.
+          padding: EdgeInsets.only(
+            top: isFirst ? 2 : 12,
+            bottom: 2,
+          ),
           child: Row(
             // Top-aligned so chevron + dot stay at the visual top when
             // the label/summary wraps to 2 or 3 lines.
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 1. Chevron — always flush-left, rotates on open/close.
-              //    Wave 18.3 relocated the dot to the trailing edge so
-              //    the chevron's horizontal position never shifts
-              //    between default + non-default rows.
+              // Wave 18.10 — padding retuned to visually centre against
+              // the Montserrat 18pt label line box.
               Padding(
-                padding: const EdgeInsets.only(top: 1),
+                padding: const EdgeInsets.only(top: 5),
                 child: AnimatedRotation(
                   turns: expanded ? 0 : -0.25,
                   duration: const Duration(milliseconds: 180),
@@ -942,10 +954,11 @@ class _GroupHeader extends StatelessWidget {
               if (hasNonDefaults) ...[
                 const SizedBox(width: 8),
                 Padding(
-                  // Align to the first-line label baseline. Wave 18.9
-                  // bumped from 9 to 11 to follow the 18pt Montserrat
-                  // label's taller line box.
-                  padding: const EdgeInsets.only(top: 11),
+                  // Align to the first-line label baseline. Wave 18.10
+                  // bumped 11 → 13 so the dot tracks the chevron's new
+                  // visually-centered position on the Montserrat 18pt
+                  // line box.
+                  padding: const EdgeInsets.only(top: 13),
                   child: Container(
                     width: 5,
                     height: 5,
@@ -962,6 +975,41 @@ class _GroupHeader extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Wave 18.10 — recessed container for an open accordion section. Signals
+/// "this is the live drawer" via a darker fill + a 2pt coral hairline on
+/// the left edge. One per expanded group (PLAYBACK / DOSE / PACING / NOTES).
+///
+/// Recessed fill uses [AppColors.surfaceBg] (app root bg, elevation 0) —
+/// visibly darker than the card's [AppColors.surfaceBase] (elevation 1).
+/// Internal padding `EdgeInsets.fromLTRB(12, 8, 4, 8)`: extra left gives the
+/// coral stroke breathing room from the content; tight right because the
+/// outer card padding already handles the right edge. No border radius —
+/// the card's own rounding + overflow clipping handles corners.
+class _ExpandedBody extends StatelessWidget {
+  final List<Widget> children;
+  const _ExpandedBody({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceBg,
+        border: Border(
+          left: BorderSide(
+            color: AppColors.primary.withValues(alpha: 0.45),
+            width: 2,
+          ),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
       ),
     );
   }
