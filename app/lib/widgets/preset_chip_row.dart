@@ -22,14 +22,19 @@ import 'undo_snackbar.dart';
 /// Chips rendered by this widget:
 ///   * Unselected → surfaceRaised fill, textOnDark label.
 ///   * Selected   → [accentColor] fill, white label.
-///   * `[+]` tail → dashed [accentColor] circle (32×32pt, 1.5pt border)
-///                  with a centred [Icons.add_rounded] glyph. Tapping
-///                  toggles INLINE input mode; no bottom sheet, no
-///                  modal (R-01, load-bearing — don't regress to a
-///                  popup here). Long-press is a no-op. Wave 18.4 —
-///                  replaced the old "Custom" text pill with this icon
-///                  to save ~40pt of horizontal room so 4 canonicals +
-///                  [+] + 1-2 customs fit one line on iPhone.
+///   * `[+]` tail → dashed [accentColor] pill (32pt tall, 16pt border
+///                  radius, 1.5pt border) with a centred
+///                  [Icons.add_rounded] glyph. Tapping toggles INLINE
+///                  input mode; no bottom sheet, no modal (R-01, load-
+///                  bearing — don't regress to a popup here). Long-press
+///                  is a no-op. Wave 18.4 replaced the old "Custom" text
+///                  pill with this icon. Wave 18.5 reshaped the outline
+///                  from a circle (shortestSide/2 radius) to a proper
+///                  16pt-radius pill so the `[+]` reads as the SAME
+///                  visual family as the text chips (also 32pt tall,
+///                  16pt radius), just slightly narrower and dashed
+///                  instead of filled. Internal horizontal padding
+///                  dropped 8pt → 6pt to keep the pill compact.
 ///
 /// Storage lives in [PractitionerCustomPresets] as a unified list (MRU
 /// cap 8 per controlKey). The first read for a control seeds the
@@ -254,8 +259,10 @@ class _PresetChipRowState extends State<PresetChipRow> {
             crossAxisAlignment: WrapCrossAlignment.center,
             // Wave 18.4 — tightened from 6pt to 4pt so a full canonical
             // + [+] + a custom or two fits one line on iPhone.
-            spacing: 4,
-            runSpacing: 4,
+            // Wave 18.5 — tightened further 4pt → 2pt so three customs
+            // + canonical + [+] all fit one line on iPhone 17 Pro.
+            spacing: 2,
+            runSpacing: 2,
             children: wrapChildren,
           ),
         ),
@@ -264,10 +271,11 @@ class _PresetChipRowState extends State<PresetChipRow> {
 
     // Scrollable variant (DOSE rows): horizontal ListView.
     // Wave 18.4 — padding tightened 6pt → 4pt per chip (same as Wrap).
+    // Wave 18.5 — tightened further 4pt → 2pt to mirror the Wrap branch.
     final children = <Widget>[
       for (final value in presets)
         Padding(
-          padding: const EdgeInsets.only(right: 4),
+          padding: const EdgeInsets.only(right: 2),
           child: _Chip(
             label: _format(value),
             selected: value == widget.currentValue,
@@ -329,7 +337,9 @@ class _Chip extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         child: Container(
           height: 32,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          // Wave 18.5 — horizontal padding tightened 12pt → 10pt so
+          // three customs + canonical + [+] fit one line on iPhone.
+          padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
             color: selected ? accentColor : AppColors.surfaceRaised,
             borderRadius: BorderRadius.circular(16),
@@ -358,11 +368,13 @@ class _Chip extends StatelessWidget {
 /// Long-press is a no-op per Wave 18.1 — only value chips can be
 /// removed, and the tail isn't a value.
 ///
-/// Wave 18.4 — retired the "Custom" text pill. The tail is now a 32×32
-/// dashed coral/sage circle with a centred [Icons.add_rounded] glyph.
-/// Saves ~40pt per chip row so 4 canonicals + [+] + 1-2 customs fit
-/// one line on iPhone. Dashed-border painter's corner radius bumped to
-/// 16 (half the square) so the dashes trace a clean circle.
+/// Wave 18.4 — retired the "Custom" text pill for a 32×32 dashed circle
+/// with a centred [Icons.add_rounded] glyph. Wave 18.5 reshaped the
+/// circle into a proper 32pt-tall, 16pt-radius dashed pill so the tail
+/// sits in the same visual family as the text chips (which are also
+/// 32pt tall with 16pt radius). The pill's width is intrinsic — sized
+/// to the icon + 6pt horizontal padding on each side — so it's still
+/// the narrowest pill in the row but reads as a PILL, not a circle.
 class _CustomTail extends StatelessWidget {
   final Color accentColor;
   final VoidCallback onTap;
@@ -380,15 +392,20 @@ class _CustomTail extends StatelessWidget {
         // Long-press on [+] is explicitly a no-op (Wave 18.1). No
         // haptic, no action.
         behavior: HitTestBehavior.opaque,
-        child: CustomPaint(
-          painter: _DashedBorderPainter(color: accentColor),
-          child: SizedBox(
-            width: 32,
-            height: 32,
+        child: Container(
+          height: 32,
+          // Wave 18.5 — 6pt horizontal padding (was effectively 0 when
+          // the tail was a 32×32 square). Keeps the pill narrower than
+          // a text chip (which has 10pt padding + 2+ digits) so the row
+          // still reads "canonical, canonical, ... canonical, [+],
+          // custom, custom" with the tail as the subtle pill in the mix.
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: CustomPaint(
+            painter: _DashedBorderPainter(color: accentColor),
             child: Center(
               child: Icon(
                 Icons.add_rounded,
-                size: 20,
+                size: 18,
                 color: accentColor,
               ),
             ),
@@ -511,8 +528,12 @@ class _CustomInputRow extends StatelessWidget {
 /// `InlineEditableText` uses for dashed underlines; kept here so the
 /// chip is self-contained.
 ///
-/// Wave 18.4 — with a 32×32 square and radius = shortestSide/2, the
-/// outline becomes a perfect dashed circle.
+/// Wave 18.5 — corner radius fixed at 16pt (matching the text chips'
+/// BorderRadius.circular(16)) so the outline traces a proper pill, not
+/// a circle. With a 32pt-tall container and a radius-16 RRect, the
+/// ends are rounded caps; with any extra horizontal width (from the
+/// 6pt padding around the 18pt icon, roughly 30pt wide total), the
+/// pill reads as "the same family as a text chip, just narrower".
 class _DashedBorderPainter extends CustomPainter {
   final Color color;
 
@@ -525,12 +546,13 @@ class _DashedBorderPainter extends CustomPainter {
       ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke;
 
-    // Radius = shortestSide/2 makes a perfect circle for 32×32 but
-    // degrades gracefully to a pill for any wider-than-tall container.
-    final r = size.shortestSide / 2;
+    // Fixed 16pt radius matches the text chip's BorderRadius.circular(16),
+    // so the dashed tail reads as the same visual family — a pill, not
+    // a circle. For a 32pt-tall × ~30pt-wide container the ends round
+    // out to near-caps (clamped by rect width) without going circular.
     final rrect = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, 0, size.width, size.height),
-      Radius.circular(r),
+      const Radius.circular(16),
     );
 
     // Draw dashed outline by stroking a path with a dash pattern.

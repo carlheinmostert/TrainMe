@@ -165,11 +165,11 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
-        <a href="./2026-04-22-wave18.4-device-qa.html">
+        <a href="./2026-04-22-wave18.5-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 18.4 — polish patch (delta over 18.3)</div>
-              <div class="scope">13-item delta validating two polish fixes from live Wave 18.3 device feedback. (1) The <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[Custom]</code> text pill has been replaced with a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[+]</code> icon inside a 32×32 dashed coral/sage circle — saves ~40pt per chip row so 4 canonicals + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[+]</code> + 1-2 customs fit one line on iPhone. Inter-chip spacing tightened 6pt → 4pt in both Wrap + ListView variants. (2) Section header labels (PLAYBACK / DOSE / PACING / NOTES) bumped 11pt → 13pt so the label reads clearly against the 13-14pt body content; summary stays 11pt to preserve label-vs-summary hierarchy. Run AFTER Wave 18.1 baseline; delta-only.</div>
+              <div class="name">1 · Wave 18.5 — polish + pacing redesign (delta over 18.4)</div>
+              <div class="scope">14-item delta validating four items from Wave 18.4 live device QA + a pacing-section redesign. (1) Chip-row spacing tightened further (2pt gaps, 10pt chip padding) so three customs + canonical + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[+]</code> fit one line on iPhone. (2) <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[+]</code> reshaped from dashed circle into 32pt-tall 16pt-radius dashed pill matching chip family. (3) Section header summary font 11pt → 13pt to balance with 13pt label; differentiation carried by weight + uppercase + colour. (4) PACING redesign: old "Use video length" toggle + "Custom duration" row retired in favour of a unified "Duration per rep" widget. Video exercises with probed length get a segmented control (<em>From video | Manual: Xs</em>); photos or videos without probed length get a single tappable value pill. Manual seeds at 5s × reps. No "Custom duration" copy survives in the card. Storage semantics of <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">customDurationSeconds</code> unchanged — legacy sessions read through. Run AFTER Wave 18.1 baseline; delta-only.</div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -285,6 +285,20 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-04-22-wave18.4-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 18.4 — polish patch (5 fails fed Wave 18.5 + pacing redesign)</div>
+              <div class="date">2026-04-22</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Complete</span>
+              <div class="results" id="wave18-4-results">Loading…</div>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-04-22-wave18.3-device-qa.html">
           <div class="row">
@@ -417,6 +431,7 @@
           .catch(function() { el.textContent = 'No results yet.'; });
       }
 
+      load('2026-04-22-wave18.4-device-qa.results.json', 'wave18-4-results');
       load('2026-04-22-wave18.3-device-qa.results.json', 'wave18-3-results');
       load('2026-04-22-wave18.2-device-qa.results.json', 'wave18-2-results');
       load('2026-04-21-wave4-phase2-device-qa.results.json', 'wave4-phase2-results');
