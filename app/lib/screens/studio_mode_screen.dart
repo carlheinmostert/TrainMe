@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
@@ -13,16 +14,20 @@ import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/path_resolver.dart';
 import '../services/sticky_defaults.dart';
+import '../services/upload_service.dart';
 import '../theme.dart';
 import '../models/treatment.dart';
 import '../services/sync_service.dart';
+import '../widgets/unconsented_treatments_sheet.dart';
 import '../widgets/circuit_control_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
+import '../widgets/preset_chip_row.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/shell_pull_tab.dart';
 import '../widgets/studio_exercise_card.dart';
+import '../widgets/studio_toolbar.dart';
 import '../widgets/treatment_segmented_control.dart';
 import '../widgets/undo_snackbar.dart';
 import '../services/auth_service.dart';
@@ -92,11 +97,20 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// counts down without parent poking.
   Timer? _lockTimer;
 
+  /// Wave 18 — publish + share state moved here from SessionCard so
+  /// the toolbar can drive them directly. [isPublishing] is true for
+  /// the duration of the `UploadService.uploadPlan` call; [_publishError]
+  /// holds the last error string so the error glyph + tap handler work.
+  bool _isPublishing = false;
+  String? _publishError;
+  late UploadService _uploadService;
+
   @override
   void initState() {
     super.initState();
     _session = widget.session;
     _conversionService = ConversionService.instance;
+    _uploadService = UploadService(storage: widget.storage);
     _listenToConversions();
     _lockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
@@ -231,15 +245,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     return DateTime.now().difference(last) >= const Duration(hours: 24);
   }
 
-  bool get _inOpenEditWindow => _session.isPublished && !_isPublishLocked;
-
-  int get _hoursRemainingInWindow {
-    final last = _session.lastPublishedAt;
-    if (last == null) return 0;
-    final remaining =
-        const Duration(hours: 24) - DateTime.now().difference(last);
-    return remaining.inHours.clamp(0, 24);
-  }
+  // `_inOpenEditWindow` / `_hoursRemainingInWindow` retired in Wave 18
+  // along with `_buildPublishLockBadge`. If the edit-countdown chip
+  // resurfaces we'll re-derive them inline — they were one-call
+  // accessors with no lasting intrinsic value outside the chip.
 
   // ---------------------------------------------------------------------------
   // Import from library (multi-select)
@@ -873,59 +882,52 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       backgroundColor: AppColors.surfaceBase,
       foregroundColor: AppColors.textOnDark,
       elevation: 0,
-      actions: [
-        IconButton(
-          onPressed: () => _importFromLibrary(),
-          icon: const Icon(Icons.photo_library_outlined),
-          tooltip: 'Add from library',
-        ),
-        if (_session.exercises.isNotEmpty)
-          // Wave 4 Phase 2 — tap opens the unified preview (web-player
-          // bundle inside a WebView, served by the native URL scheme
-          // handler). Long-press keeps the legacy native
-          // PlanPreviewScreen as an escape hatch during on-device QA.
-          // When parity has held for a week, delete PlanPreviewScreen
-          // + drop this GestureDetector back to a plain IconButton.
-          GestureDetector(
-            onLongPress: () {
-              HapticFeedback.selectionClick();
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => PlanPreviewScreen(session: _session),
-                ),
-              );
-            },
-            child: IconButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => UnifiedPreviewScreen(
-                      session: _session,
-                      storage: widget.storage,
-                    ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.slideshow_outlined),
-              tooltip: 'Preview plan (long-press: legacy native)',
-            ),
-          ),
-      ],
+      // Wave 18 — actions moved to the StudioToolbar below the AppBar.
+      // Import + Preview were the only AppBar icons; Publish + Share
+      // were on SessionCard. The toolbar unifies all four + keeps the
+      // coral-triangle separators + state-aware dim rules in one place.
     );
   }
 
   Widget _buildBody() {
+    // Toolbar renders even when the list is empty so the Import icon
+    // is always reachable. Empty-state message sits below.
+    final toolbar = StudioToolbar(
+      session: _session,
+      isPublishing: _isPublishing,
+      canPublish: _canPublish,
+      isPublishLocked: _isPublishLocked,
+      publishError: _publishError,
+      onImport: _importFromLibrary,
+      onPreview: _openPreview,
+      onPreviewLongPress: _openLegacyPreview,
+      onPublish: _publishFromToolbar,
+      onPublishLockedTap: () => showPublishLockToast(context),
+      onShowPublishError: () {
+        final err = _publishError;
+        if (err != null) _showPublishErrorSnackBar(err);
+      },
+      onShare: _session.isPublished ? _shareFromToolbar : null,
+    );
+
     if (_session.exercises.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: _buildEmptyState(),
-        ),
+      return Column(
+        children: [
+          toolbar,
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: _buildEmptyState(),
+              ),
+            ),
+          ),
+        ],
       );
     }
     return Column(
       children: [
-        _buildSummaryRow(),
+        toolbar,
         Expanded(child: _buildExerciseList()),
       ],
     );
@@ -966,108 +968,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
   }
 
-  Widget _buildSummaryRow() {
-    final nonRest =
-        _session.exercises.where((e) => !e.isRest).length;
-    final totalDuration = _session.estimatedTotalDurationSeconds;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: Row(
-        children: [
-          _Chip(label: '$nonRest exercises'),
-          const SizedBox(width: 8),
-          if (totalDuration > 0)
-            _Chip(label: '~${formatDuration(totalDuration)}'),
-          const Spacer(),
-          // Viewing-preferences moved to a client-level chip on
-          // ClientSessionsScreen (Wave 3). The Studio summary row now
-          // carries the publish-lock badge only.
-          _buildPublishLockBadge(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPublishLockBadge() {
-    if (!_session.isPublished) return const SizedBox.shrink();
-    if (_inOpenEditWindow) {
-      final hours = _hoursRemainingInWindow;
-      final warning = hours < 1;
-      return Container(
-        height: 28,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceRaised,
-          borderRadius: BorderRadius.circular(9999),
-          border: Border.all(
-            color: warning
-                ? AppColors.warning
-                : AppColors.surfaceBorder,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.edit_outlined,
-              size: 14,
-              color: warning
-                  ? AppColors.warning
-                  : AppColors.textSecondaryOnDark,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              'Edits open · ${hours}h left',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.5,
-                color: warning
-                    ? AppColors.warning
-                    : AppColors.textSecondaryOnDark,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    // Locked
-    return GestureDetector(
-      onTap: () => showPublishLockToast(context),
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        height: 28,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceRaised,
-          borderRadius: BorderRadius.circular(9999),
-          border: Border.all(color: AppColors.surfaceBorder),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.lock_outline,
-              size: 14,
-              color: AppColors.textSecondaryOnDark,
-            ),
-            SizedBox(width: 6),
-            Text(
-              'Edit-only · new structure costs 1 credit',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.5,
-                color: AppColors.textSecondaryOnDark,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // Wave 18 — retired. The exercise-count summary chip + publish-lock
+  // badge lived here; the new StudioToolbar replaces both. The lock
+  // badge's affordance moved into the Publish-icon overlay (small lock
+  // glyph) + `onPublishLockedTap` still fires `showPublishLockToast`.
+  // If the edit-open countdown proves useful we can re-introduce it as
+  // a pill in the AppBar title area; it's currently accepted as lost
+  // real estate per the Wave 18 spec.
 
   Widget _buildExerciseList() {
     final exercises = _session.exercises;
@@ -1285,7 +1192,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final exercise = _session.exercises[dataIndex];
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
-      height: 48,
+      height: 52,
       decoration: BoxDecoration(
         color: AppColors.surfaceRaised,
         borderRadius: BorderRadius.circular(12),
@@ -1550,6 +1457,189 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Publish + Share — Wave 18 (moved from SessionCard)
+  // ---------------------------------------------------------------------------
+
+  /// True when publish is safe to fire: has exercises, no conversions in
+  /// flight, not currently publishing. Lifted verbatim from the retired
+  /// SessionCard rules.
+  bool get _canPublish {
+    final hasConversionsRunning = _session.exercises.any((e) =>
+        !e.isRest &&
+        (e.conversionStatus == ConversionStatus.pending ||
+            e.conversionStatus == ConversionStatus.converting));
+    final hasExercises =
+        _session.exercises.where((e) => !e.isRest).isNotEmpty;
+    return hasExercises && !hasConversionsRunning && !_isPublishing;
+  }
+
+  Future<void> _publishFromToolbar() async {
+    // Extra guard — archive compression can trail the line-drawing
+    // conversion; publishing before the raw-archive lands would
+    // silently skip B&W / Original playback. Match the client-sessions
+    // check so the toolbar never regresses that fix.
+    final hasConversionsRunning = _session.exercises.any((e) =>
+        !e.isRest &&
+        (e.conversionStatus == ConversionStatus.pending ||
+            e.conversionStatus == ConversionStatus.converting));
+    final hasArchiveInFlight = _session.exercises.any((e) =>
+        !e.isRest &&
+        e.mediaType == MediaType.video &&
+        e.conversionStatus == ConversionStatus.done &&
+        (e.archiveFilePath == null || e.archiveFilePath!.isEmpty));
+    if (hasConversionsRunning || hasArchiveInFlight) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(hasArchiveInFlight
+                ? 'Still archiving videos — one moment…'
+                : 'Wait for conversions to finish before publishing'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _isPublishing = true;
+      _publishError = null;
+    });
+    PublishResult? result;
+    try {
+      final fullSession = await widget.storage.getSession(_session.id);
+      if (fullSession == null) return;
+      result = await _uploadService.uploadPlan(fullSession);
+    } catch (e) {
+      result = PublishResult.networkFailed(error: e);
+    } finally {
+      if (mounted) {
+        // Refresh local state — `uploadPlan` rewrites the session row.
+        await _refreshSession();
+        setState(() => _isPublishing = false);
+      }
+    }
+
+    if (!mounted) return;
+    if (result.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Published v${result.version}'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } else if (result.isUnconsentedTreatments) {
+      await _handleUnconsentedTreatments(result.unconsented!);
+    } else {
+      final errStr = result.toErrorString();
+      setState(() => _publishError = errStr);
+      _showPublishErrorSnackBar(errStr);
+    }
+  }
+
+  Future<void> _handleUnconsentedTreatments(
+    UnconsentedTreatmentsException exc,
+  ) async {
+    // For the Studio-origin publish we don't have the client row in
+    // scope (ClientSessionsScreen owns it). Show the bottom sheet
+    // without flipping consent locally — the RPC does that server-
+    // side. If the practitioner picks "grant + retry", re-fire
+    // publish; otherwise leave the error for Studio to surface.
+    final action = await showUnconsentedTreatmentsSheet(
+      context,
+      exception: exc,
+      clientId: _session.clientId ?? '',
+      currentGrayscaleAllowed: false,
+      currentColourAllowed: false,
+    );
+    if (!mounted) return;
+    switch (action) {
+      case UnconsentedTreatmentsAction.grantAndPublish:
+        await _publishFromToolbar();
+      case UnconsentedTreatmentsAction.backToStudio:
+      case UnconsentedTreatmentsAction.dismissed:
+        // No-op — practitioner dismissed the sheet.
+        break;
+    }
+  }
+
+  void _showPublishErrorSnackBar(String error) {
+    final fullText = 'Publish failed: $error';
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () async {
+              await Clipboard.setData(ClipboardData(text: fullText));
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Error copied'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            child: Text(
+              fullText,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          duration: const Duration(seconds: 12),
+          backgroundColor: AppColors.error,
+          action: SnackBarAction(
+            label: 'Retry',
+            textColor: Colors.white,
+            onPressed: _publishFromToolbar,
+          ),
+        ),
+      );
+  }
+
+  Future<void> _shareFromToolbar() async {
+    final url = _session.planUrl;
+    if (url == null) return;
+    try {
+      final box = context.findRenderObject() as RenderBox?;
+      await Share.share(
+        url,
+        sharePositionOrigin: box != null
+            ? box.localToGlobal(Offset.zero) & box.size
+            : const Rect.fromLTWH(0, 0, 100, 100),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Share failed: $e')),
+        );
+      }
+    }
+  }
+
+  void _openPreview() {
+    HapticFeedback.selectionClick();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => UnifiedPreviewScreen(
+          session: _session,
+          storage: widget.storage,
+        ),
+      ),
+    );
+  }
+
+  void _openLegacyPreview() {
+    HapticFeedback.selectionClick();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlanPreviewScreen(session: _session),
+      ),
+    );
+  }
+
   Future<void> _openMediaViewer(ExerciseCapture exercise) async {
     if (exercise.isRest) return;
     // Build a list of the non-rest exercises so the viewer can page
@@ -1591,38 +1681,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 }
 
 // -----------------------------------------------------------------------------
-// Summary chip
-// -----------------------------------------------------------------------------
-
-class _Chip extends StatelessWidget {
-  final String label;
-  const _Chip({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 28,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(9999),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.5,
-          color: AppColors.textSecondaryOnDark,
-        ),
-      ),
-    );
-  }
-}
-
-// -----------------------------------------------------------------------------
 // Rest bar — inline compact widget
 // -----------------------------------------------------------------------------
 
@@ -1642,23 +1700,10 @@ class _RestBar extends StatefulWidget {
 }
 
 class _RestBarState extends State<_RestBar> {
-  late double _duration;
+  int get _duration => widget.exercise.holdSeconds ?? 30;
 
-  @override
-  void initState() {
-    super.initState();
-    _duration = (widget.exercise.holdSeconds ?? 30).toDouble();
-  }
-
-  @override
-  void didUpdateWidget(covariant _RestBar old) {
-    super.didUpdateWidget(old);
-    if (old.exercise.id != widget.exercise.id) {
-      _duration = (widget.exercise.holdSeconds ?? 30).toDouble();
-    }
-  }
-
-  String _format(int seconds) {
+  static String _format(num v) {
+    final seconds = v.round();
     if (seconds < 60) return '${seconds}s';
     final m = seconds ~/ 60;
     final s = seconds % 60;
@@ -1668,74 +1713,48 @@ class _RestBarState extends State<_RestBar> {
 
   @override
   Widget build(BuildContext context) {
-    final seconds = _duration.round();
-    return Row(
-      children: [
-        const Padding(
-          padding: EdgeInsets.only(left: 12),
-          child: Icon(
-            Icons.self_improvement,
-            size: 18,
-            color: AppColors.rest,
-          ),
-        ),
-        const SizedBox(width: 8),
-        const Text(
-          'Rest',
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: AppColors.rest,
-          ),
-        ),
-        Expanded(
-          child: SliderTheme(
-            data: SliderThemeData(
-              trackHeight: 4,
-              activeTrackColor: AppColors.rest,
-              inactiveTrackColor:
-                  AppColors.rest.withValues(alpha: 0.2),
-              thumbColor: AppColors.rest,
-              overlayColor: AppColors.rest.withValues(alpha: 0.12),
-              thumbShape:
-                  const RoundSliderThumbShape(enabledThumbRadius: 6),
-              overlayShape:
-                  const RoundSliderOverlayShape(overlayRadius: 14),
-              trackShape: const RoundedRectSliderTrackShape(),
-            ),
-            child: Slider(
-              value: _duration,
-              min: 5,
-              max: 300,
-              divisions: 59,
-              onChanged: (v) {
-                setState(() => _duration = v);
-                widget.onUpdate(
-                  widget.exercise.copyWith(holdSeconds: v.round()),
-                );
-              },
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(left: 4, right: 8),
+            child: Icon(
+              Icons.self_improvement,
+              size: 18,
+              color: AppColors.rest,
             ),
           ),
-        ),
-        SizedBox(
-          width: 42,
-          child: Text(
-            _format(seconds),
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              fontFamily: 'JetBrainsMono',
-              fontFamilyFallback: ['Menlo', 'Courier'],
-              fontSize: 12,
+          const Text(
+            'Rest',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
               fontWeight: FontWeight.w600,
               color: AppColors.rest,
             ),
           ),
-        ),
-        // Delete × removed — swipe-left on the whole rest row now
-        // triggers the same onDelete via the outer Dismissible in
-        // _buildRowWithContext. Consistent with exercise cards.
-      ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: PresetChipRow(
+              controlKey: 'rest',
+              canonicalPresets: const <num>[15, 30, 60, 90],
+              currentValue: _duration,
+              onChanged: (v) {
+                widget.onUpdate(
+                  widget.exercise.copyWith(holdSeconds: v.round()),
+                );
+              },
+              displayFormat: _format,
+              accentColor: AppColors.rest,
+              undoLabel: 'rest',
+            ),
+          ),
+          // Delete × removed — swipe-left on the whole rest row still
+          // triggers onDelete via the outer Dismissible in
+          // _buildRowWithContext. Consistent with exercise cards.
+        ],
+      ),
     );
   }
 }
@@ -1843,11 +1862,13 @@ class _MediaViewerState extends State<_MediaViewer> {
   VoidCallback? _videoListener;
   bool _lastKnownIsPlaying = false;
 
-  /// Runtime mute state. Decoupled from play/pause — tapping the
-  /// speaker button toggles volume between 0.0 and 1.0 without
-  /// touching `isPlaying` (Wave 3 fix — test items 3 / 4 / 5).
-  /// Persists across page / treatment switches within the same
-  /// viewer session.
+  /// Wave 18 — the mute toggle is now a PERSISTENT per-exercise
+  /// setting, not a transient viewer flag. [_isMuted] mirrors the
+  /// current exercise's `!includeAudio` at init time and on every
+  /// page change; tapping the pill writes through to
+  /// `includeAudio` via [widget.onExerciseUpdate] AND
+  /// `LocalStorageService.saveExercise` for durability across
+  /// viewer-close-before-refresh.
   bool _isMuted = false;
 
   ExerciseCapture get _current => _exercises[_currentIndex];
@@ -1884,6 +1905,9 @@ class _MediaViewerState extends State<_MediaViewer> {
     // lands on the treatment the practitioner last chose. Falls back to
     // Line when `preferredTreatment == null` (the default).
     _treatment = _effectiveTreatmentFor(_current);
+    // Wave 18 — mute is now a persistent setting, not a transient flag.
+    // Seed from the current exercise's includeAudio (muted = !includeAudio).
+    _isMuted = !_current.includeAudio;
     _initVideoForCurrent();
   }
 
@@ -2017,6 +2041,10 @@ class _MediaViewerState extends State<_MediaViewer> {
       // this exercise has never been cycled, preferredTreatment is
       // null and we render Line (the safe baseline).
       _treatment = _effectiveTreatmentFor(_current);
+      // Wave 18 — mute also re-reads from THIS exercise's
+      // includeAudio, so swiping to a neighbour updates the pill
+      // glyph + the video volume in lockstep.
+      _isMuted = !_current.includeAudio;
     });
     _initVideoForCurrent();
   }
@@ -2102,17 +2130,35 @@ class _MediaViewerState extends State<_MediaViewer> {
     _showControlsThenMaybeIdleFade();
   }
 
-  /// Toggle the runtime mute state. Decoupled from play/pause — the
-  /// video keeps playing through a mute tap (Wave 3 test items 3/4/5).
-  /// Also bumps the control-fade timer so the speaker icon doesn't
-  /// vanish mid-thought.
+  /// Toggle the mute state. Decoupled from play/pause — the video
+  /// keeps playing through a mute tap (Wave 3 decouple).
+  ///
+  /// Wave 18 — the tap now PERSISTS. `includeAudio` flips on the
+  /// current exercise, the change propagates up via
+  /// [widget.onExerciseUpdate] (Studio card mirror), and we fire-
+  /// and-forget a [LocalStorageService.saveExercise] so the write
+  /// survives an immediate close before the Studio refresh runs.
   void _toggleMute() {
+    HapticFeedback.selectionClick();
+    final nextMuted = !_isMuted;
+    setState(() => _isMuted = nextMuted);
     final c = _videoController;
-    setState(() => _isMuted = !_isMuted);
     if (c != null && _videoInitialized) {
-      c.setVolume(_isMuted ? 0.0 : 1.0);
+      c.setVolume(nextMuted ? 0.0 : 1.0);
     }
     _showControlsThenMaybeIdleFade();
+
+    // Persist through to the exercise row + parent list.
+    final exercise = _current;
+    final updated = exercise.copyWith(includeAudio: !nextMuted);
+    _exercises[_currentIndex] = updated;
+    final cb = widget.onExerciseUpdate;
+    if (cb != null) cb(updated);
+    unawaited(
+      SyncService.instance.storage.saveExercise(updated).catchError((e, _) {
+        debugPrint('MediaViewer: saveExercise(includeAudio) failed: $e');
+      }),
+    );
   }
 
   String _headerLabel(ExerciseCapture e, int index) {
@@ -2309,28 +2355,20 @@ class _MediaViewerState extends State<_MediaViewer> {
                 ),
               ),
             ),
-          // Mute toggle — sits to the left of the close button. Only
-          // rendered for video exercises (stills have nothing to mute).
-          // Tap flips volume without affecting playback (Wave 3 decouple
-          // of mute from play/pause — test items 3 / 4 / 5).
+          // Wave 18 — mute is now a persistent per-exercise setting.
+          // Bottom-left coral pill, labelled "Muted" / "Audio on" so
+          // the current state reads at a glance without the
+          // volume-glyph ambiguity. Tap persists via
+          // LocalStorageService.saveExercise; swiping to a neighbour
+          // re-reads from THAT exercise's includeAudio so the pill
+          // tracks per-exercise state.
           if (_isVideo(_current) && _videoInitialized)
             Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              right: 56,
-              child: IconButton(
-                onPressed: _toggleMute,
-                icon: Icon(
-                  _isMuted
-                      ? Icons.volume_off_rounded
-                      : Icons.volume_up_rounded,
-                  color: Colors.white,
-                  size: 24,
-                  semanticLabel: _isMuted ? 'Unmute audio' : 'Mute audio',
-                ),
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.black54,
-                ),
-                tooltip: _isMuted ? 'Unmute' : 'Mute',
+              left: 20,
+              bottom: MediaQuery.of(context).padding.bottom + 12,
+              child: _MutePill(
+                isMuted: _isMuted,
+                onTap: _toggleMute,
               ),
             ),
           Positioned(
@@ -2485,11 +2523,69 @@ class _MediaViewerDotIndicator extends StatelessWidget {
           width: isActive ? 24 : 8,
           height: 8,
           decoration: BoxDecoration(
-            color: isActive ? Colors.white : Colors.white30,
+            // Wave 18 — active dot is coral; inactive is a muted
+            // coral-tint so the pager reads in brand.
+            color: isActive
+                ? AppColors.primary
+                : AppColors.primary.withValues(alpha: 0.25),
             borderRadius: BorderRadius.circular(4),
           ),
         );
       }),
+    );
+  }
+}
+
+/// Wave 18 — persistent mute pill for [_MediaViewer]. Coral fill when
+/// muted (volume off), coral outline when audio is on. The glyph +
+/// label both change so the state reads at a glance without squinting
+/// at a speaker icon.
+class _MutePill extends StatelessWidget {
+  final bool isMuted;
+  final VoidCallback onTap;
+
+  const _MutePill({required this.isMuted, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final iconData =
+        isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded;
+    final label = isMuted ? 'Muted' : 'Audio on';
+    final fillColor = isMuted ? AppColors.primary : Colors.transparent;
+    final textColor = isMuted ? Colors.white : AppColors.primary;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: fillColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: AppColors.primary,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(iconData, color: textColor, size: 16),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

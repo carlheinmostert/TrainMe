@@ -9,6 +9,7 @@ import 'theme/flags.dart';
 import 'services/local_storage_service.dart';
 import 'services/conversion_service.dart';
 import 'services/path_resolver.dart';
+import 'services/practitioner_custom_presets.dart';
 import 'services/sync_service.dart';
 import 'services/unified_preview_scheme_bridge.dart';
 import 'screens/auth_gate.dart';
@@ -72,6 +73,11 @@ void main() async {
     // as soon as the WebView starts resolving its bundle; the channel
     // must be wired up BEFORE the first UnifiedPreviewScreen mounts.
     UnifiedPreviewSchemeBridge.instance.install();
+
+    // Wave 18 — seed the practitioner-wide custom preset store so
+    // PresetChipRow instances render the MRU chips on first paint
+    // without waiting for an async load.
+    await PractitionerCustomPresets.init();
 
     runApp(TrainMeApp(storage: storage));
   } catch (e, stack) {

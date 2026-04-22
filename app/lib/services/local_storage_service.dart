@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -42,6 +43,28 @@ class LocalStorageService {
       onCreate: _createTables,
       onUpgrade: _migrateTables,
     );
+  }
+
+  /// Test-only factory — opens the DB at a caller-supplied path with the
+  /// same onCreate hook as production. Used by the regression suite
+  /// under `app/test/` to spin up an in-memory SQLite instance (via
+  /// `sqflite_common_ffi`) without dragging path_provider into the test
+  /// harness.
+  @visibleForTesting
+  static Future<LocalStorageService> openForTest({
+    required String path,
+    required DatabaseFactory factory,
+  }) async {
+    final svc = LocalStorageService();
+    svc._db = await factory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: _dbVersion,
+        onCreate: svc._createTables,
+        onUpgrade: svc._migrateTables,
+      ),
+    );
+    return svc;
   }
 
   /// Create the schema on first launch.
@@ -694,12 +717,94 @@ class LocalStorageService {
   // ---------------------------------------------------------------------------
 
   /// Insert or update a single exercise capture.
+  ///
+  /// Wave 18 — also stamps the parent session's [Session.lastContentEditAt]
+  /// inside the same transaction WHEN any persisted user-content field
+  /// actually changed. This closes a class of bugs where a write path
+  /// (camera-mode capture, media-viewer mute toggle, treatment pref)
+  /// updated the exercise row but never touched the session timestamp,
+  /// leaving [Session.hasUnpublishedContentChanges] false and the Studio
+  /// publish indicator stuck on "Published" even though the plan was
+  /// dirty. See `StudioModeScreen._touchAndPush` for the original
+  /// Studio-side stamp — both paths exist belt-and-braces.
+  ///
+  /// Critically, pure conversion-progress updates
+  /// ([ExerciseCapture.conversionStatus], [convertedFilePath],
+  /// [thumbnailPath], [videoDurationMs], [archiveFilePath], [archivedAt],
+  /// [rawArchiveUploadedAt]) are NOT user edits and MUST NOT dirty the
+  /// session; the line-drawing pipeline writes these many times per
+  /// capture and every one of those would re-open the publish-locked
+  /// window. The field-delta check below enumerates exactly which
+  /// columns count as user content.
   Future<void> saveExercise(ExerciseCapture exercise) async {
-    await db.insert(
-      'exercises',
-      exercise.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.transaction((txn) async {
+      final existingRows = await txn.query(
+        'exercises',
+        where: 'id = ?',
+        whereArgs: [exercise.id],
+        limit: 1,
+      );
+      final existing = existingRows.isEmpty
+          ? null
+          : ExerciseCapture.fromMap(existingRows.first);
+
+      await txn.insert(
+        'exercises',
+        exercise.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      // Brand-new row (e.g. a fresh Camera capture) counts as a user
+      // content edit — even without a prior row to compare against, the
+      // act of adding an exercise must flag the session dirty. Existing
+      // rows only flip the stamp when a content-shaped field actually
+      // changed; conversion-status churn alone is a no-op.
+      final contentChanged =
+          existing == null || _isUserContentDelta(existing, exercise);
+      final sessionId = exercise.sessionId;
+      if (contentChanged && sessionId != null && sessionId.isNotEmpty) {
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        await txn.update(
+          'sessions',
+          {'last_content_edit_at': nowMs},
+          where: 'id = ?',
+          whereArgs: [sessionId],
+        );
+      }
+    });
+  }
+
+  /// Returns true when [next] differs from [prev] in any field that the
+  /// practitioner would recognise as a user-authored edit to plan content.
+  ///
+  /// Included: name, position, reps, sets, holdSeconds, mediaType,
+  /// customDurationSeconds, prepSeconds, includeAudio, preferredTreatment,
+  /// notes, circuitId.
+  ///
+  /// Excluded (deliberately): conversionStatus, convertedFilePath,
+  /// thumbnailPath, videoDurationMs, archiveFilePath, archivedAt,
+  /// rawArchiveUploadedAt, rawFilePath. These are pipeline byproducts
+  /// and fire many times during conversion; treating them as edits
+  /// would perma-dirty every session mid-capture.
+  static bool _isUserContentDelta(
+    ExerciseCapture prev,
+    ExerciseCapture next,
+  ) {
+    if (prev.name != next.name) return true;
+    if (prev.position != next.position) return true;
+    if (prev.reps != next.reps) return true;
+    if (prev.sets != next.sets) return true;
+    if (prev.holdSeconds != next.holdSeconds) return true;
+    if (prev.mediaType != next.mediaType) return true;
+    if (prev.customDurationSeconds != next.customDurationSeconds) {
+      return true;
+    }
+    if (prev.prepSeconds != next.prepSeconds) return true;
+    if (prev.includeAudio != next.includeAudio) return true;
+    if (prev.preferredTreatment != next.preferredTreatment) return true;
+    if ((prev.notes ?? '') != (next.notes ?? '')) return true;
+    if (prev.circuitId != next.circuitId) return true;
+    return false;
   }
 
   /// Batch insert or update multiple exercises in a single transaction.

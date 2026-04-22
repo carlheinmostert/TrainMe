@@ -3,21 +3,17 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../models/client.dart';
-import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/auth_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/sync_service.dart';
-import '../services/upload_service.dart';
 import '../theme.dart';
 import '../utils/session_title.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/powered_by_footer.dart';
 import '../widgets/session_card.dart';
-import '../widgets/unconsented_treatments_sheet.dart';
 import 'session_shell_screen.dart';
 
 /// One client's page. Lists every local session that belongs to this
@@ -62,17 +58,16 @@ class ClientSessionsScreen extends StatefulWidget {
 
 class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   late PracticeClient _client;
-  late UploadService _uploadService;
 
   List<Session> _sessions = const [];
   bool _loading = true;
   String? _loadError;
 
-  /// Sessions currently being published (spinner in-card).
+  /// Kept for legacy wiring — Wave 18 moved publish to the Studio
+  /// toolbar. No publish paths currently flip this set from
+  /// ClientSessionsScreen, but the card still accepts the flag so a
+  /// future parallel-publish UI has a home.
   final Set<String> _publishingIds = <String>{};
-
-  /// Last known publish error per session id. Null-stripped on reload.
-  final Map<String, String> _publishErrors = <String, String>{};
 
   /// True while a rename RPC is in-flight. Disables the save path so
   /// double-taps don't produce duplicate calls.
@@ -88,7 +83,6 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   void initState() {
     super.initState();
     _client = widget.client;
-    _uploadService = UploadService(storage: widget.storage);
     _nameController = TextEditingController(text: _client.name);
     _loadSessions();
   }
@@ -124,25 +118,9 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
               (s.clientId == null && s.clientName == _client.name))
           .toList(growable: false);
 
-      // Fetch publish errors in parallel, skipped silently if schema
-      // doesn't carry the column yet.
-      final errorEntries = await Future.wait(
-        filtered.map((s) async {
-          final err = await _uploadService.getLastPublishError(s.id);
-          return MapEntry(s.id, err);
-        }),
-      );
-
       if (!mounted) return;
       setState(() {
         _sessions = filtered;
-        _publishErrors
-          ..clear()
-          ..addEntries(
-            errorEntries
-                .where((e) => e.value != null)
-                .map((e) => MapEntry(e.key, e.value!)),
-          );
         _loading = false;
         _loadError = null;
       });
@@ -152,7 +130,6 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
       if (!mounted) return;
       setState(() {
         _sessions = const [];
-        _publishErrors.clear();
         _loading = false;
         _loadError = truncated;
       });
@@ -219,174 +196,15 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
     );
   }
 
-  Future<void> _publishSession(Session session) async {
-    // Block publish while line-drawing conversion OR raw-archive
-    // compression is still in flight. Without the archive-readiness
-    // check, a publish can run with exercise.archiveFilePath still
-    // null (conversion done, archive compression running as a separate
-    // async pass in ConversionService._archiveRawVideo). That makes
-    // UploadService._uploadRawArchives silently skip the exercise, the
-    // raw-archive bucket never gets the file, and the web player shows
-    // only the line drawing — no B&W / Original treatment available.
-    final hasConversionsRunning = session.exercises.any((e) =>
-        !e.isRest &&
-        (e.conversionStatus == ConversionStatus.pending ||
-            e.conversionStatus == ConversionStatus.converting));
-    final hasArchiveInFlight = session.exercises.any((e) =>
-        !e.isRest &&
-        e.mediaType == MediaType.video &&
-        e.conversionStatus == ConversionStatus.done &&
-        (e.archiveFilePath == null || e.archiveFilePath!.isEmpty));
-    if (hasConversionsRunning || hasArchiveInFlight) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(hasArchiveInFlight
-                ? 'Still archiving videos — one moment…'
-                : 'Wait for conversions to finish before publishing'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-      return;
-    }
-
-    setState(() => _publishingIds.add(session.id));
-
-    PublishResult? result;
-    try {
-      final fullSession = await widget.storage.getSession(session.id);
-      if (fullSession == null) return;
-      result = await _uploadService.uploadPlan(fullSession);
-    } catch (e) {
-      result = PublishResult.networkFailed(error: e);
-    } finally {
-      if (mounted) {
-        setState(() => _publishingIds.remove(session.id));
-        await _loadSessions();
-      }
-    }
-
-    if (!mounted) return;
-    if (result.success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Published v${result.version}'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    } else if (result.isUnconsentedTreatments) {
-      await _handleUnconsentedTreatments(session, result.unconsented!);
-    } else {
-      _showPublishErrorSnackBar(session, result.toErrorString());
-    }
-  }
-
-  /// Wave 16 / Milestone V — the publish flow rejected the plan
-  /// because one or more exercises had a `preferred_treatment` the
-  /// client hasn't consented to. Show the unblock bottom-sheet and
-  /// react to the practitioner's choice:
-  ///
-  ///   * [UnconsentedTreatmentsAction.grantAndPublish] — the sheet
-  ///     has already flipped the consent flags on the client via
-  ///     `set_client_video_consent`; update our in-memory state + the
-  ///     local cache (so the header chip repaints) and retry publish.
-  ///   * [UnconsentedTreatmentsAction.backToStudio] /
-  ///     [UnconsentedTreatmentsAction.dismissed] — nothing else to do.
-  ///     Practitioner will edit per-exercise preferences from Studio.
-  Future<void> _handleUnconsentedTreatments(
-    Session session,
-    UnconsentedTreatmentsException exc,
-  ) async {
-    final action = await showUnconsentedTreatmentsSheet(
-      context,
-      exception: exc,
-      clientId: _client.id,
-      currentGrayscaleAllowed: _client.grayscaleAllowed,
-      currentColourAllowed: _client.colourAllowed,
-    );
-    if (!mounted) return;
-    switch (action) {
-      case UnconsentedTreatmentsAction.grantAndPublish:
-        // Reflect the new consent state locally so subsequent publish
-        // attempts (and the consent chip) see the updated values
-        // without waiting for the next SyncService pull.
-        final wantedKeys =
-            exc.violations.map((v) => v.consentKey).toSet();
-        setState(() {
-          _client = _client.copyWith(
-            grayscaleAllowed: _client.grayscaleAllowed ||
-                wantedKeys.contains('grayscale'),
-            colourAllowed: _client.colourAllowed ||
-                wantedKeys.contains('original'),
-          );
-        });
-        // Retry publish. The server-side guard has already seen the
-        // flipped consent row via the RPC's SECURITY DEFINER read, so
-        // this call should now sail through.
-        await _publishSession(session);
-      case UnconsentedTreatmentsAction.backToStudio:
-      case UnconsentedTreatmentsAction.dismissed:
-        // No-op. Practitioner dismissed the sheet; the publish did
-        // not fire and no state changed.
-        break;
-    }
-  }
-
-  void _showPublishErrorSnackBar(Session session, String error) {
-    final fullText = 'Publish failed: $error';
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () async {
-              await Clipboard.setData(ClipboardData(text: fullText));
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Error copied'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
-            child: Text(
-              fullText,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          duration: const Duration(seconds: 12),
-          backgroundColor: AppColors.error,
-          action: SnackBarAction(
-            label: 'Retry',
-            textColor: Colors.white,
-            onPressed: () => _publishSession(session),
-          ),
-        ),
-      );
-  }
-
-  Future<void> _shareSession(Session session) async {
-    final url = session.planUrl;
-    if (url == null) return;
-    try {
-      final box = context.findRenderObject() as RenderBox?;
-      await Share.share(
-        url,
-        sharePositionOrigin: box != null
-            ? box.localToGlobal(Offset.zero) & box.size
-            : const Rect.fromLTWH(0, 0, 100, 100),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Share failed: $e')),
-        );
-      }
-    }
-  }
+  // Wave 18 — publish + share moved to the Studio toolbar. The
+  // ClientSessionsScreen remains a pure list: create / delete / open,
+  // nothing else. If a session is marked dirty by the new
+  // saveExercise stamp, the practitioner will see the coral indicator
+  // via Session.hasUnpublishedContentChanges once they're inside
+  // Studio. UploadService + `_publishSession` / `_shareSession` /
+  // `_showPublishErrorSnackBar` / `_handleUnconsentedTreatments` /
+  // `unconsented_treatments_sheet` were all deleted here — their
+  // counterparts live in StudioModeScreen now.
 
   // ---------------------------------------------------------------------------
   // Actions — client
@@ -652,15 +470,8 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
           Row(
             children: [
               _ConsentChip(label: 'Client consent', onTap: _openConsent),
-              const SizedBox(width: 10),
-              Text(
-                '${_sessions.length} session${_sessions.length == 1 ? '' : 's'}',
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  color: AppColors.textSecondaryOnDark,
-                ),
-              ),
+              // Wave 18 — removed the "N sessions" count. The list
+              // itself is the count; doubling it here was redundant.
             ],
           ),
         ],
@@ -845,15 +656,8 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
           return SessionCard(
             session: session,
             isPublishing: _publishingIds.contains(session.id),
-            publishError: _publishErrors[session.id],
             onOpen: () => _openSession(session),
             onDelete: () => _deleteSession(session),
-            onPublish: () => _publishSession(session),
-            onShare: session.isPublished ? () => _shareSession(session) : null,
-            onShowPublishError: () => _showPublishErrorSnackBar(
-              session,
-              _publishErrors[session.id] ?? 'Unknown error',
-            ),
           );
         },
       ),
