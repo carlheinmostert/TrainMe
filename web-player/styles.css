@@ -262,18 +262,18 @@ body {
 /* Progress label retired; the progress-pill matrix carries position. */
 .progress-label { display: none !important; }
 
-/* === Workout timeline strip (row 2) ==============================
-   Thin row above the active-slide header. Start wall-clock left-aligned,
-   projected finish time right-aligned, connected by a hairline rule.
-   Before Start Workout both slots show "--:--" so the row doesn't
-   reflow when the workout begins. */
+/* === Workout timeline strip (row 3 — Wave 19.3 sits just above matrix)
+   Thin row with the start wall-clock left-aligned, the live remaining
+   total centred, and the projected finish wall-clock right-aligned, all
+   connected by hairline rules. Pre-start the edges show "--:--" and the
+   centre shows "0:00" so the row doesn't reflow on kickoff. */
 .workout-timeline-bar {
   flex-shrink: 0;
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 10px;
-  padding: 4px 16px 2px;
+  padding: 2px 16px 4px;
   font-family: var(--f-mono);
   font-size: 11px;
   letter-spacing: 0.1px;
@@ -291,6 +291,19 @@ body {
   font-weight: 500;
   color: var(--c-ink-secondary);
   flex-shrink: 0;
+}
+
+/* Centred live remaining-total — the workout headline number. Coral +
+   slightly heavier weight so it outranks the two wall-clock bookends. */
+.workout-timeline-total {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--c-brand);
+  letter-spacing: 0.2px;
+}
+.workout-timeline-total.is-prep-flashing {
+  animation: prep-flash 1s steps(2, end) infinite;
 }
 
 .workout-timeline-rule {
@@ -1397,13 +1410,21 @@ body.is-fullscreen.chrome-visible .footer {
   opacity: 1;
 }
 
-/* In fullscreen the app fills the viewport, so drop the pill max-widths
-   and let flex-distribute scale pills to the full width. Otherwise the
-   matrix clamps at ~480px and leaves the right half of the screen empty. */
+/* Fullscreen: drop the 32px max-width cap AND weight each pill by its
+   estimated duration so the matrix reads as a proportional Gantt strip —
+   a 60s exercise is twice as wide as a 30s rest. `--pill-weight` is set
+   inline on each .matrix-col by buildProgressMatrix(); circuit blocks
+   use `--circuit-weight` = Σ exercise durations of one round. Outside
+   fullscreen the existing `flex: 1 1 0` / `flex: var(--circuit-cols)`
+   rules win so short plans still render as equal-width pills. */
 body.is-fullscreen .matrix-col {
+  flex: var(--pill-weight, 1) 1 0;
+  min-width: 12px;
   max-width: none;
 }
 body.is-fullscreen .matrix-circuit {
+  flex: var(--circuit-weight, var(--circuit-cols, 1)) 1 0;
+  min-width: calc(12px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1));
   max-width: none;
 }
 

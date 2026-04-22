@@ -191,6 +191,7 @@ const $btnNext = document.getElementById('btn-next');
 // estimates live inside each pill.
 const $timelineBar = document.getElementById('workout-timeline-bar');
 const $timelineStart = document.getElementById('workout-timeline-start');
+const $timelineTotal = document.getElementById('workout-timeline-total');
 const $timelineEnd = document.getElementById('workout-timeline-end');
 const $activeSlideHeader = document.getElementById('active-slide-header');
 const $activeSlideTitle = document.getElementById('active-slide-title');
@@ -479,12 +480,10 @@ function updateActiveSlideHeader() {
   const isRest = slide.media_type === 'rest';
   const name = isRest ? 'Rest' : (slide.name || `Exercise ${currentIndex + 1}`);
   const grammar = buildDecodedGrammar(slide);
-  const base = grammar ? `${name} · ${grammar}` : name;
-  // Wave 19.2: remaining time for the active slide rides in parens at the
-  // end of the title. Pre-workout shows the full estimated duration; running
-  // / paused / prep reflects the live tick counter.
-  const remainingLabel = formatTime(Math.max(0, calculateActiveSlideRemainingSeconds()));
-  $activeSlideTitle.textContent = `${base} (${remainingLabel})`;
+  // Wave 19.3: trailing "(MM:SS)" removed from the title — the remaining
+  // total now lives in the centre of the timeline strip directly above
+  // the matrix. Per-pill durations carry the per-slide number.
+  $activeSlideTitle.textContent = grammar ? `${name} · ${grammar}` : name;
   $activeSlideTitle.classList.toggle('is-rest', isRest);
 }
 
@@ -795,15 +794,24 @@ function buildProgressMatrix() {
 
   const blocksHTML = blocks.map((block, blockIdx) => {
     if (block.kind === 'single') {
-      return `<div class="matrix-col" data-col="${blockIdx}">${pillHTML(block.slideIndex)}</div>`;
+      const dur = calculateDuration(slides[block.slideIndex]) || 1;
+      // Wave 19.3: `--pill-weight` powers duration-proportional flex in
+      // fullscreen. Non-fullscreen still uses the default `flex: 1 1 0`
+      // so short plans render as equal-width pills like before.
+      return `<div class="matrix-col" data-col="${blockIdx}" style="--pill-weight: ${dur};">${pillHTML(block.slideIndex)}</div>`;
     }
     // Circuit: row-first grid. Each round is a coral-tinted row of N pills.
     const { rounds, groupSize } = block;
+    // First cycle is authoritative for duration weights; subsequent cycles
+    // inherit the same shape by construction, so we read row 0.
+    const firstRow = rounds[0] || [];
+    const rowDurations = firstRow.map((idx) => calculateDuration(slides[idx]) || 1);
+    const circuitWeight = rowDurations.reduce((a, b) => a + b, 0) || 1;
     const roundsHTML = rounds.map((row, roundIdx) => {
       const rowPills = row.map((slideIdx) => pillHTML(slideIdx)).join('');
       return `<div class="matrix-circuit-row" data-round="${roundIdx + 1}" style="grid-template-columns: repeat(${groupSize}, 1fr);">${rowPills}</div>`;
     }).join('');
-    return `<div class="matrix-circuit" data-circuit="${block.circuitId}" data-col="${blockIdx}" style="--circuit-cols: ${groupSize};">${roundsHTML}</div>`;
+    return `<div class="matrix-circuit" data-circuit="${block.circuitId}" data-col="${blockIdx}" style="--circuit-cols: ${groupSize}; --circuit-weight: ${circuitWeight};">${roundsHTML}</div>`;
   }).join('');
 
   $matrixInner.innerHTML = blocksHTML;
@@ -1394,11 +1402,15 @@ function formatFinishTime(date) {
  */
 function updateTimelineBar() {
   if (!$timelineStart || !$timelineEnd) return;
-  // Before the workout starts, both slots stay as "--:--" so the row doesn't
-  // reflow width on kickoff.
+  // Wave 19.3: the centre slot carries the live remaining-total. Pre-start
+  // it shows "0:00" so the row's intrinsic width is stable when the workout
+  // kicks off; the edges show "--:--" until the start wall-clock is captured.
   if (!isWorkoutMode || !workoutStartTime) {
     $timelineStart.textContent = '--:--';
     $timelineEnd.textContent = '--:--';
+    if ($timelineTotal) {
+      $timelineTotal.textContent = formatTime(Math.max(0, calculateRemainingWorkoutSeconds()));
+    }
     return;
   }
   $timelineStart.textContent = formatFinishTime(new Date(workoutStartTime));
@@ -1406,19 +1418,24 @@ function updateTimelineBar() {
     // Snapshot the real finish wall-clock at completion (Date.now() then
     // stops drifting against remainingSeconds which is 0).
     $timelineEnd.textContent = formatFinishTime(new Date());
+    if ($timelineTotal) $timelineTotal.textContent = '0:00';
     return;
   }
   const totalSecs = calculateRemainingWorkoutSeconds();
   const finishAt = new Date(Date.now() + totalSecs * 1000);
   $timelineEnd.textContent = `~${formatFinishTime(finishAt)}`;
+  if ($timelineTotal) $timelineTotal.textContent = formatTime(Math.max(0, totalSecs));
 
-  // Prep-phase flash — active pill (the title's countdown handles the
-  // per-slide flash visually via its parenthetical remainder).
+  // Prep-phase flash — active pill + the centred total so the client
+  // perceives the "getting ready" cadence even with the title parens gone.
   if ($matrixInner) {
     const activePill = $matrixInner.querySelector('.pill.is-active');
     if (activePill) {
       activePill.classList.toggle('is-prep-flashing', isPrepPhase);
     }
+  }
+  if ($timelineTotal) {
+    $timelineTotal.classList.toggle('is-prep-flashing', isPrepPhase);
   }
 }
 
@@ -1776,6 +1793,12 @@ function updatePauseOverlay() {
   if (!$cardTrack) return;
   const overlays = $cardTrack.querySelectorAll('.media-pause-overlay');
   const workoutLive = isWorkoutMode && !isPrepPhase && remainingSeconds > 0;
+  // Wave 19.3: glyph semantics = "what would tap do / what is playing now".
+  // Everywhere the video is effectively playing (pre-workout preview, prep,
+  // active timer) we show the PAUSE icon. Only the explicit paused-mid-
+  // workout state shows the PLAY icon. Fixes the fullscreen dimmed-button
+  // showing a play glyph while the video was clearly playing.
+  const showPlayIcon = isWorkoutMode && !isPrepPhase && !isTimerRunning;
   overlays.forEach((overlay) => {
     const card = overlay.closest('.exercise-card');
     const idx = card ? Number(card.getAttribute('data-index')) : -1;
@@ -1785,7 +1808,6 @@ function updatePauseOverlay() {
     overlay.classList.toggle('is-visible', isActive && !isTimerRunning);
     const playIcon = overlay.querySelector('.pause-icon-play');
     const pauseIcon = overlay.querySelector('.pause-icon-pause');
-    const showPlayIcon = !isTimerRunning;
     if (playIcon) playIcon.hidden = !showPlayIcon;
     if (pauseIcon) pauseIcon.hidden = showPlayIcon;
   });
@@ -1805,7 +1827,10 @@ function flashPauseOverlay() {
   if (!overlay) return;
   const playIcon = overlay.querySelector('.pause-icon-play');
   const pauseIcon = overlay.querySelector('.pause-icon-pause');
-  const showPlayIcon = !isTimerRunning;
+  // Match the glyph semantics used by updatePauseOverlay (Wave 19.3):
+  // PLAY glyph only during an explicit mid-workout pause; PAUSE glyph any
+  // time the video is playing (pre-start preview, prep, or running).
+  const showPlayIcon = isWorkoutMode && !isPrepPhase && !isTimerRunning;
   if (playIcon) playIcon.hidden = !showPlayIcon;
   if (pauseIcon) pauseIcon.hidden = showPlayIcon;
   // Restart the animation — remove, force reflow, re-add.

@@ -47,17 +47,18 @@
   </div>
 
   <!-- Main app ===============================================================
-       Top-stack v2.1 layout (Wave 19.2 — 2026-04-22):
+       Top-stack v2.2 layout (Wave 19.3 — 2026-04-22):
          Row 1  plan-bar                 (plan-title + header-client)
-         Row 2  workout-timeline-bar     (start-time ─── ~finish-time)
-         Row 3  active-slide-header      (name · grammar (MM:SS remaining))
-         Row 4  progress-matrix          (pills with inline duration labels;
-                                          circuits are row-first grids)
+         Row 2  active-slide-header      (name · grammar — trailing parens retired)
+         Row 3  workout-timeline-bar     (start ─── MM:SS total ─── ~finish)
+         Row 4  progress-matrix          (duration-weighted pills in
+                                          fullscreen; row-first circuits)
          Hero   card-viewport            (video fills; all chrome overlaid)
          Footer footer                   (powered by homefit.studio)
        Retired in prior waves: matrix-eta (3-number row — dismantled in
        19.2), nav-dots, peek-panel, treatment-seg, card-position, nav-bar,
-       swipe-hint. See app.js header comment. -->
+       swipe-hint. Wave 19.3 relocations: timeline-bar dropped below the
+       active-slide-header, remaining-total moved into its centre slot. -->
   <div id="app" hidden>
     <!-- Plan title bar -->
     <div class="plan-bar">
@@ -68,30 +69,34 @@
       <div id="progress" class="progress-label"></div>
     </div>
 
-    <!-- Workout timeline strip — thin row with the wall-clock start time
-         left-aligned and projected finish time right-aligned, connected
-         by a hairline rule. Before Start Workout both slots show "--:--"
-         so the row doesn't reflow when the workout begins. -->
+    <!-- Active-slide header — single-line row: "{name} · {grammar}". Wave
+         19.3: the title's trailing "(MM:SS)" parenthetical is gone — the
+         remaining-total moved into the centred slot of the timeline strip
+         (which now lives directly above the matrix). Per-pill durations
+         still carry the per-slide number. -->
+    <div class="active-slide-header" id="active-slide-header">
+      <h2 class="active-slide-title" id="active-slide-title"></h2>
+    </div>
+
+    <!-- Workout timeline strip — thin row above the progress matrix.
+         Start wall-clock left-aligned, live remaining-total centred, and
+         projected finish wall-clock right-aligned, all connected by a
+         hairline rule. Before Start Workout the edges show "--:--" and
+         the centre shows "0:00" so the row doesn't reflow on kickoff. -->
     <div class="workout-timeline-bar" id="workout-timeline-bar" aria-label="Workout timeline">
       <span class="workout-timeline-start" id="workout-timeline-start">--:--</span>
       <span class="workout-timeline-rule" aria-hidden="true"></span>
+      <span class="workout-timeline-total" id="workout-timeline-total">0:00</span>
+      <span class="workout-timeline-rule" aria-hidden="true"></span>
       <span class="workout-timeline-end" id="workout-timeline-end">--:--</span>
-    </div>
-
-    <!-- Active-slide header — single-line row: "{name} · {grammar} (MM:SS)".
-         The trailing parenthetical is the live countdown on the active slide;
-         ("0:00" before start / after finish). Wave 19.2: the 3-number ETA
-         row was dismantled — start/finish live in the timeline strip above,
-         the remaining-time moved here in parens, and per-pill durations
-         handle the per-slide number. -->
-    <div class="active-slide-header" id="active-slide-header">
-      <h2 class="active-slide-title" id="active-slide-title"></h2>
     </div>
 
     <!-- Progress-pill matrix — horizontally scrolling grid of exercise
          pills. Auto-centres on the active pill. Circuits render as a
          row-first grid: each row is one round (all exercises L→R), and
-         rounds stack downward with a coral tint band per row.
+         rounds stack downward with a coral tint band per row. Wave 19.3:
+         in fullscreen each pill's width is duration-weighted via
+         `--pill-weight` / `--circuit-weight` custom properties.
          See docs/design/mockups/progress-pills.html. -->
     <div class="progress-matrix" id="progress-matrix">
       <div class="progress-matrix-inner" id="progress-matrix-inner"></div>
