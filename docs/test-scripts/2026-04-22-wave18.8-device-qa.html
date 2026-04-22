@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA Wave 18.8 — polish round 5</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-22 · Wave 18.8 — polish round 5</div>
+    <h1>Device QA — Wave 18.8</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> five items from Wave 18.7 live QA. <strong>(1)</strong> <code>[+]</code> padding tightened 12pt → 10pt; pill now ~38pt wide (was ~42pt) — leaner match to the text chips. <strong>(2)</strong> Section header label AND summary both bumped to <strong>16pt</strong>. Even at 14pt the coral label perceptually read smaller than the 13pt grey inner labels; coral on dark loses the contrast battle. 16pt vs 13pt inner tier gives a real 3pt absolute gap so the section header finally dominates as designed. Label/summary differentiation now carried purely by weight + case + colour. <strong>(3)</strong> Expand gap between <code>_GroupHeader</code> and first inner content row tightened 8pt → 2pt — header + body feel like one connected unit. Intra-content spacing unchanged. <strong>(4)</strong> NOTES collapsed summary: replaces all whitespace (including newlines) with single spaces, forces single-line with ellipsis. PACING keeps its up-to-3-line wrap. <strong>(5)</strong> Inline numeric editor (PREP + DURATION PER REP) now uses <code>Expanded</code> on the text field and a call-site <code>Expanded</code> wrapper — the <code>&lt; Cancel [_N_] Done &gt;</code> row fits entirely inside the card's content area, no more overflow past the right edge.
+      <br><br>
+      <strong>In scope:</strong> mobile-only. <code>preset_chip_row.dart</code> (<code>[+]</code> padding) + <code>studio_exercise_card.dart</code> (section header font bump, expand gap tightening, NOTES single-line collapse, inline editor width fix).
+      <br><br>
+      <strong>Out of scope:</strong> anything already covered by Wave 18 / 18.1 / 18.2 / 18.3 / 18.4 / 18.5 / 18.6 / 18.7. Web player. Portal. Storage semantics of <code>customDurationSeconds</code> unchanged. Chip long-press remove/undo, <code>[+]</code> long-press no-op, inline (not modal) input, R-01 "no popups" — all unchanged.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Wave 18.7 merged (SHA <code>1a97d15</code>). Wave 18.8 branch <code>fix/wave-18.8-polish</code> installed via <code>./install-device.sh</code>.</li>
+        <li>At least one session with: (a) a video exercise WITH probed duration; (b) a photo exercise. One exercise with notes containing newlines (multi-paragraph) for Item 9.</li>
+        <li>iPhone 17 Pro or similar 393pt-wide device.</li>
+      </ul>
+    </div>
+
+    <h2>1 · <code>[+]</code> padding 12pt → 10pt</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open any exercise card, expand DOSE. The <code>[+]</code> tail renders as a <strong>~38pt-wide dashed pill</strong> (was ~42pt in Wave 18.7). Still visibly padded — there's room around the centred <code>+</code> icon — but leaner, with the visual weight more closely matching the text chips <code>[15]</code>, <code>[12]</code>, <code>[10]</code>. Long-press <code>[+]</code> → no-op. Tap <code>[+]</code> → inline Cancel / numeric field / Done opens (NOT a modal).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Section header hierarchy (16pt label + 16pt summary)</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Expand an exercise card with DOSE values set (e.g. reps=10, sets=3, hold=5s). Section header <code>DOSE</code> (coral w700 uppercase) reads <strong>visibly LARGER than</strong> the 13pt inner labels <code>REPS</code> / <code>SETS</code> / <code>HOLD</code>. Hierarchy restored after Wave 18.7's 14pt label perceptually tied with grey inner labels. The coral header dominates the row.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Section header <strong>summary</strong> text (after the <code>·</code> — e.g. <code>DOSE · 10 reps · 3 sets · 5s hold</code>) renders at the <strong>same 16pt size as the label</strong>. Differentiation is purely weight + case + colour: label = w700 uppercase coral; summary = w500 mixed-case grey. The row reads as one unified header.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Inner labels <code>REPS</code>, <code>SETS</code>, <code>HOLD</code>, <code>PREP</code>, <code>DURATION PER REP</code> all still render at <strong>13pt Inter w600 uppercase grey</strong> (letter-spacing 0.5). No regression in inner-label size.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Inner values (the <code>10</code>, <code>3</code>, <code>5s</code>, <code>45</code>, <code>30s</code>) all still render at <strong>13pt JetBrainsMono w700 white</strong>. No regression in value size. 3pt absolute gap between 16pt section header and 13pt inner tier reads clearly.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · Tight expand gap (8pt → 2pt)</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Expand DOSE. The gap between the <code>DOSE</code> header row and the first inner content (REPS row) is <strong>visually tight (~2pt)</strong>, not the previous 8pt. Header + body feel like one connected unit, not two separated blocks.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Same tight header → first-content gap when expanding <strong>PLAYBACK</strong> (first row: treatment tiles), <strong>PACING</strong> (first row: PREP), and <strong>NOTES</strong> (first row: the text field). All four expanded bodies feel attached to their header now.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">INTRA-content spacing inside an expanded body is <strong>unchanged</strong>. Inside DOSE: still ~8pt breathing room between REPS → SETS → HOLD rows. Inside PACING: still breathing room between PREP row and DURATION PER REP row. Only the very first gap (header → first row) was tightened.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · NOTES collapsed summary — single-line with whitespace collapse</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">Expand NOTES. Type a multi-line note with actual newlines: <code>Keep back straight</code> [return] <code>Breathe out on exertion</code> [return] <code>Cadence 2-1-2</code>. Collapse the NOTES group (tap the NOTES header). The collapsed summary row reads on <strong>ONE visual line</strong>, with newlines replaced by single spaces: something like <code>▸ NOTES · "Keep back straight Breathe ou…"</code> (truncated at ~28 chars + ellipsis). NO multi-line wrap in the collapsed summary, regardless of how many paragraphs the note has.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">PACING collapsed summary with multiple non-defaults (e.g. <strong>PREP override + Manual duration</strong>, producing something like <code>PACING · 8s prep, 5s per rep</code>) still wraps to multiple lines if it runs long (up to 3 lines). Only NOTES forces single-line — PACING keeps its multi-line wrap when summary grows.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Inline numeric editor fits within card bounds</h2>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Expand PACING. Tap the <code>5s</code> value in the PREP row → inline editor opens. The <code>&lt; Cancel &nbsp; [_5_] &nbsp; Done &gt;</code> row stays <strong>entirely within the card's right edge</strong> — no overflow onto or off the screen edge. The text field fills the space between Cancel and Done, regardless of phone width. On iPhone 17 Pro (393pt wide, ~353pt card content), everything fits cleanly.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+        <span class="num">12.</span>
+        <span class="text">Same test on DURATION PER REP (PACING expanded on a video-with-probed-length exercise). Tap the value → inline editor opens, row stays within the card's right edge. Cancel + Done remain tappable. Commit a new value → row closes, value updates, toggle auto-flips to Manual as before.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 18.8 closes five items from Wave 18.7 live device QA (see <a href="./2026-04-22-wave18.7-device-qa.html" style="color: var(--coral);">wave18.7</a>). Wave 18.1 remains the canonical baseline — run that if anything around DOSE / PACING / rest bar feels off. Storage semantics of <code>customDurationSeconds</code>, <code>prepSeconds</code>, <code>notes</code>, and all other model fields unchanged by Wave 18.8 — display-only adjustments.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-22-wave18.8-device-qa.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave-18.8', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

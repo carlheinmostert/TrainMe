@@ -385,7 +385,11 @@ class _Chip extends StatelessWidget {
 /// real space between the border and the icon. The pill finally reads
 /// as a padded pill — ~42pt wide with visible room around the centred
 /// icon. Intrinsic width preserved via the outer [IntrinsicWidth] so
-/// the pill still sizes to icon + 12pt × 2.
+/// the pill still sizes to icon + padding × 2.
+///
+/// Wave 18.8 — horizontal padding tightened 12pt → 10pt. Live QA showed
+/// the ~42pt-wide pill was fractionally too wide next to the text
+/// chips; 10pt × 2 + 18pt icon = ~38pt, a leaner match.
 class _CustomTail extends StatelessWidget {
   final Color accentColor;
   final VoidCallback onTap;
@@ -412,7 +416,10 @@ class _CustomTail extends StatelessWidget {
           painter: _DashedBorderPainter(color: accentColor),
           child: Container(
             height: 32,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            // Wave 18.8 — tightened 12pt → 10pt so the pill is ~38pt
+            // wide instead of ~42pt, matching the text chips' visual
+            // weight more closely.
+            padding: const EdgeInsets.symmetric(horizontal: 10),
             alignment: Alignment.center,
             child: Icon(
               Icons.add_rounded,
@@ -558,9 +565,9 @@ class _DashedBorderPainter extends CustomPainter {
 
     // Fixed 16pt radius matches the text chip's BorderRadius.circular(16),
     // so the dashed tail reads as the same visual family — a pill, not
-    // a circle. Wave 18.6 — with 12pt horizontal padding the container
-    // is ~42pt wide at 32pt tall, so the 16pt radius traces a clean
-    // pill with visible straight sides between the rounded caps.
+    // a circle. Wave 18.6 → 18.8 — with 10pt horizontal padding the
+    // container is ~38pt wide at 32pt tall, so the 16pt radius traces
+    // a clean pill with visible straight sides between the rounded caps.
     final rrect = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, 0, size.width, size.height),
       const Radius.circular(16),

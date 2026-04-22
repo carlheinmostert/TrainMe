@@ -479,10 +479,20 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
   }
 
   /// NOTES collapsed summary — `empty` or the first 28 chars quoted.
+  ///
+  /// Wave 18.8 — collapse all whitespace (newlines, tabs, runs of
+  /// spaces) to single spaces BEFORE truncating. Otherwise multi-
+  /// paragraph notes would spill the collapsed summary across multiple
+  /// visual lines. The NOTES `_GroupHeader` also passes
+  /// `singleLineSummary: true` so the RichText forces a single line
+  /// even in the collapsed state.
   String _notesSummary() {
     final raw = widget.exercise.notes ?? '';
     if (raw.isEmpty) return 'empty';
-    final clipped = raw.length > 28 ? '${raw.substring(0, 28)}…' : raw;
+    final cleaned = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (cleaned.isEmpty) return 'empty';
+    final clipped =
+        cleaned.length > 28 ? '${cleaned.substring(0, 28)}…' : cleaned;
     return '"$clipped"';
   }
 
@@ -551,7 +561,11 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           onTap: () => _toggleAccordion(_AccordionGroup.playback),
         ),
         if (playbackOpen) ...[
-          const SizedBox(height: 8),
+          // Wave 18.8 — header → first-content gap tightened 8pt → 2pt.
+          // Makes the expanded body feel like one connected unit with
+          // the section header. Intra-content spacing (between Toggle
+          // rows inside this body) stays unchanged.
+          const SizedBox(height: 2),
           TreatmentTilesRow(
             exercise: widget.exercise,
             hasArchive: hasArchive,
@@ -593,7 +607,10 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           onTap: () => _toggleAccordion(_AccordionGroup.dose),
         ),
         if (doseOpen) ...[
-          const SizedBox(height: 8),
+          // Wave 18.8 — header → first-content gap tightened 8pt → 2pt.
+          // Intra-content rows (REPS → SETS → HOLD, 8pt between) stay
+          // unchanged below.
+          const SizedBox(height: 2),
           _ControlRow(
             label: 'Reps',
             value: _reps,
@@ -653,7 +670,8 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           onTap: () => _toggleAccordion(_AccordionGroup.pacing),
         ),
         if (pacingOpen) ...[
-          const SizedBox(height: 8),
+          // Wave 18.8 — header → first-content gap tightened 8pt → 2pt.
+          const SizedBox(height: 2),
           _PrepSecondsRow(
             currentValue: widget.exercise.prepSeconds,
             globalDefault: StudioDefaults.prepSeconds,
@@ -725,11 +743,16 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           hasNonDefaults: _notesHasNonDefaults,
           // Wave 18.3 — summary persists in BOTH states.
           summary: _notesSummary(),
+          // Wave 18.8 — NOTES summary forces single-line collapse so
+          // multi-paragraph notes don't spill the row onto 2-3 visual
+          // lines. PACING keeps its up-to-3-line wrap.
+          singleLineSummary: true,
           onTap: () => _toggleAccordion(_AccordionGroup.notes),
         ),
         if (notesOpen)
           Padding(
-            padding: const EdgeInsets.only(top: 8),
+            // Wave 18.8 — header → first-content gap tightened 8pt → 2pt.
+            padding: const EdgeInsets.only(top: 2),
             child: TextField(
               controller: _notesController,
               maxLines: 3,
@@ -804,12 +827,20 @@ class _GroupHeader extends StatelessWidget {
   /// single-open accordion post-Wave-18.2.
   final VoidCallback onTap;
 
+  /// Force the summary onto one visual line with ellipsis, even when
+  /// collapsed. NOTES passes `true` so multi-paragraph notes don't
+  /// spill the collapsed row across 2-3 lines (Wave 18.8). PLAYBACK /
+  /// DOSE / PACING pass `false` and keep the up-to-3-line wrap when
+  /// collapsed. Expanded state is always single-line regardless.
+  final bool singleLineSummary;
+
   const _GroupHeader({
     required this.label,
     required this.expanded,
     required this.hasNonDefaults,
     required this.summary,
     required this.onTap,
+    this.singleLineSummary = false,
   });
 
   @override
@@ -858,8 +889,10 @@ class _GroupHeader extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(top: 3),
                   child: RichText(
-                    maxLines: expanded ? 1 : 3,
-                    softWrap: !expanded,
+                    maxLines: expanded
+                        ? 1
+                        : (singleLineSummary ? 1 : 3),
+                    softWrap: !expanded && !singleLineSummary,
                     overflow: TextOverflow.ellipsis,
                     // Wave 18.4 — label bumped 11pt → 13pt so PLAYBACK /
                     // DOSE / PACING / NOTES read clearly against the
@@ -869,16 +902,21 @@ class _GroupHeader extends StatelessWidget {
                     // colour alone (label = w700 uppercase coral,
                     // summary = w500 normal-case secondary-grey).
                     // Wave 18.7 — label bumped 13pt → 14pt to overcome
-                    // the coral-on-dark perceptual-contrast penalty. At
-                    // identical pt size the grey/white inner labels
-                    // read larger than the coral section header; a 1pt
-                    // bump on the LABEL only (summary stays 13pt)
-                    // re-establishes the visual tier so the header
-                    // dominates as designed.
+                    // the coral-on-dark perceptual-contrast penalty.
+                    // Wave 18.8 — label AND summary both bumped to
+                    // 16pt. Even at 14pt the coral label perceptually
+                    // read smaller than the 13pt grey inner labels;
+                    // coral on dark loses the contrast battle. 16pt
+                    // label + 16pt summary vs 13pt inner tier gives an
+                    // absolute 3pt gap so the section header finally
+                    // dominates as designed. Label/summary
+                    // differentiation now carried purely by weight +
+                    // case + colour (w700 uppercase coral vs w500
+                    // mixed-case secondary-grey).
                     text: TextSpan(
                       style: const TextStyle(
                         fontFamily: 'Inter',
-                        fontSize: 14,
+                        fontSize: 16,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.8,
                         color: AppColors.primary,
@@ -891,12 +929,11 @@ class _GroupHeader extends StatelessWidget {
                             text: ' · $summary',
                             style: const TextStyle(
                               fontFamily: 'Inter',
-                              // Wave 18.7 — summary stays 13pt; the
-                              // header label alone gets the bump. The
-                              // two-tier rhythm within the row (14pt
-                              // label · 13pt summary) reinforces the
-                              // label as the primary read.
-                              fontSize: 13,
+                              // Wave 18.8 — summary matches label at
+                              // 16pt. Differentiation between label
+                              // and summary within the header row is
+                              // now purely weight + case + colour.
+                              fontSize: 16,
                               fontWeight: FontWeight.w500,
                               letterSpacing: 0,
                               color: AppColors.textSecondaryOnDark,
@@ -1209,6 +1246,10 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Wave 18.8 — when editing, the editor takes the full remaining
+          // row width via Expanded so the `< Cancel [_N_] Done >` fits
+          // entirely inside the card's content area. When not editing,
+          // the Spacer still pushes the dashed value to the right.
           Row(
             children: [
               const Text(
@@ -1224,16 +1265,19 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
                   color: AppColors.textSecondaryOnDark,
                 ),
               ),
-              const Spacer(),
-              if (_isEditing)
-                InlineNumericEditor(
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  accentColor: AppColors.primary,
-                  onCancel: _cancel,
-                  onCommit: _commit,
-                )
-              else
+              if (_isEditing) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: InlineNumericEditor(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    accentColor: AppColors.primary,
+                    onCancel: _cancel,
+                    onCommit: _commit,
+                  ),
+                ),
+              ] else ...[
+                const Spacer(),
                 GestureDetector(
                   onTap: _startEditing,
                   behavior: HitTestBehavior.opaque,
@@ -1255,6 +1299,7 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
                     ),
                   ),
                 ),
+              ],
             ],
           ),
           // Toggle pair only when we have a probed video length —
@@ -1547,6 +1592,11 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
+      // Wave 18.8 — when editing, the editor takes the full remaining
+      // row width via Expanded so the `< Cancel [_N_] Done >` row fits
+      // entirely inside the card's content area. Otherwise the 72pt
+      // field + Cancel + Done + margins would overflow the card's
+      // right edge on narrow phones.
       child: Row(
         children: [
           const Text(
@@ -1560,21 +1610,24 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
               color: AppColors.textSecondaryOnDark,
             ),
           ),
-          const Spacer(),
-          if (_editing)
+          if (_editing) ...[
+            const SizedBox(width: 8),
             // Wave 18.7 — inline editor now mirrors the chip row's
             // `< Cancel   [_7_]   Done >` pattern. iOS numeric keypad
             // has no return key, so explicit Cancel + Done affordances
             // are the only way to close the editor. Cancel restores
             // the prior display; Done commits.
-            InlineNumericEditor(
-              controller: _controller,
-              focusNode: _focusNode,
-              accentColor: AppColors.primary,
-              onCancel: _cancel,
-              onCommit: _commit,
-            )
-          else
+            Expanded(
+              child: InlineNumericEditor(
+                controller: _controller,
+                focusNode: _focusNode,
+                accentColor: AppColors.primary,
+                onCancel: _cancel,
+                onCommit: _commit,
+              ),
+            ),
+          ] else ...[
+            const Spacer(),
             GestureDetector(
               onTap: _startEditing,
               behavior: HitTestBehavior.opaque,
@@ -1599,6 +1652,7 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
                 ),
               ),
             ),
+          ],
         ],
       ),
     );
@@ -1648,9 +1702,13 @@ class _DashedUnderlinePainter extends CustomPainter {
 /// gesture for the user. Cancel is now a first-class restore; Done is
 /// the explicit commit path.
 ///
-/// The row is intentionally narrow — Cancel + 72pt field + Done — so it
-/// slots into the same horizontal space as the dashed-underline value
-/// it replaces. Caller is responsible for focus management.
+/// Wave 18.8 — editor now consumes the full horizontal width offered by
+/// its parent. The text field uses [Expanded] instead of a fixed
+/// [fieldWidth] (retained as an ignored param for compat), so the row
+/// fits exactly within the card's content area. Call sites must wrap
+/// this widget in [Expanded] (or a bounded-width parent) when placing
+/// it inside a [Row]; otherwise the [Expanded] on the field asserts.
+/// PREP + DURATION PER REP both do this.
 class InlineNumericEditor extends StatelessWidget {
   /// TextEditingController owned by the caller. Lets the caller pre-seed
   /// the field with the current value + retain state across rebuilds.
@@ -1675,7 +1733,10 @@ class InlineNumericEditor extends StatelessWidget {
   /// seconds). Drawn as a non-editable suffix via InputDecoration.
   final String? suffix;
 
-  /// Optional fixed field width (default 72pt — roomy for 3 digits).
+  /// Retained for API compat; ignored as of Wave 18.8 — the field now
+  /// uses [Expanded] and fills whatever horizontal space the parent
+  /// offers, so fixed widths would just overflow the card on narrow
+  /// phones. Remove once no external caller still passes it.
   final double fieldWidth;
 
   const InlineNumericEditor({
@@ -1691,10 +1752,15 @@ class InlineNumericEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Wave 18.8 — the editor's Row no longer uses MainAxisSize.min; it
+    // fills the parent width so the text field (Expanded) can take all
+    // the leftover space between Cancel and Done. Callers wrap this in
+    // Expanded when embedding in a flex parent (PREP + DURATION PER
+    // REP both do). On a narrow card (iPhone 17 Pro, ~353pt content)
+    // the editor fits without overflowing past the right edge.
     return SizedBox(
       height: 40,
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
           TextButton(
             onPressed: onCancel,
@@ -1714,8 +1780,7 @@ class InlineNumericEditor extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          SizedBox(
-            width: fieldWidth,
+          Expanded(
             child: TextField(
               controller: controller,
               focusNode: focusNode,
