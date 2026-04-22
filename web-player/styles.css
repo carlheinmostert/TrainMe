@@ -69,6 +69,8 @@
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-linear: linear;
+  /* Shared loading rhythm — matrix-mark spinner + skeleton sweep. 1.2.0. */
+  --motion-loop: 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 
   /* ── Typography families ── */
   --f-display: 'Montserrat', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -142,24 +144,43 @@ body {
 }
 
 .loading-mark {
-  width: 72px;
-  height: 50px;
+  /* Height matches the canonical 48×9.5 matrix aspect; width set to 48*(48/9.5) */
+  width: 243px;
+  height: 48px;
   margin: 0 auto 16px;
-  color: var(--c-brand);
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: pulse 1.5s ease infinite;
 }
 
-.loading-mark .pulse-mark {
+.loading-mark .mark {
   width: 100%;
   height: 100%;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+/* Matrix-mark spinner — 1.2.0. Outer ghost greys opacity-breathe with a
+   staggered 0 / 0.1s / 0.2s begin. Coral 4-cell + tint band: intentionally
+   static. Sage rest pill pulses opacity + scaleY. Geometry ref:
+   docs/design/project/logos/mark.svg. Baked SMIL: mark-session.svg. */
+.mark--loading .mark-grey-outer-1 { animation: mark-breathe-1 var(--motion-loop); }
+.mark--loading .mark-grey-outer-2 { animation: mark-breathe-2 var(--motion-loop) 0.1s; }
+.mark--loading .mark-grey-outer-3 { animation: mark-breathe-3 var(--motion-loop) 0.2s; }
+.mark--loading .mark-rest-pill {
+  animation: mark-pulse-sage var(--motion-loop);
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@keyframes mark-breathe-1 { 0%, 100% { opacity: 1; } 50% { opacity: 0.40; } }
+@keyframes mark-breathe-2 { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes mark-breathe-3 { 0%, 100% { opacity: 1; } 50% { opacity: 0.70; } }
+@keyframes mark-pulse-sage {
+  0%, 100% { opacity: 1; transform: scaleY(1); }
+  50%      { opacity: 0.6; transform: scaleY(1.1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark--loading * { animation: none !important; }
 }
 
 .loading-text {
@@ -1070,9 +1091,9 @@ video.is-grayscale {
   color: var(--c-brand);
 }
 
-.footer-logo .pulse-mark {
-  width: 20px;
-  height: 14px;
+.footer-logo .homefit-logo {
+  width: 56px;
+  height: auto;
 }
 
 .footer-wordmark {

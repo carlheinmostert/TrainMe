@@ -75,33 +75,3 @@ class PoweredByFooter extends StatelessWidget {
   }
 }
 
-/// Pulse Mark — heartbeat line tracing a house roof silhouette.
-class _PulseMarkPainter extends CustomPainter {
-  final Color color;
-  _PulseMarkPainter({this.color = AppColors.primary});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 2.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final path = Path();
-    final w = size.width;
-    final h = size.height;
-    path.moveTo(w * 0.05, h * 0.7);
-    path.lineTo(w * 0.25, h * 0.7);
-    path.lineTo(w * 0.35, h * 0.2);
-    path.lineTo(w * 0.5, h * 0.8);
-    path.lineTo(w * 0.65, h * 0.2);
-    path.lineTo(w * 0.75, h * 0.7);
-    path.lineTo(w * 0.95, h * 0.7);
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}

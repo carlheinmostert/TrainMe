@@ -52,7 +52,7 @@ const config: Config = {
         success: '#22C55E',
         warning: '#F59E0B',
         error: '#EF4444',
-        rest: '#64748B',
+        rest: '#86EFAC',   // 1.2.0 — sage; mirrors tokens.json color.semantic.rest
       },
       fontFamily: {
         heading: ['Montserrat', 'system-ui', 'sans-serif'],
@@ -82,6 +82,7 @@ const config: Config = {
         fast: '150ms',
         normal: '250ms',
         slow: '400ms',
+        loop: '1400ms',   // 1.2.0 — shared loading rhythm (matrix-mark spinner)
       },
       transitionTimingFunction: {
         standard: 'cubic-bezier(0.2, 0, 0, 1)',

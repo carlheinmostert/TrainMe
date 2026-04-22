@@ -27,11 +27,5 @@ export const semantic = {
   ok: '#22C55E',
   warn: '#F59E0B',
   err: '#EF4444',
-  rest: '#64748B',
+  rest: '#86EFAC',   // 1.2.0 — sage; mirrors tokens.json color.semantic.rest
 } as const;
-
-// Pulse Mark path — heartbeat line tracing a house roof silhouette.
-// Lifted from web-player/index.html so all surfaces render an identical mark.
-export const PULSE_MARK_PATH =
-  'M2.6 25.2 L13 25.2 L18.2 7.2 L26 28.8 L33.8 7.2 L39 25.2 L49.4 25.2';
-export const PULSE_MARK_VIEWBOX = '0 0 52 36';

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { getServerClient } from '@/lib/supabase-server';
 import { PortalReferralApi } from '@/lib/supabase/api';
-import { PULSE_MARK_PATH, PULSE_MARK_VIEWBOX } from '@/lib/theme';
+import { HomefitLogo } from '@/components/HomefitLogo';
 import { ReferralCookieWriter } from '@/components/ReferralCookieWriter';
 
 type Params = Promise<{ code: string }>;
@@ -65,21 +65,7 @@ export default async function ReferralLandingPage({
             className="flex items-center gap-3 text-ink hover:text-brand-light transition"
             aria-label="homefit.studio home"
           >
-            <svg
-              viewBox={PULSE_MARK_VIEWBOX}
-              className="h-7 w-10 text-brand"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              <path
-                d={PULSE_MARK_PATH}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <HomefitLogo className="h-7 w-auto" />
             <span className="font-heading text-lg font-semibold">
               homefit.studio
             </span>
