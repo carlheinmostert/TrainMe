@@ -12,6 +12,7 @@ import '../models/treatment.dart';
 import '../theme.dart';
 import '../theme/motion.dart';
 import 'inline_editable_text.dart';
+import 'preset_chip_row.dart';
 import 'thumbnail_peek.dart';
 import 'treatment_segmented_control.dart';
 
@@ -99,11 +100,18 @@ class StudioExerciseCard extends StatefulWidget {
 }
 
 class _StudioExerciseCardState extends State<StudioExerciseCard> {
-  late double _repsValue;
-  late double _setsValue;
-  late double _holdValue;
+  late int _reps;
+  late int _sets;
+  late int _hold;
   late TextEditingController _notesController;
-  bool _notesOpen = false;
+
+  /// Per-group manual expand/collapse overrides. A null value means
+  /// "follow the auto-collapse rule": expand Playback + Dose always,
+  /// expand Pacing / Notes only when they hold non-default data.
+  /// Overrides reset whenever the card closes + reopens (no
+  /// SharedPreferences — the auto-rule is the source of truth).
+  bool? _pacingOverride;
+  bool? _notesOverride;
 
   @override
   void initState() {
@@ -119,14 +127,32 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     if (old.exercise.id != widget.exercise.id) {
       _syncFromModel(widget.exercise);
       _notesController.text = widget.exercise.notes ?? '';
-      _notesOpen = false;
+      _pacingOverride = null;
+      _notesOverride = null;
+    } else {
+      // Same exercise, same open state — but the parent may have
+      // written through a change (treatment pref, includeAudio, etc).
+      // Re-seed the local numeric mirrors so the chip rows render the
+      // latest value instead of a stale tap.
+      _syncFromModel(widget.exercise);
+      final nextNotes = widget.exercise.notes ?? '';
+      if (_notesController.text != nextNotes) {
+        _notesController.text = nextNotes;
+      }
+    }
+    if (old.isExpanded && !widget.isExpanded) {
+      // Card just closed — drop manual overrides so a re-open lands
+      // on the auto-collapse rule (spec: "state persists only while
+      // the card stays mounted — resets on next open").
+      _pacingOverride = null;
+      _notesOverride = null;
     }
   }
 
   void _syncFromModel(ExerciseCapture ex) {
-    _repsValue = (ex.reps ?? StudioDefaults.reps).toDouble();
-    _setsValue = (ex.sets ?? StudioDefaults.sets).toDouble();
-    _holdValue = (ex.holdSeconds ?? StudioDefaults.holdSeconds).toDouble();
+    _reps = ex.reps ?? StudioDefaults.reps;
+    _sets = ex.sets ?? StudioDefaults.sets;
+    _hold = ex.holdSeconds ?? StudioDefaults.holdSeconds;
   }
 
   @override
@@ -135,12 +161,8 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     super.dispose();
   }
 
-  void _pushUpdate() {
-    // If a custom duration is set (video-length-as-1-rep), keep the
-    // TOTAL in sync when reps changes: totalCustom = perRep × reps.
-    // perRep is derived from the PREVIOUS reps so the edit round-trips
-    // cleanly.
-    final newReps = _repsValue.round();
+  void _pushReps(num value) {
+    final newReps = value.round();
     final currentCustom = widget.exercise.customDurationSeconds;
     int? nextCustom = currentCustom;
     if (currentCustom != null) {
@@ -150,13 +172,29 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
         nextCustom = perRep * newReps;
       }
     }
+    setState(() => _reps = newReps);
     widget.onUpdate(widget.exercise.copyWith(
       reps: newReps,
-      sets: _setsValue.round(),
-      holdSeconds: _holdValue.round(),
+      customDurationSeconds: nextCustom,
+    ));
+  }
+
+  void _pushSets(num value) {
+    final n = value.round();
+    setState(() => _sets = n);
+    widget.onUpdate(widget.exercise.copyWith(sets: n));
+  }
+
+  void _pushHold(num value) {
+    final n = value.round();
+    setState(() => _hold = n);
+    widget.onUpdate(widget.exercise.copyWith(holdSeconds: n));
+  }
+
+  void _pushNotes() {
+    widget.onUpdate(widget.exercise.copyWith(
       notes:
           _notesController.text.isEmpty ? null : _notesController.text,
-      customDurationSeconds: nextCustom,
     ));
   }
 
@@ -169,15 +207,12 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     // states (R-04). Reps × sets · rest Ns pattern; skip sets inside
     // circuits (cycles replace them).
     final parts = <String>[];
-    final sets = _setsValue.round();
-    final reps = _repsValue.round();
     if (widget.isInCircuit) {
-      parts.add('$reps reps');
+      parts.add('$_reps reps');
     } else {
-      parts.add('$sets × $reps');
+      parts.add('$_sets × $_reps');
     }
-    final hold = _holdValue.round();
-    if (hold > 0) parts.add('${hold}s hold');
+    if (_hold > 0) parts.add('${_hold}s hold');
     final dur = widget.exercise.effectiveDurationSeconds;
     final isCustom = widget.exercise.customDurationSeconds != null;
     parts.add(isCustom
@@ -310,11 +345,49 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
             ],
           ),
         ),
-        // Status icon — subtle, non-interactive, allowed under R-02
-        // because it's informational, not a tap target.
-        _StatusDot(status: widget.exercise.conversionStatus),
+        // Wave 18 — the trailing `_StatusDot` was removed. The
+        // ThumbnailPeek widget's capture_thumbnail overlays already
+        // signal every conversion state (green check on done, red
+        // warning on failed, centre spinner while converting), so the
+        // status dot was redundant and contributed to header-row
+        // visual noise. Zero information loss.
       ],
     );
+  }
+
+  /// Pacing group auto-collapses to its header when every field is at
+  /// the app-wide default. Non-default = prep override set OR
+  /// customDurationSeconds set OR the video-as-1-rep toggle implicitly
+  /// on (tracked via customDurationSeconds). Used to seed the default
+  /// expand/collapse state; practitioners can override via the header.
+  bool get _pacingHasNonDefaults {
+    final ex = widget.exercise;
+    if (ex.prepSeconds != null) return true;
+    if (ex.customDurationSeconds != null) return true;
+    return false;
+  }
+
+  bool get _notesHasContent => (widget.exercise.notes ?? '').isNotEmpty;
+
+  bool get _pacingExpanded => _pacingOverride ?? _pacingHasNonDefaults;
+  bool get _notesExpanded => _notesOverride ?? _notesHasContent;
+
+  String _pacingSummary() {
+    final parts = <String>[];
+    final ex = widget.exercise;
+    if (ex.prepSeconds != null) parts.add('${ex.prepSeconds}s prep');
+    if (ex.customDurationSeconds != null) {
+      parts.add('video-length on');
+    }
+    if (parts.isEmpty) return 'defaults';
+    return parts.join(', ');
+  }
+
+  String _notesSummary() {
+    final raw = widget.exercise.notes ?? '';
+    if (raw.isEmpty) return 'empty';
+    final clipped = raw.length > 28 ? '${raw.substring(0, 28)}…' : raw;
+    return '"$clipped"';
   }
 
   Widget _buildExpandedPanel() {
@@ -328,7 +401,9 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 1. Failure banner — unchanged position at the top.
+        // Failure banner — stays at the top of the expanded panel. It's
+        // an alert, not a grouped control, so it lives OUTSIDE the
+        // PLAYBACK / DOSE / PACING / NOTES sections.
         if (widget.exercise.conversionStatus == ConversionStatus.failed)
           Container(
             padding: const EdgeInsets.all(12),
@@ -357,9 +432,19 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
               ],
             ),
           ),
-        // 2. Treatment tiles — three mini-previews of how this specific
-        // exercise will render in each treatment. Tapping sets the sticky
-        // `preferredTreatment` via R-01 (immediate save, no confirm).
+
+        // -----------------------------------------------------------
+        // PLAYBACK — always expanded.
+        // -----------------------------------------------------------
+        _GroupHeader(
+          label: 'Playback',
+          expanded: true,
+          // Playback is always-on (no auto-collapse); tap is a no-op so
+          // we don't mislead the practitioner into thinking it toggles.
+          onTap: null,
+          summary: null,
+        ),
+        const SizedBox(height: 8),
         TreatmentTilesRow(
           exercise: widget.exercise,
           hasArchive: hasArchive,
@@ -370,11 +455,6 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
             );
           },
         ),
-        // 3. Muted toggle — lives in the Treatment section. Storage
-        // stays `includeAudio`; the UI inverts at the boundary so
-        // "Muted = true" means `includeAudio = false`. Default state
-        // is muted (safer for shared plans). Always rendered for video
-        // exercises; photos have no audio.
         if (isVideo) ...[
           const SizedBox(height: 4),
           _ToggleRow(
@@ -387,155 +467,136 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
             },
           ),
         ],
-        // 4. Hairline divider.
-        const SizedBox(height: 12),
-        const Divider(height: 1, color: AppColors.surfaceBorder),
-        const SizedBox(height: 12),
-        // 5. Reps slider.
-        _VerticalSlider(
+
+        // -----------------------------------------------------------
+        // DOSE — always expanded. Reps + Sets (skip in circuit) + Hold.
+        // -----------------------------------------------------------
+        const SizedBox(height: 16),
+        _GroupHeader(
+          label: 'Dose',
+          expanded: true,
+          onTap: null,
+          summary: null,
+        ),
+        const SizedBox(height: 8),
+        _ControlRow(
           label: 'Reps',
-          value: _repsValue,
-          min: 1,
-          max: 30,
-          divisions: 29,
-          display: '${_repsValue.round()}',
-          onChanged: (v) {
-            setState(() => _repsValue = v);
-            _pushUpdate();
+          value: _reps,
+          displayFormat: (v) => '$v',
+          child: PresetChipRow(
+            controlKey: 'reps',
+            canonicalPresets: const <num>[5, 8, 10, 12, 15],
+            currentValue: _reps,
+            onChanged: _pushReps,
+            accentColor: AppColors.primary,
+            undoLabel: 'reps',
+          ),
+        ),
+        if (!widget.isInCircuit) ...[
+          const SizedBox(height: 8),
+          _ControlRow(
+            label: 'Sets',
+            value: _sets,
+            displayFormat: (v) => '$v',
+            child: PresetChipRow(
+              controlKey: 'sets',
+              canonicalPresets: const <num>[1, 2, 3, 4, 5],
+              currentValue: _sets,
+              onChanged: _pushSets,
+              accentColor: AppColors.primary,
+              undoLabel: 'sets',
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        _ControlRow(
+          label: 'Hold',
+          value: _hold,
+          displayFormat: (v) => v == 0 ? 'Off' : '${v}s',
+          child: PresetChipRow(
+            controlKey: 'hold',
+            canonicalPresets: const <num>[0, 5, 10, 30, 60],
+            currentValue: _hold,
+            onChanged: _pushHold,
+            accentColor: AppColors.primary,
+            displayFormat: (v) => v == 0 ? 'Off' : '${v}s',
+            undoLabel: 'hold',
+          ),
+        ),
+
+        // -----------------------------------------------------------
+        // PACING — auto-collapsed when every field is default.
+        // -----------------------------------------------------------
+        const SizedBox(height: 16),
+        _GroupHeader(
+          label: 'Pacing',
+          expanded: _pacingExpanded,
+          summary: _pacingExpanded ? null : _pacingSummary(),
+          onTap: () {
+            HapticFeedback.selectionClick();
+            setState(() => _pacingOverride = !_pacingExpanded);
           },
         ),
-        // 6. Use video length as 1 rep — directly under the Reps slider
-        // per design feedback. Only rendered for video exercises with a
-        // probed duration.
-        if (hasVideoLength)
-          _ToggleRow(
-            label: 'Use video length as 1 rep',
-            value: customOn,
-            onChanged: (on) {
-              if (on) {
-                final perRep =
-                    (widget.exercise.videoDurationMs! / 1000).round();
-                widget.onUpdate(widget.exercise.copyWith(
-                  customDurationSeconds: perRep * _repsValue.round(),
-                ));
+        if (_pacingExpanded) ...[
+          const SizedBox(height: 8),
+          _PrepSecondsRow(
+            currentValue: widget.exercise.prepSeconds,
+            globalDefault: StudioDefaults.prepSeconds,
+            onCommit: (override) {
+              if (override == null) {
+                widget.onUpdate(
+                  widget.exercise.copyWith(clearPrepSeconds: true),
+                );
               } else {
-                widget.onUpdate(widget.exercise
-                    .copyWith(clearCustomDuration: true));
+                widget.onUpdate(
+                  widget.exercise.copyWith(prepSeconds: override),
+                );
               }
             },
           ),
-        // 7. Inline-editable custom duration — only when the toggle is
-        // ON. Stores TOTAL (perRep × reps); editing updates perRep and
-        // rewrites the total.
-        if (hasVideoLength && customOn)
-          _CustomDurationRow(
-            perRep: _perRepFromCustom(),
-            reps: _repsValue.round(),
-            onChanged: (newPerRep) {
-              final reps = _repsValue.round();
-              widget.onUpdate(widget.exercise.copyWith(
-                customDurationSeconds: newPerRep * reps,
-              ));
-            },
-          ),
-        // 8. Hairline divider.
-        const SizedBox(height: 8),
-        const Divider(height: 1, color: AppColors.surfaceBorder),
-        const SizedBox(height: 12),
-        // 9. Sets slider — skipped inside circuits (cycles replace sets).
-        if (!widget.isInCircuit)
-          _VerticalSlider(
-            label: 'Sets',
-            value: _setsValue,
-            min: 1,
-            max: 10,
-            divisions: 9,
-            display: '${_setsValue.round()}',
-            onChanged: (v) {
-              setState(() => _setsValue = v);
-              _pushUpdate();
-            },
-          ),
-        // 10. Hold slider.
-        _VerticalSlider(
-          label: 'Hold',
-          value: _holdValue,
-          min: 0,
-          max: 120,
-          divisions: 24,
-          display: _holdValue.round() == 0
-              ? 'Off'
-              : '${_holdValue.round()}s',
-          onChanged: (v) {
-            setState(() => _holdValue = v);
-            _pushUpdate();
+          if (hasVideoLength)
+            _ToggleRow(
+              label: 'Use video length as 1 rep',
+              value: customOn,
+              onChanged: (on) {
+                if (on) {
+                  final perRep =
+                      (widget.exercise.videoDurationMs! / 1000).round();
+                  widget.onUpdate(widget.exercise.copyWith(
+                    customDurationSeconds: perRep * _reps,
+                  ));
+                } else {
+                  widget.onUpdate(widget.exercise
+                      .copyWith(clearCustomDuration: true));
+                }
+              },
+            ),
+          if (hasVideoLength && customOn)
+            _CustomDurationRow(
+              perRep: _perRepFromCustom(),
+              reps: _reps,
+              onChanged: (newPerRep) {
+                widget.onUpdate(widget.exercise.copyWith(
+                  customDurationSeconds: newPerRep * _reps,
+                ));
+              },
+            ),
+        ],
+
+        // -----------------------------------------------------------
+        // NOTES — auto-collapsed when empty.
+        // -----------------------------------------------------------
+        const SizedBox(height: 16),
+        _GroupHeader(
+          label: 'Notes',
+          expanded: _notesExpanded,
+          summary: _notesExpanded ? null : _notesSummary(),
+          onTap: () {
+            HapticFeedback.selectionClick();
+            setState(() => _notesOverride = !_notesExpanded);
           },
         ),
-        // 10a. Prep-countdown override (Wave 3 / Milestone P).
-        //
-        // Null on the model → use the global default (5s); the field
-        // renders as "5s · default" in a muted tone. Tap to edit.
-        // Commit with an empty value OR 0 to clear the override; any
-        // positive integer writes a per-exercise prep runway. Sits in
-        // the Sets/Hold section next to the other timing attributes.
-        _PrepSecondsRow(
-          currentValue: widget.exercise.prepSeconds,
-          globalDefault: StudioDefaults.prepSeconds,
-          onCommit: (override) {
-            if (override == null) {
-              widget.onUpdate(
-                widget.exercise.copyWith(clearPrepSeconds: true),
-              );
-            } else {
-              widget.onUpdate(
-                widget.exercise.copyWith(prepSeconds: override),
-              );
-            }
-          },
-        ),
-        // 11. Notes — unchanged.
-        const SizedBox(height: 8),
-        GestureDetector(
-          onTap: () => setState(() => _notesOpen = !_notesOpen),
-          behavior: HitTestBehavior.opaque,
-          child: Row(
-            children: [
-              Icon(
-                _notesOpen ? Icons.expand_more : Icons.chevron_right,
-                size: 18,
-                color: AppColors.textSecondaryOnDark,
-              ),
-              const SizedBox(width: 4),
-              const Text(
-                'Notes',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
-                  color: AppColors.textSecondaryOnDark,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  widget.exercise.notes?.isNotEmpty == true
-                      ? widget.exercise.notes!
-                      : 'Tap to add',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    color: AppColors.textSecondaryOnDark
-                        .withValues(alpha: 0.7),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (_notesOpen)
+        if (_notesExpanded)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: TextField(
@@ -547,9 +608,10 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
-              onChanged: (_) => _pushUpdate(),
+              onChanged: (_) => _pushNotes(),
             ),
           ),
+        const SizedBox(height: 8),
       ],
     );
   }
@@ -558,9 +620,148 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
   /// inline-editable custom-duration row.
   int _perRepFromCustom() {
     final total = widget.exercise.customDurationSeconds ?? 0;
-    final reps = _repsValue.round();
-    if (reps <= 0) return total;
-    return (total / reps).round();
+    if (_reps <= 0) return total;
+    return (total / _reps).round();
+  }
+}
+
+/// Group-header label for the Studio card's expanded panel. Renders an
+/// 11pt uppercase coral label + optional em-dash summary + chevron
+/// glyph. Tapping toggles the override; the label row is a 48pt tall
+/// hit target spanning the full card width.
+class _GroupHeader extends StatelessWidget {
+  final String label;
+  final bool expanded;
+
+  /// Trailing em-dash summary for collapsed state. Null = no summary
+  /// (the group is forced-open, e.g. Playback / Dose).
+  final String? summary;
+
+  /// Tap toggles the override. Null = non-interactive (Playback / Dose
+  /// render the label + divider only).
+  final VoidCallback? onTap;
+
+  const _GroupHeader({
+    required this.label,
+    required this.expanded,
+    required this.summary,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final child = Row(
+      children: [
+        if (onTap != null)
+          AnimatedRotation(
+            turns: expanded ? 0 : -0.25,
+            duration: AppMotion.fast,
+            curve: AppMotion.standard,
+            child: const Icon(
+              Icons.expand_more,
+              size: 18,
+              color: AppColors.primary,
+            ),
+          ),
+        if (onTap != null) const SizedBox(width: 4),
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
+            color: AppColors.primary,
+          ),
+        ),
+        if (summary != null) ...[
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              '— $summary',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.2,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+    if (onTap == null) {
+      return SizedBox(height: 32, child: Align(alignment: Alignment.centerLeft, child: child));
+    }
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        height: 40,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// One DOSE control row — "REPS" label + current-value number +
+/// horizontally-scrolling chip row. Keeps the Studio card's grammar
+/// consistent across Reps / Sets / Hold.
+class _ControlRow extends StatelessWidget {
+  final String label;
+  final num value;
+  final String Function(num) displayFormat;
+  final Widget child;
+
+  const _ControlRow({
+    required this.label,
+    required this.value,
+    required this.displayFormat,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                label.toUpperCase(),
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                  color: AppColors.textSecondaryOnDark,
+                ),
+              ),
+              Text(
+                displayFormat(value),
+                style: const TextStyle(
+                  fontFamily: 'JetBrainsMono',
+                  fontFamilyFallback: ['Menlo', 'Courier'],
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textOnDark,
+                ),
+              ),
+            ],
+          ),
+        ),
+        child,
+      ],
+    );
   }
 }
 
@@ -744,116 +945,6 @@ class _CustomisedDot extends StatelessWidget {
       decoration: const BoxDecoration(
         color: AppColors.primary,
         shape: BoxShape.circle,
-      ),
-    );
-  }
-}
-
-class _StatusDot extends StatelessWidget {
-  final ConversionStatus status;
-  const _StatusDot({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    switch (status) {
-      case ConversionStatus.pending:
-      case ConversionStatus.converting:
-        return const SizedBox(
-          width: 16,
-          height: 16,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: AppColors.textSecondaryOnDark,
-          ),
-        );
-      case ConversionStatus.done:
-        return const Icon(
-          Icons.check_circle,
-          size: 18,
-          color: AppColors.success,
-        );
-      case ConversionStatus.failed:
-        return const Icon(
-          Icons.error_outline,
-          size: 18,
-          color: AppColors.error,
-        );
-    }
-  }
-}
-
-class _VerticalSlider extends StatelessWidget {
-  final String label;
-  final double value;
-  final double min;
-  final double max;
-  final int divisions;
-  final String display;
-  final ValueChanged<double> onChanged;
-
-  const _VerticalSlider({
-    required this.label,
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.divisions,
-    required this.display,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                label.toUpperCase(),
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
-                  color: AppColors.textSecondaryOnDark,
-                ),
-              ),
-              Text(
-                display,
-                style: const TextStyle(
-                  fontFamily: 'JetBrainsMono',
-                  fontFamilyFallback: ['Menlo', 'Courier'],
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textOnDark,
-                ),
-              ),
-            ],
-          ),
-          SliderTheme(
-            data: SliderThemeData(
-              trackHeight: 6,
-              activeTrackColor: AppColors.primary,
-              inactiveTrackColor: AppColors.surfaceBorder,
-              thumbColor: AppColors.primary,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-              overlayShape:
-                  const RoundSliderOverlayShape(overlayRadius: 18),
-              overlayColor: AppColors.brandTintBg,
-              trackShape: const RoundedRectSliderTrackShape(),
-            ),
-            child: Slider(
-              value: value,
-              min: min,
-              max: max,
-              divisions: divisions,
-              onChanged: onChanged,
-            ),
-          ),
-        ],
       ),
     );
   }

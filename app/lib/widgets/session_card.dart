@@ -8,74 +8,41 @@ import '../models/session.dart';
 import '../services/conversion_service.dart';
 import '../theme.dart';
 
-/// Visual-only session card — the rendering pulled out of the retired
-/// flat-list Home screen so it can be reused by
-/// [`ClientSessionsScreen`] under the Clients-as-Home spine IA (R-11).
+/// Visual-only session card — one row in a client's session list.
 ///
-/// Behaviour stays identical to the legacy Home card:
-/// - Tap opens the session.
-/// - Horizontal swipe (left) fires a soft-delete with an Undo SnackBar.
-///   Per R-01 the delete runs immediately; the parent supplies the
-///   [onDelete] handler that owns the SnackBar dance.
-/// - Right-side action row: Publish / Share / chevron. (Copy-link icon
-///   retired in Wave 3 — Share covers the same intent without the
-///   silent-clipboard ambiguity.)
-/// - Failed-conversion retry pill under the subtitle.
+/// Tap opens the session (navigates into the Studio shell). Swipe-left
+/// soft-deletes via the parent's [onDelete]. The card row is purely
+/// navigational: Publish + Share used to live here as trailing icons
+/// but moved into the new Studio toolbar in Wave 18 so every publish
+/// path roots from a single surface. Once the practitioner is inside
+/// the Studio, they have full publish + share control there.
 ///
-/// All network / storage side-effects are pushed up to the parent via
-/// the `on*` callbacks so this widget stays pure-render and reusable
-/// from any screen that lists sessions.
+/// Failed-conversion retry pill stays — it's a per-exercise concern,
+/// not a publish concern, and the parent list is the natural surface.
 class SessionCard extends StatelessWidget {
   final Session session;
+
+  /// Kept for legacy wiring + future reinstatement (a ClientSessionsScreen
+  /// refresh may still care whether a parallel publish is running on
+  /// this session — e.g. to grey out the row). Not currently rendered
+  /// as a spinner on the card itself.
   final bool isPublishing;
-  final String? publishError;
 
   final VoidCallback onOpen;
   final VoidCallback onDelete;
-  final VoidCallback onPublish;
-  final VoidCallback? onShare;
-  final VoidCallback onShowPublishError;
 
   const SessionCard({
     super.key,
     required this.session,
     required this.isPublishing,
-    required this.publishError,
     required this.onOpen,
     required this.onDelete,
-    required this.onPublish,
-    required this.onShowPublishError,
-    this.onShare,
   });
 
   @override
   Widget build(BuildContext context) {
     final exerciseCount = session.exercises.length;
     final pending = session.pendingConversions;
-
-    // Determine publish/share button states (rules lifted verbatim from
-    // the retired Home implementation — changing them would regress the
-    // existing publish flow).
-    final hasConversionsRunning = session.exercises.any((e) =>
-        !e.isRest &&
-        (e.conversionStatus == ConversionStatus.pending ||
-            e.conversionStatus == ConversionStatus.converting));
-    final hasExercises =
-        session.exercises.where((e) => !e.isRest).isNotEmpty;
-    final canPublish = hasExercises && !hasConversionsRunning && !isPublishing;
-    // Three-state publish indicator (Q1 polish batch):
-    //   - never published    → coral `cloud_upload_outlined`, "Publish"
-    //   - published + clean  → sage `check_circle`, "Published"
-    //   - published + dirty  → coral `cloud_sync_outlined`,
-    //                          "Changes pending — tap to re-sync"
-    // "Dirty" is driven by [Session.hasUnpublishedContentChanges], which
-    // compares the last content-edit timestamp to [sentAt]. Legacy rows
-    // with a null content-edit stamp read as clean so pre-feature
-    // sessions don't all light up orange on upgrade.
-    final isPublishedDirty =
-        session.isPublished && session.hasUnpublishedContentChanges;
-    final isPublishedClean = session.isPublished && !isPublishedDirty;
-    final hasPublishError = publishError != null && !isPublishing;
 
     final failedConversions = session.exercises
         .where((e) => e.conversionStatus == ConversionStatus.failed)
@@ -162,113 +129,13 @@ class SessionCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (isPublishing)
-                      const SizedBox(
-                        width: 34,
-                        height: 34,
-                        child: Padding(
-                          padding: EdgeInsets.all(7),
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppColors.grey500,
-                          ),
-                        ),
-                      )
-                    else
-                      SizedBox(
-                        width: 34,
-                        height: 34,
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            IconButton(
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              iconSize: 20,
-                              // Clean published sessions are a no-op tap.
-                              // Dirty + never-published + error all route
-                              // to their respective actions (publish or
-                              // surface the error sheet).
-                              onPressed: hasPublishError
-                                  ? onShowPublishError
-                                  : (isPublishedClean
-                                      ? null
-                                      : (canPublish ? onPublish : null)),
-                              icon: Icon(
-                                hasPublishError
-                                    ? Icons.cloud_off_outlined
-                                    : isPublishedClean
-                                        ? Icons.check_circle
-                                        : isPublishedDirty
-                                            ? Icons.cloud_sync_outlined
-                                            : Icons.cloud_upload_outlined,
-                                color: hasPublishError
-                                    ? AppColors.error
-                                    : isPublishedClean
-                                        ? AppColors.circuit
-                                        : isPublishedDirty
-                                            ? AppColors.primary
-                                            : canPublish
-                                                ? AppColors.primary
-                                                : AppColors.grey600,
-                                size: 20,
-                              ),
-                              tooltip: hasPublishError
-                                  ? 'Publish failed — tap for details'
-                                  : isPublishedClean
-                                      ? 'Published'
-                                      : isPublishedDirty
-                                          ? 'Changes pending — tap to re-sync'
-                                          : 'Publish',
-                            ),
-                            if (hasPublishError)
-                              Positioned(
-                                top: 2,
-                                right: 2,
-                                child: Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    color: AppColors.error,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: AppColors.surfaceBase,
-                                      width: 1,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    SizedBox(
-                      width: 34,
-                      height: 34,
-                      child: IconButton(
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        iconSize: 20,
-                        onPressed: session.isPublished ? onShare : null,
-                        icon: Icon(
-                          Icons.ios_share,
-                          color: session.isPublished
-                              ? AppColors.textOnDark
-                              : AppColors.grey600,
-                          size: 20,
-                        ),
-                        tooltip: 'Share',
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(
-                      Icons.chevron_right,
-                      color: AppColors.grey500,
-                      size: 22,
-                    ),
-                  ],
+                // Wave 18 — Publish + Share icons moved to the Studio
+                // toolbar. The card now ends with the chevron only so
+                // the row reads as a pure navigation affordance.
+                const Icon(
+                  Icons.chevron_right,
+                  color: AppColors.grey500,
+                  size: 22,
                 ),
               ],
             ),

@@ -94,6 +94,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # Wave 18 — in-memory sqflite for host tests (publish_dirty_state_test).
+  # The production path runs against iOS sqflite; the ffi variant is used
+  # only under `flutter test` on the host Mac.
+  sqflite_common_ffi: ^2.3.0
 
 flutter:
   uses-material-design: true
