@@ -447,43 +447,37 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: AppColors.surfaceBg,
       body: SafeArea(
-        child: Column(
+        child: Stack(
+          children: [
+            Column(
           children: [
             // Brand anchor. Matrix + wordmark lockup sits above the
             // identity controls so Home reads as the brand's front
             // door — the first thing a practitioner sees when opening
-            // the app. Identity controls (PracticeChip + offline chip +
-            // Settings) live underneath so the hierarchy is brand →
-            // identity → content.
+            // the app. Identity controls (PracticeChip + offline chip)
+            // live underneath so the hierarchy is brand → identity →
+            // content. Settings lives top-right of the Scaffold via a
+            // Stack overlay so it gets a generous tap target instead of
+            // fighting the practice chip for the identity row's space.
             const Padding(
               // Bottom padding 3× bigger per Wave 3 #14 pass-note — gives
               // the brand anchor enough breathing room before the
-              // identity-controls row (practice chip + sync + settings).
+              // identity-controls row (practice chip + sync).
               padding: EdgeInsets.fromLTRB(24, 16, 24, 24),
               child: Center(
                 child: HomefitLogoLockup(size: 180),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 8, 0),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(12, 4, 8, 0),
               child: Row(
                 children: [
-                  const PracticeChip(),
-                  const SizedBox(width: 8),
+                  PracticeChip(),
+                  SizedBox(width: 8),
                   // Offline / pending-ops chip. Hidden when online +
                   // queue empty; subtle ink-muted when there's
                   // something to say.
-                  const OfflineSyncChip(),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: _openSettings,
-                    icon: const Icon(
-                      Icons.settings_outlined,
-                      color: AppColors.textOnDark,
-                      size: 26,
-                    ),
-                    tooltip: 'Settings',
-                  ),
+                  OfflineSyncChip(),
                 ],
               ),
             ),
@@ -580,6 +574,25 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
+          ],
+        ),
+            // Settings overlay — top-right of the Home surface, above the
+            // brand lockup. Given the corner to itself so the gesture
+            // isn't fighting the PracticeChip + OfflineSyncChip for space
+            // in the identity row.
+            Positioned(
+              top: 4,
+              right: 4,
+              child: IconButton(
+                onPressed: _openSettings,
+                icon: const Icon(
+                  Icons.settings_outlined,
+                  color: AppColors.textOnDark,
+                  size: 26,
+                ),
+                tooltip: 'Settings',
+              ),
+            ),
           ],
         ),
       ),
