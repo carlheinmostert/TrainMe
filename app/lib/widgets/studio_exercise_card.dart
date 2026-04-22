@@ -573,7 +573,10 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
         // DOSE — accordion member, default closed. Reps + Sets (skip
         // in circuit) + Hold.
         // -----------------------------------------------------------
-        const SizedBox(height: 16),
+        // Wave 18.6 — inter-group SizedBox(height: 16) removed. Groups
+        // flow directly against each other; the tighter 2pt vertical
+        // padding inside _GroupHeader provides the visual breathing
+        // room. No divider lines between groups.
         _GroupHeader(
           label: 'Dose',
           expanded: doseOpen,
@@ -633,7 +636,7 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
         // -----------------------------------------------------------
         // PACING — accordion member, default closed.
         // -----------------------------------------------------------
-        const SizedBox(height: 16),
+        // Wave 18.6 — inter-group SizedBox(height: 16) removed.
         _GroupHeader(
           label: 'Pacing',
           expanded: pacingOpen,
@@ -701,7 +704,7 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
         // -----------------------------------------------------------
         // NOTES — accordion member, default closed.
         // -----------------------------------------------------------
-        const SizedBox(height: 16),
+        // Wave 18.6 — inter-group SizedBox(height: 16) removed.
         _GroupHeader(
           label: 'Notes',
           expanded: notesOpen,
@@ -806,7 +809,11 @@ class _GroupHeader extends StatelessWidget {
         // taller via the inner column (collapsed state only).
         constraints: const BoxConstraints(minHeight: 40),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          // Wave 18.6 — vertical padding tightened 10pt → 2pt so the
+          // collapsed header row runs tight. When all four groups are
+          // collapsed the card stack is ~4× denser than Wave 18.5. The
+          // 40pt minHeight above still keeps the hit target usable.
+          padding: const EdgeInsets.symmetric(vertical: 2),
           child: Row(
             // Top-aligned so chevron + dot stay at the visual top when
             // the label/summary wraps to 2 or 3 lines.
@@ -938,7 +945,12 @@ class _ControlRow extends StatelessWidget {
                 label.toUpperCase(),
                 style: const TextStyle(
                   fontFamily: 'Inter',
-                  fontSize: 11,
+                  // Wave 18.6 — inner label bumped 11pt → 13pt to match
+                  // section header size. Differentiation stays via w600
+                  // (vs w700), secondary-grey (vs coral), and the 0.5
+                  // letterSpacing. All three tiers (header / inner label /
+                  // inner value) now render at 13pt.
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.5,
                   color: AppColors.textSecondaryOnDark,
@@ -949,7 +961,10 @@ class _ControlRow extends StatelessWidget {
                 style: const TextStyle(
                   fontFamily: 'JetBrainsMono',
                   fontFamilyFallback: ['Menlo', 'Courier'],
-                  fontSize: 14,
+                  // Wave 18.6 — value shrunk 14pt → 13pt so it doesn't
+                  // out-size the 13pt section header above it. Hierarchy
+                  // carried by family (mono vs Inter) + w700 + white.
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: AppColors.textOnDark,
                 ),
@@ -1090,26 +1105,36 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
 
   @override
   Widget build(BuildContext context) {
+    // Wave 18.6 — label + control stack vertically. Wave 18.5 rendered
+    // them on one row, which overflowed on iPhone (segmented control
+    // scrolled off-screen). Now the label sits on its own row, the
+    // segmented control (or single value pill) sits below with a ~6pt
+    // gap, and the control can take the full card content width without
+    // fighting the label for space.
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
             'Duration per rep',
             style: TextStyle(
               fontFamily: 'Inter',
+              // Wave 18.6 — matches the 13pt size of the rebalanced
+              // inner labels (REPS / SETS / HOLD / PREP). Mixed-case
+              // w500 in secondary-grey keeps this label visually
+              // distinct from the uppercase w600 tier while staying in
+              // the same size family.
               fontSize: 13,
               fontWeight: FontWeight.w500,
-              color: AppColors.textOnDark,
+              color: AppColors.textSecondaryOnDark,
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: widget.hasVideoLength
-                ? _buildSegmentedControl()
-                : _buildSingleValue(),
-          ),
+          const SizedBox(height: 6),
+          widget.hasVideoLength
+              ? _buildSegmentedControl()
+              : _buildSingleValue(),
         ],
       ),
     );
@@ -1119,11 +1144,16 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
   /// customDurationSeconds = null; `Manual: Xs` sets a persisted per-rep
   /// × reps value. When `Manual` is active, its value is tappable and
   /// swaps into an inline TextField for direct edit.
+  ///
+  /// Wave 18.6 — segments now Expanded inside a full-width container so
+  /// the control spans the card's content area. The label moved to its
+  /// own row above (see [build]) so there's no horizontal competition
+  /// for space.
   Widget _buildSegmentedControl() {
     final isManual = widget.customDurationSeconds != null;
     final manualPerRep = _perRep;
-    return Align(
-      alignment: Alignment.centerRight,
+    return SizedBox(
+      width: double.infinity,
       child: Container(
         height: 32,
         decoration: BoxDecoration(
@@ -1132,31 +1162,35 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
           border: Border.all(color: AppColors.surfaceBorder),
         ),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            _segment(
-              label: 'From video',
-              selected: !isManual,
-              onTap: () {
-                if (!isManual) return;
-                HapticFeedback.selectionClick();
-                widget.onSelectFromVideo();
-              },
-            ),
-            _segment(
-              label: 'Manual: ${manualPerRep}s',
-              selected: isManual,
-              onTap: () {
-                if (isManual) {
-                  // Already Manual — tap swaps into edit mode for the
-                  // value pill.
-                  _startEditing();
-                } else {
+            Expanded(
+              child: _segment(
+                label: 'From video',
+                selected: !isManual,
+                onTap: () {
+                  if (!isManual) return;
                   HapticFeedback.selectionClick();
-                  widget.onSelectManual();
-                }
-              },
-              editingChild: _isEditing && isManual ? _buildInlineInput() : null,
+                  widget.onSelectFromVideo();
+                },
+              ),
+            ),
+            Expanded(
+              child: _segment(
+                label: 'Manual: ${manualPerRep}s',
+                selected: isManual,
+                onTap: () {
+                  if (isManual) {
+                    // Already Manual — tap swaps into edit mode for the
+                    // value pill.
+                    _startEditing();
+                  } else {
+                    HapticFeedback.selectionClick();
+                    widget.onSelectManual();
+                  }
+                },
+                editingChild:
+                    _isEditing && isManual ? _buildInlineInput() : null,
+              ),
             ),
           ],
         ),
@@ -1166,38 +1200,42 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
 
   /// Single tappable value pill for photos (or videos without probed
   /// duration). Tap swaps into inline TextField for edit.
+  ///
+  /// Wave 18.6 — the old Align(centerRight) wrapper was dropped when
+  /// the label stacked above on its own row. The pill now sits left-
+  /// anchored below the "Duration per rep" label, natural-width — big
+  /// enough to tap, small enough that a photo exercise's "5s" pill
+  /// doesn't feel like a full-width heavy slab.
   Widget _buildSingleValue() {
-    return Align(
-      alignment: Alignment.centerRight,
-      child: _isEditing
-          ? _buildInlineInput()
-          : GestureDetector(
-              onTap: _startEditing,
-              behavior: HitTestBehavior.opaque,
-              child: Container(
-                height: 32,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.brandTintBg,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.45),
-                    width: 1,
-                  ),
-                ),
-                child: Text(
-                  '${_perRep}s',
-                  style: const TextStyle(
-                    fontFamily: 'JetBrainsMono',
-                    fontFamilyFallback: ['Menlo', 'Courier'],
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ),
-            ),
+    if (_isEditing) return _buildInlineInput();
+    return GestureDetector(
+      onTap: _startEditing,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: AppColors.brandTintBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: AppColors.primary.withValues(alpha: 0.45),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          '${_perRep}s',
+          style: const TextStyle(
+            fontFamily: 'JetBrainsMono',
+            fontFamilyFallback: ['Menlo', 'Courier'],
+            // Wave 18.6 — 14pt → 13pt (matches all other accordion
+            // value readouts).
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: AppColors.primary,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1214,7 +1252,9 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
         style: const TextStyle(
           fontFamily: 'JetBrainsMono',
           fontFamilyFallback: ['Menlo', 'Courier'],
-          fontSize: 14,
+          // Wave 18.6 — 14pt → 13pt (matches single-value + all other
+          // accordion readouts).
+          fontSize: 13,
           fontWeight: FontWeight.w700,
           color: AppColors.textOnDark,
         ),
@@ -1443,7 +1483,8 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
             'PREP',
             style: TextStyle(
               fontFamily: 'Inter',
-              fontSize: 11,
+              // Wave 18.6 — 11pt → 13pt (matches _ControlRow).
+              fontSize: 13,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.5,
               color: AppColors.textSecondaryOnDark,
@@ -1461,7 +1502,9 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
                 style: const TextStyle(
                   fontFamily: 'JetBrainsMono',
                   fontFamilyFallback: ['Menlo', 'Courier'],
-                  fontSize: 14,
+                  // Wave 18.6 — 14pt → 13pt (matches the display text
+                  // below + the _ControlRow value size).
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: AppColors.textOnDark,
                 ),
@@ -1518,7 +1561,8 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
                     style: TextStyle(
                       fontFamily: 'JetBrainsMono',
                       fontFamilyFallback: const ['Menlo', 'Courier'],
-                      fontSize: 14,
+                      // Wave 18.6 — 14pt → 13pt (matches _ControlRow value).
+                      fontSize: 13,
                       fontWeight: FontWeight.w700,
                       color: hasOverride
                           ? AppColors.textOnDark

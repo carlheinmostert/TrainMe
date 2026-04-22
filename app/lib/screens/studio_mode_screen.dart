@@ -1257,7 +1257,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         // single-line visual identical while letting the row grow.
         constraints: const BoxConstraints(minHeight: 52),
         decoration: BoxDecoration(
-          color: AppColors.surfaceRaised,
+          // Wave 18.6 — outer container flipped from surfaceRaised to
+          // surfaceBase so the inner chips (which fill with surfaceRaised
+          // in their unselected state) sit against a contrasting
+          // background instead of blending. Matches the way DOSE chips
+          // render against the exercise card's surfaceBase body.
+          color: AppColors.surfaceBase,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: AppColors.rest.withValues(alpha: 0.3),
