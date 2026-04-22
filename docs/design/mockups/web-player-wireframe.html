@@ -3,517 +3,1292 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Web Player — Wireframe Workshop</title>
+<title>Web Player — state gallery · homefit.studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
   :root {
-    --bg: #0F1117;
-    --raised: #171923;
-    --sunken: #0B0D13;
-    --border: rgba(255,255,255,0.10);
-    --text: #F0F0F5;
-    --text-mute: #9CA3AF;
-    --text-dim: #6B7280;
-    --coral: #FF6B35;
-    --coral-bg: rgba(255,107,53,0.15);
-    --coral-border: rgba(255,107,53,0.50);
-    --sage: #86EFAC;
-    --sage-bg: rgba(134,239,172,0.12);
-    --sage-border: rgba(134,239,172,0.40);
-    --slate: #475569;
-    --slate-bg: rgba(71,85,105,0.20);
-    --slate-border: rgba(71,85,105,0.55);
-    --violet: #A78BFA;
-    --violet-bg: rgba(167,139,250,0.15);
-    --violet-border: rgba(167,139,250,0.45);
-    --amber: #FBBF24;
-    --amber-bg: rgba(251,191,36,0.15);
-    --amber-border: rgba(251,191,36,0.40);
+    /* Base tokens mirror web-player/styles.css */
+    --bg:              #0F1117;
+    --surface-base:    #1A1D27;
+    --surface-raised:  #242733;
+    --surface-border:  #2E3140;
+    --ink:             #F0F0F5;
+    --ink-secondary:   #9CA3AF;
+    --ink-muted:       #6B7280;
+    --ink-disabled:    #4B5563;
+    --coral:           #FF6B35;
+    --coral-dark:      #E85A24;
+    --coral-tint-bg:   rgba(255,107,53,0.12);
+    --coral-tint-br:   rgba(255,107,53,0.30);
+    --sage:            #86EFAC;
+    --sage-tint-bg:    rgba(134,239,172,0.15);
+    --sage-tint-br:    rgba(134,239,172,0.55);
+
+    /* Outline families for region callouts */
+    --fam-progress:    #FF6B35;      /* progress + time */
+    --fam-progress-bg: rgba(255,107,53,0.10);
+    --fam-card:        #60A5FA;      /* card + media */
+    --fam-card-bg:     rgba(96,165,250,0.10);
+    --fam-meta:        #A78BFA;      /* metadata (name, grammar, treatment) */
+    --fam-meta-bg:     rgba(167,139,250,0.10);
+    --fam-nav:         #34D399;      /* navigation */
+    --fam-nav-bg:      rgba(52,211,153,0.10);
+    --fam-state:       #FBBF24;      /* state-specific overlays */
+    --fam-state-bg:    rgba(251,191,36,0.12);
+
+    --f-display: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --f-body:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --f-mono:    'JetBrains Mono', 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
   }
+
   * { box-sizing: border-box; }
   html, body {
-    background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
-    font-size: 14px; line-height: 1.5; margin: 0; padding: 0;
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--ink);
+    font-family: var(--f-body); font-size: 14px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
   }
+
+  /* ─── Page chrome ─────────────────────────────────────────────────── */
   header.page-header {
-    padding: 32px 40px 16px;
-    border-bottom: 1px solid var(--border);
+    padding: 36px 40px 20px;
+    border-bottom: 1px solid var(--surface-border);
+  }
+  .page-header .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
   }
   .page-header h1 {
-    font-family: Montserrat, sans-serif; font-weight: 700;
-    font-size: 26px; letter-spacing: -0.4px; margin: 0 0 8px;
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 26px; letter-spacing: -0.4px; margin: 0 0 10px;
   }
   .page-header .lede {
-    color: var(--text-mute); max-width: 720px; margin: 0;
+    color: var(--ink-secondary); max-width: 760px;
+    margin: 0 0 6px; font-size: 14px;
   }
-  .page-header .lede strong { color: var(--text); }
-  .legend {
-    display: flex; gap: 16px; flex-wrap: wrap;
-    margin: 18px 0 0; padding: 14px 16px;
-    background: var(--raised); border-radius: 10px;
-    border: 1px solid var(--border); font-size: 12px;
+  .page-header .lede strong { color: var(--ink); font-weight: 600; }
+
+  main.gallery {
+    padding: 32px 40px 20px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(300px, 1fr));
+    gap: 32px 24px;
+    max-width: 1360px;
+    margin: 0 auto;
   }
-  .legend-item {
+  @media (max-width: 1100px) { main.gallery { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 700px)  { main.gallery { grid-template-columns: 1fr; padding: 24px 20px; } }
+
+  .frame-cell {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+  }
+
+  .state-chip {
     display: inline-flex; align-items: center; gap: 8px;
-    color: var(--text-mute);
+    padding: 6px 14px; border-radius: 100px;
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-border);
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--ink-secondary); letter-spacing: 0.3px;
   }
-  .legend-dot {
-    width: 10px; height: 10px; border-radius: 3px;
+  .state-chip .dot {
+    width: 8px; height: 8px; border-radius: 50%;
   }
-  .frames {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 32px; padding: 32px 40px;
-  }
-  @media (max-width: 960px) {
-    .frames { grid-template-columns: 1fr; }
-  }
-  .frame {
-    display: flex; flex-direction: column; align-items: center;
-  }
-  .frame-title {
-    font-family: Montserrat, sans-serif; font-weight: 700;
-    font-size: 16px; letter-spacing: -0.2px;
-    margin: 0 0 4px;
-  }
-  .frame-subtitle {
-    color: var(--text-mute); font-size: 12px;
-    margin: 0 0 18px;
-  }
+  .state-chip strong { color: var(--ink); font-weight: 600; font-family: var(--f-body); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;}
+
+  /* ─── Phone frame ─────────────────────────────────────────────────── */
   .phone {
-    width: 360px; max-width: 100%;
-    background: var(--sunken);
-    border: 2px solid var(--border);
-    border-radius: 36px;
-    padding: 20px 16px;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    width: 320px; height: 693px;      /* iPhone 17 Pro-ish ratio */
+    position: relative;
+    background: #000;
+    border-radius: 42px;
+    padding: 12px;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.04) inset,
+      0 0 0 2px #1d1f25,
+      0 22px 60px rgba(0,0,0,0.55);
   }
-  .phone-notch {
-    width: 90px; height: 5px;
-    background: rgba(255,255,255,0.08);
-    border-radius: 3px;
-    margin: 0 auto 12px;
+  .phone .screen {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    border-radius: 32px;
+    position: relative;
+    overflow: hidden;
+    display: flex; flex-direction: column;
   }
-  .sortable { list-style: none; padding: 0; margin: 0; }
-  .region {
-    padding: 12px 14px;
-    margin: 6px 0;
-    border-radius: 8px;
-    border: 1.5px solid var(--slate-border);
-    background: var(--slate-bg);
-    cursor: grab;
-    user-select: none;
-    transition: transform 120ms, border-color 120ms, background 120ms;
+  .phone .notch {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    width: 108px; height: 28px; background: #000;
+    border-radius: 16px; z-index: 10;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+  }
+  .status-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 26px 6px; font-size: 11px; font-weight: 600;
+    color: var(--ink); font-family: var(--f-display);
+    z-index: 5;
+  }
+  .status-bar .sb-right {
+    display: inline-flex; gap: 6px; align-items: center;
+    font-size: 10px; color: var(--ink);
+  }
+
+  /* ─── Plan bar (top) ──────────────────────────────────────────────── */
+  .plan-bar {
+    padding: 8px 18px 10px;
+    display: flex; flex-direction: column; gap: 2px;
     position: relative;
   }
-  .region:active { cursor: grabbing; }
-  .region:hover {
-    transform: translateX(2px);
-    border-color: rgba(255,255,255,0.30);
+  .plan-title {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 18px; letter-spacing: -0.025em;
+    color: var(--ink); line-height: 1.2;
   }
-  .region.sortable-ghost {
-    opacity: 0.35;
+  .header-client {
+    font-size: 12px; color: var(--ink-secondary); font-weight: 500;
   }
-  .region.sortable-chosen {
-    border-color: var(--coral) !important;
-    box-shadow: 0 0 0 3px var(--coral-bg);
+
+  /* ─── Progress matrix (pills + ETA) ───────────────────────────────── */
+  .progress-matrix {
+    position: relative; margin: 2px 0 6px;
+    padding: 6px 14px;
+    overflow: hidden;
   }
-  .region[data-tone="content"] {
-    border-color: var(--coral-border);
-    background: var(--coral-bg);
+  .progress-matrix-inner {
+    display: flex; align-items: center; gap: 6px;
   }
-  .region[data-tone="nav"] {
-    border-color: var(--slate-border);
-    background: var(--slate-bg);
+  .pill {
+    width: 22px; height: 20px;
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-border);
+    border-radius: 6px; position: relative; overflow: hidden;
+    flex-shrink: 0;
   }
-  .region[data-tone="overlay"] {
-    border-color: var(--violet-border);
-    background: var(--violet-bg);
-    border-style: dashed;
+  .pill .pill-fill {
+    position: absolute; top: 0; left: 0; bottom: 0;
+    background: rgba(255,107,53,0.85);
+    width: 0%;
   }
-  .region[data-tone="footer"] {
-    border-color: var(--border);
-    background: rgba(255,255,255,0.02);
+  .pill.is-completed .pill-fill { width: 100%; background: var(--coral); }
+  .pill.is-active {
+    border-color: var(--coral); border-width: 2px;
+    box-shadow: 0 0 0 4px rgba(255,107,53,0.22);
   }
-  .region[data-tone="rest"] {
-    border-color: var(--sage-border);
-    background: var(--sage-bg);
+  .pill.is-active.paused { box-shadow: none; border-color: var(--coral); }
+  .pill.is-rest {
+    background: var(--sage-tint-bg);
+    border-color: var(--sage-tint-br);
   }
-  .region[data-tone="alert"] {
-    border-color: var(--amber-border);
-    background: var(--amber-bg);
+  .pill.is-rest.is-completed .pill-fill { background: var(--sage); }
+  .pill.is-rest.is-active { border-color: var(--sage); box-shadow: 0 0 0 4px rgba(134,239,172,0.22); }
+
+  .matrix-col {
+    display: flex; flex-direction: column; gap: 4px;
+    align-items: flex-start;
   }
-  .region-head {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 10px;
-  }
-  .region-name {
-    font-weight: 700; font-size: 13px;
-    letter-spacing: 0.2px;
-    color: var(--text);
-  }
-  .region-badges { display: inline-flex; gap: 4px; }
-  .badge {
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--text-mute);
-    background: rgba(255,255,255,0.08);
-  }
-  .badge.float {
-    background: var(--violet-bg);
-    color: var(--violet);
-  }
-  .badge.conditional {
-    background: var(--amber-bg);
-    color: var(--amber);
-  }
-  .region-purpose {
-    font-size: 11px;
-    color: var(--text-mute);
-    margin-top: 4px;
-    line-height: 1.4;
-  }
-  .frame-actions {
-    display: flex; gap: 10px; margin-top: 14px;
-  }
-  .btn {
-    background: transparent;
-    color: var(--text-mute);
-    border: 1px solid var(--border);
+  .matrix-col.is-circuit {
+    background: var(--coral-tint-bg);
+    padding: 4px;
     border-radius: 6px;
-    padding: 6px 12px;
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 120ms;
   }
-  .btn:hover {
-    color: var(--text);
-    border-color: var(--coral);
+
+  .matrix-eta {
+    margin-left: auto; display: inline-flex; gap: 5px;
+    font-family: var(--f-mono); font-size: 11px;
+    letter-spacing: -0.2px; white-space: nowrap;
   }
-  .btn.primary {
-    background: var(--coral-bg);
+  .matrix-eta .curr { color: var(--coral); font-weight: 700; }
+  .matrix-eta .tot  { color: var(--ink); font-weight: 700; }
+  .matrix-eta .fin  { color: var(--ink-secondary); font-weight: 500; }
+  .matrix-eta .sep  { color: var(--ink-muted); }
+
+  /* ─── Card viewport ───────────────────────────────────────────────── */
+  .card-viewport {
+    flex: 1; padding: 8px 0; overflow: hidden;
+    position: relative;
+  }
+  .exercise-card {
+    padding: 0 16px; height: 100%;
+    display: flex; flex-direction: column;
+  }
+  .card-inner {
+    flex: 1; background: var(--surface-base);
+    border: 1px solid var(--surface-border);
+    border-radius: 18px; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .card-media {
+    flex: 1; min-height: 0;
+    position: relative; overflow: hidden;
+    background: #0A0C12;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-muted);
+  }
+  .card-media-stub {
+    width: 100%; height: 100%;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)),
+      repeating-linear-gradient(
+        -45deg,
+        rgba(255,255,255,0.02) 0 10px,
+        rgba(255,255,255,0.03) 10px 20px
+      );
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--ink-secondary);
+    text-align: center; padding: 16px;
+  }
+  .card-media-stub .play { color: var(--coral); font-weight: 700; }
+  .card-body {
+    flex-shrink: 0; padding: 14px 16px 16px;
+    background: var(--surface-base);
+    display: flex; flex-direction: column; align-items: stretch;
+  }
+  .card-position {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--coral); margin-bottom: 2px;
+  }
+  .card-exercise-name {
+    font-family: var(--f-display); font-size: 16px; font-weight: 700;
+    color: var(--ink); letter-spacing: -0.02em; margin-bottom: 10px;
+    line-height: 1.2;
+  }
+  .treatment-seg {
+    align-self: center;
+    display: inline-flex; gap: 2px; padding: 3px;
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-border);
+    border-radius: 100px; margin-bottom: 10px;
+  }
+  .treatment-seg .seg {
+    padding: 5px 11px; font-size: 11px; font-weight: 600;
+    border-radius: 100px; color: var(--ink-secondary);
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .treatment-seg .seg.is-active { background: var(--coral); color: #fff; }
+  .treatment-seg .seg.is-locked { color: var(--ink-disabled); }
+  .treatment-seg .lock {
+    width: 9px; height: 9px; display: inline-block;
+    border: 1.3px solid currentColor; border-radius: 1.5px;
+    position: relative; top: 1px;
+  }
+  .treatment-seg .lock::before {
+    content: ""; position: absolute; left: 1.5px; right: 1.5px; top: -3px;
+    height: 4px;
+    border: 1.3px solid currentColor; border-bottom: 0;
+    border-radius: 3px 3px 0 0;
+  }
+  .active-slide-detail {
+    font-family: var(--f-body); font-size: 13px; font-weight: 500;
+    color: var(--ink); text-align: center; letter-spacing: 0.1px;
+  }
+  .active-slide-detail .sep { color: var(--ink-muted); margin: 0 4px; }
+
+  /* ─── Overlays ────────────────────────────────────────────────────── */
+  .prep-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--coral); pointer-events: none;
+  }
+  .prep-overlay .num {
+    font-family: var(--f-display); font-size: 120px;
+    font-weight: 800; line-height: 1; letter-spacing: -6px;
+    text-shadow: 0 6px 28px rgba(0,0,0,0.55);
+  }
+  .media-pause-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.12);
+  }
+  .media-pause-overlay .pause-disc {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: rgba(0,0,0,0.55);
+    display: flex; align-items: center; justify-content: center;
     color: var(--coral);
-    border-color: var(--coral-border);
   }
-  .order-display {
-    margin-top: 16px;
-    padding: 10px 12px;
-    background: var(--raised);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px;
-    color: var(--text-mute);
-    max-height: 120px;
-    overflow-y: auto;
+  .media-pause-overlay .pause-disc svg {
+    width: 28px; height: 28px; fill: currentColor;
   }
-  .order-display strong { color: var(--coral); }
-  footer.page-footer {
-    padding: 24px 40px;
-    border-top: 1px solid var(--border);
-    color: var(--text-dim);
+
+  /* ─── Circuit indicator (informal — old-UI reference) ─────────────── */
+  .circuit-indicator {
+    font-family: var(--f-mono); font-size: 10.5px;
+    color: var(--ink-secondary);
+    padding: 6px 14px 0; letter-spacing: 0.1px;
+    background: var(--bg);
+  }
+  .circuit-indicator strong { color: var(--coral); font-weight: 700; }
+
+  /* ─── Peek panel ──────────────────────────────────────────────────── */
+  .peek-panel {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80%; background: var(--surface-raised);
+    border: 1px solid var(--surface-border);
+    border-radius: 14px; padding: 12px 14px;
+    z-index: 20;
+  }
+  .peek-panel .peek-name {
+    font-family: var(--f-display); font-size: 14px;
+    font-weight: 700; color: var(--ink);
+  }
+  .peek-panel .peek-meta {
+    font-size: 11px; color: var(--ink-secondary); margin-top: 3px;
+  }
+
+  /* ─── Rest card ───────────────────────────────────────────────────── */
+  .rest-card {
+    background: linear-gradient(160deg, var(--surface-base), var(--surface-raised));
+  }
+  .card-media.rest-media {
+    background: linear-gradient(160deg, var(--surface-base), var(--surface-raised));
+    color: var(--sage);
+    flex-direction: column; gap: 6px;
+  }
+  .rest-icon {
+    width: 56px; height: 56px; color: var(--sage); opacity: 0.7;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .rest-title {
+    font-family: var(--f-display); font-size: 22px; font-weight: 700;
+    color: var(--ink); letter-spacing: -0.02em;
+  }
+  .rest-next-up {
+    font-size: 12px; color: var(--ink-secondary); font-weight: 500;
+  }
+
+  /* ─── Nav bar ─────────────────────────────────────────────────────── */
+  .nav-bar {
+    flex-shrink: 0; padding: 8px 16px 14px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .nav-btn {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--surface-raised);
+    border: 1px solid var(--surface-border);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-secondary);
+  }
+  .nav-btn svg { width: 14px; height: 14px; }
+  .nav-dots {
+    display: inline-flex; gap: 5px;
+  }
+  .nav-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(255,255,255,0.18);
+  }
+  .nav-dot.is-active { background: var(--coral); width: 18px; border-radius: 3px; }
+
+  /* ─── Footer ──────────────────────────────────────────────────────── */
+  .footer {
+    flex-shrink: 0; padding: 4px 16px 10px;
+    display: flex; justify-content: center; align-items: center; gap: 6px;
+  }
+  .footer .preamble {
+    font-size: 10px; color: var(--ink-muted); font-weight: 500;
+  }
+  .footer .wordmark {
+    font-family: var(--f-display); font-weight: 600;
+    font-size: 11px; color: var(--ink-secondary); letter-spacing: -0.2px;
+  }
+
+  /* ─── Region outline system ───────────────────────────────────────── */
+  .rg {
+    position: relative;
+  }
+  .rg::after {
+    content: "";
+    position: absolute; inset: -3px;
+    border: 1.5px solid var(--rg-color, #ccc);
+    border-radius: var(--rg-radius, 8px);
+    background: var(--rg-bg, transparent);
+    pointer-events: none;
+    z-index: 25;
+  }
+  .rg > .rg-label {
+    position: absolute;
+    z-index: 26;
+    font-family: var(--f-mono); font-size: 9px;
+    letter-spacing: 0.1px;
+    padding: 1px 5px;
+    background: var(--bg);
+    color: var(--rg-color, #ccc);
+    border: 1px solid var(--rg-color, #ccc);
+    border-radius: 3px;
+    white-space: nowrap;
+    line-height: 1.2;
+  }
+
+  /* Label position helpers */
+  .rg-label.top-left     { top: -10px; left: 0; }
+  .rg-label.top-right    { top: -10px; right: 0; }
+  .rg-label.bot-left     { bottom: -10px; left: 0; }
+  .rg-label.bot-right    { bottom: -10px; right: 0; }
+  .rg-label.inside-tl    { top: 3px; left: 4px; }
+  .rg-label.inside-tr    { top: 3px; right: 4px; }
+  .rg-label.inside-bl    { bottom: 3px; left: 4px; }
+  .rg-label.inside-br    { bottom: 3px; right: 4px; }
+  .rg-label.above-center { top: -10px; left: 50%; transform: translateX(-50%); }
+  .rg-label.below-center { bottom: -10px; left: 50%; transform: translateX(-50%); }
+
+  /* Family colour presets */
+  .fam-progress  { --rg-color: var(--fam-progress);  --rg-bg: var(--fam-progress-bg);  }
+  .fam-card      { --rg-color: var(--fam-card);      --rg-bg: var(--fam-card-bg);      }
+  .fam-meta      { --rg-color: var(--fam-meta);      --rg-bg: var(--fam-meta-bg);      }
+  .fam-nav       { --rg-color: var(--fam-nav);       --rg-bg: var(--fam-nav-bg);       }
+  .fam-state     { --rg-color: var(--fam-state);     --rg-bg: var(--fam-state-bg);     }
+
+  /* Reduce label overlap for very small regions */
+  .rg.rg-tight::after { inset: 0; }
+
+  /* ─── Legend ──────────────────────────────────────────────────────── */
+  section.legend-block {
+    padding: 12px 40px 50px;
+    max-width: 1360px; margin: 0 auto;
+  }
+  .legend-block h2 {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 20px; letter-spacing: -0.3px;
+    margin: 24px 0 8px;
+  }
+  .legend-block .lede {
+    color: var(--ink-secondary); max-width: 760px; margin: 0 0 22px;
+  }
+  .legend-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px 28px;
+  }
+  @media (max-width: 800px) { .legend-grid { grid-template-columns: 1fr; } }
+
+  .legend-family {
+    background: var(--surface-base);
+    border: 1px solid var(--surface-border);
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .legend-family h3 {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 13px; letter-spacing: 0.4px; text-transform: uppercase;
+    margin: 0 0 12px;
+    display: inline-flex; align-items: center; gap: 9px;
+  }
+  .legend-family h3 .swatch {
+    width: 12px; height: 12px; border-radius: 3px;
+    display: inline-block;
+  }
+  .legend-row {
+    display: grid;
+    grid-template-columns: 14px 180px 100px 1fr;
+    gap: 10px; align-items: baseline;
+    padding: 7px 0;
+    border-top: 1px solid rgba(255,255,255,0.04);
     font-size: 12px;
-    text-align: center;
   }
+  .legend-row:first-of-type { border-top: 0; }
+  .legend-row .dot {
+    width: 8px; height: 8px; border-radius: 2px;
+    display: inline-block; margin-top: 5px;
+  }
+  .legend-row .name {
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--ink); font-weight: 500;
+  }
+  .legend-row .where {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--ink-muted); letter-spacing: 0.1px;
+  }
+  .legend-row .desc { color: var(--ink-secondary); font-size: 12px; line-height: 1.45; }
+
+  /* ─── Footer nav ──────────────────────────────────────────────────── */
+  footer.page-footer {
+    padding: 30px 40px 50px;
+    border-top: 1px solid var(--surface-border);
+    color: var(--ink-muted); font-size: 12px;
+  }
+  footer.page-footer a {
+    color: var(--coral); text-decoration: none;
+    font-weight: 600;
+  }
+  footer.page-footer a:hover { text-decoration: underline; }
+
+  /* Decorative note: everything static — no interaction */
 </style>
 </head>
 <body>
-  <header class="page-header">
-    <h1>Web Player — Wireframe Workshop</h1>
-    <p class="lede">
-      Every named region of <strong>session.homefit.studio</strong> (the client-facing player) and the <strong>exercise card</strong> inside it. Drag-reorder within each phone to propose new layouts. Names are stable — refer to them in conversation.
-      <br><br>
-      Colour is not hierarchy — it flags <em>kind</em>. Dashed violet borders mark <strong>overlays</strong> that float above the stack instead of occupying vertical space. Amber marks <strong>conditional</strong> regions that only render in specific states.
-    </p>
-    <div class="legend">
-      <span class="legend-item"><span class="legend-dot" style="background: var(--coral)"></span>Content surface</span>
-      <span class="legend-item"><span class="legend-dot" style="background: var(--slate)"></span>Nav / chrome</span>
-      <span class="legend-item"><span class="legend-dot" style="background: var(--sage)"></span>Rest category</span>
-      <span class="legend-item"><span class="legend-dot" style="background: var(--violet)"></span>Overlay (floats)</span>
-      <span class="legend-item"><span class="legend-dot" style="background: var(--amber)"></span>Conditional</span>
-      <span class="legend-item"><span class="legend-dot" style="background: rgba(255,255,255,0.25)"></span>Footer / brand</span>
+
+<header class="page-header">
+  <div class="kicker">mockup · structural gallery</div>
+  <h1>homefit.studio · Web player — state gallery</h1>
+  <p class="lede">
+    Static multi-state mockup of the client web player at
+    <strong>session.homefit.studio/p/{planId}</strong>. Five phone frames below
+    show the same player in five different states, with every structural region
+    outlined + labelled using the <strong>names that exist in the code</strong>
+    (<code>web-player/index.html</code>, <code>styles.css</code>,
+    <code>app.js</code>) so Carl can point at &ldquo;move <code>matrix-eta</code>
+    under the <code>card-body</code>&rdquo; and the team knows exactly what he
+    means. Outlines are grouped by family (coral = progress/time, blue = card/media,
+    violet = metadata, green = nav, amber = state overlays).
+  </p>
+  <p class="lede">
+    This supersedes the earlier draggable abstract-region wireframe.
+  </p>
+</header>
+
+<main class="gallery">
+
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <!-- STATE 1 — PREP                                                      -->
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <div class="frame-cell">
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="screen">
+        <div class="status-bar">
+          <span>9:41</span>
+          <span class="sb-right">◯◯◯ 5G ▯</span>
+        </div>
+
+        <!-- plan-bar -->
+        <div class="rg fam-progress plan-bar" style="--rg-radius: 10px;">
+          <div class="plan-title">22 Apr 2026 08:30</div>
+          <div class="header-client">Melissa · Knee rehab week 3</div>
+          <span class="rg-label top-left">plan-bar</span>
+        </div>
+
+        <!-- progress-matrix -->
+        <div class="rg fam-progress progress-matrix" style="--rg-radius: 8px;">
+          <div class="progress-matrix-inner">
+            <div class="rg fam-progress rg-tight" style="--rg-radius: 6px;">
+              <div class="pill is-completed"></div>
+              <span class="rg-label inside-bl" style="font-size: 8px;">pill</span>
+            </div>
+            <div class="pill is-completed"></div>
+            <div class="pill is-rest is-completed"></div>
+            <div class="pill is-completed"></div>
+            <div class="rg fam-state rg-tight" style="--rg-radius: 6px;">
+              <div class="pill is-active" style="border-color: var(--coral); opacity: 0.55;"></div>
+              <span class="rg-label above-center" style="font-size: 8px;">prep-flash</span>
+            </div>
+            <div class="pill"></div>
+            <div class="pill is-rest"></div>
+            <div class="pill"></div>
+            <div class="pill"></div>
+            <div class="rg fam-progress matrix-eta rg-tight" style="--rg-radius: 6px;">
+              <span class="curr" style="opacity: 0.5;">0:03</span>
+              <span class="sep">·</span>
+              <span class="tot">7:42</span>
+              <span class="sep">·</span>
+              <span class="fin">~7:42p</span>
+              <span class="rg-label above-center" style="font-size: 8px;">matrix-eta</span>
+            </div>
+          </div>
+          <span class="rg-label top-left">progress-matrix</span>
+        </div>
+
+        <!-- card-viewport -->
+        <div class="rg fam-card card-viewport" style="--rg-radius: 14px;">
+          <div class="exercise-card">
+            <div class="rg fam-card card-inner" style="--rg-radius: 16px;">
+              <div class="rg fam-card card-media" style="--rg-radius: 0;">
+                <div class="card-media-stub">
+                  <span class="play">▶</span>&nbsp; video (queued)<br>
+                  muted · looped
+                </div>
+                <!-- prep-overlay -->
+                <div class="rg fam-state prep-overlay" style="--rg-radius: 10px;">
+                  <div class="num">3</div>
+                  <span class="rg-label inside-tl">prep-overlay</span>
+                </div>
+                <span class="rg-label inside-br">card-media</span>
+              </div>
+              <div class="card-body">
+                <div class="rg fam-meta" style="--rg-radius: 3px;">
+                  <div class="card-position">Exercise 5</div>
+                  <span class="rg-label inside-tr">card-position</span>
+                </div>
+                <div class="rg fam-meta" style="--rg-radius: 4px;">
+                  <div class="card-exercise-name">Glute bridge</div>
+                  <span class="rg-label inside-tr">card-exercise-name</span>
+                </div>
+                <div class="rg fam-meta treatment-seg" style="--rg-radius: 100px;">
+                  <div class="seg is-active">Line</div>
+                  <div class="seg">B&amp;W</div>
+                  <div class="seg">Original</div>
+                  <span class="rg-label above-center">treatment-seg</span>
+                </div>
+                <div class="rg fam-meta" style="--rg-radius: 4px;">
+                  <div class="active-slide-detail">3 sets <span class="sep">·</span> 10 reps <span class="sep">·</span> 5s hold</div>
+                  <span class="rg-label below-center">active-slide-detail</span>
+                </div>
+              </div>
+              <span class="rg-label top-right">card-inner</span>
+            </div>
+          </div>
+          <span class="rg-label inside-tl">card-viewport</span>
+        </div>
+
+        <!-- nav-bar -->
+        <div class="rg fam-nav nav-bar" style="--rg-radius: 8px;">
+          <div class="rg fam-nav nav-btn rg-tight" style="--rg-radius: 50%;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            <span class="rg-label bot-left" style="font-size: 8px;">btn-prev</span>
+          </div>
+          <div class="rg fam-nav nav-dots rg-tight" style="--rg-radius: 4px;">
+            <div class="nav-dot"></div><div class="nav-dot"></div><div class="nav-dot"></div>
+            <div class="nav-dot is-active"></div>
+            <div class="nav-dot"></div><div class="nav-dot"></div><div class="nav-dot"></div>
+            <span class="rg-label below-center">nav-dots</span>
+          </div>
+          <div class="rg fam-nav nav-btn rg-tight" style="--rg-radius: 50%;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            <span class="rg-label bot-right" style="font-size: 8px;">btn-next</span>
+          </div>
+        </div>
+
+        <div class="footer">
+          <span class="preamble">powered by</span>
+          <span class="wordmark">homefit.studio</span>
+        </div>
+      </div>
     </div>
-  </header>
+    <div class="state-chip">
+      <span class="dot" style="background: var(--fam-state);"></span>
+      <strong>PREP</strong><span>countdown &nbsp;·&nbsp; 0:03 → 0:00</span>
+    </div>
+  </div>
 
-  <main class="frames">
-
-    <!-- ============ PAGE LAYOUT ============ -->
-    <section class="frame">
-      <h2 class="frame-title">Page layout</h2>
-      <p class="frame-subtitle">What the client sees when opening <code>session.homefit.studio/p/{id}</code>. Drag to re-arrange the vertical stack.</p>
-      <div class="phone">
-        <div class="phone-notch"></div>
-        <ul class="sortable" id="page-regions">
-
-          <li class="region" data-tone="content" data-key="plan-bar">
-            <div class="region-head">
-              <span class="region-name">Plan bar</span>
-              <span class="region-badges"><span class="badge">top</span></span>
-            </div>
-            <div class="region-purpose">Plan title (left), client name (left, sub-line), progress indicator "3 / 10" (right). Brand anchor + location.</div>
-          </li>
-
-          <li class="region" data-tone="content" data-key="progress-matrix">
-            <div class="region-head">
-              <span class="region-name">Progress pill matrix</span>
-              <span class="region-badges"></span>
-            </div>
-            <div class="region-purpose">Horizontally scrolling row of small pills, one per exercise. Coloured by state: empty (upcoming), full coral (done), sage (rest), pulse on active. Auto-centres on active pill. ETA widget ("1:36 · 7:42 left · ~7:42 PM") lives inside this matrix's right end.</div>
-          </li>
-
-          <li class="region" data-tone="content" data-key="card-viewport">
-            <div class="region-head">
-              <span class="region-name">Card viewport</span>
-              <span class="region-badges"><span class="badge">swipeable</span></span>
-            </div>
-            <div class="region-purpose">The primary content area — swipeable carousel of exercise / rest cards. Tap to pause, swipe to skip. See the right-hand frame for its internal anatomy.</div>
-          </li>
-
-          <li class="region" data-tone="nav" data-key="nav-bar">
-            <div class="region-head">
-              <span class="region-name">Nav bar</span>
-              <span class="region-badges"><span class="badge">bottom</span></span>
-            </div>
-            <div class="region-purpose">Prev button (left), dot indicators (centre, hidden past 10 slides), Next button (right). Secondary to swipe — visible primarily on desktop.</div>
-          </li>
-
-          <li class="region" data-tone="footer" data-key="footer-brand">
-            <div class="region-head">
-              <span class="region-name">Footer brand</span>
-              <span class="region-badges"><span class="badge">bottom</span></span>
-            </div>
-            <div class="region-purpose">"powered by homefit.studio" wordmark + matrix-logo glyph. Subtle, low-contrast.</div>
-          </li>
-
-          <li class="region" data-tone="overlay" data-key="peek-panel">
-            <div class="region-head">
-              <span class="region-name">Peek panel</span>
-              <span class="region-badges"><span class="badge float">floats</span></span>
-            </div>
-            <div class="region-purpose">Centered floating card. Shows exercise name + decoded grammar ("3 × 12 · 5s hold"). Auto-appears 2s on preview start (teaching peek), then surfaces only during long-press scrubbing.</div>
-          </li>
-
-          <li class="region" data-tone="overlay" data-key="start-workout">
-            <div class="region-head">
-              <span class="region-name">Start Workout button</span>
-              <span class="region-badges"><span class="badge float">floats</span><span class="badge conditional">cond.</span></span>
-            </div>
-            <div class="region-purpose">Coral pill, floating near bottom. Shown only before first exercise begins. Tapping kicks off 15s prep countdown.</div>
-          </li>
-
-          <li class="region" data-tone="overlay" data-key="pause-overlay">
-            <div class="region-head">
-              <span class="region-name">Pause overlay</span>
-              <span class="region-badges"><span class="badge float">floats</span><span class="badge conditional">cond.</span></span>
-            </div>
-            <div class="region-purpose">Centered play-triangle glyph shown only when the current video is paused. Tap media → pause / resume.</div>
-          </li>
-
-          <li class="region" data-tone="overlay" data-key="prep-overlay">
-            <div class="region-head">
-              <span class="region-name">Prep countdown overlay</span>
-              <span class="region-badges"><span class="badge float">floats</span><span class="badge conditional">cond.</span></span>
-            </div>
-            <div class="region-purpose">Big coral countdown numbers overlayed on the current card's media during the 15s pre-exercise window. Top-bar tokens flash in sync at 1 Hz.</div>
-          </li>
-
-          <li class="region" data-tone="overlay" data-key="workout-complete">
-            <div class="region-head">
-              <span class="region-name">Workout Complete</span>
-              <span class="region-badges"><span class="badge float">floats</span><span class="badge conditional">end</span></span>
-            </div>
-            <div class="region-purpose">Full-screen final state: circled check glyph, "Workout Complete!" title, total time, Close button. Only shown after the last exercise finishes.</div>
-          </li>
-
-          <li class="region" data-tone="alert" data-key="loading">
-            <div class="region-head">
-              <span class="region-name">Loading screen</span>
-              <span class="region-badges"><span class="badge conditional">init</span></span>
-            </div>
-            <div class="region-purpose">Initial state before the plan fetches. Pulse-mark logo + "Loading your plan…". Replaced by app once data arrives.</div>
-          </li>
-
-          <li class="region" data-tone="alert" data-key="error">
-            <div class="region-head">
-              <span class="region-name">Error screen</span>
-              <span class="region-badges"><span class="badge conditional">error</span></span>
-            </div>
-            <div class="region-purpose">Shown when the plan ID is invalid / expired. "!" icon + "Plan not found" + contact-practitioner hint. Full-screen, replaces app.</div>
-          </li>
-
-        </ul>
-        <div class="frame-actions">
-          <button class="btn" id="page-reset">Reset order</button>
-          <button class="btn" id="page-copy">Copy current order</button>
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <!-- STATE 2 — RUNNING                                                   -->
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <div class="frame-cell">
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="screen">
+        <div class="status-bar">
+          <span>9:42</span>
+          <span class="sb-right">◯◯◯ 5G ▯</span>
         </div>
-        <div class="order-display" id="page-order"></div>
-      </div>
-    </section>
 
-    <!-- ============ CARD LAYOUT ============ -->
-    <section class="frame">
-      <h2 class="frame-title">Exercise card (inside viewport)</h2>
-      <p class="frame-subtitle">Anatomy of a single exercise card. This is what the Card viewport renders per slide. Rest slides are a sibling variant — see Rest card below.</p>
-      <div class="phone">
-        <div class="phone-notch"></div>
-        <ul class="sortable" id="card-regions">
-
-          <li class="region" data-tone="content" data-key="exercise-name">
-            <div class="region-head">
-              <span class="region-name">Exercise name</span>
-              <span class="region-badges"></span>
-            </div>
-            <div class="region-purpose">Bold title, e.g. "Goblet squat" or "Hip hinge". Optionally with a small index "3 of 10".</div>
-          </li>
-
-          <li class="region" data-tone="content" data-key="treatment-toggle">
-            <div class="region-head">
-              <span class="region-name">Treatment toggle</span>
-              <span class="region-badges"></span>
-            </div>
-            <div class="region-purpose">Three-segment coral control: <code>Line · B&amp;W · Original</code>. Locked segments (per client consent) show a lock glyph. Controls what video/image the media area renders.</div>
-          </li>
-
-          <li class="region" data-tone="content" data-key="media">
-            <div class="region-head">
-              <span class="region-name">Media area</span>
-              <span class="region-badges"><span class="badge">tap = pause</span></span>
-            </div>
-            <div class="region-purpose">The video or photo itself. Fills most of the card height. Auto-plays muted + looped on active slide. Tap = mode-aware pause/play/skip-prep.</div>
-          </li>
-
-          <li class="region" data-tone="content" data-key="decoded-grammar">
-            <div class="region-head">
-              <span class="region-name">Decoded grammar</span>
-              <span class="region-badges"></span>
-            </div>
-            <div class="region-purpose">Bottom text line — "3 × 12 reps · 5s hold" or circuit context "Circuit · Round 2 of 3 · Exercise 1 of 3".</div>
-          </li>
-
-          <li class="region" data-tone="content" data-key="notes">
-            <div class="region-head">
-              <span class="region-name">Notes</span>
-              <span class="region-badges"><span class="badge conditional">if present</span></span>
-            </div>
-            <div class="region-purpose">Practitioner's free-text cue, e.g. "Keep back straight, slow on the way down". Only renders if populated.</div>
-          </li>
-
-          <li class="region" data-tone="overlay" data-key="timer-chip">
-            <div class="region-head">
-              <span class="region-name">Timer chip</span>
-              <span class="region-badges"><span class="badge float">floats</span></span>
-            </div>
-            <div class="region-purpose">Bottom-right of the card. Three modes: <em>prep</em> (countdown ticking down 15 → 0), <em>running</em> (per-set timer), <em>paused</em> (play-triangle). Tap → skip prep / toggle pause.</div>
-          </li>
-
-          <li class="region" data-tone="rest" data-key="rest-variant">
-            <div class="region-head">
-              <span class="region-name">Rest card variant</span>
-              <span class="region-badges"><span class="badge conditional">rest-type</span></span>
-            </div>
-            <div class="region-purpose">Sibling card shape for rest slides: sage-tinted body, "Rest · 90s" centred, timer chip still bottom-right. No media, no treatment toggle, no notes.</div>
-          </li>
-
-        </ul>
-        <div class="frame-actions">
-          <button class="btn" id="card-reset">Reset order</button>
-          <button class="btn" id="card-copy">Copy current order</button>
+        <div class="plan-bar">
+          <div class="plan-title">22 Apr 2026 08:30</div>
+          <div class="header-client">Melissa · Knee rehab week 3</div>
         </div>
-        <div class="order-display" id="card-order"></div>
+
+        <div class="rg fam-progress progress-matrix" style="--rg-radius: 8px;">
+          <div class="progress-matrix-inner">
+            <div class="pill is-completed"></div>
+            <div class="pill is-completed"></div>
+            <div class="pill is-rest is-completed"></div>
+            <div class="pill is-completed"></div>
+            <div class="pill is-active"></div>
+            <div class="pill"></div>
+            <div class="pill is-rest"></div>
+            <div class="pill"></div>
+            <div class="pill"></div>
+            <div class="rg fam-progress matrix-eta rg-tight" style="--rg-radius: 6px;">
+              <span class="curr">0:24</span>
+              <span class="sep">·</span>
+              <span class="tot">7:18</span>
+              <span class="sep">·</span>
+              <span class="fin">~7:42p</span>
+              <span class="rg-label above-center" style="font-size: 8px;">matrix-eta</span>
+            </div>
+          </div>
+          <span class="rg-label top-left">progress-matrix</span>
+        </div>
+
+        <div class="rg fam-card card-viewport" style="--rg-radius: 14px;">
+          <div class="exercise-card">
+            <div class="card-inner">
+              <div class="rg fam-card card-media" style="--rg-radius: 0;">
+                <div class="card-media-stub">
+                  <span class="play">▶</span>&nbsp; video autoplay<br>
+                  muted · looped
+                </div>
+                <span class="rg-label inside-tl">card-media</span>
+                <span class="rg-label inside-br" style="background: rgba(0,0,0,0.55); border-color: var(--fam-card);">video (id="video-4")</span>
+              </div>
+              <div class="card-body">
+                <div class="card-position">Exercise 5</div>
+                <div class="card-exercise-name">Glute bridge</div>
+                <div class="rg fam-meta treatment-seg" style="--rg-radius: 100px;">
+                  <div class="seg is-active">Line</div>
+                  <div class="seg is-locked"><span class="lock"></span>B&amp;W</div>
+                  <div class="seg is-locked"><span class="lock"></span>Original</div>
+                  <span class="rg-label above-center">treatment-seg</span>
+                </div>
+                <div class="active-slide-detail">3 sets <span class="sep">·</span> 10 reps <span class="sep">·</span> 5s hold</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="nav-bar">
+          <div class="nav-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </div>
+          <div class="nav-dots">
+            <div class="nav-dot"></div><div class="nav-dot"></div><div class="nav-dot"></div>
+            <div class="nav-dot is-active"></div>
+            <div class="nav-dot"></div><div class="nav-dot"></div><div class="nav-dot"></div>
+          </div>
+          <div class="nav-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
+        <div class="footer">
+          <span class="preamble">powered by</span>
+          <span class="wordmark">homefit.studio</span>
+        </div>
       </div>
-    </section>
+    </div>
+    <div class="state-chip">
+      <span class="dot" style="background: var(--fam-progress);"></span>
+      <strong>RUNNING</strong><span>video auto-plays &nbsp;·&nbsp; active pill pulses</span>
+    </div>
+  </div>
 
-  </main>
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <!-- STATE 3 — PAUSED                                                    -->
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <div class="frame-cell">
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="screen">
+        <div class="status-bar">
+          <span>9:42</span>
+          <span class="sb-right">◯◯◯ 5G ▯</span>
+        </div>
 
-  <footer class="page-footer">
-    Wireframe for design workshop — <code>session.homefit.studio</code> web player. State persists in localStorage.
-  </footer>
+        <div class="plan-bar">
+          <div class="plan-title">22 Apr 2026 08:30</div>
+          <div class="header-client">Melissa · Knee rehab week 3</div>
+        </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-  <script>
-    (function() {
-      const LS_KEY = 'homefit.web-player-wireframe.v1';
+        <div class="progress-matrix">
+          <div class="progress-matrix-inner">
+            <div class="pill is-completed"></div>
+            <div class="pill is-completed"></div>
+            <div class="pill is-rest is-completed"></div>
+            <div class="pill is-completed"></div>
+            <div class="pill is-active paused"></div>
+            <div class="pill"></div>
+            <div class="pill is-rest"></div>
+            <div class="pill"></div>
+            <div class="pill"></div>
+            <div class="matrix-eta">
+              <span class="curr">0:18</span>
+              <span class="sep">·</span>
+              <span class="tot">7:12</span>
+              <span class="sep">·</span>
+              <span class="fin">~7:44p</span>
+            </div>
+          </div>
+        </div>
 
-      function saveState() {
-        const state = {
-          page: Array.from(document.querySelectorAll('#page-regions .region')).map(el => el.dataset.key),
-          card: Array.from(document.querySelectorAll('#card-regions .region')).map(el => el.dataset.key),
-        };
-        try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) {}
-        renderOrders();
-      }
+        <div class="card-viewport">
+          <div class="exercise-card">
+            <div class="card-inner">
+              <div class="rg fam-card card-media" style="--rg-radius: 0;">
+                <div class="card-media-stub">
+                  <span class="play">❚❚</span>&nbsp; video paused<br>
+                  frame frozen
+                </div>
+                <div class="rg fam-state media-pause-overlay" style="--rg-radius: 8px;">
+                  <div class="pause-disc">
+                    <svg viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                  </div>
+                  <span class="rg-label inside-tl">media-pause-overlay</span>
+                </div>
+                <span class="rg-label inside-br" style="background: rgba(0,0,0,0.55); border-color: var(--fam-card);">card-media</span>
+              </div>
+              <div class="card-body">
+                <div class="card-position">Exercise 5</div>
+                <div class="card-exercise-name">Glute bridge</div>
+                <div class="treatment-seg">
+                  <div class="seg is-active">Line</div>
+                  <div class="seg is-locked"><span class="lock"></span>B&amp;W</div>
+                  <div class="seg is-locked"><span class="lock"></span>Original</div>
+                </div>
+                <div class="active-slide-detail">3 sets <span class="sep">·</span> 10 reps <span class="sep">·</span> 5s hold</div>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      function renderOrders() {
-        const pageList = Array.from(document.querySelectorAll('#page-regions .region'))
-          .map((el, i) => `${String(i + 1).padStart(2, '0')}. <strong>${el.dataset.key}</strong>`)
-          .join('<br>');
-        const cardList = Array.from(document.querySelectorAll('#card-regions .region'))
-          .map((el, i) => `${String(i + 1).padStart(2, '0')}. <strong>${el.dataset.key}</strong>`)
-          .join('<br>');
-        document.getElementById('page-order').innerHTML = pageList;
-        document.getElementById('card-order').innerHTML = cardList;
-      }
+        <div class="nav-bar">
+          <div class="nav-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </div>
+          <div class="nav-dots">
+            <div class="nav-dot"></div><div class="nav-dot"></div><div class="nav-dot"></div>
+            <div class="nav-dot is-active"></div>
+            <div class="nav-dot"></div><div class="nav-dot"></div><div class="nav-dot"></div>
+          </div>
+          <div class="nav-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
 
-      function applyState() {
-        let state = {};
-        try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (_) {}
-        ['page', 'card'].forEach(frame => {
-          const keys = state[frame];
-          if (!keys || !keys.length) return;
-          const list = document.getElementById(frame + '-regions');
-          if (!list) return;
-          const byKey = {};
-          Array.from(list.querySelectorAll('.region')).forEach(el => {
-            byKey[el.dataset.key] = el;
-          });
-          keys.forEach(k => {
-            if (byKey[k]) list.appendChild(byKey[k]);
-          });
-        });
-      }
+        <div class="footer">
+          <span class="preamble">powered by</span>
+          <span class="wordmark">homefit.studio</span>
+        </div>
+      </div>
+    </div>
+    <div class="state-chip">
+      <span class="dot" style="background: var(--fam-state);"></span>
+      <strong>PAUSED</strong><span>tap card to resume</span>
+    </div>
+  </div>
 
-      function copyOrder(frame) {
-        const keys = Array.from(document.querySelectorAll('#' + frame + '-regions .region'))
-          .map(el => el.dataset.key);
-        const text = `${frame}:\n` + keys.map((k, i) => `  ${String(i + 1).padStart(2, '0')}. ${k}`).join('\n');
-        navigator.clipboard.writeText(text).then(() => {
-          const btn = document.getElementById(frame + '-copy');
-          const orig = btn.textContent;
-          btn.textContent = 'Copied';
-          setTimeout(() => btn.textContent = orig, 1200);
-        });
-      }
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <!-- STATE 4 — REST                                                      -->
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <div class="frame-cell">
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="screen">
+        <div class="status-bar">
+          <span>9:43</span>
+          <span class="sb-right">◯◯◯ 5G ▯</span>
+        </div>
 
-      document.addEventListener('DOMContentLoaded', () => {
-        applyState();
-        renderOrders();
+        <div class="plan-bar">
+          <div class="plan-title">22 Apr 2026 08:30</div>
+          <div class="header-client">Melissa · Knee rehab week 3</div>
+        </div>
 
-        ['page-regions', 'card-regions'].forEach(id => {
-          new Sortable(document.getElementById(id), {
-            animation: 180,
-            ghostClass: 'sortable-ghost',
-            chosenClass: 'sortable-chosen',
-            onEnd: saveState,
-          });
-        });
+        <div class="rg fam-progress progress-matrix" style="--rg-radius: 8px;">
+          <div class="progress-matrix-inner">
+            <div class="pill is-completed"></div>
+            <div class="pill is-completed"></div>
+            <div class="pill is-rest is-completed"></div>
+            <div class="pill is-completed"></div>
+            <div class="pill is-completed"></div>
+            <div class="rg fam-progress rg-tight" style="--rg-radius: 6px;">
+              <div class="pill is-rest is-active"></div>
+              <span class="rg-label above-center" style="font-size: 8px;">pill.is-rest.is-active</span>
+            </div>
+            <div class="pill"></div>
+            <div class="pill"></div>
+            <div class="pill"></div>
+            <div class="matrix-eta">
+              <span class="curr" style="color: var(--sage);">0:14</span>
+              <span class="sep">·</span>
+              <span class="tot">6:52</span>
+              <span class="sep">·</span>
+              <span class="fin">~7:43p</span>
+            </div>
+          </div>
+          <span class="rg-label top-left">progress-matrix</span>
+        </div>
 
-        document.getElementById('page-reset').addEventListener('click', () => {
-          localStorage.removeItem(LS_KEY);
-          location.reload();
-        });
-        document.getElementById('card-reset').addEventListener('click', () => {
-          localStorage.removeItem(LS_KEY);
-          location.reload();
-        });
-        document.getElementById('page-copy').addEventListener('click', () => copyOrder('page'));
-        document.getElementById('card-copy').addEventListener('click', () => copyOrder('card'));
-      });
-    })();
-  </script>
+        <div class="card-viewport">
+          <div class="exercise-card">
+            <div class="rg fam-state card-inner rest-card" style="--rg-radius: 16px;">
+              <div class="rg fam-state card-media rest-media" style="--rg-radius: 0;">
+                <div class="rest-icon">
+                  <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="2" opacity="0.3"/>
+                    <circle cx="32" cy="32" r="20" stroke="currentColor" stroke-width="2" opacity="0.2"/>
+                    <circle cx="32" cy="32" r="12" stroke="currentColor" stroke-width="2" opacity="0.15"/>
+                    <path d="M32 20v12l8 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+                <div class="rest-title">Rest</div>
+                <div class="rest-next-up">Next up: Single-leg bridge</div>
+                <span class="rg-label inside-tl">rest-media</span>
+                <span class="rg-label inside-br" style="background: rgba(0,0,0,0.55); border-color: var(--fam-state);">rest-display</span>
+              </div>
+              <div class="card-body">
+                <div class="active-slide-detail" style="color: var(--sage);">30s rest</div>
+              </div>
+              <span class="rg-label top-right">rest-card</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="nav-bar">
+          <div class="nav-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </div>
+          <div class="nav-dots">
+            <div class="nav-dot"></div><div class="nav-dot"></div><div class="nav-dot"></div>
+            <div class="nav-dot"></div><div class="nav-dot"></div>
+            <div class="nav-dot is-active"></div>
+            <div class="nav-dot"></div><div class="nav-dot"></div>
+          </div>
+          <div class="nav-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
+        <div class="footer">
+          <span class="preamble">powered by</span>
+          <span class="wordmark">homefit.studio</span>
+        </div>
+      </div>
+    </div>
+    <div class="state-chip">
+      <span class="dot" style="background: var(--sage);"></span>
+      <strong>REST</strong><span>sage · 30s &nbsp;·&nbsp; next up preview</span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <!-- STATE 5 — CIRCUIT ROUND                                             -->
+  <!-- ══════════════════════════════════════════════════════════════════ -->
+  <div class="frame-cell">
+    <div class="phone">
+      <div class="notch"></div>
+      <div class="screen">
+        <div class="status-bar">
+          <span>9:44</span>
+          <span class="sb-right">◯◯◯ 5G ▯</span>
+        </div>
+
+        <div class="plan-bar">
+          <div class="plan-title">22 Apr 2026 08:30</div>
+          <div class="header-client">Melissa · Knee rehab week 3</div>
+        </div>
+
+        <div class="rg fam-progress progress-matrix" style="--rg-radius: 8px;">
+          <div class="progress-matrix-inner">
+            <div class="pill is-completed"></div>
+            <div class="pill is-completed"></div>
+            <div class="pill is-rest is-completed"></div>
+
+            <!-- circuit: 3 cols × 3 rounds -->
+            <div class="rg fam-state matrix-col is-circuit rg-tight" style="--rg-radius: 6px; margin: 0 2px;">
+              <div class="pill is-completed" style="height: 16px;"></div>
+              <div class="pill is-active" style="height: 16px;"></div>
+              <div class="pill" style="height: 16px;"></div>
+              <span class="rg-label above-center" style="font-size: 8px;">matrix-col.is-circuit</span>
+            </div>
+            <div class="matrix-col is-circuit" style="margin: 0 2px;">
+              <div class="pill" style="height: 16px;"></div>
+              <div class="pill" style="height: 16px;"></div>
+              <div class="pill" style="height: 16px;"></div>
+            </div>
+            <div class="matrix-col is-circuit" style="margin: 0 2px;">
+              <div class="pill" style="height: 16px;"></div>
+              <div class="pill" style="height: 16px;"></div>
+              <div class="pill" style="height: 16px;"></div>
+            </div>
+
+            <div class="pill is-rest"></div>
+            <div class="pill"></div>
+            <div class="matrix-eta" style="margin-left: 4px;">
+              <span class="curr">0:08</span>
+              <span class="sep">·</span>
+              <span class="tot">5:50</span>
+              <span class="sep">·</span>
+              <span class="fin">~7:42p</span>
+            </div>
+          </div>
+          <span class="rg-label top-left">progress-matrix</span>
+        </div>
+
+        <!-- Circuit indicator — informational, kept out of the .progress-matrix
+             flow; noted as "decommissioned" in styles.css but still useful as a
+             reference region Carl can point at. -->
+        <div class="rg fam-state circuit-indicator" style="--rg-radius: 6px;">
+          <strong>Circuit</strong> <span class="sep">·</span> Round <strong>2 of 3</strong> <span class="sep">·</span> Exercise <strong>1 of 3</strong>
+          <span class="rg-label top-right">circuit-indicator (legacy)</span>
+        </div>
+
+        <div class="card-viewport">
+          <div class="exercise-card">
+            <div class="card-inner">
+              <div class="rg fam-card card-media" style="--rg-radius: 0;">
+                <div class="card-media-stub">
+                  <span class="play">▶</span>&nbsp; video autoplay<br>
+                  muted · looped
+                </div>
+                <span class="rg-label inside-tl">card-media</span>
+              </div>
+              <div class="card-body">
+                <div class="card-position">Exercise 1 · Round 2</div>
+                <div class="card-exercise-name">Banded step-out</div>
+                <div class="treatment-seg">
+                  <div class="seg">Line</div>
+                  <div class="seg is-active">B&amp;W</div>
+                  <div class="seg">Original</div>
+                </div>
+                <div class="active-slide-detail">10 reps <span class="sep">·</span> 5s hold</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- peek-panel shown over top for illustration (scrub teaching peek) -->
+        <div class="rg fam-nav peek-panel" style="--rg-radius: 14px; top: 55%;">
+          <div class="peek-name">Banded step-out</div>
+          <div class="peek-meta">10 reps · 5s hold · Round 2 of 3</div>
+          <span class="rg-label top-left">peek-panel</span>
+        </div>
+
+        <div class="nav-bar">
+          <div class="nav-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </div>
+          <div class="nav-dots">
+            <div class="nav-dot"></div><div class="nav-dot"></div><div class="nav-dot"></div>
+            <div class="nav-dot"></div>
+            <div class="nav-dot is-active"></div>
+            <div class="nav-dot"></div><div class="nav-dot"></div>
+            <div class="nav-dot"></div>
+          </div>
+          <div class="nav-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
+        <div class="footer">
+          <span class="preamble">powered by</span>
+          <span class="wordmark">homefit.studio</span>
+        </div>
+      </div>
+    </div>
+    <div class="state-chip">
+      <span class="dot" style="background: var(--coral);"></span>
+      <strong>CIRCUIT</strong><span>round 2 of 3 &nbsp;·&nbsp; matrix stacks rows</span>
+    </div>
+  </div>
+
+</main>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- LEGEND                                                              -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<section class="legend-block">
+  <h2>Region legend</h2>
+  <p class="lede">
+    Every outline in the gallery above maps to a real DOM id / class in the
+    web-player codebase. Region names are quoted verbatim from
+    <code>web-player/index.html</code> + <code>styles.css</code> +
+    <code>app.js</code> so &ldquo;the <code>matrix-eta</code>&rdquo; means the
+    same thing to design and engineering. Grouped by outline family.
+  </p>
+
+  <div class="legend-grid">
+
+    <!-- Family: PROGRESS + TIME -->
+    <div class="legend-family">
+      <h3><span class="swatch" style="background: var(--fam-progress);"></span> progress + time (coral)</h3>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-progress);"></span>
+        <span class="name">plan-bar</span>
+        <span class="where">[all states]</span>
+        <span class="desc">Top title strip. Holds <code>plan-title</code> (session title) and <code>header-client</code> (client name subtitle).</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-progress);"></span>
+        <span class="name">progress-matrix</span>
+        <span class="where">[all states]</span>
+        <span class="desc">Container row of pills with left-edge fade + auto-centering on the active pill. Canonical source: <code>docs/design/mockups/progress-pills.html</code>.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-progress);"></span>
+        <span class="name">pill</span>
+        <span class="where">[all states]</span>
+        <span class="desc">Each exercise / rest slot. Empty idle, coral when active (pulse-glow) or completed, sage when rest. Holds <code>pill-fill</code> (live timer fill bar).</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-progress);"></span>
+        <span class="name">matrix-col.is-circuit</span>
+        <span class="where">[circuit]</span>
+        <span class="desc">Vertical stack of pills — one row per cycle — sitting inside a coral tint band. Adjacent circuit columns seam together.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-progress);"></span>
+        <span class="name">matrix-eta</span>
+        <span class="where">[all states]</span>
+        <span class="desc">3-number time row — <code>matrix-eta-current</code> (active-slide remaining, coral) · <code>matrix-eta-total</code> (whole-plan remaining, white) · <code>matrix-eta-finish</code> (wall-clock finish, muted).</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-progress);"></span>
+        <span class="name">progress-matrix-chevron</span>
+        <span class="where">[scrubbing]</span>
+        <span class="desc">Snap-back chevron that appears when the matrix is manually scrolled off-centre. Auto-hides after 4s idle. (Not drawn in any of the 5 frames above — worth knowing.)</span>
+      </div>
+    </div>
+
+    <!-- Family: CARD + MEDIA -->
+    <div class="legend-family">
+      <h3><span class="swatch" style="background: var(--fam-card);"></span> card + media (blue)</h3>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-card);"></span>
+        <span class="name">card-viewport</span>
+        <span class="where">[all states]</span>
+        <span class="desc">Swipeable media container. Hosts <code>card-track</code> + injected <code>swipe-hint</code>. Pan-Y only — vertical scroll passes through.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-card);"></span>
+        <span class="name">exercise-card</span>
+        <span class="where">[all states]</span>
+        <span class="desc">One slide in the deck — <code>data-index</code> carries its position. 100% of viewport width; the track scrolls by negative-translating.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-card);"></span>
+        <span class="name">card-inner</span>
+        <span class="where">[all states]</span>
+        <span class="desc">Rounded surface panel inside the card. Hairline border, no shadow (D-07 flat). Holds <code>card-media</code> + <code>card-body</code>.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-card);"></span>
+        <span class="name">card-media</span>
+        <span class="where">[all states]</span>
+        <span class="desc">Media pane — the <code>video</code> or <code>img</code> element lives here. Tap dispatches by mode: prep → skip, running → pause, paused → resume.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-card);"></span>
+        <span class="name">mute-toggle</span>
+        <span class="where">[running]</span>
+        <span class="desc">Speaker-icon button, top-right of <code>card-media</code>, only rendered when the exercise ships with audio. Flips runtime <code>isMuted</code>.</span>
+      </div>
+    </div>
+
+    <!-- Family: METADATA -->
+    <div class="legend-family">
+      <h3><span class="swatch" style="background: var(--fam-meta);"></span> metadata (violet)</h3>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-meta);"></span>
+        <span class="name">card-body</span>
+        <span class="where">[all states]</span>
+        <span class="desc">Bottom panel of the card — holds position kicker, exercise name, treatment-seg, and the luxurious detail line.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-meta);"></span>
+        <span class="name">card-position</span>
+        <span class="where">[exercise]</span>
+        <span class="desc">11pt coral uppercase kicker (&ldquo;Exercise 5&rdquo;). Omitted on rest cards.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-meta);"></span>
+        <span class="name">card-exercise-name</span>
+        <span class="where">[exercise]</span>
+        <span class="desc">Exercise title. Montserrat 18pt 700, letter-spacing -0.02em.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-meta);"></span>
+        <span class="name">treatment-seg</span>
+        <span class="where">[exercise]</span>
+        <span class="desc">Line · B&amp;W · Original segmented control. Tapping switches which url is played. Disabled segments show a lock glyph (consent absent).</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-meta);"></span>
+        <span class="name">active-slide-detail</span>
+        <span class="where">[all states]</span>
+        <span class="desc">Luxurious grammar line — <code>3 sets · 10 reps · 5s hold</code> (standalone), <code>10 reps · 5s hold</code> (circuit; sets omitted, rounds carried by matrix), <code>30s rest</code> (rest).</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-meta);"></span>
+        <span class="name">card-notes</span>
+        <span class="where">[exercise]</span>
+        <span class="desc">Optional free-text note from the practitioner. Not drawn in the 5 frames above — appears only when <code>slide.notes</code> is set.</span>
+      </div>
+    </div>
+
+    <!-- Family: NAVIGATION -->
+    <div class="legend-family">
+      <h3><span class="swatch" style="background: var(--fam-nav);"></span> navigation (green)</h3>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-nav);"></span>
+        <span class="name">nav-bar</span>
+        <span class="where">[all states]</span>
+        <span class="desc">Bottom row hosting prev / dots / next.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-nav);"></span>
+        <span class="name">btn-prev / btn-next</span>
+        <span class="where">[all states]</span>
+        <span class="desc">Manual chevron nav. <code>btn-prev</code> disabled on slide 0; <code>btn-next</code> advances / completes.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-nav);"></span>
+        <span class="name">nav-dots</span>
+        <span class="where">[all states]</span>
+        <span class="desc">Slide indicator dots. Active dot is coral elongated. (Hide automatically past 10 slides per the current spec.)</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-nav);"></span>
+        <span class="name">peek-panel</span>
+        <span class="where">[teaching, scrubbing]</span>
+        <span class="desc">Centered dark-card showing <code>peek-name</code> + <code>peek-meta</code>. Auto-shows for 2s on preview start (teaching peek R-09); reappears during long-press matrix scrub.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-nav);"></span>
+        <span class="name">swipe-hint</span>
+        <span class="where">[first load]</span>
+        <span class="desc">&ldquo;Swipe to navigate&rdquo; hint injected into <code>card-viewport</code> on first card only.</span>
+      </div>
+    </div>
+
+    <!-- Family: STATE OVERLAYS -->
+    <div class="legend-family">
+      <h3><span class="swatch" style="background: var(--fam-state);"></span> state-specific overlays (amber)</h3>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-state);"></span>
+        <span class="name">prep-overlay</span>
+        <span class="where">[prep]</span>
+        <span class="desc">Big coral countdown (<code>prep-overlay-number</code>) fading the last 200ms of each second. Synchronised with <code>matrix-eta-current</code> + active pill <code>is-prep-flashing</code>.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-state);"></span>
+        <span class="name">media-pause-overlay</span>
+        <span class="where">[paused]</span>
+        <span class="desc">Centered dark-disc play triangle overlay. Injected into every card — toggled visible only on the active paused slide.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-state);"></span>
+        <span class="name">rest-card</span>
+        <span class="where">[rest]</span>
+        <span class="desc">Variant of <code>card-inner</code> with a sage gradient, sage <code>rest-icon</code>, <code>rest-title</code>, and <code>rest-next-up</code> (&ldquo;Next up: X&rdquo;).</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-state);"></span>
+        <span class="name">rest-media</span>
+        <span class="where">[rest]</span>
+        <span class="desc">Rest variant of <code>card-media</code> — gradient surface hosting <code>rest-display</code> (icon + title + next-up subtitle).</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-state);"></span>
+        <span class="name">circuit-indicator</span>
+        <span class="where">[legacy / not rendered]</span>
+        <span class="desc">&ldquo;Circuit · Round 2 of 3 · Exercise 1 of 3&rdquo; bar. Marked <code>display: none !important</code> in styles.css (item 14 of mobile parity) — circuit context now expressed spatially by <code>matrix-col.is-circuit</code>. Drawn on state 5 for reference if we decide to bring it back.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-state);"></span>
+        <span class="name">workout-complete</span>
+        <span class="where">[final state]</span>
+        <span class="desc">Full-screen overlay shown when the last slide completes. Holds circle-check icon + total time + Close button. Not drawn in the 5 frames above.</span>
+      </div>
+      <div class="legend-row">
+        <span class="dot" style="background: var(--fam-state);"></span>
+        <span class="name">start-workout-btn</span>
+        <span class="where">[pre-start]</span>
+        <span class="desc">Floating coral pill at bottom-center that kicks off the 15s prep countdown on slide 0. Not drawn above (all 5 states assume the workout is running).</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<footer class="page-footer">
+  Part of the homefit.studio design library ·
+  <a href="../../test-scripts/index.html">← back to test scripts index</a>
+  ·
+  <a href="progress-pills.html">progress-pills mockup</a>
+  ·
+  <a href="logo-ghost-outer.html">logo mockup</a>
+</footer>
+
 </body>
 </html>
