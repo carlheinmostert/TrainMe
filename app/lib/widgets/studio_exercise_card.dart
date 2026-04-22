@@ -868,9 +868,13 @@ class _GroupHeader extends StatelessWidget {
           // the card's own top padding), bottom: 2 below. Section
           // breaks now feel like real section breaks instead of
           // continuations of the previous body.
+          // Wave 18.11 — bottom bumped 2 → 6 so the new elevated
+          // sub-card has visible breathing room from its section
+          // header. Header no longer lives in visual contact with the
+          // sub-card's top edge.
           padding: EdgeInsets.only(
             top: isFirst ? 2 : 12,
-            bottom: 2,
+            bottom: 6,
           ),
           child: Row(
             // Top-aligned so chevron + dot stay at the visual top when
@@ -980,16 +984,14 @@ class _GroupHeader extends StatelessWidget {
   }
 }
 
-/// Wave 18.10 — recessed container for an open accordion section. Signals
-/// "this is the live drawer" via a darker fill + a 2pt coral hairline on
-/// the left edge. One per expanded group (PLAYBACK / DOSE / PACING / NOTES).
-///
-/// Recessed fill uses [AppColors.surfaceBg] (app root bg, elevation 0) —
-/// visibly darker than the card's [AppColors.surfaceBase] (elevation 1).
-/// Internal padding `EdgeInsets.fromLTRB(12, 8, 4, 8)`: extra left gives the
-/// coral stroke breathing room from the content; tight right because the
-/// outer card padding already handles the right edge. No border radius —
-/// the card's own rounding + overflow clipping handles corners.
+/// Wave 18.11 — elevated sub-card for an open accordion section. Wraps
+/// each body (PLAYBACK / DOSE / PACING / NOTES) so it reads as a nested
+/// card belonging to its parent. Fill is [AppColors.surfaceRaised] on
+/// top of the outer card's [AppColors.surfaceBase]; one elevation tier
+/// brighter. Radius follows the card's 12 → 8 nesting pattern. Border
+/// is a neutral 1pt stroke at 6% white alpha — zero coral on the body
+/// itself (the existing coral chevron rotation + persistent summary
+/// already signal "this section is live").
 class _ExpandedBody extends StatelessWidget {
   final List<Widget> children;
   const _ExpandedBody({required this.children});
@@ -998,15 +1000,22 @@ class _ExpandedBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surfaceBg,
-        border: Border(
-          left: BorderSide(
-            color: AppColors.primary.withValues(alpha: 0.45),
-            width: 2,
-          ),
+        // Wave 18.11 — mirror the outer card at one elevation tier up.
+        // Outer card is surfaceBase @ radius 12; sub-card is surfaceRaised
+        // @ radius 8. Same grammar, one step brighter — reads as "this
+        // drawer belongs to the parent card" without adding coral.
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.06),
+          width: 1,
         ),
       ),
-      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      // Wave 18.11 — symmetric horizontal padding (was LTRB 12/8/4/8);
+      // right-aligned values inside (REPS / SETS / HOLD / PREP /
+      // DURATION PER REP / Muted toggle) now have breathing room from
+      // the sub-card's right edge. Vertical 10pt top + 10pt bottom.
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: children,
@@ -1848,7 +1857,8 @@ class InlineNumericEditor extends StatelessWidget {
                   vertical: 6,
                 ),
                 filled: true,
-                fillColor: AppColors.surfaceRaised,
+                // Wave 18.11 — darker fill than the sub-card (surfaceRaised) so the text field reads as a recessed input well.
+                fillColor: AppColors.surfaceBase,
                 suffixText: suffix,
                 suffixStyle: const TextStyle(
                   fontFamily: 'Inter',
