@@ -224,9 +224,13 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     }
     if (_hold > 0) parts.add('${_hold}s hold');
     final dur = widget.exercise.effectiveDurationSeconds;
-    final isCustom = widget.exercise.customDurationSeconds != null;
-    parts.add(isCustom
-        ? '${_formatSecs(dur)} custom'
+    // Wave 18.5 — "Custom" copy retired. A set customDurationSeconds
+    // now uniquely means the practitioner chose Manual in PACING; we
+    // tag it "manual" so the card summary stays distinguishable from
+    // the auto-calculated "~Xs" estimate.
+    final isManual = widget.exercise.customDurationSeconds != null;
+    parts.add(isManual
+        ? '${_formatSecs(dur)} manual'
         : '~${_formatSecs(dur)}');
     return parts.join(' · ');
   }
@@ -451,14 +455,17 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
   }
 
   /// PACING collapsed summary — `defaults` or comma-separated list.
+  /// Wave 18.5 — renamed "custom" copy away from the misleading label
+  /// since a value derived from video length is no longer stored as
+  /// `customDurationSeconds`. A populated `customDurationSeconds` now
+  /// uniquely means "practitioner set a manual per-rep value".
   String _pacingSummary() {
     final parts = <String>[];
     final ex = widget.exercise;
     if (ex.prepSeconds != null) parts.add('${ex.prepSeconds}s prep');
     if (ex.customDurationSeconds != null) {
-      parts.add('video-length on');
       final perRep = _perRepFromCustom();
-      parts.add('custom ${perRep}s per rep');
+      parts.add('${perRep}s per rep');
     }
     if (parts.isEmpty) return 'defaults';
     return parts.join(', ');
@@ -478,7 +485,6 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
         widget.exercise.archiveFilePath!.isNotEmpty;
     final hasVideoLength =
         isVideo && (widget.exercise.videoDurationMs ?? 0) > 0;
-    final customOn = widget.exercise.customDurationSeconds != null;
 
     final playbackOpen = _openGroup == _AccordionGroup.playback;
     final doseOpen = _openGroup == _AccordionGroup.dose;
@@ -653,33 +659,43 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
               }
             },
           ),
-          if (hasVideoLength)
-            _ToggleRow(
-              label: 'Use video length as 1 rep',
-              value: customOn,
-              onChanged: (on) {
-                if (on) {
-                  final perRep =
-                      (widget.exercise.videoDurationMs! / 1000).round();
-                  widget.onUpdate(widget.exercise.copyWith(
-                    customDurationSeconds: perRep * _reps,
-                  ));
-                } else {
-                  widget.onUpdate(widget.exercise
-                      .copyWith(clearCustomDuration: true));
-                }
-              },
-            ),
-          if (hasVideoLength && customOn)
-            _CustomDurationRow(
-              perRep: _perRepFromCustom(),
-              reps: _reps,
-              onChanged: (newPerRep) {
-                widget.onUpdate(widget.exercise.copyWith(
-                  customDurationSeconds: newPerRep * _reps,
-                ));
-              },
-            ),
+          // Wave 18.5 — "Duration per rep" replaces the old "Use video
+          // length" toggle + "Custom duration" row. On video exercises
+          // with a probed videoDurationMs the widget renders a two-
+          // segment control (From video | Manual: Xs); on photos or
+          // videos without probed duration it renders a single tappable
+          // pill. customDurationSeconds == null ↔ "From video" (video)
+          // or auto-default (photo); != null ↔ explicit per-rep × reps
+          // override. Storage semantics unchanged — the total is still
+          // stored, display divides by reps for per-rep.
+          _DurationPerRepRow(
+            hasVideoLength: hasVideoLength,
+            videoLengthSeconds: hasVideoLength
+                ? (widget.exercise.videoDurationMs! / 1000).round()
+                : 0,
+            customDurationSeconds: widget.exercise.customDurationSeconds,
+            reps: _reps,
+            onSelectFromVideo: () {
+              widget.onUpdate(
+                widget.exercise.copyWith(clearCustomDuration: true),
+              );
+            },
+            onSelectManual: () {
+              // Seed at 5s × reps unless a stored customDurationSeconds
+              // is already present (treat that as the prior Manual value
+              // even if we just flipped between segments).
+              final existing = widget.exercise.customDurationSeconds;
+              final nextTotal = existing ?? (5 * _reps);
+              widget.onUpdate(widget.exercise.copyWith(
+                customDurationSeconds: nextTotal,
+              ));
+            },
+            onCommitManualPerRep: (newPerRep) {
+              widget.onUpdate(widget.exercise.copyWith(
+                customDurationSeconds: newPerRep * _reps,
+              ));
+            },
+          ),
         ],
 
         // -----------------------------------------------------------
@@ -826,8 +842,11 @@ class _GroupHeader extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     // Wave 18.4 — label bumped 11pt → 13pt so PLAYBACK /
                     // DOSE / PACING / NOTES read clearly against the
-                    // 13-14pt body content. Summary stays at 11pt to
-                    // preserve label-vs-summary hierarchy.
+                    // 13-14pt body content. Wave 18.5 — summary bumped
+                    // 11pt → 13pt to match so the row reads as unified;
+                    // differentiation carried by weight + uppercase +
+                    // colour alone (label = w700 uppercase coral,
+                    // summary = w500 normal-case secondary-grey).
                     text: TextSpan(
                       style: const TextStyle(
                         fontFamily: 'Inter',
@@ -844,11 +863,11 @@ class _GroupHeader extends StatelessWidget {
                             text: ' · $summary',
                             style: const TextStyle(
                               fontFamily: 'Inter',
-                              fontSize: 11,
+                              fontSize: 13,
                               fontWeight: FontWeight.w500,
                               letterSpacing: 0,
                               color: AppColors.textSecondaryOnDark,
-                              height: 1.35,
+                              height: 1.25,
                             ),
                           ),
                       ],
@@ -944,41 +963,89 @@ class _ControlRow extends StatelessWidget {
   }
 }
 
-/// Inline-editable "Custom duration [Ns] per rep" row. Tap the pill to
-/// edit the integer seconds; commits on submit or when focus is lost.
-/// Stores per-rep; parent multiplies by reps before persisting.
-class _CustomDurationRow extends StatefulWidget {
-  final int perRep;
+/// "Duration per rep" row inside PACING. Wave 18.5 redesign — replaces
+/// the old "Use video length as 1 rep" toggle + the separate
+/// "Custom duration Xs per rep" inline row. Two modes:
+///
+///   * **Video exercise with probed videoDurationMs**: renders a
+///     segmented control `[ From video ] [ Manual: Xs ]`. The selected
+///     segment fills with coral + white label; the other is
+///     surfaceRaised + textOnDark. Exactly one segment is active at a
+///     time. Tapping `From video` clears [customDurationSeconds]
+///     (effective duration falls back to videoLength × reps at runtime).
+///     Tapping `Manual` seeds [customDurationSeconds] to 5s × reps if
+///     it's currently null. When `Manual` is active the per-rep number
+///     is tappable and opens inline numeric input for edit.
+///
+///   * **Photo, or video without probed duration**: renders a single
+///     tappable value pill `Xs (tap to edit)`. No segmented control.
+///     Same inline-edit pattern as the Manual value.
+///
+/// Storage semantics are unchanged — [customDurationSeconds] stores the
+/// TOTAL (per-rep × reps). This widget reads it divided by reps for
+/// display and writes back per-rep × reps on commit. Existing sessions
+/// read through cleanly; nothing about the data model changed.
+class _DurationPerRepRow extends StatefulWidget {
+  final bool hasVideoLength;
+  final int videoLengthSeconds;
+  final int? customDurationSeconds;
   final int reps;
-  final ValueChanged<int> onChanged;
+  final VoidCallback onSelectFromVideo;
+  final VoidCallback onSelectManual;
+  final ValueChanged<int> onCommitManualPerRep;
 
-  const _CustomDurationRow({
-    required this.perRep,
+  const _DurationPerRepRow({
+    required this.hasVideoLength,
+    required this.videoLengthSeconds,
+    required this.customDurationSeconds,
     required this.reps,
-    required this.onChanged,
+    required this.onSelectFromVideo,
+    required this.onSelectManual,
+    required this.onCommitManualPerRep,
   });
 
   @override
-  State<_CustomDurationRow> createState() => _CustomDurationRowState();
+  State<_DurationPerRepRow> createState() => _DurationPerRepRowState();
 }
 
-class _CustomDurationRowState extends State<_CustomDurationRow> {
+class _DurationPerRepRowState extends State<_DurationPerRepRow> {
   late final TextEditingController _controller;
   final FocusNode _focusNode = FocusNode();
   bool _isEditing = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: '${widget.perRep}');
-    _focusNode.addListener(_onFocusChange);
+  /// Per-rep seconds derived from the stored total. Shows 5 as a
+  /// harmless default when null — used only by the single-value branch
+  /// (photo / video-without-probe) where the value is the editable
+  /// target. Never written until the practitioner taps to edit.
+  int get _perRep {
+    final total = widget.customDurationSeconds;
+    if (total == null) return 5;
+    if (widget.reps <= 0) return total;
+    return (total / widget.reps).round().clamp(1, 999);
   }
 
   @override
-  void didUpdateWidget(covariant _CustomDurationRow old) {
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '$_perRep');
+    _focusNode.addListener(_onFocusChange);
+    // Photo + video-without-probe: seed customDurationSeconds on first
+    // render so the displayed "5s" matches what the runtime uses. On
+    // video-WITH-probe, "From video" is a legitimate null state — we
+    // only seed when the practitioner taps Manual. Wave 18.5.
+    if (!widget.hasVideoLength && widget.customDurationSeconds == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        widget.onCommitManualPerRep(5);
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _DurationPerRepRow old) {
     super.didUpdateWidget(old);
-    if (!_isEditing && old.perRep != widget.perRep) {
-      _controller.text = '${widget.perRep}';
+    if (!_isEditing && old.customDurationSeconds != widget.customDurationSeconds) {
+      _controller.text = '$_perRep';
     }
   }
 
@@ -997,7 +1064,8 @@ class _CustomDurationRowState extends State<_CustomDurationRow> {
   }
 
   void _startEditing() {
-    _controller.text = '${widget.perRep}';
+    HapticFeedback.selectionClick();
+    _controller.text = '$_perRep';
     setState(() => _isEditing = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
@@ -1011,103 +1079,198 @@ class _CustomDurationRowState extends State<_CustomDurationRow> {
   void _commit() {
     final raw = _controller.text.trim();
     final parsed = int.tryParse(raw);
-    if (parsed != null && parsed > 0 && parsed != widget.perRep) {
-      widget.onChanged(parsed);
+    final currentPerRep = _perRep;
+    if (parsed != null && parsed > 0 && parsed != currentPerRep) {
+      widget.onCommitManualPerRep(parsed);
     } else {
-      _controller.text = '${widget.perRep}';
+      _controller.text = '$currentPerRep';
     }
     setState(() => _isEditing = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    const labelStyle = TextStyle(
-      fontFamily: 'Inter',
-      fontSize: 13,
-      fontWeight: FontWeight.w500,
-      color: AppColors.textOnDark,
-    );
-    const helperStyle = TextStyle(
-      fontFamily: 'Inter',
-      fontSize: 12,
-      color: AppColors.textSecondaryOnDark,
-    );
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Text('Custom duration', style: labelStyle),
-          const SizedBox(width: 10),
-          // Editable pill — integer seconds, tap to edit.
-          _isEditing
-              ? SizedBox(
-                  width: 56,
-                  child: TextField(
-                    controller: _controller,
-                    focusNode: _focusNode,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                    ],
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontFamily: 'JetBrainsMono',
-                      fontFamilyFallback: ['Menlo', 'Courier'],
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textOnDark,
-                    ),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 6,
-                      ),
-                      filled: true,
-                      fillColor: AppColors.brandTintBg,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(
-                            color: AppColors.primary, width: 1),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(
-                            color: AppColors.primary, width: 2),
-                      ),
-                    ),
-                    onSubmitted: (_) => _commit(),
-                  ),
-                )
-              : GestureDetector(
-                  onTap: _startEditing,
-                  behavior: HitTestBehavior.opaque,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.brandTintBg,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: AppColors.primary.withValues(alpha: 0.45),
-                        width: 1,
-                      ),
-                    ),
-                    child: Text(
-                      '${widget.perRep}s',
-                      style: const TextStyle(
-                        fontFamily: 'JetBrainsMono',
-                        fontFamilyFallback: ['Menlo', 'Courier'],
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
-                      ),
-                    ),
+          const Text(
+            'Duration per rep',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textOnDark,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: widget.hasVideoLength
+                ? _buildSegmentedControl()
+                : _buildSingleValue(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Two-segment control for video exercises. `From video` sets
+  /// customDurationSeconds = null; `Manual: Xs` sets a persisted per-rep
+  /// × reps value. When `Manual` is active, its value is tappable and
+  /// swaps into an inline TextField for direct edit.
+  Widget _buildSegmentedControl() {
+    final isManual = widget.customDurationSeconds != null;
+    final manualPerRep = _perRep;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        height: 32,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.surfaceBorder),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _segment(
+              label: 'From video',
+              selected: !isManual,
+              onTap: () {
+                if (!isManual) return;
+                HapticFeedback.selectionClick();
+                widget.onSelectFromVideo();
+              },
+            ),
+            _segment(
+              label: 'Manual: ${manualPerRep}s',
+              selected: isManual,
+              onTap: () {
+                if (isManual) {
+                  // Already Manual — tap swaps into edit mode for the
+                  // value pill.
+                  _startEditing();
+                } else {
+                  HapticFeedback.selectionClick();
+                  widget.onSelectManual();
+                }
+              },
+              editingChild: _isEditing && isManual ? _buildInlineInput() : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Single tappable value pill for photos (or videos without probed
+  /// duration). Tap swaps into inline TextField for edit.
+  Widget _buildSingleValue() {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: _isEditing
+          ? _buildInlineInput()
+          : GestureDetector(
+              onTap: _startEditing,
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                height: 32,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.brandTintBg,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.45),
+                    width: 1,
                   ),
                 ),
-          const SizedBox(width: 8),
-          const Text('per rep', style: helperStyle),
-        ],
+                child: Text(
+                  '${_perRep}s',
+                  style: const TextStyle(
+                    fontFamily: 'JetBrainsMono',
+                    fontFamilyFallback: ['Menlo', 'Courier'],
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+            ),
+    );
+  }
+
+  Widget _buildInlineInput() {
+    return SizedBox(
+      width: 72,
+      height: 32,
+      child: TextField(
+        controller: _controller,
+        focusNode: _focusNode,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontFamily: 'JetBrainsMono',
+          fontFamilyFallback: ['Menlo', 'Courier'],
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textOnDark,
+        ),
+        decoration: InputDecoration(
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          filled: true,
+          fillColor: AppColors.brandTintBg,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppColors.primary, width: 1),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppColors.primary, width: 2),
+          ),
+        ),
+        onSubmitted: (_) => _commit(),
+      ),
+    );
+  }
+
+  Widget _segment({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    Widget? editingChild,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        margin: const EdgeInsets.all(3),
+        padding: editingChild != null
+            ? EdgeInsets.zero
+            : const EdgeInsets.symmetric(horizontal: 10),
+        height: 26,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(9999),
+        ),
+        child: editingChild ??
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                height: 1.0,
+                color: selected ? Colors.white : AppColors.textOnDark,
+              ),
+            ),
       ),
     );
   }
