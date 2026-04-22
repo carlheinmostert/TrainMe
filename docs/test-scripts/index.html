@@ -165,11 +165,11 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
-        <a href="./2026-04-22-wave18.3-device-qa.html">
+        <a href="./2026-04-22-wave18.4-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 18.3 — QA triage patch (delta over 18.2)</div>
-              <div class="scope">12-item delta validating three QA fixes from live Wave 18.2 device feedback. (1) Rest chip row — <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Wrap</code> now gets a bounded-width parent, so chips flow horizontally and wrap to a second row only when needed (was stacking vertically, one-chip-per-line). (2) Group-header coral dot relocated from LEFT of chevron → RIGHT-aligned trailing slot (12pt from card edge), so chevrons line up vertically across all four groups regardless of non-default state. (3) Expanded group header — label stays left-anchored (was drifting centre); summary persists on the header row with single-line ellipsis (was disappearing); body renders below the unchanged header row. Run AFTER Wave 18.1 baseline; delta-only.</div>
+              <div class="name">1 · Wave 18.4 — polish patch (delta over 18.3)</div>
+              <div class="scope">13-item delta validating two polish fixes from live Wave 18.3 device feedback. (1) The <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[Custom]</code> text pill has been replaced with a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[+]</code> icon inside a 32×32 dashed coral/sage circle — saves ~40pt per chip row so 4 canonicals + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[+]</code> + 1-2 customs fit one line on iPhone. Inter-chip spacing tightened 6pt → 4pt in both Wrap + ListView variants. (2) Section header labels (PLAYBACK / DOSE / PACING / NOTES) bumped 11pt → 13pt so the label reads clearly against the 13-14pt body content; summary stays 11pt to preserve label-vs-summary hierarchy. Run AFTER Wave 18.1 baseline; delta-only.</div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -285,6 +285,20 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-04-22-wave18.3-device-qa.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 18.3 — QA triage patch (12/12 pass; polish fixes landed in 18.4)</div>
+              <div class="date">2026-04-22</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Complete</span>
+              <div class="results" id="wave18-3-results">Loading…</div>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-04-22-wave18.2-device-qa.html">
           <div class="row">
@@ -403,6 +417,7 @@
           .catch(function() { el.textContent = 'No results yet.'; });
       }
 
+      load('2026-04-22-wave18.3-device-qa.results.json', 'wave18-3-results');
       load('2026-04-22-wave18.2-device-qa.results.json', 'wave18-2-results');
       load('2026-04-21-wave4-phase2-device-qa.results.json', 'wave4-phase2-results');
       load('2026-04-20-wave3-device-qa.results.json', 'wave3-results');

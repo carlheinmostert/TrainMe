@@ -824,10 +824,14 @@ class _GroupHeader extends StatelessWidget {
                     maxLines: expanded ? 1 : 3,
                     softWrap: !expanded,
                     overflow: TextOverflow.ellipsis,
+                    // Wave 18.4 — label bumped 11pt → 13pt so PLAYBACK /
+                    // DOSE / PACING / NOTES read clearly against the
+                    // 13-14pt body content. Summary stays at 11pt to
+                    // preserve label-vs-summary hierarchy.
                     text: TextSpan(
                       style: const TextStyle(
                         fontFamily: 'Inter',
-                        fontSize: 11,
+                        fontSize: 13,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.8,
                         color: AppColors.primary,
@@ -860,8 +864,10 @@ class _GroupHeader extends StatelessWidget {
               if (hasNonDefaults) ...[
                 const SizedBox(width: 8),
                 Padding(
-                  // Align to the first-line label baseline.
-                  padding: const EdgeInsets.only(top: 7),
+                  // Align to the first-line label baseline. Wave 18.4
+                  // bumped from 7 to 9 to follow the 13pt label's
+                  // taller line box.
+                  padding: const EdgeInsets.only(top: 9),
                   child: Container(
                     width: 5,
                     height: 5,
