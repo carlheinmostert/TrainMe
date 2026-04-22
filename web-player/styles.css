@@ -262,59 +262,47 @@ body {
 /* Progress label retired; the progress-pill matrix carries position. */
 .progress-label { display: none !important; }
 
-/* === Matrix ETA bar (row 2) ======================================
-   Promoted out of the pill matrix into its own full-width centered
-   row above the pills. 3-number time readout:
-     current-slide remaining (bold coral)
-     whole-plan remaining    (bold ink)
-     wall-clock finish        (muted, ~prefix)
-   Flash-on-prep behaviour preserved on the .is-prep-flashing class. */
-.matrix-eta-bar {
+/* === Workout timeline strip (row 2) ==============================
+   Thin row above the active-slide header. Start wall-clock left-aligned,
+   projected finish time right-aligned, connected by a hairline rule.
+   Before Start Workout both slots show "--:--" so the row doesn't
+   reflow when the workout begins. */
+.workout-timeline-bar {
   flex-shrink: 0;
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 4px 16px 6px;
+  gap: 10px;
+  padding: 4px 16px 2px;
   font-family: var(--f-mono);
-  font-size: 13px;
-  letter-spacing: -0.2px;
+  font-size: 11px;
+  letter-spacing: 0.1px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+  color: var(--c-ink-muted);
   white-space: nowrap;
   user-select: none;
   -webkit-user-select: none;
   background: var(--c-surface-bg);
 }
 
-.matrix-eta-sep {
-  color: var(--c-ink-muted);
+.workout-timeline-start,
+.workout-timeline-end {
   font-weight: 500;
-  padding: 0 2px;
-}
-
-.matrix-eta-current {
-  color: var(--c-brand);
-  font-weight: 700;
-}
-
-.matrix-eta-total {
-  color: var(--c-ink-primary);
-  font-weight: 700;
-}
-
-.matrix-eta-finish {
   color: var(--c-ink-secondary);
-  font-weight: 500;
+  flex-shrink: 0;
 }
 
-.matrix-eta-done {
-  font-family: var(--f-body);
-  font-weight: 700;
-  font-size: 14px;
-  letter-spacing: -0.2px;
-  color: var(--c-ink-primary);
+.workout-timeline-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    var(--c-border-soft, rgba(255, 255, 255, 0.08)) 20%,
+    var(--c-border-soft, rgba(255, 255, 255, 0.08)) 80%,
+    transparent 100%
+  );
 }
 
 /* === Progress-pill matrix (row 3) ================================
@@ -530,6 +518,47 @@ body {
   transform: scale(1.06);
   border-color: var(--c-brand-light);
 }
+
+/* Pill duration label — Wave 19.2.
+   Each pill carries its estimated duration as "NNs"; the active pill's
+   text is replaced by the live remaining-seconds countdown.
+   Colour inversion trick: the glyph is painted from a gradient that
+   mirrors the pill's own --fill-pct custom property, so text over the
+   empty (dark) portion reads white and text over the filled (coral)
+   portion reads black. Single element, no double-layer DOM. */
+.pill .pill-duration {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  font-family: var(--f-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    #000 0%,
+    #000 var(--fill-pct, 0%),
+    #FFF var(--fill-pct, 0%),
+    #FFF 100%
+  );
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+/* Smaller tier pills get a slightly smaller digit so the label doesn't
+   clip. Dense tier drops the digit entirely — the pill is too narrow
+   for legible text at that size. */
+.pill.size-medium .pill-duration { font-size: 9px; }
+.pill.size-dense .pill-duration { display: none; }
+/* Rest pills ride a sage fill — same black/white inversion works
+   because sage is light enough to read black on. */
 
 @keyframes pill-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 53, 0.40); }
@@ -1226,10 +1255,18 @@ video.is-prep-paused {
 .media-pause-overlay.is-visible {
   opacity: 1;
 }
-/* Running (workout live + timer ticking) — dim the pause icon so it's
-   legible as a toggle hint without fighting the video for attention. */
-.media-pause-overlay.is-visible.is-running {
-  opacity: 0.7;
+/* Flash-on-toggle (Wave 19.2) — briefly surface the overlay at full alpha
+   whenever play ↔ pause flips, then fade. Previous 0.35 dim pattern was
+   invisible against most video content so Carl couldn't tell his taps
+   landed. The persistent .is-visible state still drives the paused CTA. */
+.media-pause-overlay.is-flashing {
+  opacity: 1;
+  animation: pause-flash 900ms var(--ease-standard) forwards;
+}
+@keyframes pause-flash {
+  0%   { opacity: 1; }
+  65%  { opacity: 1; }
+  100% { opacity: 0; }
 }
 /* Photo slides don't have play/pause semantics (nothing's animating), so
    suppress the overlay entirely — Carl flagged it as visually misleading
@@ -1297,7 +1334,6 @@ video.is-prep-paused {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.4; }
 }
-.matrix-eta-current.is-prep-flashing,
 .pill.is-active.is-prep-flashing {
   animation: prep-flash 600ms ease-in-out infinite;
 }
@@ -1323,9 +1359,10 @@ video.is-prep-paused {
    the root html element), JS adds `is-fullscreen` to <body>. In that
    state:
      • Only the plan-bar (session title + client name) and the footer
-       hide entirely. The scoreboard — matrix-eta, progress-matrix,
-       and single-line active-slide-title — stays visible so the
-       client can glance at circuit position + ETA during the workout.
+       hide entirely. The scoreboard — workout-timeline-bar,
+       progress-matrix, and single-line active-slide-title — stays
+       visible so the client can glance at circuit position + remaining
+       time during the workout.
      • Every coral overlay drops to ~30% alpha (mute, fullscreen,
        chevrons, notes, pause disc) — ambient, not attention-hungry.
      • Adding `chrome-visible` on a brief tap pops them to 100% alpha
@@ -1402,7 +1439,7 @@ body.is-fullscreen .fullscreen-toggle {
     padding-left: 32px;
     padding-right: 32px;
   }
-  .matrix-eta-bar {
+  .workout-timeline-bar {
     padding-left: 32px;
     padding-right: 32px;
   }

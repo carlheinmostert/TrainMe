@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v28-polish-bundle-4';
+const CACHE_NAME = 'homefit-player-v29-timeline-perpill-flash';
 
 // App shell files — always cached
 const APP_SHELL = [

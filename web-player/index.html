@@ -47,15 +47,17 @@
   </div>
 
   <!-- Main app ===============================================================
-       Top-stack v2 layout (Wave 19 polish round 2 — 2026-04-22):
-         Row 1  plan-bar             (plan-title + header-client)
-         Row 2  active-slide-header  (exercise name + decoded grammar) — promoted above time
-         Row 3  matrix-eta           (full-width centered; 3-number time row)
-         Row 4  progress-matrix      (pills; circuits are row-first grids)
-         Hero   card-viewport        (video fills; all chrome overlaid)
-         Footer footer               (powered by homefit.studio)
-       Retired in prior waves: nav-dots, peek-panel, treatment-seg,
-       card-position, nav-bar, swipe-hint. See app.js header comment. -->
+       Top-stack v2.1 layout (Wave 19.2 — 2026-04-22):
+         Row 1  plan-bar                 (plan-title + header-client)
+         Row 2  workout-timeline-bar     (start-time ─── ~finish-time)
+         Row 3  active-slide-header      (name · grammar (MM:SS remaining))
+         Row 4  progress-matrix          (pills with inline duration labels;
+                                          circuits are row-first grids)
+         Hero   card-viewport            (video fills; all chrome overlaid)
+         Footer footer                   (powered by homefit.studio)
+       Retired in prior waves: matrix-eta (3-number row — dismantled in
+       19.2), nav-dots, peek-panel, treatment-seg, card-position, nav-bar,
+       swipe-hint. See app.js header comment. -->
   <div id="app" hidden>
     <!-- Plan title bar -->
     <div class="plan-bar">
@@ -66,26 +68,24 @@
       <div id="progress" class="progress-label"></div>
     </div>
 
-    <!-- Active-slide header — single-line row: "{name} · {decoded grammar}".
-         Promoted ABOVE the time row (Wave 19): the "what" comes before the
-         "how long". Rendered by app.js on every slide change + workout tick.
-         Truncates with ellipsis if the combined string doesn't fit the
-         viewport — circuit-round suffix was dropped because the progress-pill
-         matrix already shows round position visually. -->
-    <div class="active-slide-header" id="active-slide-header">
-      <h2 class="active-slide-title" id="active-slide-title"></h2>
+    <!-- Workout timeline strip — thin row with the wall-clock start time
+         left-aligned and projected finish time right-aligned, connected
+         by a hairline rule. Before Start Workout both slots show "--:--"
+         so the row doesn't reflow when the workout begins. -->
+    <div class="workout-timeline-bar" id="workout-timeline-bar" aria-label="Workout timeline">
+      <span class="workout-timeline-start" id="workout-timeline-start">--:--</span>
+      <span class="workout-timeline-rule" aria-hidden="true"></span>
+      <span class="workout-timeline-end" id="workout-timeline-end">--:--</span>
     </div>
 
-    <!-- Matrix ETA — 3-number time row:
-         current-slide remaining · total remaining · ~finish wall clock.
-         Sits full-width between the active-slide header and the pill matrix;
-         no longer scrolls with the pills. -->
-    <div class="matrix-eta-bar" id="matrix-eta-bar" aria-live="polite">
-      <span class="matrix-eta-current" id="matrix-eta-current">0:00</span>
-      <span class="matrix-eta-sep">·</span>
-      <span class="matrix-eta-total" id="matrix-eta-total">0:00</span>
-      <span class="matrix-eta-sep">·</span>
-      <span class="matrix-eta-finish" id="matrix-eta-finish">~--:--</span>
+    <!-- Active-slide header — single-line row: "{name} · {grammar} (MM:SS)".
+         The trailing parenthetical is the live countdown on the active slide;
+         ("0:00" before start / after finish). Wave 19.2: the 3-number ETA
+         row was dismantled — start/finish live in the timeline strip above,
+         the remaining-time moved here in parens, and per-pill durations
+         handle the per-slide number. -->
+    <div class="active-slide-header" id="active-slide-header">
+      <h2 class="active-slide-title" id="active-slide-title"></h2>
     </div>
 
     <!-- Progress-pill matrix — horizontally scrolling grid of exercise

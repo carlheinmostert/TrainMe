@@ -184,12 +184,14 @@ const $cardTrack = document.getElementById('card-track');
 const $btnPrev = document.getElementById('btn-prev');
 const $btnNext = document.getElementById('btn-next');
 
-// Top-stack v1 refs — ETA row + active-slide header are now direct
-// children of #app (promoted out of .progress-matrix and .card-body).
-const $matrixEtaBar = document.getElementById('matrix-eta-bar');
-const $etaCurrent = document.getElementById('matrix-eta-current');
-const $etaTotal = document.getElementById('matrix-eta-total');
-const $etaFinish = document.getElementById('matrix-eta-finish');
+// Top-stack v2 refs — workout timeline strip + active-slide header are
+// direct children of #app. Wave 19.2 retired the 3-number matrix ETA
+// bar: start/finish wall clocks live in the timeline strip; remaining
+// time moved into the active-slide header in parens; per-slide
+// estimates live inside each pill.
+const $timelineBar = document.getElementById('workout-timeline-bar');
+const $timelineStart = document.getElementById('workout-timeline-start');
+const $timelineEnd = document.getElementById('workout-timeline-end');
 const $activeSlideHeader = document.getElementById('active-slide-header');
 const $activeSlideTitle = document.getElementById('active-slide-title');
 
@@ -323,8 +325,8 @@ function renderPlan() {
   // Prime the ETA widget and start its wall-clock ticker. The ticker runs
   // for the lifetime of the session so the finish-time drifts forward even
   // during paused states.
-  updateEtaDisplay();
-  startEtaClock();
+  updateTimelineBar();
+  startTimelineClock();
 
   // Build exercise cards. Top-stack v1 — the card body carries only the
   // media (video + overlays). Name, grammar, notes are rendered by the
@@ -477,7 +479,12 @@ function updateActiveSlideHeader() {
   const isRest = slide.media_type === 'rest';
   const name = isRest ? 'Rest' : (slide.name || `Exercise ${currentIndex + 1}`);
   const grammar = buildDecodedGrammar(slide);
-  $activeSlideTitle.textContent = grammar ? `${name} · ${grammar}` : name;
+  const base = grammar ? `${name} · ${grammar}` : name;
+  // Wave 19.2: remaining time for the active slide rides in parens at the
+  // end of the title. Pre-workout shows the full estimated duration; running
+  // / paused / prep reflects the live tick counter.
+  const remainingLabel = formatTime(Math.max(0, calculateActiveSlideRemainingSeconds()));
+  $activeSlideTitle.textContent = `${base} (${remainingLabel})`;
   $activeSlideTitle.classList.toggle('is-rest', isRest);
 }
 
@@ -770,13 +777,19 @@ function buildProgressMatrix() {
   $matrixInner.className = 'progress-matrix-inner';
   const sizeClass = 'size-' + matrixSizeTier;
 
-  /** Render a single pill's HTML. Item 1: pills are EMPTY — just hull + fill. */
+  /** Render a single pill's HTML. Wave 19.2: each pill carries its own
+   *  estimated duration as "NNs" text clipped against the fill gradient
+   *  so the glyph colour inverts (white on empty, black on coral) without
+   *  a double-layer DOM. The active pill's text is replaced by the live
+   *  countdown in updateProgressMatrix(). */
   const pillHTML = (slideIdx) => {
     const slide = slides[slideIdx];
     const isRest = slide.media_type === 'rest';
     const restClass = isRest ? ' is-rest' : '';
-    return `<div class="pill ${sizeClass}${restClass}" data-slide="${slideIdx}">
+    const dur = calculateDuration(slide);
+    return `<div class="pill ${sizeClass}${restClass}" data-slide="${slideIdx}" data-estimate="${dur}" style="--fill-pct: 0%">
               <span class="pill-fill"></span>
+              <span class="pill-duration">${dur}s</span>
             </div>`;
   };
 
@@ -818,18 +831,37 @@ function updateProgressMatrix() {
     pill.classList.remove('is-scrubbed');
 
     const fill = pill.querySelector('.pill-fill');
-    if (!fill) return;
+    const durEl = pill.querySelector('.pill-duration');
+    // Fill percentage drives BOTH the visual band AND the glyph inversion
+    // gradient — we mirror it onto a CSS custom property so the text's
+    // background-clip gradient flips colour at the exact same boundary.
+    let fillPct = 0;
+    let durText = '';
     if (isCompleted) {
-      fill.style.width = '100%';
+      fillPct = 100;
+      // Completed pills keep their original estimate; the glyph reads black
+      // on the full coral fill.
+      const est = Number(pill.getAttribute('data-estimate')) || 0;
+      durText = `${est}s`;
     } else if (isActive) {
-      // Live progress: fraction of the active slide's timer elapsed.
       const frac = isWorkoutActive && totalSeconds > 0
         ? Math.max(0, Math.min(1, (totalSeconds - remainingSeconds) / totalSeconds))
         : 0;
-      fill.style.width = `${frac * 100}%`;
+      fillPct = frac * 100;
+      // Active pill counts down in seconds — `NNs` keeps the digit width
+      // predictable against the gradient clip.
+      const showSecs = isWorkoutActive
+        ? Math.max(0, remainingSeconds)
+        : (Number(pill.getAttribute('data-estimate')) || 0);
+      durText = `${showSecs}s`;
     } else {
-      fill.style.width = '0%';
+      fillPct = 0;
+      const est = Number(pill.getAttribute('data-estimate')) || 0;
+      durText = `${est}s`;
     }
+    if (fill) fill.style.width = `${fillPct}%`;
+    pill.style.setProperty('--fill-pct', `${fillPct}%`);
+    if (durEl && durEl.textContent !== durText) durEl.textContent = durText;
   });
 
   // Wave 19.1: matrix always fits the viewport (flex-distribute fit-to-width
@@ -1056,7 +1088,7 @@ function goTo(index) {
   currentIndex = index;
   updateUI();
   // After a jump, recompute immediately so we don't wait 1s for the ticker.
-  updateEtaDisplay();
+  updateTimelineBar();
   // Slide state changed — re-evaluate the pause/prep overlay visibility on
   // the new active slide and hide them on the old one.
   updatePauseOverlay();
@@ -1355,49 +1387,33 @@ function formatFinishTime(date) {
 }
 
 /**
- * Render the ETA widget. Called on every workout-tick AND on an independent
- * 1s wall-clock tick so the finish time drifts forward while paused.
- * Item 4: three numbers — current, total, finish.
+ * Render the workout-timeline strip. Called on every workout-tick AND on an
+ * independent 1s wall-clock tick so the finish time drifts forward while
+ * paused. Wave 19.2: replaces the 3-number ETA row — start wall clock is
+ * frozen at Start Workout, finish = now() + remainingWorkoutSeconds.
  */
-function updateEtaDisplay() {
-  if (!$matrixEtaBar) return;
-  if (workoutCompleteFlag) {
-    // Set the "Done" markup once; subsequent ticks are no-ops until the flag
-    // flips (exitWorkout() resets it).
-    if (!$matrixEtaBar.classList.contains('is-done')) {
-      $matrixEtaBar.classList.add('is-done');
-      $matrixEtaBar.innerHTML = '<div class="matrix-eta-done">Done</div>';
-    }
+function updateTimelineBar() {
+  if (!$timelineStart || !$timelineEnd) return;
+  // Before the workout starts, both slots stay as "--:--" so the row doesn't
+  // reflow width on kickoff.
+  if (!isWorkoutMode || !workoutStartTime) {
+    $timelineStart.textContent = '--:--';
+    $timelineEnd.textContent = '--:--';
     return;
   }
-  // Restore the 3-number markup if we were previously Done.
-  if ($matrixEtaBar.classList.contains('is-done')) {
-    $matrixEtaBar.classList.remove('is-done');
-    // The static markup in index.html is the canonical layout — rebuild it
-    // so the DOM refs re-resolve via ID.
-    $matrixEtaBar.innerHTML =
-      '<span class="matrix-eta-current" id="matrix-eta-current">0:00</span>' +
-      '<span class="matrix-eta-sep">·</span>' +
-      '<span class="matrix-eta-total" id="matrix-eta-total">0:00</span>' +
-      '<span class="matrix-eta-sep">·</span>' +
-      '<span class="matrix-eta-finish" id="matrix-eta-finish">~--:--</span>';
+  $timelineStart.textContent = formatFinishTime(new Date(workoutStartTime));
+  if (workoutCompleteFlag) {
+    // Snapshot the real finish wall-clock at completion (Date.now() then
+    // stops drifting against remainingSeconds which is 0).
+    $timelineEnd.textContent = formatFinishTime(new Date());
+    return;
   }
-
-  const activeSecs = calculateActiveSlideRemainingSeconds();
   const totalSecs = calculateRemainingWorkoutSeconds();
   const finishAt = new Date(Date.now() + totalSecs * 1000);
+  $timelineEnd.textContent = `~${formatFinishTime(finishAt)}`;
 
-  const current = document.getElementById('matrix-eta-current');
-  const total = document.getElementById('matrix-eta-total');
-  const finish = document.getElementById('matrix-eta-finish');
-  if (current) current.textContent = formatTime(Math.max(0, activeSecs));
-  if (total) total.textContent = formatTime(Math.max(0, totalSecs));
-  if (finish) finish.textContent = `~${formatFinishTime(finishAt)}`;
-
-  // Prep-phase flash — current-slide number + active pill.
-  if (current) {
-    current.classList.toggle('is-prep-flashing', isPrepPhase);
-  }
+  // Prep-phase flash — active pill (the title's countdown handles the
+  // per-slide flash visually via its parenthetical remainder).
   if ($matrixInner) {
     const activePill = $matrixInner.querySelector('.pill.is-active');
     if (activePill) {
@@ -1409,12 +1425,12 @@ function updateEtaDisplay() {
 // Mirrors the Flutter widget.workoutComplete flag for the ETA "Done" state.
 let workoutCompleteFlag = false;
 
-function startEtaClock() {
+function startTimelineClock() {
   if (etaClockTimer) return;
-  etaClockTimer = setInterval(updateEtaDisplay, 1000);
+  etaClockTimer = setInterval(updateTimelineBar, 1000);
 }
 
-function stopEtaClock() {
+function stopTimelineClock() {
   if (etaClockTimer) {
     clearInterval(etaClockTimer);
     etaClockTimer = null;
@@ -1448,7 +1464,7 @@ function startWorkout() {
   }
   // Matrix needs an active-state redraw now that isWorkoutMode is true.
   updateProgressMatrix();
-  updateEtaDisplay();
+  updateTimelineBar();
 }
 
 /**
@@ -1501,7 +1517,7 @@ function startPrepPhase() {
   updatePauseOverlay();
   updateRestCountdownOverlay();
   // ETA now reflects prep seconds + new slide's full duration + upcoming.
-  updateEtaDisplay();
+  updateTimelineBar();
 
   prepTimer = setInterval(onPrepTick, 1000);
 }
@@ -1520,8 +1536,9 @@ function onPrepTick() {
   }
   updatePrepOverlay();
   schedulePrepFade();
-  // Prep seconds are part of "remaining" — tick the ETA too.
-  updateEtaDisplay();
+  // Prep seconds are part of "remaining" — tick the timeline + title too.
+  updateTimelineBar();
+  updateActiveSlideHeader();
 }
 
 function finishPrepPhase() {
@@ -1547,7 +1564,7 @@ function startTimer() {
   isTimerRunning = true;
   updatePauseOverlay();
   updateRestCountdownOverlay();
-  updateEtaDisplay();
+  updateTimelineBar();
 
   workoutTimer = setInterval(onTimerTick, 1000);
 }
@@ -1586,7 +1603,10 @@ function onTimerTick() {
   // Matrix active-pill fill needs a per-second nudge too.
   updateProgressMatrix();
   updateRestCountdownOverlay();
-  updateEtaDisplay();
+  updateTimelineBar();
+  // (MM:SS) remaining rides in the active-slide title — needs a per-tick
+  // refresh same as the timeline and matrix.
+  updateActiveSlideHeader();
 }
 
 // updateTimerDisplay + setTimerModeIcon removed — the dedicated chip is
@@ -1627,7 +1647,11 @@ function pauseTimer() {
   updateRestCountdownOverlay();
   // ETA clock keeps running in the background — remaining stays static,
   // finish-time drifts forward. Nudge once to reflect immediately.
-  updateEtaDisplay();
+  updateTimelineBar();
+  // Transition already visually loud (overlay snaps to full alpha on pause)
+  // but keep the flash-class for symmetry with the resume path so rapid
+  // pause/resume doesn't leave a stale animation.
+  flashPauseOverlay();
 }
 
 /**
@@ -1646,7 +1670,10 @@ function resumeTimer() {
   }
   updatePauseOverlay();
   updateRestCountdownOverlay();
-  updateEtaDisplay();
+  updateTimelineBar();
+  // Flash the pause icon at full alpha for ~900ms so the tap's outcome is
+  // legible on top of the running video.
+  flashPauseOverlay();
 }
 
 /**
@@ -1733,31 +1760,58 @@ function toggleMute() {
 }
 
 /**
- * Item 8: toggle the centered pause overlay on the active slide. Visible only
- * when the workout is paused AND we're not in the prep phase. Other slides
- * hide their overlay so we don't leave it visible in the wings of the card
- * track.
+ * Wave 19.2: pause overlay is now a flash-on-toggle confirmation, not a
+ * persistent dim affordance. The previous 0.35-opacity pause icon during
+ * running was invisible against most video content.
+ *
+ * State model:
+ *   Running  → overlay invisible; `flashPauseOverlay()` surfaces it briefly
+ *              (full alpha → fade) on every play↔pause toggle to confirm
+ *              the gesture landed.
+ *   Paused   → overlay stays visible at full alpha (the play icon is the
+ *              CTA to resume).
+ *   Prep / offscreen slide → overlay hidden unconditionally.
  */
 function updatePauseOverlay() {
   if (!$cardTrack) return;
   const overlays = $cardTrack.querySelectorAll('.media-pause-overlay');
   const workoutLive = isWorkoutMode && !isPrepPhase && remainingSeconds > 0;
-  // Overlay is present whenever the workout is live on the active slide.
-  // Icon reflects the action the next tap will trigger: ⏸ while running,
-  // ▶ while paused. CSS handles dim/full opacity based on running state
-  // and fullscreen ambient mode.
-  const showPlayIcon = !isTimerRunning;
   overlays.forEach((overlay) => {
     const card = overlay.closest('.exercise-card');
     const idx = card ? Number(card.getAttribute('data-index')) : -1;
     const isActive = workoutLive && idx === currentIndex;
-    overlay.classList.toggle('is-visible', isActive);
-    overlay.classList.toggle('is-running', isActive && isTimerRunning);
+    // Persistent visibility ONLY when paused on the active slide. Running
+    // state leans on flashPauseOverlay() for transient feedback.
+    overlay.classList.toggle('is-visible', isActive && !isTimerRunning);
     const playIcon = overlay.querySelector('.pause-icon-play');
     const pauseIcon = overlay.querySelector('.pause-icon-pause');
+    const showPlayIcon = !isTimerRunning;
     if (playIcon) playIcon.hidden = !showPlayIcon;
     if (pauseIcon) pauseIcon.hidden = showPlayIcon;
   });
+}
+
+/**
+ * Briefly surface the pause overlay at full alpha to confirm a toggle.
+ * CSS animation (.media-pause-overlay.is-flashing) holds at 1 alpha then
+ * fades — we just toggle the class and clear any in-flight timer so
+ * rapid taps don't leak stacked animations.
+ */
+function flashPauseOverlay() {
+  if (!$cardTrack) return;
+  const card = $cardTrack.querySelector(`.exercise-card[data-index="${currentIndex}"]`);
+  if (!card) return;
+  const overlay = card.querySelector('.media-pause-overlay');
+  if (!overlay) return;
+  const playIcon = overlay.querySelector('.pause-icon-play');
+  const pauseIcon = overlay.querySelector('.pause-icon-pause');
+  const showPlayIcon = !isTimerRunning;
+  if (playIcon) playIcon.hidden = !showPlayIcon;
+  if (pauseIcon) pauseIcon.hidden = showPlayIcon;
+  // Restart the animation — remove, force reflow, re-add.
+  overlay.classList.remove('is-flashing');
+  void overlay.offsetWidth;
+  overlay.classList.add('is-flashing');
 }
 
 /**
@@ -1951,7 +2005,7 @@ function finishWorkout() {
 
   // Flip the ETA to "Done" end-state.
   workoutCompleteFlag = true;
-  updateEtaDisplay();
+  updateTimelineBar();
 }
 
 /**
@@ -1985,7 +2039,7 @@ function exitWorkout() {
   workoutCompleteFlag = false;
   buildProgressMatrix();
   updateProgressMatrix();
-  updateEtaDisplay();
+  updateTimelineBar();
 }
 
 // ============================================================
