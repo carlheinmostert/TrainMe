@@ -794,7 +794,8 @@ function buildProgressMatrix() {
   void $matrixInner.offsetWidth;
 }
 
-/** Update visible state — active/completed classes + centring scroll + fill width. */
+/** Update visible state — active/completed classes + pill fill width.
+ *  Wave 19.1 fit-to-viewport: matrix always fits, so no centering scroll. */
 function updateProgressMatrix() {
   if (!$matrixInner) return;
   const spec = MATRIX_SPECS[matrixSizeTier];
@@ -826,33 +827,14 @@ function updateProgressMatrix() {
     }
   });
 
-  // Centre the active pill.
-  // Wave 19: pills can be nested either directly in a .matrix-col (singles)
-  // OR inside .matrix-circuit-row > .matrix-circuit (row-first circuit grid).
-  // Walk the offsetParent chain up to $matrixInner so we sum the correct
-  // ancestors regardless of nesting depth.
-  const activePill = $matrixInner.querySelector(`.pill[data-slide="${activeIdx}"]`);
-  const viewportWidth = $matrix.clientWidth || window.innerWidth || 375;
-  let centeringOffset = 0;
-  if (activePill) {
-    let pillLeft = 0;
-    let node = activePill;
-    while (node && node !== $matrixInner) {
-      pillLeft += node.offsetLeft;
-      node = node.offsetParent;
-    }
-    const pillCentre = pillLeft + activePill.offsetWidth / 2;
-    centeringOffset = viewportWidth / 2 - pillCentre;
-  }
-  const translateX = centeringOffset + matrixManualOffset;
-  $matrixInner.style.transform = `translateX(${translateX}px)`;
-
-  // Chevron visible only when the user has dragged the matrix away from centre.
-  if (Math.abs(matrixManualOffset) > 16 && activeIdx >= 0) {
-    $matrixChevron.hidden = false;
-  } else {
-    $matrixChevron.hidden = true;
-  }
+  // Wave 19.1: matrix always fits the viewport (flex-distribute fit-to-width
+  // + fullscreen pill cap removal), so the historical centring-scroll +
+  // manual-drag scrub have nothing to do. Reset any lingering transform so
+  // a viewport resize doesn't leave the matrix shifted, and keep the chevron
+  // hidden unconditionally — there's nothing off-screen to chevron toward.
+  $matrixInner.style.transform = '';
+  matrixManualOffset = 0;
+  $matrixChevron.hidden = true;
 }
 
 // ------------------------------------------------------------
@@ -954,15 +936,10 @@ function onMatrixTouchStart(e) {
   }, LONG_PRESS_MS);
 }
 
-/** When the matrix fits the viewport without scroll, drag is disabled. */
+/** Wave 19.1: with flex fit-to-viewport the matrix always fits — drag
+ *  scrub has nothing to reveal, so the legacy gate is always true. */
 function matrixFitsViewport() {
-  if (!$matrixInner) return true;
-  const blocks = buildMatrixBlocks();
-  const colCount = countMatrixColumns(blocks);
-  const viewportWidth = window.innerWidth || 375;
-  const available = viewportWidth - MATRIX_SIDE_PADDING;
-  const spec = MATRIX_SPECS[matrixSizeTier] || MATRIX_SPECS.dense;
-  return colCount * (spec.width + spec.gap) <= available;
+  return true;
 }
 
 function onMatrixTouchMove(e) {
