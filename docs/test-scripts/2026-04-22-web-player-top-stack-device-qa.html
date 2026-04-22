@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Web-player top-stack v1</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-22 · Web-player top-stack v1</div>
+    <h1>Device QA — Web-player top-stack</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify the wireframe-signed-off restructure of the client web player. <strong>Top stack above the video</strong> now reads top-to-bottom: plan-title + client, 3-number ETA row (full width centered), progress-pill matrix, active-slide name + decoded grammar. <strong>Video is the hero</strong> with all chrome overlaid: mid-height chevrons (left/right), mute + NEW fullscreen toggle (top-right), notes as plain coral text at the bottom (no box; 3-line clamp — tap to expand), prep + pause overlays centered. Rest slides get a new big-coral-number countdown overlaid on the last visible frame. <strong>Behavioural additions:</strong> prep play-gating (video paused at frame 0 during runway), fullscreen ambient mode (top stack hides, coral overlays drop to ~30% alpha, tap reveals for 3s), Start Workout triggers fullscreen, workout-complete has a celebratory coral glow + scale-in check.
+      <br><br>
+      <strong>Retired entirely:</strong> <code>nav-dots</code> (bottom row of dots), <code>peek-panel</code> (centered teaching peek + long-press preview), <code>treatment-seg</code> (client-facing segmented control — practitioner's per-exercise <code>preferred_treatment</code> is authority), <code>card-position</code> ("Exercise 3"), bottom <code>nav-bar</code>, <code>swipe-hint</code>, card-level name/body/notes-box.
+      <br><br>
+      <strong>In scope:</strong> web-player bundle (<code>web-player/index.html</code> + <code>styles.css</code> + <code>app.js</code>); mobile-portrait-only. Propagates to the Flutter practitioner preview via the WKURLSchemeHandler (R-10 parity is architecturally enforced by the unified-player bundle).
+      <br><br>
+      <strong>Out of scope:</strong> Flutter code changes. Backend / Supabase. Middleware. Portal. Audio / treatment logic (unchanged). Desktop / landscape layouts.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li><code>feat/web-player-top-stack-v1</code> deployed to <code>session.homefit.studio</code> (auto-deploys on push via Vercel), OR the branch installed onto the device via <code>./install-device.sh</code> so the embedded WebView picks up the new bundle.</li>
+        <li>Hard-reload the player URL (iOS Safari: tap-and-hold the reload icon → Request Website, or add a dummy query param) — the service worker bumps from <code>v19-per-slide-treatment</code> to <code>v20-top-stack</code> but needs one cold load.</li>
+        <li>A published plan with: at least one exercise that has practitioner notes, at least one rest slide, and at least one circuit (so the "· Round X of Y" naming works).</li>
+      </ul>
+    </div>
+
+    <h2>1 · Top-stack ordering above the video</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open the plan link in Safari (NOT in the Flutter app). The chrome above the video reads, top-to-bottom, as four stacked rows: <strong>(a)</strong> plan title + client name on the left, slide-progress text (e.g. <code>1 of 7</code>) on the right; <strong>(b)</strong> the 3-number ETA row full-width centered (current · total · ~finish); <strong>(c)</strong> the progress-pill matrix (horizontally scrolling); <strong>(d)</strong> the exercise name in Montserrat + the decoded grammar line (e.g. <code>3 sets · 10 reps · 5s hold</code>) underneath. Below that is the video viewport.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Retired chrome is gone</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">No dot indicators at the bottom of the viewport (<code>nav-dots</code> retired). No "Line · B&amp;W · Original" segmented control (<code>treatment-seg</code> retired — the practitioner's per-exercise preferred treatment drives the video). No "Exercise N" label above the exercise name (<code>card-position</code> retired). No "Swipe to navigate" hint on first card. No bottom nav-bar bar with prev/next text buttons.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · Edge chevrons overlay the video mid-height</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Subtle coral chevrons sit overlaid on the left and right edges of the video at roughly mid-height. On the first slide, the left chevron is disabled (dimmed ~15%) and non-tappable. On the last slide, the right chevron is disabled. Tapping an enabled chevron advances to the next slide. Swiping the card still works too.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · Mute + fullscreen toggles sit top-right</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">On an exercise slide with <code>include_audio</code>, two small coral icon buttons sit at the top-right corner of the video: mute toggle on the left, fullscreen toggle on the right (~12pt from the edge). Tapping mute flips the speaker icon + mutes every live video. Tapping fullscreen enters browser fullscreen — the icon swaps to a "collapse" glyph and the top stack + footer hide. Tap the icon again to exit; icons and top stack restore.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Notes overlay as plain coral text at the bottom of the video</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">On an exercise that has practitioner notes, the note reads as <strong>plain coral italic text</strong> at the bottom of the video — <strong>no box, no background pill</strong>. Text clamps to <strong>3 lines max</strong> with an ellipsis on the third line for long notes. Tapping the note expands it to full height. Tapping again re-collapses. On an exercise with no notes, nothing is visible there. Rest slides show no note either.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 · Circuit round context appends to the name</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Navigate to a circuit exercise (unrolled — round 2 or 3, not round 1). The active-slide header reads, for example: <code>Goblet squat · Round 2 of 3</code>. The decoded grammar line below stays correct for that round (<code>10 reps · 5s hold</code>, no "sets" on circuits). Round 1 also shows <code>· Round 1 of 3</code> for consistency.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>7 · Prep play-gating — video paused during the runway</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Tap <strong>Start Workout</strong>. The prep overlay appears with big coral countdown digits (5s default, or the per-exercise <code>prep_seconds</code>). During the runway, <strong>the video behind the digits is paused on the first frame — nothing is moving</strong>. Digits tick down 5 → 4 → 3 → 2 → 1. When the runway ends, the overlay clears AND the video starts playing.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>8 · Rest countdown overlay — big coral number</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Advance to a rest slide during workout mode (or skip forward via the right chevron). A <strong>large coral digit</strong> (same visual language as the prep overlay) is overlaid on the rest card, counting down each second: 30, 29, 28… The decoded grammar row above still reads <code>30s rest</code>. When the rest hits zero, the overlay hides and the player advances to the next exercise.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>9 · Fullscreen ambient mode — chrome fades, reveal on tap</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">Enter fullscreen via the top-right toggle. The top stack (plan title, ETA, pills, active-slide header) AND the footer are <strong>hidden</strong>. Edge chevrons + mute + notes are present but <strong>drop to ~30% alpha</strong>, so the video reads as the primary surface. <strong>Tap the video once</strong> — overlays pop to 100% alpha for 3 seconds, then fade back. The fullscreen toggle icon itself stays at 100% alpha the whole time (so the exit affordance is always obvious).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>10 · Start Workout CTA centered + triggers fullscreen</h2>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">On plan load, the <strong>Start Workout button</strong> is centered over the first slide's video (not tucked at the bottom). Tapping it: (a) hides the button, (b) <strong>requests browser fullscreen</strong> — the top stack disappears (because Start is inside the user-gesture), (c) kicks off the 5s prep countdown with the big coral digits + paused video behind.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>11 · Workout Complete — celebratory cue</h2>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Run through a short plan (or skip to the last slide via the right chevron + let its timer expire). The Workout Complete overlay appears with: <strong>(a)</strong> a coral radial glow behind the checkmark (fades in over ~2s, reaches peak ~40% through), <strong>(b)</strong> the checkmark icon <strong>scales in from 60% → 100% over 200ms</strong> (not a snap — a clear pop), <strong>(c)</strong> the "Workout Complete!" title + total time + Close button below. Tap Close: overlay hides, fullscreen exits (back to browse mode), Start Workout button re-appears.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>12 · ETA drifts forward while paused</h2>
+    <ul class="checklist">
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+        <span class="num">12.</span>
+        <span class="text">During workout mode on an exercise slide, tap the video surface to pause the timer. The pause disc appears centered. Observe the 3-number ETA row: <strong>the two coral+white numbers (current + total) freeze</strong>, but <strong>the muted grey "~finish" wall-clock number drifts forward by one minute every 60 seconds</strong>. Tap again to resume — pause disc hides, timers tick normally.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>13 · Mobile preview (Flutter WebView) matches</h2>
+    <ul class="checklist">
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
+        <span class="num">13.</span>
+        <span class="text">Open the same plan inside the Flutter app's Preview screen (Studio → Preview). Confirm: same top-stack ordering as item 1, same retired chrome as item 2, same overlay placements as items 3–5, same circuit naming as item 6. The prep overlay shows the same big coral digits. The rest countdown shows the same big coral number. R-10 parity holds because both surfaces run the same <code>web-player/</code> bundle.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>14 · Service worker bumped cleanly</h2>
+    <ul class="checklist">
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+        <span class="num">14.</span>
+        <span class="text">Open Safari → Advanced → Web Inspector → Storage on the session.homefit.studio page. The Cache Storage name reads <code>homefit-player-v20-top-stack</code> (not the old <code>v19-per-slide-treatment</code>). If the old cache is still there, a second hard reload clears it. No console errors from <code>app.js</code> about missing DOM refs (<code>$navDots</code>, <code>$peekPanel</code>, etc. are gone; their refs were removed cleanly).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Top-stack v1 lands on <code>feat/web-player-top-stack-v1</code>. Wireframe signed off at <code>docs/design/mockups/web-player-wireframe.html</code>. Three-file refactor (<code>web-player/index.html</code>, <code>web-player/styles.css</code>, <code>web-player/app.js</code>) + service-worker bump (<code>web-player/sw.js</code>). R-10 parity preserved via the unified-player bundle — no Flutter code changed.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-22-web-player-top-stack-device-qa.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'web-player-top-stack-v1', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>
