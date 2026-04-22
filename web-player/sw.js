@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v23-player-polish-round2';
+const CACHE_NAME = 'homefit-player-v24-equal-pill-widths';
 
 // App shell files — always cached
 const APP_SHELL = [

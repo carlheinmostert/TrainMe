@@ -385,11 +385,20 @@ body {
    width. Inside the block, rows stack; each row is a grid with
    N_exercises equal columns. */
 .matrix-circuit {
-  /* Take up horizontal space proportional to N_exercises in the circuit
-     so a 3-exercise circuit is ~3× wider than a single. This keeps pill
-     widths visually consistent across the matrix. */
-  flex: var(--circuit-cols, 1) 1 0;
-  min-width: calc(6px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1));
+  /* Goal: an internal circuit pill renders at the SAME width as a single.
+     Trick: put the fixed overhead (2×4px padding + (N-1)×4px row gap) into
+     flex-BASIS and leave N growth shares. That way the flexible part of
+     the block distributes identically to N singles, and the internal
+     pills end up the same width as single pills after subtracting the
+     fixed overhead.
+     Max-width mirrors .matrix-col's 32px ceiling so excess flex space
+     doesn't bloat circuit pills once singles hit their cap. */
+  /* Total horizontal overhead = 8px block padding + 8px row padding
+     + (N-1)×4px row gap = 16px + 4×(N-1). Put it all in flex-basis so
+     the N growth shares match single-pill widths exactly. */
+  flex: var(--circuit-cols, 1) 1 calc(16px + 4px * (var(--circuit-cols, 1) - 1));
+  min-width: calc(6px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1) + 16px);
+  max-width: calc(32px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1) + 16px);
   display: flex;
   flex-direction: column;
   gap: 4px;
