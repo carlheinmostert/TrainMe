@@ -151,7 +151,7 @@ Surfaces required to match:
 
 **MVP is in active QA.** Target shipped well ahead of 2026-05-02. Both surfaces (mobile + portal) are live, converged on a client-spine IA, offline-first on mobile, three-treatment playback wired, referral loop shipped with 5% lifetime credit-rebate model, line-drawing aesthetic LOCKED at v6. Carl has been running device QA; no open bugs on the live stack.
 
-**👉 For a fresh-session handoff, read `docs/CHECKPOINT_2026-04-22.md` first.** It captures the Wave 18 Studio-UI polish chain (18 → 18.8), two Supabase migrations (`schema_fix_milestone_r_srf.sql`, `schema_fix_publish_replace_exercises.sql`), the paused web-player wireframe workshop at `docs/design/mockups/web-player-wireframe.html`, and a "how to resume" section. Earlier checkpoints (`2026-04-21`, `2026-04-20`, `2026-04-20-late`) remain authoritative for their era.
+**👉 For a fresh-session handoff, read `docs/CHECKPOINT_2026-04-23.md` first.** It captures the Wave 19.4 publish-path stabilisation cascade (4 commits: 9db0651 → ac78e48 → 23950b0 → 8127a39), the Milestone W `list_all_client_names` RPC, the B4 test rewrite, and a "how to resume" section. Earlier checkpoints (`2026-04-22`, `2026-04-21`, `2026-04-20`, `2026-04-20-late`) remain authoritative for their era.
 
 **Milestones complete:**
 - **A** — Schema (practices, practice_members, credit_ledger, plan_issuances, plan.practice_id, plan.first_opened_at).

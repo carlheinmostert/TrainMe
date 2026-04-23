@@ -180,7 +180,7 @@
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
         <span class="num">4.</span>
-        <span class="text">Force the failure path: in Settings → Recycle Bin, soft-delete a client (don't restore). Back to Home → FAB "New client" → accept the default name (which collides with the deleted client's name). Attempt to publish. A <strong>user-visible SnackBar</strong> surfaces: <em>"A client named "{X}" was deleted recently — restore it instead of creating a new one."</em> Not a cryptic "Bad state" error. The session is NOT published.</span>
+        <span class="text">Force the failure path (manual collision): on Home, long-press a client → <strong>Delete</strong> → <strong>let the Undo SnackBar dismiss itself</strong> (don't restore). Then FAB <strong>New client</strong> → rename the freshly-minted client to the <strong>exact name</strong> of the one you just deleted → add one capture → Publish. A <strong>user-visible SnackBar</strong> surfaces: <em>"This client name collides with a deleted client. Open the recycle bin and restore it, or rename before republishing."</em> Not a cryptic <code>Bad state</code> or raw <code>23505</code>. The session is NOT marked published. <em>(Note: the default-name collision path from the original wave brief is now unreachable — new clients mint with a 4-hex suffix, so this item exercises the same server-side guard via manual same-name re-entry.)</em></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
