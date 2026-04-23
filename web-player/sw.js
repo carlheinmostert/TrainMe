@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v39-inter-set-rest';
+const CACHE_NAME = 'homefit-player-v40-toggle-rebind-and-bar';
 
 // App shell files — always cached
 const APP_SHELL = [

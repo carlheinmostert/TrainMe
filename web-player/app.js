@@ -2356,18 +2356,30 @@ function updateRestCountdownOverlay() {
  *                any moment
  *   * upcoming — empty outline
  *
+ * Always visible on a fresh exercise slide (i.e. before Start Workout)
+ * so the client previews their structure up front. The earlier
+ * `isWorkoutMode` gate that suppressed it pre-workout was a regression
+ * — Carl signed off on showing the bar from first paint. Sets / breather
+ * are read directly from the slide payload (NOT from the cached
+ * `totalSetsForSlide` / `interSetRestForSlide` state) because those
+ * cached values stay at their module defaults (1 / 0) until the workout
+ * actually starts and `beginSetMachineForCurrent()` primes them.
+ *
  * Hidden when:
- *   * pre-workout (outside workout mode) — keeps the pre-start preview clean
  *   * rest slides (rest slide already gets #rest-countdown-overlay)
  *   * single-set exercises with no breather (nothing meaningful to show)
  */
 function updateSetProgressBar() {
   if (!$setProgressBar) return;
   const slide = slides[currentIndex];
+
+  // Read from the slide payload — cached state is unreliable pre-workout.
+  const slideSets = slide ? Math.max(1, slide.sets || 1) : 1;
+  const slideBreather = slide ? getInterSetRestSeconds(slide) : 0;
+
   const eligible = !!slide
     && slide.media_type !== 'rest'
-    && isWorkoutMode
-    && (totalSetsForSlide > 1 || interSetRestForSlide > 0);
+    && (slideSets > 1 || slideBreather > 0);
   $setProgressBar.hidden = !eligible;
   if (!eligible) {
     $setProgressBar.innerHTML = '';
@@ -2377,20 +2389,24 @@ function updateSetProgressBar() {
   const perSet = calculatePerSetSeconds(slide);
   const reps = slide.reps || 0;
   const segments = [];
-  for (let i = 0; i < totalSetsForSlide; i++) {
+  for (let i = 0; i < slideSets; i++) {
     segments.push({ kind: 'set', index: i, total: perSet });
-    if (i < totalSetsForSlide - 1 && interSetRestForSlide > 0) {
-      segments.push({ kind: 'rest', index: i, total: interSetRestForSlide });
+    if (i < slideSets - 1 && slideBreather > 0) {
+      segments.push({ kind: 'rest', index: i, total: slideBreather });
     }
   }
 
-  // Determine which segment is active.
+  // Determine which segment is active. Pre-workout (isWorkoutMode=false)
+  // we leave activeSegIdx=-1 so every segment renders as upcoming — a
+  // calm preview of the structure rather than a fake "in progress" look.
   let activeSegIdx = -1;
-  for (let s = 0; s < segments.length; s++) {
-    const seg = segments[s];
-    const matchSet = seg.kind === 'set' && setPhase === 'set' && seg.index === currentSetIndex;
-    const matchRest = seg.kind === 'rest' && setPhase === 'rest' && seg.index === currentSetIndex;
-    if (matchSet || matchRest) { activeSegIdx = s; break; }
+  if (isWorkoutMode) {
+    for (let s = 0; s < segments.length; s++) {
+      const seg = segments[s];
+      const matchSet = seg.kind === 'set' && setPhase === 'set' && seg.index === currentSetIndex;
+      const matchRest = seg.kind === 'rest' && setPhase === 'rest' && seg.index === currentSetIndex;
+      if (matchSet || matchRest) { activeSegIdx = s; break; }
+    }
   }
 
   // Build / refresh the segment DOM. Rebuild in full — cheap (tens of
@@ -2414,7 +2430,7 @@ function updateSetProgressBar() {
       : 'set-progress-bar-segment--rest';
     const label = seg.kind === 'set'
       ? (reps > 0 ? `Set ${seg.index + 1} · ${reps} reps` : `Set ${seg.index + 1}`)
-      : 'Breather';
+      : `Rest ${seg.total}s`;
     return `<div class="set-progress-bar-segment ${kindClass} ${stateClass}"
                  role="presentation">
               <div class="set-progress-bar-segment-fill"
@@ -2848,8 +2864,26 @@ async function init() {
         e.stopPropagation();
       });
       if ($toggleSegmentedEffect) {
-        $toggleSegmentedEffect.addEventListener('change', () => {
+        // The toggle dispatches its visual flip via CSS `:checked`, which
+        // makes the switch FEEL responsive even when the JS handler never
+        // runs. The Wave 19.4 device QA caught a path where iOS Safari
+        // routed the tap through the surrounding label without ever
+        // firing `change` on the input, so the bind below leaned only on
+        // `change` and the rebind never happened — visually the switch
+        // moved, but the dimmed-background source stayed glued. Wiring
+        // both `change` AND `click` (deferred to the next tick so
+        // `.checked` has already settled to its post-toggle value)
+        // closes that gap. Idempotency is handled by
+        // applySegmentedEffectChange's early-exit when the state didn't
+        // actually flip, so the duplicate fire is harmless.
+        const handleSegmentedToggle = () => {
           applySegmentedEffectChange(!!$toggleSegmentedEffect.checked);
+        };
+        $toggleSegmentedEffect.addEventListener('change', handleSegmentedToggle);
+        $toggleSegmentedEffect.addEventListener('click', () => {
+          // Defer one tick — Safari fires `click` before the implicit
+          // checkbox toggle has updated `.checked` on some code paths.
+          setTimeout(handleSegmentedToggle, 0);
         });
       }
       // Outside-click closes the popover. Capture=true so we see the
