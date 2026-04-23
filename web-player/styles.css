@@ -410,7 +410,10 @@ body {
      nested inside a capsule without offsetting them. */
   position: relative;
   display: grid;
-  /* grid-template-columns is set inline by app.js based on N_exercises. */
+  /* Equal 1fr columns by default (non-fullscreen). Reads --circuit-cols
+     from the parent .matrix-circuit for the column count. Fullscreen
+     swaps in --row-template-fs below for duration-weighted widths. */
+  grid-template-columns: repeat(var(--circuit-cols, 1), 1fr);
   gap: 4px;
   align-items: center;
   padding: 0;
@@ -1426,6 +1429,12 @@ body.is-fullscreen .matrix-circuit {
   flex: var(--circuit-weight, var(--circuit-cols, 1)) 1 0;
   min-width: calc(12px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1));
   max-width: none;
+}
+/* Fullscreen also weights pills WITHIN a circuit row by duration. --row-
+   template-fs is an inline custom property set per-row by app.js (e.g.
+   "30fr 90fr 45fr"). Non-fullscreen keeps the default equal-fr template. */
+body.is-fullscreen .matrix-circuit-row {
+  grid-template-columns: var(--row-template-fs);
 }
 
 body.is-fullscreen .card-media .mute-toggle,

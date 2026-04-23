@@ -831,15 +831,15 @@ function buildProgressMatrix() {
     const firstRow = rounds[0] || [];
     const rowDurations = firstRow.map((idx) => calculateDuration(slides[idx]) || 1);
     const circuitWeight = rowDurations.reduce((a, b) => a + b, 0) || 1;
-    // Wave 19.3: weight pills WITHIN a round by their duration too, not just
-    // the block as a whole. grid-template-columns is set as fractional units
-    // so a 60s exercise inside a superset is twice as wide as a 30s one. We
-    // mirror the weights across all rounds because each round is a repeat of
-    // the same exercises by construction.
+    // Wave 19.3: weight pills WITHIN a round by duration too — but only in
+    // fullscreen. We stash the duration-weighted template in --row-template-fs
+    // so the fullscreen rule can swap it in. Non-fullscreen still renders
+    // equal 1fr columns (driven by the default .matrix-circuit-row rule),
+    // matching the singles outside the block which stay equal-weight too.
     const rowTemplate = rowDurations.map((d) => `${d}fr`).join(' ');
     const roundsHTML = rounds.map((row, roundIdx) => {
       const rowPills = row.map((slideIdx) => pillHTML(slideIdx)).join('');
-      return `<div class="matrix-circuit-row" data-round="${roundIdx + 1}" style="grid-template-columns: ${rowTemplate};">${rowPills}</div>`;
+      return `<div class="matrix-circuit-row" data-round="${roundIdx + 1}" style="--row-template-fs: ${rowTemplate};">${rowPills}</div>`;
     }).join('');
     return `<div class="matrix-circuit" data-circuit="${block.circuitId}" data-col="${blockIdx}" style="--circuit-cols: ${groupSize}; --circuit-weight: ${circuitWeight};">${roundsHTML}</div>`;
   }).join('');
