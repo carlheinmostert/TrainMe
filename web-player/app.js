@@ -173,6 +173,42 @@ function prepSecondsFor(slide) {
 // state. Persists across slide changes within the same session.
 let isMuted = false;
 
+// Segmented-background-effect opt-out (Milestone P toggle — 2026-04-23).
+//
+// When ON (default) the Color + B&W treatments prefer the segmented
+// dual-output mp4 that dims the background behind the body. When OFF
+// they play the untouched raw-archive original. Line treatment is
+// unaffected either way — it's a separate pipeline.
+//
+// Per-device preference: read from localStorage at boot, written back
+// on toggle. No server round-trip. Key is explicit + namespaced so
+// future playback prefs (inter-set rest, autoplay-next, ...) can stack
+// under `homefit.playback.*`.
+const SEGMENTED_EFFECT_STORAGE_KEY = 'homefit.playback.segmentedEffect';
+let segmentedEffectEnabled = readSegmentedEffectPreference();
+
+function readSegmentedEffectPreference() {
+  try {
+    const raw = window.localStorage.getItem(SEGMENTED_EFFECT_STORAGE_KEY);
+    if (raw === 'off') return false;
+    // Default ON — treat any other value (including nulls, legacy data,
+    // or a future 'on') as enabled. The toggle only stores 'on' | 'off'.
+    return true;
+  } catch (_) {
+    // Private-mode Safari / blocked storage — fall back to the default.
+    return true;
+  }
+}
+
+function writeSegmentedEffectPreference(enabled) {
+  try {
+    window.localStorage.setItem(SEGMENTED_EFFECT_STORAGE_KEY, enabled ? 'on' : 'off');
+  } catch (_) {
+    // Best-effort; if storage is blocked the in-memory flag still drives
+    // this session's playback — we just lose persistence across reloads.
+  }
+}
+
 // Timing constants (from config.dart)
 const SECONDS_PER_REP = 3;
 const REST_BETWEEN_SETS = 30;
@@ -632,13 +668,16 @@ function buildMedia(exercise, index) {
  * Resolve the URL for a given exercise + treatment.
  *
  *   'line'     → line_drawing_url (always present on post-migration plans;
- *                falls back to legacy `media_url` for old plans)
- *   'bw'       → grayscale_segmented_url || grayscale_url (the segmented
- *                dual-output file when available, else the untouched
- *                original — the CSS grayscale filter is applied to the
- *                <video> element)
- *   'original' → original_segmented_url || original_url (segmented
- *                preferred, untouched original as fallback)
+ *                falls back to legacy `media_url` for old plans). Never
+ *                gated by the segmented-effect toggle — line drawing is
+ *                its own pipeline, not a dual-output variant.
+ *   'bw'       → grayscale_segmented_url || grayscale_url, toggle ON
+ *                (default). When the per-device toggle is OFF we skip
+ *                the segmented variant and play the untouched original
+ *                directly — same source, no body-pop effect. CSS
+ *                grayscale filter is applied to the <video> either way.
+ *   'original' → original_segmented_url || original_url, toggle ON
+ *                (default). Toggle OFF → untouched original only.
  *
  * Segmented-first preference: Milestone P (2026-04-23) adds a dual-output
  * mp4 alongside the line drawing that reuses the same Vision person-
@@ -654,10 +693,20 @@ function buildMedia(exercise, index) {
 function resolveTreatmentUrl(exercise, treatment) {
   if (!exercise) return null;
   if (treatment === 'bw') {
-    return exercise.grayscale_segmented_url || exercise.grayscale_url || null;
+    if (segmentedEffectEnabled) {
+      return exercise.grayscale_segmented_url || exercise.grayscale_url || null;
+    }
+    // Toggle OFF — skip the segmented variant entirely and play the
+    // untouched original. When the raw original is missing we still
+    // fall through to the segmented copy so the slide can play at all
+    // (rare — would only happen on a mangled upload).
+    return exercise.grayscale_url || exercise.grayscale_segmented_url || null;
   }
   if (treatment === 'original') {
-    return exercise.original_segmented_url || exercise.original_url || null;
+    if (segmentedEffectEnabled) {
+      return exercise.original_segmented_url || exercise.original_url || null;
+    }
+    return exercise.original_url || exercise.original_segmented_url || null;
   }
   // 'line' + unknown treatments → line drawing (the always-available default).
   return exercise.line_drawing_url || exercise.media_url || null;
@@ -1326,6 +1375,13 @@ function onTouchEnd() {
 // ============================================================
 
 function onKeyDown(e) {
+  // Escape closes the settings popover before any slide-nav gesture —
+  // the user's mental model is "dismiss the panel I just opened", not
+  // "go somewhere else".
+  if (e.key === 'Escape' && isSettingsPopoverOpen()) {
+    setSettingsPopoverOpen(false);
+    return;
+  }
   if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
     e.preventDefault();
     goNext();
@@ -1834,6 +1890,137 @@ function toggleMute() {
   });
 }
 
+// ============================================================
+// Settings popover — per-device playback preferences
+// ============================================================
+//
+// Currently hosts the Milestone P segmented-effect toggle. Shaped to
+// grow: the popover is a vertical stack of .settings-row entries, each
+// an independent label+switch pair. Add a row by duplicating the
+// existing <label> block in index.html + binding a change handler
+// here. No global settings-bus needed at this scale.
+//
+// State lives in module-scope flags (e.g. segmentedEffectEnabled) that
+// `resolveTreatmentUrl` + other renderers read directly. No event bus.
+
+const $btnSettings = document.getElementById('btn-settings');
+const $settingsPopover = document.getElementById('settings-popover');
+const $toggleSegmentedEffect = document.getElementById('toggle-segmented-effect');
+const $toggleSegmentedEffectHint = document.getElementById('toggle-segmented-effect-hint');
+
+/** Sync the hint copy to the current toggle state. */
+function updateSegmentedEffectHint() {
+  if (!$toggleSegmentedEffectHint) return;
+  $toggleSegmentedEffectHint.textContent = segmentedEffectEnabled
+    ? 'Body in focus — background dimmed'
+    : 'Original untouched';
+}
+
+/** Open / close the settings popover. */
+function setSettingsPopoverOpen(open) {
+  if (!$settingsPopover || !$btnSettings) return;
+  if (open) {
+    $settingsPopover.hidden = false;
+    // Next frame so the transition runs from closed → open.
+    requestAnimationFrame(() => {
+      $settingsPopover.setAttribute('data-open', 'true');
+    });
+    $btnSettings.setAttribute('aria-expanded', 'true');
+  } else {
+    $settingsPopover.setAttribute('data-open', 'false');
+    $btnSettings.setAttribute('aria-expanded', 'false');
+    // Wait for the fade-out to complete before hiding — matches the
+    // 160ms transition in styles.css.
+    setTimeout(() => {
+      if ($settingsPopover.getAttribute('data-open') !== 'true') {
+        $settingsPopover.hidden = true;
+      }
+    }, 180);
+  }
+}
+
+function isSettingsPopoverOpen() {
+  return !!($settingsPopover && $settingsPopover.getAttribute('data-open') === 'true');
+}
+
+/**
+ * Apply a change to the segmented-effect toggle: persist the new
+ * value, update the hint copy, and re-point every rendered <video>
+ * whose treatment URL just changed. Keeps the current slide's
+ * playback position and playing state so the swap is invisible if
+ * the client is mid-workout.
+ */
+function applySegmentedEffectChange(nextEnabled) {
+  if (nextEnabled === segmentedEffectEnabled) return;
+  segmentedEffectEnabled = nextEnabled;
+  writeSegmentedEffectPreference(segmentedEffectEnabled);
+  updateSegmentedEffectHint();
+  rebindVideoSources();
+}
+
+/**
+ * Walk every rendered <video> in the card track, re-resolve the URL
+ * its slide should now use, and swap the `src` in place if it changed.
+ * For the currently active slide we preserve `currentTime` and resume
+ * playback post-swap so the toggle feels seamless mid-exercise.
+ *
+ * Non-active slides get a naive src swap (no resume) — they're paused
+ * anyway, and the next time they become active `autoPlayCurrentVideo`
+ * will kick them off. This keeps memory/CPU pressure down vs. forcing
+ * every video to reload + play immediately.
+ */
+function rebindVideoSources() {
+  if (!$cardTrack) return;
+  const videos = $cardTrack.querySelectorAll('video[id^="video-"]');
+  videos.forEach((videoEl) => {
+    const card = videoEl.closest('.exercise-card');
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const slide = slides[idx];
+    if (!slide) return;
+    const slideT = slideTreatment(slide);
+    const nextUrl = resolveTreatmentUrl(slide, slideT);
+    if (!nextUrl) return;
+    // getAttribute is the raw attribute text; videoEl.src is the
+    // resolved absolute URL (prefixed with the origin). Compare via
+    // the attribute for a stable check.
+    const currentAttr = videoEl.getAttribute('src');
+    if (currentAttr === nextUrl) return;
+
+    const isActive = idx === currentIndex;
+    const wasPlaying = isActive && !videoEl.paused && !videoEl.ended;
+    const resumeAt = isActive ? videoEl.currentTime : 0;
+
+    videoEl.setAttribute('src', nextUrl);
+    // `load()` is required after a src swap for the new media to be
+    // picked up reliably on all browsers (Safari in particular).
+    videoEl.load();
+
+    if (isActive) {
+      // Restore playback position once metadata is loaded. `loadedmetadata`
+      // fires once per src change — the { once: true } option auto-cleans.
+      const restore = () => {
+        try {
+          // If the new source is shorter than resumeAt (shouldn't happen
+          // — segmented + original are the same length — but defensive),
+          // clamp to 0 so we don't stall.
+          videoEl.currentTime = Math.min(resumeAt, videoEl.duration || resumeAt);
+        } catch (_) {
+          // Some browsers throw if currentTime is set too early; ignore.
+        }
+        if (wasPlaying) {
+          videoEl.play().catch(() => {
+            // Autoplay policy — a user gesture should have unlocked this
+            // already (the toggle click counts), but swallow defensively.
+          });
+        }
+      };
+      videoEl.addEventListener('loadedmetadata', restore, { once: true });
+    }
+  });
+}
+
 /**
  * Wave 19.2: pause overlay is now a flash-on-toggle confirmation, not a
  * persistent dim affordance. The previous 0.35-opacity pause icon during
@@ -2332,6 +2519,41 @@ async function init() {
     }
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+
+    // Settings popover — opens on click, closes on outside click / Esc.
+    // The checkbox drives the segmented-effect opt-out (Milestone P).
+    if ($btnSettings && $settingsPopover) {
+      // Prime the visible state from the persisted preference before
+      // the first interaction, so reopens reflect what's actually live.
+      if ($toggleSegmentedEffect) {
+        $toggleSegmentedEffect.checked = segmentedEffectEnabled;
+      }
+      updateSegmentedEffectHint();
+
+      $btnSettings.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSettingsPopoverOpen(!isSettingsPopoverOpen());
+      });
+      // Clicks inside the popover must NOT bubble to the document-level
+      // outside-click handler below — stop at the popover boundary.
+      $settingsPopover.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+      if ($toggleSegmentedEffect) {
+        $toggleSegmentedEffect.addEventListener('change', () => {
+          applySegmentedEffectChange(!!$toggleSegmentedEffect.checked);
+        });
+      }
+      // Outside-click closes the popover. Capture=true so we see the
+      // event before other handlers (card-viewport taps, etc.) can
+      // swallow it.
+      document.addEventListener('click', (e) => {
+        if (!isSettingsPopoverOpen()) return;
+        const t = e.target;
+        if (t && (t.closest && (t.closest('#settings-popover') || t.closest('#btn-settings')))) return;
+        setSettingsPopoverOpen(false);
+      }, true);
+    }
 
     // Card notes overlay — tap toggles 3-line clamp vs full.
     if ($cardNotes) {

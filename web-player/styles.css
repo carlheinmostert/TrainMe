@@ -716,12 +716,14 @@ body {
 
 /* === Mute toggle ==================================================
    Speaker-icon button, top-right of card-media. Sits to the LEFT of
-   the global #btn-fullscreen (which is appended to .card-viewport).
-   Only rendered for videos that ship with audio. */
+   the global #btn-settings + #btn-fullscreen (both appended to
+   .card-viewport). Post-Milestone P the chrome row is
+   [mute 108] [settings 60] [fullscreen 12]. Only rendered for videos
+   that ship with audio. */
 .card-media .mute-toggle {
   position: absolute;
   top: 12px;
-  right: 60px;
+  right: 108px;
   width: 40px;
   height: 40px;
   border: none;
@@ -790,6 +792,165 @@ body {
   stroke: currentColor;
 }
 .fullscreen-toggle:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+
+/* === Settings toggle (top-right, left of fullscreen) ==============
+   Per-device playback preferences (Milestone P — segmented background
+   effect opt-out). Mirrors .fullscreen-toggle geometry so the two buttons
+   form a matched pair, and sits 52px further in so it never overlaps the
+   mute affordance (which anchors at right:60px on audio videos). */
+.settings-toggle {
+  position: absolute;
+  top: 12px;
+  right: 60px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--c-brand);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: background 150ms ease, transform 100ms ease, opacity 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.settings-toggle:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+.settings-toggle:active {
+  transform: scale(0.92);
+}
+.settings-toggle svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  stroke: currentColor;
+}
+.settings-toggle[aria-expanded="true"] {
+  background: rgba(0, 0, 0, 0.85);
+}
+.settings-toggle:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+
+/* Chrome row when a mute button is present on the active slide:
+   [mute 108] [settings 60] [fullscreen 12]. The mute button claims
+   right:108px in its own rule above; settings + fullscreen stay put. */
+
+/* === Settings popover ============================================= */
+.settings-popover {
+  position: absolute;
+  top: 60px;
+  right: 12px;
+  z-index: 30;
+  min-width: 260px;
+  max-width: calc(100vw - 24px);
+  background: rgba(26, 29, 39, 0.96);
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-family: var(--f-body);
+  color: var(--c-ink-primary);
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity 160ms var(--ease-standard), transform 160ms var(--ease-standard);
+}
+.settings-popover[data-open="true"] {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.settings-popover-title {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-ink-secondary);
+  margin-bottom: 10px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.settings-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.settings-row-label {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--c-ink-primary);
+}
+.settings-row-hint {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--c-ink-secondary);
+}
+
+/* Switch (visual wrapper + hidden checkbox). The native <input> is sr-only
+   but still takes focus/click; the track + thumb are painted beneath. */
+.settings-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 26px;
+}
+.settings-switch-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+.settings-switch-track {
+  position: absolute;
+  inset: 0;
+  background: var(--c-surface-border);
+  border-radius: 999px;
+  transition: background 180ms var(--ease-standard);
+  display: block;
+}
+.settings-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--c-ink-primary);
+  transition: transform 180ms var(--ease-standard), background 180ms var(--ease-standard);
+}
+.settings-switch-input:checked ~ .settings-switch-track {
+  background: var(--c-brand);
+}
+.settings-switch-input:checked ~ .settings-switch-track .settings-switch-thumb {
+  transform: translateX(18px);
+  background: #FFFFFF;
+}
+.settings-switch-input:focus-visible ~ .settings-switch-track {
   outline: 2px solid var(--c-brand);
   outline-offset: 2px;
 }
@@ -1446,6 +1607,7 @@ body.is-fullscreen .matrix-circuit-row {
 }
 
 body.is-fullscreen .card-media .mute-toggle,
+body.is-fullscreen .settings-toggle,
 body.is-fullscreen .edge-nav,
 body.is-fullscreen .card-notes-overlay,
 body.is-fullscreen .media-pause-overlay {
@@ -1454,9 +1616,16 @@ body.is-fullscreen .media-pause-overlay {
 }
 
 body.is-fullscreen.chrome-visible .card-media .mute-toggle,
+body.is-fullscreen.chrome-visible .settings-toggle,
 body.is-fullscreen.chrome-visible .edge-nav:not(:disabled),
 body.is-fullscreen.chrome-visible .card-notes-overlay,
 body.is-fullscreen.chrome-visible .media-pause-overlay {
+  opacity: 1;
+}
+
+/* Popover stays 100% alpha while open — if the user opened it in
+   ambient fullscreen, we don't want to fade their UI out from under them. */
+body.is-fullscreen .settings-popover[data-open="true"] {
   opacity: 1;
 }
 
