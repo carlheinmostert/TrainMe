@@ -121,11 +121,19 @@ function treatmentFromWire(wire) {
  * The effective treatment for [exercise]. Honours the practitioner's
  * per-exercise `preferred_treatment` when the corresponding URL is
  * available; else falls back to Line (the always-present default).
+ *
+ * Availability check considers BOTH the segmented dual-output URL
+ * (Milestone P, preferred) and the untouched original URL (fallback) —
+ * consent-wise they move together, but keeping the check permissive
+ * ensures a plan with only one of the two still honours the
+ * practitioner's sticky choice.
  */
 function slideTreatment(exercise) {
   const candidate = treatmentFromWire(exercise && exercise.preferred_treatment);
-  if (candidate === 'bw' && !(exercise && exercise.grayscale_url)) return 'line';
-  if (candidate === 'original' && !(exercise && exercise.original_url)) return 'line';
+  const hasGray = !!(exercise && (exercise.grayscale_segmented_url || exercise.grayscale_url));
+  const hasOrig = !!(exercise && (exercise.original_segmented_url || exercise.original_url));
+  if (candidate === 'bw' && !hasGray) return 'line';
+  if (candidate === 'original' && !hasOrig) return 'line';
   return candidate;
 }
 
@@ -136,6 +144,28 @@ let remainingSeconds = 0;
 let totalSeconds = 0;
 let workoutTimer = null;
 let workoutStartTime = null;
+
+// ------------------------------------------------------------------
+// Milestone Q — Post Rep Breather state.
+//
+// Tracks the per-exercise set/rest structure for the active slide so
+// the 1-second tick loop can pause the video at set boundaries, count
+// down the breather, then resume video playback from the paused frame
+// (no currentTime reset = continuous playback). All fields reset on
+// every slide transition via `beginSetMachineForCurrent()`.
+// ------------------------------------------------------------------
+// Current set index (0-based). Incremented when the in-set timer hits
+// zero; bumped again at the end of the breather.
+let currentSetIndex = 0;
+// Total sets for the active slide (cached; same as slides[currentIndex].sets).
+let totalSetsForSlide = 1;
+// 'set' | 'rest'. 'rest' means we're inside the inter-set breather.
+let setPhase = 'set';
+// Phase-local remaining seconds — counts down from the per-set duration
+// (or breather seconds). When zero, transitions to the next phase.
+let setPhaseRemaining = 0;
+// Breather seconds for the active slide (cached).
+let interSetRestForSlide = 0;
 
 // Prep-countdown state. Default runway is 5s (Wave 3 / Milestone P);
 // each exercise can override via `prep_seconds` on the get_plan_full
@@ -165,6 +195,42 @@ function prepSecondsFor(slide) {
 // state. Persists across slide changes within the same session.
 let isMuted = false;
 
+// Segmented-background-effect opt-out (Milestone P toggle — 2026-04-23).
+//
+// When ON (default) the Color + B&W treatments prefer the segmented
+// dual-output mp4 that dims the background behind the body. When OFF
+// they play the untouched raw-archive original. Line treatment is
+// unaffected either way — it's a separate pipeline.
+//
+// Per-device preference: read from localStorage at boot, written back
+// on toggle. No server round-trip. Key is explicit + namespaced so
+// future playback prefs (inter-set rest, autoplay-next, ...) can stack
+// under `homefit.playback.*`.
+const SEGMENTED_EFFECT_STORAGE_KEY = 'homefit.playback.segmentedEffect';
+let segmentedEffectEnabled = readSegmentedEffectPreference();
+
+function readSegmentedEffectPreference() {
+  try {
+    const raw = window.localStorage.getItem(SEGMENTED_EFFECT_STORAGE_KEY);
+    if (raw === 'off') return false;
+    // Default ON — treat any other value (including nulls, legacy data,
+    // or a future 'on') as enabled. The toggle only stores 'on' | 'off'.
+    return true;
+  } catch (_) {
+    // Private-mode Safari / blocked storage — fall back to the default.
+    return true;
+  }
+}
+
+function writeSegmentedEffectPreference(enabled) {
+  try {
+    window.localStorage.setItem(SEGMENTED_EFFECT_STORAGE_KEY, enabled ? 'on' : 'off');
+  } catch (_) {
+    // Best-effort; if storage is blocked the in-memory flag still drives
+    // this session's playback — we just lose persistence across reloads.
+  }
+}
+
 // Timing constants (from config.dart)
 const SECONDS_PER_REP = 3;
 const REST_BETWEEN_SETS = 30;
@@ -181,26 +247,45 @@ const $planTitle = document.getElementById('plan-title');
 const $progress = document.getElementById('progress');
 const $cardViewport = document.getElementById('card-viewport');
 const $cardTrack = document.getElementById('card-track');
-const $navDots = document.getElementById('nav-dots');
 const $btnPrev = document.getElementById('btn-prev');
 const $btnNext = document.getElementById('btn-next');
+
+// Top-stack v2 refs — workout timeline strip + active-slide header are
+// direct children of #app. Wave 19.2 retired the 3-number matrix ETA
+// bar: start/finish wall clocks live in the timeline strip; remaining
+// time moved into the active-slide header in parens; per-slide
+// estimates live inside each pill.
+const $timelineBar = document.getElementById('workout-timeline-bar');
+const $timelineStart = document.getElementById('workout-timeline-start');
+const $timelineTotal = document.getElementById('workout-timeline-total');
+const $timelineEnd = document.getElementById('workout-timeline-end');
+const $activeSlideHeader = document.getElementById('active-slide-header');
+const $activeSlideTitle = document.getElementById('active-slide-title');
 
 // Progress-pill matrix refs
 const $matrix = document.getElementById('progress-matrix');
 const $matrixInner = document.getElementById('progress-matrix-inner');
 const $matrixChevron = document.getElementById('progress-matrix-chevron');
-const $peekPanel = document.getElementById('peek-panel');
-const $peekName = document.getElementById('peek-name');
-const $peekMeta = document.getElementById('peek-meta');
 
-// ETA refs (assigned after buildProgressMatrix injects them).
-// Item 4: three separate numbers — current-slide remaining, total remaining,
-// wall-clock finish. Each styled independently so the coral/white/muted
-// treatment reads at a glance.
-let $etaBlock = null;
-let $etaCurrent = null;
-let $etaTotal = null;
-let $etaFinish = null;
+// Video-as-hero overlay refs
+const $btnFullscreen = document.getElementById('btn-fullscreen');
+const $restCountdownOverlay = document.getElementById('rest-countdown-overlay');
+const $restCountdownNumber = document.getElementById('rest-countdown-number');
+const $cardNotes = document.getElementById('card-notes');
+const $cardNotesText = document.getElementById('card-notes-text');
+
+// Milestone Q — inter-set rest overlays.
+//   * #set-progress-bar sits above the media on every exercise slide
+//     that has sets > 1 OR a breather > 0. It's a horizontal strip of
+//     segments: coral for set phases, sage for breather phases. The
+//     active segment fills smoothly with its phase-local countdown;
+//     completed segments are solid, upcoming segments are outlined.
+//   * #breather-overlay sits on top of the paused video and shows a
+//     big sage countdown number + a restful-person glyph during the
+//     inter-set breather. Hidden outside breathers.
+const $setProgressBar = document.getElementById('set-progress-bar');
+const $breatherOverlay = document.getElementById('breather-overlay');
+const $breatherNumber = document.getElementById('breather-number');
 
 // Wall-clock ticker for the ETA widget. Runs 1/sec so the finish-time label
 // keeps drifting forward while the workout is paused (remaining holds steady,
@@ -212,14 +297,27 @@ let etaClockTimer = null;
 // <div id="timer-overlay" hidden> kept for backward compatibility).
 const $timerOverlay = document.getElementById('timer-overlay');
 const $workoutComplete = document.getElementById('workout-complete');
+const $workoutCompleteIcon = document.getElementById('workout-complete-icon');
 const $workoutTotalTime = document.getElementById('workout-total-time');
 const $workoutCloseBtn = document.getElementById('workout-close-btn');
 const $startWorkoutBtn = document.getElementById('start-workout-btn');
 const $footerLogo = document.getElementById('footer-logo');
 
-// Teaching-peek timer (R-09: auto-shows the peek card for 2s on preview start
-// so the user learns the vocabulary once).
-let teachingPeekTimer = null;
+// Top-stack v1 — ambient fullscreen mode. Tapping the video surface in
+// fullscreen briefly reveals chrome (chevrons, mute, notes, fullscreen
+// toggle) at 100% alpha for 3s, then they fade back to ~30%.
+let chromeRevealTimer = null;
+const CHROME_REVEAL_MS = 3000;
+
+// iPhone Safari does not expose Element.requestFullscreen (the WebKit
+// variant is iPad/macOS only). When the real API is unavailable we fall
+// back to a CSS-only "faux" fullscreen: toggle body.is-fullscreen directly
+// + lock document scroll. All downstream layout already keys off the body
+// class, so faux mode gets the full ambient layout (the only visible
+// difference is that Safari's own URL bar stays on screen).
+let fauxFullscreenActive = false;
+let fauxFullscreenPrevHtmlOverflow = '';
+let fauxFullscreenPrevBodyOverflow = '';
 
 // ============================================================
 // Data fetching
@@ -311,37 +409,31 @@ function renderPlan() {
   $clientName.textContent = plan.client_name;
   $planTitle.textContent = plan.title;
 
-  // Build navigation dots (i is always a numeric loop index — safe)
-  $navDots.innerHTML = slides
-    .map((_, i) => `<div class="nav-dot${i === 0 ? ' is-active' : ''}" data-index="${Number(i)}"></div>`)
-    .join('');
-
   // Build the progress-pill matrix (replaces legacy single linear bar).
   buildProgressMatrix();
 
   // Prime the ETA widget and start its wall-clock ticker. The ticker runs
   // for the lifetime of the session so the finish-time drifts forward even
   // during paused states.
-  updateEtaDisplay();
-  startEtaClock();
+  updateTimelineBar();
+  startTimelineClock();
 
-  // Build exercise cards
+  // Build exercise cards. Top-stack v1 — the card body carries only the
+  // media (video + overlays). Name, grammar, notes are rendered by the
+  // top-stack renderer updateActiveSlideHeader() + updateCardNotes().
   $cardTrack.innerHTML = slides.map((slide, i) => buildCard(slide, i)).join('');
 
-  // Add swipe hint on first card
-  if (slides.length > 1) {
-    const hint = document.createElement('div');
-    hint.className = 'swipe-hint';
-    hint.innerHTML = `
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="15 18 9 12 15 6"></polyline>
-      </svg>
-      Swipe to navigate
-    `;
-    $cardViewport.appendChild(hint);
-  }
+  // Prime the top-stack header + notes overlay for the first slide.
+  updateActiveSlideHeader();
+  updateCardNotes();
 
   updateUI();
+  // Wave 19.3 fix: the pause overlay is baked with play-icon-default in
+  // buildMediaPauseOverlay(), but the initial glyph state should reflect
+  // "video is playing" (= PAUSE glyph) on first paint. updateUI() does not
+  // touch the overlay so we flip it explicitly here — otherwise the first
+  // time the user sees fullscreen they get a dimmed ▶ instead of ||.
+  updatePauseOverlay();
 }
 
 function buildCard(slide, index) {
@@ -351,24 +443,15 @@ function buildCard(slide, index) {
   }
 
   const mediaHTML = buildMedia(slide, index);
-  const displayName = slide.name || ('Exercise ' + (index + 1));
-  const detail = buildActiveSlideDetail(slide);
-  // Circuit bar was removed per item 14 — circuit context now lives in the
-  // progress-pill matrix (stacked rows under the coral tint band).
+  const mediaType = slide.media_type === 'video' ? 'video' : 'photo';
 
   return `
-    <div class="exercise-card" data-index="${index}">
+    <div class="exercise-card" data-index="${index}" data-media-type="${mediaType}">
       <div class="card-inner">
         <div class="card-media" data-media-index="${index}">
           ${mediaHTML}
           ${buildMediaPauseOverlay()}
           ${buildPrepOverlay()}
-        </div>
-        <div class="card-body">
-          <div class="card-position">Exercise ${Number.parseInt(slide.position, 10) || index + 1}</div>
-          <div class="card-exercise-name">${escapeHTML(displayName)}</div>
-          ${detail ? `<div class="active-slide-detail">${detail}</div>` : ''}
-          ${slide.notes ? `<div class="card-notes">${escapeHTML(slide.notes)}</div>` : ''}
         </div>
       </div>
     </div>
@@ -376,12 +459,11 @@ function buildCard(slide, index) {
 }
 
 function buildRestCard(slide, index) {
-  // Rest card: icon + "Rest" title + "Next up: X" subtitle. The luxurious
-  // bottom detail ("30s rest") lives under card-body. Tap to pause/resume
-  // is via the same .media-pause-overlay as exercise slides.
+  // Rest card: icon + "Rest" title + "Next up: X" subtitle. Name + grammar
+  // live in the top-stack active-slide-header (not inside the card). Tap
+  // to pause/resume is via the same .media-pause-overlay as exercise slides.
   const nextSlide = index < slides.length - 1 ? slides[index + 1] : null;
   const nextUpName = nextSlide ? (nextSlide.name || 'Next exercise') : null;
-  const detail = buildActiveSlideDetail(slide);
 
   return `
     <div class="exercise-card" data-index="${index}">
@@ -402,7 +484,6 @@ function buildRestCard(slide, index) {
           ${buildMediaPauseOverlay()}
           ${buildPrepOverlay()}
         </div>
-        ${detail ? `<div class="card-body"><div class="active-slide-detail">${detail}</div></div>` : ''}
       </div>
     </div>
   `;
@@ -416,11 +497,18 @@ function buildRestCard(slide, index) {
  * currently active, paused slide.
  */
 function buildMediaPauseOverlay() {
+  // Wave 19.3: default the visible glyph to PAUSE because the video begins
+  // playing on first paint (preview autoplay). updatePauseOverlay() then
+  // swaps to PLAY only during the explicit mid-workout paused state.
   return `
     <div class="media-pause-overlay">
       <div class="pause-disc">
-        <svg class="pause-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <svg class="pause-icon pause-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
           <polygon points="6 3 20 12 6 21 6 3"/>
+        </svg>
+        <svg class="pause-icon pause-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <rect x="6" y="4" width="4" height="16" rx="1"/>
+          <rect x="14" y="4" width="4" height="16" rx="1"/>
         </svg>
       </div>
     </div>
@@ -441,13 +529,15 @@ function buildPrepOverlay() {
 }
 
 /**
- * Item 5 — "luxurious" bottom detail line.
+ * Decoded grammar for the active slide — flat list of prescription tokens
+ * that gets appended to the exercise name on the single-line title row.
  *   Standalone exercise: `3 sets · 10 reps · 5s hold`
- *   Circuit exercise:    `10 reps · 5s hold`      (no sets — rounds carried by matrix)
+ *   Circuit exercise:    `10 reps · 5s hold`  (sets suppressed — circuits own the count)
  *   Rest:                `30s rest`
- * Returns a pre-escaped HTML string with <span> separators for the · dots.
+ * Returns a plain string (no HTML) — the caller sets textContent.
  */
-function buildActiveSlideDetail(slide) {
+function buildDecodedGrammar(slide) {
+  if (!slide) return '';
   if (slide.media_type === 'rest') {
     const secs = Number.parseInt(slide.hold_seconds, 10)
       || Number.parseInt(slide.custom_duration_seconds, 10)
@@ -457,24 +547,74 @@ function buildActiveSlideDetail(slide) {
 
   const parts = [];
   const isCircuit = !!slide.circuitRound;
-  const sets = Number.parseInt(slide.sets, 10);
-  const reps = Number.parseInt(slide.reps, 10);
-  const hold = Number.parseInt(slide.hold_seconds, 10);
+  const setsRaw = Number.parseInt(slide.sets, 10);
+  const repsRaw = Number.parseInt(slide.reps, 10);
+  const holdRaw = Number.parseInt(slide.hold_seconds, 10);
+  const hasSets = Number.isFinite(setsRaw) && setsRaw > 0;
+  const hasReps = Number.isFinite(repsRaw) && repsRaw > 0;
+  const hasHold = Number.isFinite(holdRaw) && holdRaw > 0;
+  // Wave 19.4: full defaults — every exercise reads as `{sets} sets · {reps}
+  // reps [· Ts hold]`. The earlier isometric short-circuit (suppressed reps
+  // when only hold was captured) caused three consecutive circuit exercises
+  // to show "30s hold", "10 reps", and "5 reps" — visibly inconsistent. Now
+  // reps always shows (defaulting to 10 when null); hold appends when set.
+  const sets = hasSets ? setsRaw : 3;
+  const reps = hasReps ? repsRaw : 10;
 
-  // Standalone — include sets. Circuit — omit (rounds live in the matrix).
-  if (!isCircuit && Number.isFinite(sets) && sets > 0) {
-    parts.push(`${sets} sets`);
-  }
-  if (Number.isFinite(reps) && reps > 0) {
-    parts.push(`${reps} reps`);
-  }
-  if (Number.isFinite(hold) && hold > 0) {
-    parts.push(`${hold}s hold`);
+  if (!isCircuit) parts.push(`${sets} sets`);
+  parts.push(`${reps} reps`);
+  if (hasHold) parts.push(`${holdRaw}s hold`);
+
+  return parts.join(' · ');
+}
+
+/**
+ * Top-stack active-slide header — single-line row "{name} · {grammar}".
+ * Renders the currently focused slide (or upcoming during prep). The circuit
+ * "Round X of Y" suffix was dropped — the progress-pill matrix already shows
+ * circuit position visually, so the extra text was redundant. The row uses
+ * CSS white-space:nowrap + text-overflow:ellipsis to truncate if the
+ * combined string is wider than the viewport.
+ */
+function updateActiveSlideHeader() {
+  if (!$activeSlideTitle) return;
+  const slide = slides[currentIndex];
+  if (!slide) {
+    $activeSlideTitle.textContent = '';
+    $activeSlideTitle.classList.remove('is-rest');
+    return;
   }
 
-  if (!parts.length) return '';
-  // Use middle-dot · as the separator. Wrap in text since CSS is all styling.
-  return parts.map(escapeHTML).join(' <span class="sep">·</span> ');
+  const isRest = slide.media_type === 'rest';
+  const name = isRest ? 'Rest' : (slide.name || `Exercise ${currentIndex + 1}`);
+  const grammar = buildDecodedGrammar(slide);
+  // Wave 19.3: trailing "(MM:SS)" removed from the title — the remaining
+  // total now lives in the centre of the timeline strip directly above
+  // the matrix. Per-pill durations carry the per-slide number.
+  $activeSlideTitle.textContent = grammar ? `${name} · ${grammar}` : name;
+  $activeSlideTitle.classList.toggle('is-rest', isRest);
+}
+
+/**
+ * Top-stack notes overlay — shown as plain coral text at the bottom of
+ * the video (no box). Populated per active slide; hidden if the slide has
+ * no notes. Tap toggles a 3-line clamp → full expansion.
+ */
+function updateCardNotes() {
+  if (!$cardNotes || !$cardNotesText) return;
+  const slide = slides[currentIndex];
+  // Rest slides have no notes; exercise slides might.
+  if (slide && slide.media_type !== 'rest' && slide.notes) {
+    $cardNotesText.textContent = slide.notes;
+    $cardNotes.hidden = false;
+    $cardNotes.classList.remove('is-expanded');
+    $cardNotes.setAttribute('aria-expanded', 'false');
+  } else {
+    $cardNotesText.textContent = '';
+    $cardNotes.hidden = true;
+    $cardNotes.classList.remove('is-expanded');
+    $cardNotes.setAttribute('aria-expanded', 'false');
+  }
 }
 
 function buildMedia(exercise, index) {
@@ -563,49 +703,54 @@ function buildMedia(exercise, index) {
  * Resolve the URL for a given exercise + treatment.
  *
  *   'line'     → line_drawing_url (always present on post-migration plans;
- *                falls back to legacy `media_url` for old plans)
- *   'bw'       → grayscale_url (the raw original — the CSS
- *                grayscale filter is applied to the <video> element)
- *   'original' → original_url (raw unfiltered)
+ *                falls back to legacy `media_url` for old plans). Never
+ *                gated by the segmented-effect toggle — line drawing is
+ *                its own pipeline, not a dual-output variant.
+ *   'bw'       → grayscale_segmented_url || grayscale_url, toggle ON
+ *                (default). When the per-device toggle is OFF we skip
+ *                the segmented variant and play the untouched original
+ *                directly — same source, no body-pop effect. CSS
+ *                grayscale filter is applied to the <video> either way.
+ *   'original' → original_segmented_url || original_url, toggle ON
+ *                (default). Toggle OFF → untouched original only.
+ *
+ * Segmented-first preference: Milestone P (2026-04-23) adds a dual-output
+ * mp4 alongside the line drawing that reuses the same Vision person-
+ * segmentation mask — body pristine, background dimmed. Using it for the
+ * Color + B&W treatments keeps the body-pop effect consistent across
+ * all three treatments. Legacy plans + exercises captured before the
+ * dual-output pass shipped still render correctly via the untouched
+ * original fallback.
  *
  * Returns null when the treatment has no URL (consent-absent). Callers
  * must handle this gracefully (disable segment + fall back to line).
  */
 function resolveTreatmentUrl(exercise, treatment) {
   if (!exercise) return null;
-  if (treatment === 'bw') return exercise.grayscale_url || null;
-  if (treatment === 'original') return exercise.original_url || null;
+  if (treatment === 'bw') {
+    if (segmentedEffectEnabled) {
+      return exercise.grayscale_segmented_url || exercise.grayscale_url || null;
+    }
+    // Toggle OFF — skip the segmented variant entirely and play the
+    // untouched original. When the raw original is missing we still
+    // fall through to the segmented copy so the slide can play at all
+    // (rare — would only happen on a mangled upload).
+    return exercise.grayscale_url || exercise.grayscale_segmented_url || null;
+  }
+  if (treatment === 'original') {
+    if (segmentedEffectEnabled) {
+      return exercise.original_segmented_url || exercise.original_url || null;
+    }
+    return exercise.original_url || exercise.original_segmented_url || null;
+  }
   // 'line' + unknown treatments → line drawing (the always-available default).
   return exercise.line_drawing_url || exercise.media_url || null;
 }
 
-function buildPrescription(exercise) {
-  const pills = [];
-
-  if (exercise.reps != null) {
-    const reps = Number.parseInt(exercise.reps, 10);
-    if (Number.isFinite(reps)) {
-      pills.push(`<span class="rx-pill">${reps} <span class="rx-pill-label">reps</span></span>`);
-    }
-  }
-  if (exercise.sets != null) {
-    const sets = Number.parseInt(exercise.sets, 10);
-    if (Number.isFinite(sets)) {
-      pills.push(`<span class="rx-pill">${sets} <span class="rx-pill-label">sets</span></span>`);
-    }
-  }
-  if (exercise.hold_seconds != null) {
-    const hold = Number.parseInt(exercise.hold_seconds, 10);
-    if (Number.isFinite(hold)) {
-      const label = hold >= 60
-        ? `${Math.floor(hold / 60)}m ${hold % 60 ? (hold % 60) + 's' : ''}`
-        : `${hold}s`;
-      pills.push(`<span class="rx-pill">${label} <span class="rx-pill-label">hold</span></span>`);
-    }
-  }
-
-  return pills.join('');
-}
+// buildPrescription() was retired alongside .rx-pill in the top-stack v1
+// refactor — the decoded grammar (e.g. "3 sets · 10 reps · 5s hold") now
+// lives as plain text appended to the exercise name in .active-slide-title
+// above the video. See buildDecodedGrammar() + updateActiveSlideHeader().
 
 // ============================================================
 // Progress-pill matrix
@@ -642,17 +787,17 @@ const LONG_PRESS_MS = 380;
 const MATRIX_AUTO_SNAP_MS = 4000;
 
 /**
- * Item 6: pick the LARGEST tier that fits the viewport without horizontal
- * scroll. Only drop down when a tier genuinely overflows. Leaves ~16px of
- * gutter on each side (+ ETA slot width) so the matrix doesn't press up
- * against the viewport edge. When even 'dense' doesn't fit we stay on
- * 'dense' and accept scroll (rare — only enormous plans).
+ * Pick the LARGEST tier that fits the viewport without horizontal scroll.
+ * Top-stack v1: the ETA now lives on its own row above the matrix, so the
+ * matrix has the full viewport width to play with (minus the side padding).
+ * Only drops down a tier when a tier genuinely overflows. When even 'dense'
+ * doesn't fit we stay on 'dense' and accept scroll (rare — only enormous
+ * plans).
  */
 const MATRIX_SIDE_PADDING = 32;  // 16px each side
-const MATRIX_ETA_SLOT = 140;     // matches .matrix-eta min-width + gap
 
 function chooseMatrixSizeTier(columnCount, viewportWidth) {
-  const available = viewportWidth - MATRIX_SIDE_PADDING - MATRIX_ETA_SLOT;
+  const available = viewportWidth - MATRIX_SIDE_PADDING;
   const fits = (spec) => columnCount * (spec.width + spec.gap) <= available;
   if (fits(MATRIX_SPECS.spacious)) return 'spacious';
   if (fits(MATRIX_SPECS.medium))   return 'medium';
@@ -682,21 +827,29 @@ function pillGrammarLabel(slide) {
 }
 
 /**
- * Collapse the unrolled slides into column descriptors. Standalone slides
- * produce a 1-row column; circuit groups produce one column per position,
- * with one row per cycle (cycle 1 on top).
+ * Collapse the unrolled slides into a flat block list for the matrix.
  *
- * Returns { columns: [{ slideIndices: [...], isCircuit, circuitId }], bands }
- * where `bands` describes contiguous runs of same-circuit columns for the
- * coral tint band.
+ * Wave 19 change (2026-04-22): Circuits now render ROW-FIRST instead of
+ * column-first. A circuit becomes ONE .matrix-circuit block whose children
+ * are N_rounds × N_exercises pills, laid out row-by-row so round 1's pills
+ * (exercise A, B, C) sit on the top row, round 2's on the next row, etc.
+ * Each row gets a coral tint band. This matches real execution order:
+ * do A, B, C (round 1), then A, B, C (round 2), ...
+ *
+ * Standalone (non-circuit) slides still render as a .matrix-col with one pill.
+ *
+ * Returns blocks: [
+ *   { kind: 'single', slideIndex },
+ *   { kind: 'circuit', circuitId, rounds: [[slideIdx,...], ...], groupSize },
+ * ]
  */
-function buildMatrixColumns() {
-  const columns = [];
+function buildMatrixBlocks() {
+  const blocks = [];
   let i = 0;
   while (i < slides.length) {
     const s = slides[i];
     if (!s.circuitRound) {
-      columns.push({ slideIndices: [i], isCircuit: false, circuitId: null });
+      blocks.push({ kind: 'single', slideIndex: i });
       i++;
       continue;
     }
@@ -714,76 +867,103 @@ function buildMatrixColumns() {
     })();
     const groupSize = firstCycleEnd - groupStart;
     const total = s.circuitTotalRounds || 1;
-    for (let pos = 0; pos < groupSize; pos++) {
-      const slideIndices = [];
-      for (let cycle = 1; cycle <= total; cycle++) {
-        slideIndices.push(groupStart + (cycle - 1) * groupSize + pos);
+    // rounds[roundIdx] = [slideIdx_exerciseA, slideIdx_exerciseB, ...]
+    const rounds = [];
+    for (let cycle = 1; cycle <= total; cycle++) {
+      const row = [];
+      for (let pos = 0; pos < groupSize; pos++) {
+        row.push(groupStart + (cycle - 1) * groupSize + pos);
       }
-      columns.push({ slideIndices, isCircuit: true, circuitId });
+      rounds.push(row);
     }
+    blocks.push({ kind: 'circuit', circuitId, rounds, groupSize });
     i = groupStart + groupSize * total;
   }
-  return columns;
+  return blocks;
+}
+
+/**
+ * Backwards-compat shim for call sites that still ask for "columns".
+ * Returns the flattened column count the matrix will paint — a single is
+ * 1 column, a circuit contributes groupSize columns (one per exercise slot).
+ * Used by chooseMatrixSizeTier() to pick a size tier that fits the viewport.
+ */
+function countMatrixColumns(blocks) {
+  let n = 0;
+  for (const b of blocks) {
+    if (b.kind === 'single') n += 1;
+    else n += b.groupSize;
+  }
+  return n;
 }
 
 // Legacy glyph/label helpers removed — pills are empty per item 1. The
 // pillGrammarLabel() function (defined above) preserves the number-grammar
 // spec (item 12) for a future re-enable.
 
-/** Build the DOM for the matrix (columns + pills). One-time per render. */
+/** Build the DOM for the matrix (singles + circuit blocks). One-time per render. */
 function buildProgressMatrix() {
   if (!$matrixInner) return;
 
-  const columns = buildMatrixColumns();
+  const blocks = buildMatrixBlocks();
   const viewportWidth = window.innerWidth || 375;
-  matrixSizeTier = chooseMatrixSizeTier(columns.length, viewportWidth);
+  matrixSizeTier = chooseMatrixSizeTier(countMatrixColumns(blocks), viewportWidth);
 
   $matrixInner.className = 'progress-matrix-inner';
-  const columnsHTML = columns.map((col, colIdx) => {
-    const rowsHTML = col.slideIndices.map((slideIdx) => {
-      const slide = slides[slideIdx];
-      const isRest = slide.media_type === 'rest';
-      const sizeClass = 'size-' + matrixSizeTier;
-      const restClass = isRest ? ' is-rest' : '';
-      // Item 1: pills are EMPTY — no glyph, no label. Just the hull + fill
-      // bar. The macro fill-up effect (item 2) and colour coding carry all
-      // the information the user needs at a glance. Grammar helper lives in
-      // pillGrammarLabel() for future re-enable.
-      return `<div class="pill ${sizeClass}${restClass}" data-slide="${slideIdx}">
-                <span class="pill-fill"></span>
-              </div>`;
-    }).join('');
+  const sizeClass = 'size-' + matrixSizeTier;
 
-    const circuitClass = col.isCircuit ? ' is-circuit' : '';
-    return `<div class="matrix-col${circuitClass}" data-col="${colIdx}">${rowsHTML}</div>`;
+  /** Render a single pill's HTML. Wave 19.2: each pill carries its own
+   *  estimated duration as "NNs" text clipped against the fill gradient
+   *  so the glyph colour inverts (white on empty, black on coral) without
+   *  a double-layer DOM. The active pill's text is replaced by the live
+   *  countdown in updateProgressMatrix(). */
+  const pillHTML = (slideIdx) => {
+    const slide = slides[slideIdx];
+    const isRest = slide.media_type === 'rest';
+    const restClass = isRest ? ' is-rest' : '';
+    const dur = calculateDuration(slide);
+    return `<div class="pill ${sizeClass}${restClass}" data-slide="${slideIdx}" data-estimate="${dur}" style="--fill-pct: 0%">
+              <span class="pill-fill"></span>
+              <span class="pill-duration">${dur}s</span>
+            </div>`;
+  };
+
+  const blocksHTML = blocks.map((block, blockIdx) => {
+    if (block.kind === 'single') {
+      const dur = calculateDuration(slides[block.slideIndex]) || 1;
+      // Wave 19.3: `--pill-weight` powers duration-proportional flex in
+      // fullscreen. Non-fullscreen still uses the default `flex: 1 1 0`
+      // so short plans render as equal-width pills like before.
+      return `<div class="matrix-col" data-col="${blockIdx}" style="--pill-weight: ${dur};">${pillHTML(block.slideIndex)}</div>`;
+    }
+    // Circuit: row-first grid. Each round is a coral-tinted row of N pills.
+    const { rounds, groupSize } = block;
+    // First cycle is authoritative for duration weights; subsequent cycles
+    // inherit the same shape by construction, so we read row 0.
+    const firstRow = rounds[0] || [];
+    const rowDurations = firstRow.map((idx) => calculateDuration(slides[idx]) || 1);
+    const circuitWeight = rowDurations.reduce((a, b) => a + b, 0) || 1;
+    // Wave 19.3: weight pills WITHIN a round by duration too — but only in
+    // fullscreen. We stash the duration-weighted template in --row-template-fs
+    // so the fullscreen rule can swap it in. Non-fullscreen still renders
+    // equal 1fr columns (driven by the default .matrix-circuit-row rule),
+    // matching the singles outside the block which stay equal-weight too.
+    const rowTemplate = rowDurations.map((d) => `${d}fr`).join(' ');
+    const roundsHTML = rounds.map((row, roundIdx) => {
+      const rowPills = row.map((slideIdx) => pillHTML(slideIdx)).join('');
+      return `<div class="matrix-circuit-row" data-round="${roundIdx + 1}" style="--row-template-fs: ${rowTemplate};">${rowPills}</div>`;
+    }).join('');
+    return `<div class="matrix-circuit" data-circuit="${block.circuitId}" data-col="${blockIdx}" style="--circuit-cols: ${groupSize}; --circuit-weight: ${circuitWeight};">${roundsHTML}</div>`;
   }).join('');
 
-  // Item 4: 3-number ETA row — `current · total · ~finish`. All three numbers
-  // are mono, 13pt. current = active-slide remaining (coral bold), total =
-  // whole-plan remaining (white bold), finish = wall-clock finish (muted).
-  // Content driven by updateEtaDisplay() on every tick.
-  const etaHTML = `
-    <div class="matrix-eta" id="matrix-eta" aria-live="polite">
-      <span class="matrix-eta-current" id="matrix-eta-current">0:00</span>
-      <span class="matrix-eta-sep">·</span>
-      <span class="matrix-eta-total" id="matrix-eta-total">0:00</span>
-      <span class="matrix-eta-sep">·</span>
-      <span class="matrix-eta-finish" id="matrix-eta-finish">~--:--</span>
-    </div>`;
-
-  $matrixInner.innerHTML = columnsHTML + etaHTML;
-
-  // Cache ETA DOM refs after the innerHTML swap.
-  $etaBlock = $matrixInner.querySelector('#matrix-eta');
-  $etaCurrent = $matrixInner.querySelector('#matrix-eta-current');
-  $etaTotal = $matrixInner.querySelector('#matrix-eta-total');
-  $etaFinish = $matrixInner.querySelector('#matrix-eta-finish');
+  $matrixInner.innerHTML = blocksHTML;
 
   // Force layout to run so offsetLeft queries are accurate before first updateUI.
   void $matrixInner.offsetWidth;
 }
 
-/** Update visible state — active/completed classes + centring scroll + fill width. */
+/** Update visible state — active/completed classes + pill fill width.
+ *  Wave 19.1 fit-to-viewport: matrix always fits, so no centering scroll. */
 function updateProgressMatrix() {
   if (!$matrixInner) return;
   const spec = MATRIX_SPECS[matrixSizeTier];
@@ -801,42 +981,47 @@ function updateProgressMatrix() {
     pill.classList.remove('is-scrubbed');
 
     const fill = pill.querySelector('.pill-fill');
-    if (!fill) return;
+    const durEl = pill.querySelector('.pill-duration');
+    // Fill percentage drives BOTH the visual band AND the glyph inversion
+    // gradient — we mirror it onto a CSS custom property so the text's
+    // background-clip gradient flips colour at the exact same boundary.
+    let fillPct = 0;
+    let durText = '';
     if (isCompleted) {
-      fill.style.width = '100%';
+      fillPct = 100;
+      // Completed pills keep their original estimate; the glyph reads black
+      // on the full coral fill.
+      const est = Number(pill.getAttribute('data-estimate')) || 0;
+      durText = `${est}s`;
     } else if (isActive) {
-      // Live progress: fraction of the active slide's timer elapsed.
       const frac = isWorkoutActive && totalSeconds > 0
         ? Math.max(0, Math.min(1, (totalSeconds - remainingSeconds) / totalSeconds))
         : 0;
-      fill.style.width = `${frac * 100}%`;
+      fillPct = frac * 100;
+      // Active pill counts down in seconds — `NNs` keeps the digit width
+      // predictable against the gradient clip.
+      const showSecs = isWorkoutActive
+        ? Math.max(0, remainingSeconds)
+        : (Number(pill.getAttribute('data-estimate')) || 0);
+      durText = `${showSecs}s`;
     } else {
-      fill.style.width = '0%';
+      fillPct = 0;
+      const est = Number(pill.getAttribute('data-estimate')) || 0;
+      durText = `${est}s`;
     }
+    if (fill) fill.style.width = `${fillPct}%`;
+    pill.style.setProperty('--fill-pct', `${fillPct}%`);
+    if (durEl && durEl.textContent !== durText) durEl.textContent = durText;
   });
 
-  // Centre the active pill.
-  const activePill = $matrixInner.querySelector(`.pill[data-slide="${activeIdx}"]`);
-  const viewportWidth = $matrix.clientWidth || window.innerWidth || 375;
-  let centeringOffset = 0;
-  if (activePill) {
-    // activePill is inside a .matrix-col which is the direct grid child.
-    const col = activePill.parentElement;
-    const colLeft = col.offsetLeft;
-    // pill.offsetLeft is relative to its column; add both.
-    const pillLeft = colLeft + activePill.offsetLeft;
-    const pillCentre = pillLeft + activePill.offsetWidth / 2;
-    centeringOffset = viewportWidth / 2 - pillCentre;
-  }
-  const translateX = centeringOffset + matrixManualOffset;
-  $matrixInner.style.transform = `translateX(${translateX}px)`;
-
-  // Chevron visible only when the user has dragged the matrix away from centre.
-  if (Math.abs(matrixManualOffset) > 16 && activeIdx >= 0) {
-    $matrixChevron.hidden = false;
-  } else {
-    $matrixChevron.hidden = true;
-  }
+  // Wave 19.1: matrix always fits the viewport (flex-distribute fit-to-width
+  // + fullscreen pill cap removal), so the historical centring-scroll +
+  // manual-drag scrub have nothing to do. Reset any lingering transform so
+  // a viewport resize doesn't leave the matrix shifted, and keep the chevron
+  // hidden unconditionally — there's nothing off-screen to chevron toward.
+  $matrixInner.style.transform = '';
+  matrixManualOffset = 0;
+  $matrixChevron.hidden = true;
 }
 
 // ------------------------------------------------------------
@@ -850,60 +1035,9 @@ function matrixPointToPillEl(clientX, clientY) {
 }
 
 /**
- * Item 9 — centered peek. Shows name + decoded grammar line. CSS positions
- * the panel at viewport center (translate(-50%, -50%)); no per-pill math.
- * The optional `teaching` flag adds a fade-out animation that retires the
- * peek cleanly after the teaching window.
+ * Highlight the pill currently under the user's finger during a scrub.
+ * Gives tactile feedback about which slide will be jumped to on release.
  */
-function openPeek(slideIdx, opts) {
-  const teaching = !!(opts && opts.teaching);
-  const slide = slides[slideIdx];
-  if (!slide) return;
-  const name = slide.media_type === 'rest'
-    ? 'Rest'
-    : (slide.name || `Exercise ${slideIdx + 1}`);
-
-  // Decoded grammar — same detail line the bottom row uses (luxurious item 5),
-  // stripped of HTML-escape wrappers. Plus a rest prefix for circuits so the
-  // user knows what they're scrubbing to.
-  let meta = '';
-  if (slide.media_type === 'rest') {
-    const secs = Number.parseInt(slide.hold_seconds, 10)
-      || Number.parseInt(slide.custom_duration_seconds, 10)
-      || 30;
-    meta = `${secs}s rest`;
-  } else {
-    const parts = [];
-    const isCircuit = !!slide.circuitRound;
-    const sets = Number.parseInt(slide.sets, 10);
-    const reps = Number.parseInt(slide.reps, 10);
-    const hold = Number.parseInt(slide.hold_seconds, 10);
-    if (!isCircuit && Number.isFinite(sets) && sets > 0) parts.push(`${sets} sets`);
-    if (Number.isFinite(reps) && reps > 0) parts.push(`${reps} reps`);
-    if (Number.isFinite(hold) && hold > 0) parts.push(`${hold}s hold`);
-    if (isCircuit && slide.circuitRound && slide.circuitTotalRounds) {
-      // Prefix circuit round so the scrub peek tells the user where they are.
-      parts.unshift(`Circuit · Round ${slide.circuitRound} of ${slide.circuitTotalRounds}`);
-    }
-    meta = parts.join(' · ');
-  }
-
-  $peekName.textContent = name;
-  $peekMeta.textContent = meta;
-  $peekPanel.classList.toggle('is-teaching', teaching);
-  $peekPanel.hidden = false;
-}
-
-function closePeek() {
-  $peekPanel.hidden = true;
-  $peekPanel.classList.remove('is-teaching');
-}
-
-// Kept for backward compatibility with the touch handlers that used to call
-// this; with centered positioning there's no per-pill math to do.
-// eslint-disable-next-line no-unused-vars
-function positionPeek(_slideIdx) { /* no-op */ }
-
 function highlightScrubbedPill(slideIdx) {
   $matrixInner.querySelectorAll('.pill.is-scrubbed').forEach((p) =>
     p.classList.remove('is-scrubbed')
@@ -918,11 +1052,10 @@ function beginLongPress(slideIdx) {
   peekState.active = true;
   peekState.startedIndex = slideIdx;
   peekState.currentIndex = slideIdx;
-  openPeek(slideIdx);
   highlightScrubbedPill(slideIdx);
   // Haptic hint (ignored on unsupported browsers).
   if (navigator.vibrate) navigator.vibrate(8);
-  // Freeze active pill's fill animation while peek is open.
+  // Freeze active pill's fill animation while scrubbing.
   $matrixInner.querySelectorAll('.pill.is-active').forEach((p) =>
     p.classList.add('is-paused')
   );
@@ -935,7 +1068,6 @@ function endLongPress(commit) {
   peekState.active = false;
   peekState.startedIndex = -1;
   peekState.currentIndex = -1;
-  closePeek();
   highlightScrubbedPill(-1);
   $matrixInner.querySelectorAll('.pill.is-paused').forEach((p) =>
     p.classList.remove('is-paused')
@@ -954,7 +1086,6 @@ function jumpToSlide(slideIdx) {
     isTimerRunning = false;
     isPrepPhase = false;
   }
-  closePeek();
   goTo(slideIdx);
 }
 
@@ -992,14 +1123,10 @@ function onMatrixTouchStart(e) {
   }, LONG_PRESS_MS);
 }
 
-/** Item 6: when the matrix fits the viewport without scroll, drag is disabled. */
+/** Wave 19.1: with flex fit-to-viewport the matrix always fits — drag
+ *  scrub has nothing to reveal, so the legacy gate is always true. */
 function matrixFitsViewport() {
-  if (!$matrixInner) return true;
-  const columns = buildMatrixColumns();
-  const viewportWidth = window.innerWidth || 375;
-  const available = viewportWidth - MATRIX_SIDE_PADDING - MATRIX_ETA_SLOT;
-  const spec = MATRIX_SPECS[matrixSizeTier] || MATRIX_SPECS.dense;
-  return columns.length * (spec.width + spec.gap) <= available;
+  return true;
 }
 
 function onMatrixTouchMove(e) {
@@ -1009,18 +1136,17 @@ function onMatrixTouchMove(e) {
   const dy = touch.clientY - matrixTouchStart.y;
 
   if (peekState.active) {
-    // Slide finger during peek — hover over new pills, haptic tick on change.
+    // Slide finger during scrub — hover over new pills, haptic tick on change.
     const pill = matrixPointToPillEl(touch.clientX, touch.clientY);
     if (pill) {
       const newIdx = Number(pill.getAttribute('data-slide'));
       if (newIdx !== peekState.currentIndex) {
         peekState.currentIndex = newIdx;
         highlightScrubbedPill(newIdx);
-        positionPeek(newIdx);
         if (navigator.vibrate) navigator.vibrate(4);
       }
     }
-    // Swallow scroll while peeking.
+    // Swallow scroll while scrubbing.
     if (e.cancelable) e.preventDefault();
     return;
   }
@@ -1112,7 +1238,7 @@ function goTo(index) {
   currentIndex = index;
   updateUI();
   // After a jump, recompute immediately so we don't wait 1s for the ticker.
-  updateEtaDisplay();
+  updateTimelineBar();
   // Slide state changed — re-evaluate the pause/prep overlay visibility on
   // the new active slide and hide them on the old one.
   updatePauseOverlay();
@@ -1121,7 +1247,8 @@ function goTo(index) {
   // Auto-play the current slide's video (muted, looped). Safari's autoplay
   // policy may block this if there hasn't been a user gesture yet — swallow
   // the rejection so we don't crash. The first gesture (tap on the URL /
-  // Start Workout button) typically unlocks it.
+  // Start Workout button) typically unlocks it. Prep play-gating in
+  // enterWorkoutPhaseForCurrent() pauses it back down during the runway.
   autoPlayCurrentVideo();
 
   if (isWorkoutMode) {
@@ -1138,8 +1265,6 @@ function goNext() {
     isTimerRunning = false;
     isPrepPhase = false;
   }
-  // Close any peek / prep overlay so we don't linger into the new slide.
-  closePeek();
   goTo(currentIndex + 1);
 }
 
@@ -1150,7 +1275,6 @@ function goPrev() {
     isTimerRunning = false;
     isPrepPhase = false;
   }
-  closePeek();
   goTo(currentIndex - 1);
 }
 
@@ -1193,15 +1317,20 @@ function updateUI() {
   // Progress-pill matrix — active pill state + centring scroll
   updateProgressMatrix();
 
+  // Top-stack header + notes — name + grammar + coral notes blob.
+  updateActiveSlideHeader();
+  updateCardNotes();
+
+  // Rest countdown overlay state — shown only on the active rest slide.
+  updateRestCountdownOverlay();
+
+  // Milestone Q — set/breather overlays track the active slide too.
+  updateSetProgressBar();
+  updateBreatherOverlay();
+
   // Nav buttons
   $btnPrev.disabled = currentIndex === 0;
   $btnNext.disabled = currentIndex === total - 1;
-
-  // Dots
-  const dots = $navDots.querySelectorAll('.nav-dot');
-  dots.forEach((dot, i) => {
-    dot.classList.toggle('is-active', i === currentIndex);
-  });
 }
 
 // ============================================================
@@ -1285,6 +1414,13 @@ function onTouchEnd() {
 // ============================================================
 
 function onKeyDown(e) {
+  // Escape closes the settings popover before any slide-nav gesture —
+  // the user's mental model is "dismiss the panel I just opened", not
+  // "go somewhere else".
+  if (e.key === 'Escape' && isSettingsPopoverOpen()) {
+    setSettingsPopoverOpen(false);
+    return;
+  }
   if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
     e.preventDefault();
     goNext();
@@ -1311,23 +1447,62 @@ function onKeyDown(e) {
 // ============================================================
 
 /**
+ * Milestone Q — return the practitioner-configured inter-set rest
+ * ("Post Rep Breather") for a slide, clamped to 0 for null values.
+ * Legacy rows (null) compute WITHOUT any inter-set rest — this is a
+ * deliberate behaviour change on re-publish, acceptable per the brief.
+ * The 30s REST_BETWEEN_SETS baseline is retired.
+ */
+function getInterSetRestSeconds(slide) {
+  const v = slide.inter_set_rest_seconds;
+  if (v === null || v === undefined) return 0;
+  return Math.max(0, Number(v) | 0);
+}
+
+/**
+ * Milestone Q — per-set duration (reps × per-rep + hold). Exposed as
+ * a helper so the set/rest state machine can derive set boundaries
+ * consistently with the total duration.
+ */
+function calculatePerSetSeconds(slide) {
+  if (slide.custom_duration_seconds) {
+    // Manual total / sets; rounded down to the nearest integer second.
+    const sets = slide.sets || 1;
+    if (sets <= 1) return slide.custom_duration_seconds;
+    return Math.max(1, Math.floor(slide.custom_duration_seconds / sets));
+  }
+  const reps = slide.reps || 10;
+  const holdPerSet = slide.hold_seconds || 0;
+  return (reps * SECONDS_PER_REP) + holdPerSet;
+}
+
+/**
  * Calculate the duration in seconds for an exercise slide.
  * Uses custom_duration_seconds if set, otherwise computes from reps/sets/hold.
+ *
+ * Milestone Q math:
+ *   exercise_total = sets × per_set
+ *                  + max(0, sets - 1) × COALESCE(inter_set_rest_seconds, 0)
+ *
+ * custom_duration_seconds stores the total across all sets (per-rep ×
+ * reps × sets from the Studio UI), so we add the inter-set rest ON TOP
+ * of it — the practitioner's "per-rep" choice doesn't include breather
+ * time.
  */
 function calculateDuration(slide) {
-  if (slide.custom_duration_seconds) {
-    return slide.custom_duration_seconds;
-  }
-
   if (slide.media_type === 'rest') {
     return slide.hold_seconds || slide.custom_duration_seconds || 30;
   }
 
-  const reps = slide.reps || 10;
   const sets = slide.sets || 3;
-  const holdPerSet = slide.hold_seconds || 0;
-  const perSet = (reps * SECONDS_PER_REP) + holdPerSet;
-  const restTotal = (sets - 1) * REST_BETWEEN_SETS;
+  const breather = getInterSetRestSeconds(slide);
+  const restTotal = (sets > 1) ? (sets - 1) * breather : 0;
+
+  if (slide.custom_duration_seconds) {
+    return slide.custom_duration_seconds + restTotal;
+  }
+
+  const perSet = calculatePerSetSeconds(slide);
   return (perSet * sets) + restTotal;
 }
 
@@ -1412,51 +1587,59 @@ function formatFinishTime(date) {
 }
 
 /**
- * Render the ETA widget. Called on every workout-tick AND on an independent
- * 1s wall-clock tick so the finish time drifts forward while paused.
- * Item 4: three numbers — current, total, finish.
+ * Render the workout-timeline strip. Called on every workout-tick AND on an
+ * independent 1s wall-clock tick so the finish time drifts forward while
+ * paused. Wave 19.2: replaces the 3-number ETA row — start wall clock is
+ * frozen at Start Workout, finish = now() + remainingWorkoutSeconds.
  */
-function updateEtaDisplay() {
-  if (!$etaBlock) return;
-  if (workoutCompleteFlag) {
-    // Set the "Done" markup once; subsequent ticks are no-ops until the flag
-    // flips (exitWorkout() rebuilds the whole matrix so refs are refreshed).
-    if (!$etaBlock.classList.contains('is-done')) {
-      $etaBlock.classList.add('is-done');
-      $etaBlock.innerHTML = '<div class="matrix-eta-done">Done</div>';
+function updateTimelineBar() {
+  if (!$timelineStart || !$timelineEnd) return;
+  // Wave 19.3: the centre slot carries the live remaining-total. Pre-start
+  // it shows "0:00" so the row's intrinsic width is stable when the workout
+  // kicks off; the edges show "--:--" until the start wall-clock is captured.
+  if (!isWorkoutMode || !workoutStartTime) {
+    $timelineStart.textContent = '--:--';
+    $timelineEnd.textContent = '--:--';
+    if ($timelineTotal) {
+      $timelineTotal.textContent = formatTime(Math.max(0, calculateRemainingWorkoutSeconds()));
     }
     return;
   }
-
-  const activeSecs = calculateActiveSlideRemainingSeconds();
+  $timelineStart.textContent = formatFinishTime(new Date(workoutStartTime));
+  if (workoutCompleteFlag) {
+    // Snapshot the real finish wall-clock at completion (Date.now() then
+    // stops drifting against remainingSeconds which is 0).
+    $timelineEnd.textContent = formatFinishTime(new Date());
+    if ($timelineTotal) $timelineTotal.textContent = '0:00';
+    return;
+  }
   const totalSecs = calculateRemainingWorkoutSeconds();
   const finishAt = new Date(Date.now() + totalSecs * 1000);
+  $timelineEnd.textContent = `~${formatFinishTime(finishAt)}`;
+  if ($timelineTotal) $timelineTotal.textContent = formatTime(Math.max(0, totalSecs));
 
-  if ($etaCurrent) $etaCurrent.textContent = formatTime(Math.max(0, activeSecs));
-  if ($etaTotal) $etaTotal.textContent = formatTime(Math.max(0, totalSecs));
-  if ($etaFinish) $etaFinish.textContent = `~${formatFinishTime(finishAt)}`;
-
-  // Item 15: prep-phase flash — current-slide token + active pill.
-  if ($etaCurrent) {
-    $etaCurrent.classList.toggle('is-prep-flashing', isPrepPhase);
-  }
+  // Prep-phase flash — active pill + the centred total so the client
+  // perceives the "getting ready" cadence even with the title parens gone.
   if ($matrixInner) {
     const activePill = $matrixInner.querySelector('.pill.is-active');
     if (activePill) {
       activePill.classList.toggle('is-prep-flashing', isPrepPhase);
     }
   }
+  if ($timelineTotal) {
+    $timelineTotal.classList.toggle('is-prep-flashing', isPrepPhase);
+  }
 }
 
 // Mirrors the Flutter widget.workoutComplete flag for the ETA "Done" state.
 let workoutCompleteFlag = false;
 
-function startEtaClock() {
+function startTimelineClock() {
   if (etaClockTimer) return;
-  etaClockTimer = setInterval(updateEtaDisplay, 1000);
+  etaClockTimer = setInterval(updateTimelineBar, 1000);
 }
 
-function stopEtaClock() {
+function stopTimelineClock() {
   if (etaClockTimer) {
     clearInterval(etaClockTimer);
     etaClockTimer = null;
@@ -1475,6 +1658,11 @@ function startWorkout() {
   // Hide the start button
   $startWorkoutBtn.hidden = true;
 
+  // Top-stack v1 — request browser fullscreen so the video fills the
+  // viewport. Must be inside the button's click gesture; the browser
+  // rejects the API call otherwise.
+  requestFullscreen();
+
   if (currentIndex === 0) {
     // Already on the first slide — goTo() short-circuits when index is
     // unchanged, so manually kick off the workout phase.
@@ -1485,7 +1673,7 @@ function startWorkout() {
   }
   // Matrix needs an active-state redraw now that isWorkoutMode is true.
   updateProgressMatrix();
-  updateEtaDisplay();
+  updateTimelineBar();
 }
 
 /**
@@ -1504,6 +1692,11 @@ function enterWorkoutPhaseForCurrent() {
   totalSeconds = calculateDuration(slide);
   remainingSeconds = totalSeconds;
 
+  // Milestone Q — prime the set/rest state machine for this slide. The
+  // per-set duration + breather seconds are cached here so the 1-second
+  // tick loop can swap phases without re-reading the slide.
+  beginSetMachineForCurrent();
+
   if (slide.media_type === 'rest') {
     // Rest — no prep, auto-start countdown. The bottom-right timer chip
     // is the single source of truth for the rest countdown.
@@ -1512,6 +1705,29 @@ function enterWorkoutPhaseForCurrent() {
     // Exercise — run 15s prep runway, then startTimer()
     startPrepPhase();
   }
+}
+
+/**
+ * Milestone Q — reset the set/rest state machine to the first set of
+ * the active slide. Called whenever a new slide becomes active
+ * (enterWorkoutPhaseForCurrent), including when the practitioner swipes
+ * mid-breather — the new slide starts fresh on its first set.
+ */
+function beginSetMachineForCurrent() {
+  const slide = slides[currentIndex];
+  if (!slide || slide.media_type === 'rest') {
+    currentSetIndex = 0;
+    totalSetsForSlide = 1;
+    setPhase = 'set';
+    setPhaseRemaining = 0;
+    interSetRestForSlide = 0;
+    return;
+  }
+  currentSetIndex = 0;
+  totalSetsForSlide = Math.max(1, slide.sets || 1);
+  setPhase = 'set';
+  setPhaseRemaining = calculatePerSetSeconds(slide);
+  interSetRestForSlide = getInterSetRestSeconds(slide);
 }
 
 /**
@@ -1529,11 +1745,16 @@ function startPrepPhase() {
   const slide = slides[currentIndex];
   prepRemainingSeconds = prepSecondsFor(slide);
 
+  // Prep play-gating — pause + reset the video so nothing is moving
+  // behind the coral countdown digits.
+  gateVideoForPrep(true);
+
   updatePrepOverlay();
   schedulePrepFade();
   updatePauseOverlay();
+  updateRestCountdownOverlay();
   // ETA now reflects prep seconds + new slide's full duration + upcoming.
-  updateEtaDisplay();
+  updateTimelineBar();
 
   prepTimer = setInterval(onPrepTick, 1000);
 }
@@ -1552,14 +1773,17 @@ function onPrepTick() {
   }
   updatePrepOverlay();
   schedulePrepFade();
-  // Prep seconds are part of "remaining" — tick the ETA too.
-  updateEtaDisplay();
+  // Prep seconds are part of "remaining" — tick the timeline + title too.
+  updateTimelineBar();
+  updateActiveSlideHeader();
 }
 
 function finishPrepPhase() {
   clearPrepTimer();
   // Hide the prep overlay, drop the flash.
   updatePrepOverlay();
+  // Release the prep play-gate — video resumes on the running phase.
+  gateVideoForPrep(false);
   // Wave 4 Phase 2 — medium haptic on the prep→run transition so the
   // trainer feels the handoff without looking at the screen. No-op on
   // the public web player.
@@ -1576,7 +1800,10 @@ function startTimer() {
 
   isTimerRunning = true;
   updatePauseOverlay();
-  updateEtaDisplay();
+  updateRestCountdownOverlay();
+  updateSetProgressBar();
+  updateBreatherOverlay();
+  updateTimelineBar();
 
   workoutTimer = setInterval(onTimerTick, 1000);
 }
@@ -1599,6 +1826,13 @@ function onTimerTick() {
   if (!isTimerRunning) return;
 
   remainingSeconds--;
+  // Milestone Q — phase-local timer ticks in lockstep with the overall
+  // remaining counter. When it hits zero we check whether another set
+  // / breather follows on THIS slide before falling through to the next
+  // slide.
+  if (!isRestSlide()) {
+    setPhaseRemaining--;
+  }
 
   if (remainingSeconds <= 0) {
     remainingSeconds = 0;
@@ -1612,9 +1846,95 @@ function onTimerTick() {
     return;
   }
 
+  // Milestone Q — phase boundary inside the active slide (set → rest or
+  // rest → set). The overall `remainingSeconds` keeps ticking; only the
+  // phase-local counter wraps.
+  if (!isRestSlide() && setPhaseRemaining <= 0) {
+    advanceSetPhase();
+  }
+
   // Matrix active-pill fill needs a per-second nudge too.
   updateProgressMatrix();
-  updateEtaDisplay();
+  updateRestCountdownOverlay();
+  updateSetProgressBar();
+  updateBreatherOverlay();
+  updateTimelineBar();
+  // (MM:SS) remaining rides in the active-slide title — needs a per-tick
+  // refresh same as the timeline and matrix.
+  updateActiveSlideHeader();
+}
+
+function isRestSlide() {
+  const slide = slides[currentIndex];
+  return !!(slide && slide.media_type === 'rest');
+}
+
+/**
+ * Milestone Q — move from set → rest or rest → next set at a phase
+ * boundary. This is the one place that pauses/resumes the active video
+ * around the breather. Video currentTime is NEVER reset — pause holds
+ * the last visible frame, play() resumes from there.
+ *
+ * Called ONLY from onTimerTick() when setPhaseRemaining hits zero AND
+ * remainingSeconds > 0 (meaning more of this slide is still ahead). If
+ * it's the last set, this function is never reached because
+ * remainingSeconds drops to 0 at the same tick and onTimerComplete()
+ * advances to the next slide.
+ */
+function advanceSetPhase() {
+  if (setPhase === 'set') {
+    // Set done. Is there a breather OR another set to come?
+    const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
+    if (isLastSet) {
+      // Last set ending coincides with remainingSeconds hitting 0;
+      // onTimerTick will take the auto-advance branch. Nothing to do.
+      return;
+    }
+    if (interSetRestForSlide > 0) {
+      // Enter breather. Pause the video at its current frame (no reset).
+      setPhase = 'rest';
+      setPhaseRemaining = interSetRestForSlide;
+      pauseActiveVideoForBreather();
+    } else {
+      // No breather — skip straight to the next set, keep the video
+      // playing without interruption.
+      currentSetIndex++;
+      setPhase = 'set';
+      setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+    }
+  } else {
+    // rest → next set. Bump set index, resume video.
+    currentSetIndex++;
+    setPhase = 'set';
+    setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+    resumeActiveVideoAfterBreather();
+  }
+  updateSetProgressBar();
+  updateBreatherOverlay();
+}
+
+/**
+ * Milestone Q — pause the active video at its current frame for the
+ * inter-set breather. NO seek, NO reset — the browser holds the last
+ * decoded frame visually, which is exactly what the brief specifies
+ * ("continuous playback, no reset"). On resume we call play() without
+ * touching currentTime.
+ */
+function pauseActiveVideoForBreather() {
+  const video = document.getElementById(`video-${currentIndex}`);
+  if (video && !video.paused) {
+    try { video.pause(); } catch (_) { /* best-effort */ }
+  }
+}
+
+function resumeActiveVideoAfterBreather() {
+  if (!isTimerRunning) return;
+  const video = document.getElementById(`video-${currentIndex}`);
+  if (video && video.paused) {
+    video.play().catch((err) => {
+      console.warn('video resume after breather failed:', err);
+    });
+  }
 }
 
 // updateTimerDisplay + setTimerModeIcon removed — the dedicated chip is
@@ -1652,9 +1972,15 @@ function pauseTimer() {
     currentVideo.pause();
   }
   updatePauseOverlay();
+  updateRestCountdownOverlay();
+  updateBreatherOverlay();
   // ETA clock keeps running in the background — remaining stays static,
   // finish-time drifts forward. Nudge once to reflect immediately.
-  updateEtaDisplay();
+  updateTimelineBar();
+  // Transition already visually loud (overlay snaps to full alpha on pause)
+  // but keep the flash-class for symmetry with the resume path so rapid
+  // pause/resume doesn't leave a stale animation.
+  flashPauseOverlay();
 }
 
 /**
@@ -1664,15 +1990,23 @@ function resumeTimer() {
   if (isTimerRunning) return;
   isTimerRunning = true;
   workoutTimer = setInterval(onTimerTick, 1000);
-  // Resume video playback alongside the timer.
+  // Resume video playback alongside the timer — BUT ONLY if we're in a
+  // set phase. During a breather the video is meant to be paused on
+  // the last visible frame; resuming the timer just continues counting
+  // down the breather.
   const currentVideo = document.getElementById(`video-${currentIndex}`);
-  if (currentVideo && currentVideo.paused) {
+  if (currentVideo && currentVideo.paused && setPhase !== 'rest') {
     currentVideo.play().catch((err) => {
       console.warn('video resume failed:', err);
     });
   }
   updatePauseOverlay();
-  updateEtaDisplay();
+  updateRestCountdownOverlay();
+  updateBreatherOverlay();
+  updateTimelineBar();
+  // Flash the pause icon at full alpha for ~900ms so the tap's outcome is
+  // legible on top of the running video.
+  flashPauseOverlay();
 }
 
 /**
@@ -1758,22 +2092,198 @@ function toggleMute() {
   });
 }
 
+// ============================================================
+// Settings popover — per-device playback preferences
+// ============================================================
+//
+// Currently hosts the Milestone P segmented-effect toggle. Shaped to
+// grow: the popover is a vertical stack of .settings-row entries, each
+// an independent label+switch pair. Add a row by duplicating the
+// existing <label> block in index.html + binding a change handler
+// here. No global settings-bus needed at this scale.
+//
+// State lives in module-scope flags (e.g. segmentedEffectEnabled) that
+// `resolveTreatmentUrl` + other renderers read directly. No event bus.
+
+const $btnSettings = document.getElementById('btn-settings');
+const $settingsPopover = document.getElementById('settings-popover');
+const $toggleSegmentedEffect = document.getElementById('toggle-segmented-effect');
+const $toggleSegmentedEffectHint = document.getElementById('toggle-segmented-effect-hint');
+
+/** Sync the hint copy to the current toggle state. */
+function updateSegmentedEffectHint() {
+  if (!$toggleSegmentedEffectHint) return;
+  $toggleSegmentedEffectHint.textContent = segmentedEffectEnabled
+    ? 'Body in focus — background dimmed'
+    : 'Original untouched';
+}
+
+/** Open / close the settings popover. */
+function setSettingsPopoverOpen(open) {
+  if (!$settingsPopover || !$btnSettings) return;
+  if (open) {
+    $settingsPopover.hidden = false;
+    // Next frame so the transition runs from closed → open.
+    requestAnimationFrame(() => {
+      $settingsPopover.setAttribute('data-open', 'true');
+    });
+    $btnSettings.setAttribute('aria-expanded', 'true');
+  } else {
+    $settingsPopover.setAttribute('data-open', 'false');
+    $btnSettings.setAttribute('aria-expanded', 'false');
+    // Wait for the fade-out to complete before hiding — matches the
+    // 160ms transition in styles.css.
+    setTimeout(() => {
+      if ($settingsPopover.getAttribute('data-open') !== 'true') {
+        $settingsPopover.hidden = true;
+      }
+    }, 180);
+  }
+}
+
+function isSettingsPopoverOpen() {
+  return !!($settingsPopover && $settingsPopover.getAttribute('data-open') === 'true');
+}
+
 /**
- * Item 8: toggle the centered pause overlay on the active slide. Visible only
- * when the workout is paused AND we're not in the prep phase. Other slides
- * hide their overlay so we don't leave it visible in the wings of the card
- * track.
+ * Apply a change to the segmented-effect toggle: persist the new
+ * value, update the hint copy, and re-point every rendered <video>
+ * whose treatment URL just changed. Keeps the current slide's
+ * playback position and playing state so the swap is invisible if
+ * the client is mid-workout.
+ */
+function applySegmentedEffectChange(nextEnabled) {
+  if (nextEnabled === segmentedEffectEnabled) return;
+  segmentedEffectEnabled = nextEnabled;
+  writeSegmentedEffectPreference(segmentedEffectEnabled);
+  updateSegmentedEffectHint();
+  rebindVideoSources();
+}
+
+/**
+ * Walk every rendered <video> in the card track, re-resolve the URL
+ * its slide should now use, and swap the `src` in place if it changed.
+ * For the currently active slide we preserve `currentTime` and resume
+ * playback post-swap so the toggle feels seamless mid-exercise.
+ *
+ * Non-active slides get a naive src swap (no resume) — they're paused
+ * anyway, and the next time they become active `autoPlayCurrentVideo`
+ * will kick them off. This keeps memory/CPU pressure down vs. forcing
+ * every video to reload + play immediately.
+ */
+function rebindVideoSources() {
+  if (!$cardTrack) return;
+  const videos = $cardTrack.querySelectorAll('video[id^="video-"]');
+  videos.forEach((videoEl) => {
+    const card = videoEl.closest('.exercise-card');
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const slide = slides[idx];
+    if (!slide) return;
+    const slideT = slideTreatment(slide);
+    const nextUrl = resolveTreatmentUrl(slide, slideT);
+    if (!nextUrl) return;
+    // getAttribute is the raw attribute text; videoEl.src is the
+    // resolved absolute URL (prefixed with the origin). Compare via
+    // the attribute for a stable check.
+    const currentAttr = videoEl.getAttribute('src');
+    if (currentAttr === nextUrl) return;
+
+    const isActive = idx === currentIndex;
+    const wasPlaying = isActive && !videoEl.paused && !videoEl.ended;
+    const resumeAt = isActive ? videoEl.currentTime : 0;
+
+    videoEl.setAttribute('src', nextUrl);
+    // `load()` is required after a src swap for the new media to be
+    // picked up reliably on all browsers (Safari in particular).
+    videoEl.load();
+
+    if (isActive) {
+      // Restore playback position once metadata is loaded. `loadedmetadata`
+      // fires once per src change — the { once: true } option auto-cleans.
+      const restore = () => {
+        try {
+          // If the new source is shorter than resumeAt (shouldn't happen
+          // — segmented + original are the same length — but defensive),
+          // clamp to 0 so we don't stall.
+          videoEl.currentTime = Math.min(resumeAt, videoEl.duration || resumeAt);
+        } catch (_) {
+          // Some browsers throw if currentTime is set too early; ignore.
+        }
+        if (wasPlaying) {
+          videoEl.play().catch(() => {
+            // Autoplay policy — a user gesture should have unlocked this
+            // already (the toggle click counts), but swallow defensively.
+          });
+        }
+      };
+      videoEl.addEventListener('loadedmetadata', restore, { once: true });
+    }
+  });
+}
+
+/**
+ * Wave 19.2: pause overlay is now a flash-on-toggle confirmation, not a
+ * persistent dim affordance. The previous 0.35-opacity pause icon during
+ * running was invisible against most video content.
+ *
+ * State model:
+ *   Running  → overlay invisible; `flashPauseOverlay()` surfaces it briefly
+ *              (full alpha → fade) on every play↔pause toggle to confirm
+ *              the gesture landed.
+ *   Paused   → overlay stays visible at full alpha (the play icon is the
+ *              CTA to resume).
+ *   Prep / offscreen slide → overlay hidden unconditionally.
  */
 function updatePauseOverlay() {
   if (!$cardTrack) return;
   const overlays = $cardTrack.querySelectorAll('.media-pause-overlay');
-  const showActive = isWorkoutMode && !isPrepPhase && !isTimerRunning
-    && remainingSeconds > 0;
+  const workoutLive = isWorkoutMode && !isPrepPhase && remainingSeconds > 0;
+  // Wave 19.3: glyph semantics = "what would tap do / what is playing now".
+  // Everywhere the video is effectively playing (pre-workout preview, prep,
+  // active timer) we show the PAUSE icon. Only the explicit paused-mid-
+  // workout state shows the PLAY icon. Fixes the fullscreen dimmed-button
+  // showing a play glyph while the video was clearly playing.
+  const showPlayIcon = isWorkoutMode && !isPrepPhase && !isTimerRunning;
   overlays.forEach((overlay) => {
     const card = overlay.closest('.exercise-card');
     const idx = card ? Number(card.getAttribute('data-index')) : -1;
-    overlay.classList.toggle('is-visible', showActive && idx === currentIndex);
+    const isActive = workoutLive && idx === currentIndex;
+    // Persistent visibility ONLY when paused on the active slide. Running
+    // state leans on flashPauseOverlay() for transient feedback.
+    overlay.classList.toggle('is-visible', isActive && !isTimerRunning);
+    const playIcon = overlay.querySelector('.pause-icon-play');
+    const pauseIcon = overlay.querySelector('.pause-icon-pause');
+    if (playIcon) playIcon.hidden = !showPlayIcon;
+    if (pauseIcon) pauseIcon.hidden = showPlayIcon;
   });
+}
+
+/**
+ * Briefly surface the pause overlay at full alpha to confirm a toggle.
+ * CSS animation (.media-pause-overlay.is-flashing) holds at 1 alpha then
+ * fades — we just toggle the class and clear any in-flight timer so
+ * rapid taps don't leak stacked animations.
+ */
+function flashPauseOverlay() {
+  if (!$cardTrack) return;
+  const card = $cardTrack.querySelector(`.exercise-card[data-index="${currentIndex}"]`);
+  if (!card) return;
+  const overlay = card.querySelector('.media-pause-overlay');
+  if (!overlay) return;
+  const playIcon = overlay.querySelector('.pause-icon-play');
+  const pauseIcon = overlay.querySelector('.pause-icon-pause');
+  // Match the glyph semantics used by updatePauseOverlay (Wave 19.3):
+  // PLAY glyph only during an explicit mid-workout pause; PAUSE glyph any
+  // time the video is playing (pre-start preview, prep, or running).
+  const showPlayIcon = isWorkoutMode && !isPrepPhase && !isTimerRunning;
+  if (playIcon) playIcon.hidden = !showPlayIcon;
+  if (pauseIcon) pauseIcon.hidden = showPlayIcon;
+  // Restart the animation — remove, force reflow, re-add.
+  overlay.classList.remove('is-flashing');
+  void overlay.offsetWidth;
+  overlay.classList.add('is-flashing');
 }
 
 /**
@@ -1817,7 +2327,258 @@ function schedulePrepFade() {
 }
 
 /**
- * Show workout complete screen
+ * Rest countdown overlay — big coral number overlaid on the last visible
+ * frame during rest slides. Reuses the prep-overlay visual language but
+ * at the viewport level (not inside the card) because the rest card has
+ * its own sage-tinted composed display. Only visible when the current
+ * slide is rest AND the workout timer is running (hidden during pause /
+ * prep / exercise slides).
+ */
+function updateRestCountdownOverlay() {
+  if (!$restCountdownOverlay || !$restCountdownNumber) return;
+  const slide = slides[currentIndex];
+  const isRestSlide = !!(slide && slide.media_type === 'rest');
+  const visible = isWorkoutMode && isRestSlide && !isPrepPhase;
+  $restCountdownOverlay.hidden = !visible;
+  if (visible) {
+    $restCountdownNumber.textContent = String(Math.max(0, remainingSeconds));
+  }
+}
+
+/**
+ * Milestone Q — render the per-exercise segmented progress bar. One
+ * segment per set (coral) + one segment per breather (sage) interleaved.
+ *
+ * Segment visual states:
+ *   * complete — solid full fill
+ *   * active   — partial fill driven by `setPhaseRemaining` vs the
+ *                phase's total duration; only ONE segment is active at
+ *                any moment
+ *   * upcoming — empty outline
+ *
+ * Hidden when:
+ *   * pre-workout (outside workout mode) — keeps the pre-start preview clean
+ *   * rest slides (rest slide already gets #rest-countdown-overlay)
+ *   * single-set exercises with no breather (nothing meaningful to show)
+ */
+function updateSetProgressBar() {
+  if (!$setProgressBar) return;
+  const slide = slides[currentIndex];
+  const eligible = !!slide
+    && slide.media_type !== 'rest'
+    && isWorkoutMode
+    && (totalSetsForSlide > 1 || interSetRestForSlide > 0);
+  $setProgressBar.hidden = !eligible;
+  if (!eligible) {
+    $setProgressBar.innerHTML = '';
+    return;
+  }
+
+  const perSet = calculatePerSetSeconds(slide);
+  const reps = slide.reps || 0;
+  const segments = [];
+  for (let i = 0; i < totalSetsForSlide; i++) {
+    segments.push({ kind: 'set', index: i, total: perSet });
+    if (i < totalSetsForSlide - 1 && interSetRestForSlide > 0) {
+      segments.push({ kind: 'rest', index: i, total: interSetRestForSlide });
+    }
+  }
+
+  // Determine which segment is active.
+  let activeSegIdx = -1;
+  for (let s = 0; s < segments.length; s++) {
+    const seg = segments[s];
+    const matchSet = seg.kind === 'set' && setPhase === 'set' && seg.index === currentSetIndex;
+    const matchRest = seg.kind === 'rest' && setPhase === 'rest' && seg.index === currentSetIndex;
+    if (matchSet || matchRest) { activeSegIdx = s; break; }
+  }
+
+  // Build / refresh the segment DOM. Rebuild in full — cheap (tens of
+  // children max) and keeps state simple.
+  const html = segments.map((seg, s) => {
+    let stateClass;
+    let fillPct = 0;
+    if (s < activeSegIdx) {
+      stateClass = 'set-progress-bar-segment--complete';
+      fillPct = 100;
+    } else if (s === activeSegIdx) {
+      stateClass = 'set-progress-bar-segment--active';
+      const remaining = Math.max(0, setPhaseRemaining);
+      const total = Math.max(1, seg.total);
+      fillPct = Math.max(0, Math.min(100, ((total - remaining) / total) * 100));
+    } else {
+      stateClass = 'set-progress-bar-segment--upcoming';
+    }
+    const kindClass = seg.kind === 'set'
+      ? 'set-progress-bar-segment--set'
+      : 'set-progress-bar-segment--rest';
+    const label = seg.kind === 'set'
+      ? (reps > 0 ? `Set ${seg.index + 1} · ${reps} reps` : `Set ${seg.index + 1}`)
+      : 'Breather';
+    return `<div class="set-progress-bar-segment ${kindClass} ${stateClass}"
+                 role="presentation">
+              <div class="set-progress-bar-segment-fill"
+                   style="width: ${fillPct.toFixed(1)}%"></div>
+              <div class="set-progress-bar-segment-label">${escapeHTML(label)}</div>
+            </div>`;
+  }).join('');
+  $setProgressBar.innerHTML = html;
+}
+
+/**
+ * Milestone Q — sage countdown overlay shown during the inter-set
+ * breather. Sits on top of the paused video (set phase pauses video at
+ * last visible frame; breather overlay fades in over it). Big sage
+ * number + a restful glyph + "Breather" label.
+ *
+ * Hidden when:
+ *   * not in workout mode
+ *   * prep phase (coral prep overlay owns the viewport then)
+ *   * set phase (video is playing)
+ *   * rest slide (rest slide has its own dedicated rest overlay)
+ */
+function updateBreatherOverlay() {
+  if (!$breatherOverlay || !$breatherNumber) return;
+  const slide = slides[currentIndex];
+  const isRest = !!(slide && slide.media_type === 'rest');
+  const visible = isWorkoutMode
+    && !isPrepPhase
+    && !isRest
+    && setPhase === 'rest';
+  $breatherOverlay.hidden = !visible;
+  if (visible) {
+    $breatherNumber.textContent = String(Math.max(0, setPhaseRemaining));
+  }
+}
+
+/**
+ * Prep play-gating — during the prep countdown, the active video is
+ * paused and reset to the first frame so nothing plays behind the coral
+ * digits. Called by startPrepPhase + finishPrepPhase.
+ */
+function gateVideoForPrep(shouldGate) {
+  const currentVideo = document.getElementById(`video-${currentIndex}`);
+  if (!currentVideo) return;
+  if (shouldGate) {
+    try {
+      currentVideo.pause();
+      currentVideo.currentTime = 0;
+    } catch (_) {
+      // Ignore — some browsers throw on currentTime set while metadata loads.
+    }
+  } else {
+    currentVideo.play().catch((err) => {
+      console.warn('video resume after prep failed:', err);
+    });
+  }
+}
+
+// ============================================================
+// Top-stack v1 — fullscreen ambient mode + chrome reveal
+// ============================================================
+
+/**
+ * Request browser fullscreen on the document root. Caller MUST be inside
+ * a user gesture (button click / tap) — browsers reject the API call
+ * otherwise. We flip body.is-fullscreen via the fullscreenchange event
+ * listener rather than directly, so the class reflects reality even if
+ * the user exits via the browser's own UI (Esc key, mobile swipe-down).
+ */
+function requestFullscreen() {
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req) {
+    try { req.call(el); } catch (_) { /* swallow */ }
+    return;
+  }
+  // iPhone Safari fallback — no Fullscreen API. Flip the body class
+  // ourselves, lock scroll, and re-run the change handler so aria state +
+  // icon swap match the real-API path. The fullscreenchange event is
+  // browser-only; faux mode never fires it, hence the explicit call.
+  fauxFullscreenActive = true;
+  fauxFullscreenPrevHtmlOverflow = document.documentElement.style.overflow || '';
+  fauxFullscreenPrevBodyOverflow = document.body.style.overflow || '';
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
+  onFullscreenChange();
+}
+
+function exitFullscreen() {
+  if (fauxFullscreenActive) {
+    fauxFullscreenActive = false;
+    document.documentElement.style.overflow = fauxFullscreenPrevHtmlOverflow;
+    document.body.style.overflow = fauxFullscreenPrevBodyOverflow;
+    fauxFullscreenPrevHtmlOverflow = '';
+    fauxFullscreenPrevBodyOverflow = '';
+    onFullscreenChange();
+    return;
+  }
+  const ex = document.exitFullscreen || document.webkitExitFullscreen;
+  if (ex) {
+    try { ex.call(document); } catch (_) { /* swallow */ }
+  }
+}
+
+function isFullscreenActive() {
+  return !!(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    fauxFullscreenActive
+  );
+}
+
+function toggleFullscreen() {
+  if (isFullscreenActive()) {
+    exitFullscreen();
+  } else {
+    requestFullscreen();
+  }
+}
+
+function onFullscreenChange() {
+  const active = isFullscreenActive();
+  document.body.classList.toggle('is-fullscreen', active);
+  // Reset chrome-visible when leaving fullscreen — it's pointless outside
+  // ambient mode and the overlay alphas are full anyway.
+  if (!active) {
+    document.body.classList.remove('chrome-visible');
+    if (chromeRevealTimer) {
+      clearTimeout(chromeRevealTimer);
+      chromeRevealTimer = null;
+    }
+  }
+  // Swap enter/exit icons.
+  if ($btnFullscreen) {
+    $btnFullscreen.setAttribute('aria-pressed', active ? 'true' : 'false');
+    $btnFullscreen.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Enter fullscreen');
+    const enter = $btnFullscreen.querySelector('.fs-icon-enter');
+    const exit = $btnFullscreen.querySelector('.fs-icon-exit');
+    if (enter) enter.hidden = active;
+    if (exit) exit.hidden = !active;
+  }
+}
+
+/**
+ * Reveal chrome (edge-nav, mute, fullscreen, notes) at 100% alpha for 3s
+ * after any tap / touch on the card viewport while in fullscreen. Does
+ * nothing outside fullscreen — regular mode already keeps the overlays
+ * at full alpha.
+ */
+function onCardViewportInteraction() {
+  if (!document.body.classList.contains('is-fullscreen')) return;
+  document.body.classList.add('chrome-visible');
+  if (chromeRevealTimer) clearTimeout(chromeRevealTimer);
+  chromeRevealTimer = setTimeout(() => {
+    document.body.classList.remove('chrome-visible');
+    chromeRevealTimer = null;
+  }, CHROME_REVEAL_MS);
+}
+
+/**
+ * Show workout complete screen. The celebratory cue is CSS-driven:
+ * .workout-complete-glow radial gradient fades in, .workout-complete-icon
+ * scales in over 200ms. We retrigger by removing + re-adding the `is-live`
+ * class so the animation restarts cleanly even after a second workout.
  */
 function finishWorkout() {
   clearWorkoutTimer();
@@ -1827,6 +2588,7 @@ function finishWorkout() {
 
   updatePauseOverlay();
   updatePrepOverlay();
+  updateRestCountdownOverlay();
 
   // Calculate total workout time
   const elapsedMs = Date.now() - workoutStartTime;
@@ -1834,10 +2596,18 @@ function finishWorkout() {
   $workoutTotalTime.textContent = `Total time: ${formatTime(elapsedSeconds)}`;
 
   $workoutComplete.hidden = false;
+  // Kick the celebratory cue. Remove + rAF + add so the CSS animation
+  // starts fresh even on a repeat workout.
+  if ($workoutComplete) {
+    $workoutComplete.classList.remove('is-live');
+    // eslint-disable-next-line no-unused-expressions
+    void $workoutComplete.offsetWidth;
+    $workoutComplete.classList.add('is-live');
+  }
 
   // Flip the ETA to "Done" end-state.
   workoutCompleteFlag = true;
-  updateEtaDisplay();
+  updateTimelineBar();
 }
 
 /**
@@ -1854,19 +2624,24 @@ function exitWorkout() {
   workoutStartTime = null;
 
   $workoutComplete.hidden = true;
+  if ($workoutComplete) $workoutComplete.classList.remove('is-live');
   updatePauseOverlay();
   updatePrepOverlay();
+  updateRestCountdownOverlay();
+
+  // Drop the top-stack fullscreen — we're back to browse mode so the
+  // top-stack chrome belongs on-screen.
+  if (isFullscreenActive()) exitFullscreen();
 
   // Show the start workout button again
   $startWorkoutBtn.hidden = false;
 
-  // Rebuild the matrix (which re-injects the ETA HTML replacing the "Done"
-  // innerHTML, if it was set) and reset the end-state flag so the readout
-  // shows the pre-workout stale total again.
+  // Rebuild the matrix + reset the end-state flag so the readout shows
+  // the pre-workout stale total again.
   workoutCompleteFlag = false;
   buildProgressMatrix();
   updateProgressMatrix();
-  updateEtaDisplay();
+  updateTimelineBar();
 }
 
 // ============================================================
@@ -1964,27 +2739,6 @@ function renderFooterLogo() {
 }
 
 // ============================================================
-// Teaching peek (item 9 — R-09)
-// ------------------------------------------------------------
-// On preview start, auto-show the centered peek for the current slide for
-// 2 seconds so the user learns the visual grammar once. Stays out of the
-// way afterwards — only returns during long-press scrubbing in the matrix.
-// ============================================================
-
-function scheduleTeachingPeek() {
-  if (teachingPeekTimer) {
-    clearTimeout(teachingPeekTimer);
-    teachingPeekTimer = null;
-  }
-  if (!slides.length) return;
-  openPeek(currentIndex, { teaching: true });
-  teachingPeekTimer = setTimeout(() => {
-    closePeek();
-    teachingPeekTimer = null;
-  }, 2200);
-}
-
-// ============================================================
 // Service Worker Registration
 // ============================================================
 
@@ -2057,32 +2811,71 @@ async function init() {
     // handler; the client-facing treatment picker was removed because the
     // practitioner's per-exercise preferred_treatment is the authority.)
     $cardViewport.addEventListener('click', handleMediaTap);
+    // Tap on the video surface while fullscreen — briefly reveal chrome
+    // (edge-nav, mute, fullscreen-toggle, notes) for 3s.
+    $cardViewport.addEventListener('touchstart', onCardViewportInteraction, { passive: true });
+    $cardViewport.addEventListener('click', onCardViewportInteraction);
     document.addEventListener('keydown', onKeyDown);
-
-    // Dot navigation
-    $navDots.addEventListener('click', (e) => {
-      const dot = e.target.closest('.nav-dot');
-      if (dot) {
-        if (isWorkoutMode) {
-          // Reset timer when jumping via dots
-          clearWorkoutTimer();
-          clearPrepTimer();
-          isTimerRunning = false;
-          isPrepPhase = false;
-        }
-        closePeek();
-        goTo(parseInt(dot.dataset.index, 10));
-      }
-    });
 
     // Workout timer events
     $startWorkoutBtn.addEventListener('click', startWorkout);
     $workoutCloseBtn.addEventListener('click', exitWorkout);
 
+    // Fullscreen toggle — body.is-fullscreen drives ambient mode CSS.
+    if ($btnFullscreen) {
+      $btnFullscreen.addEventListener('click', toggleFullscreen);
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+
+    // Settings popover — opens on click, closes on outside click / Esc.
+    // The checkbox drives the segmented-effect opt-out (Milestone P).
+    if ($btnSettings && $settingsPopover) {
+      // Prime the visible state from the persisted preference before
+      // the first interaction, so reopens reflect what's actually live.
+      if ($toggleSegmentedEffect) {
+        $toggleSegmentedEffect.checked = segmentedEffectEnabled;
+      }
+      updateSegmentedEffectHint();
+
+      $btnSettings.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSettingsPopoverOpen(!isSettingsPopoverOpen());
+      });
+      // Clicks inside the popover must NOT bubble to the document-level
+      // outside-click handler below — stop at the popover boundary.
+      $settingsPopover.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+      if ($toggleSegmentedEffect) {
+        $toggleSegmentedEffect.addEventListener('change', () => {
+          applySegmentedEffectChange(!!$toggleSegmentedEffect.checked);
+        });
+      }
+      // Outside-click closes the popover. Capture=true so we see the
+      // event before other handlers (card-viewport taps, etc.) can
+      // swallow it.
+      document.addEventListener('click', (e) => {
+        if (!isSettingsPopoverOpen()) return;
+        const t = e.target;
+        if (t && (t.closest && (t.closest('#settings-popover') || t.closest('#btn-settings')))) return;
+        setSettingsPopoverOpen(false);
+      }, true);
+    }
+
+    // Card notes overlay — tap toggles 3-line clamp vs full.
+    if ($cardNotes) {
+      $cardNotes.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const expanded = $cardNotes.classList.toggle('is-expanded');
+        $cardNotes.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      });
+    }
+
     // (Item 7) The dedicated timer-chip click binding is retired — tapping
     // the media area via handleMediaTap() is the only pause/resume control.
 
-    // Progress-pill matrix — touch handlers drive both long-press peek
+    // Progress-pill matrix — touch handlers drive both long-press jump
     // (finger held over a pill for >380ms) and manual scrub (horizontal drag).
     if ($matrix) {
       $matrix.addEventListener('touchstart', onMatrixTouchStart, { passive: false });
@@ -2101,8 +2894,8 @@ async function init() {
       // Re-choose size tier on viewport resize — rebuild is cheap.
       window.addEventListener('resize', () => {
         const prev = matrixSizeTier;
-        const cols = buildMatrixColumns();
-        const nextTier = chooseMatrixSizeTier(cols.length, window.innerWidth);
+        const blocks = buildMatrixBlocks();
+        const nextTier = chooseMatrixSizeTier(countMatrixColumns(blocks), window.innerWidth);
         if (nextTier !== prev) {
           buildProgressMatrix();
           updateProgressMatrix();
@@ -2119,10 +2912,6 @@ async function init() {
 
     // Show the Start Workout button
     $startWorkoutBtn.hidden = false;
-
-    // R-09 teaching peek — 2s centered peek for the first slide so users
-    // learn the name + grammar vocabulary once.
-    scheduleTeachingPeek();
 
   } catch (err) {
     console.error('Failed to load plan:', err);
