@@ -647,21 +647,32 @@ class ApiClient {
   /// `upsert_client(p_practice_id, p_name)` — idempotent lookup-or-create.
   /// Returns the client id (uuid). Used by the publish path so existing
   /// plans with `clientName` free-text become linked to a `clients` row.
+  ///
+  /// Errors propagate — matches [upsertClientWithId]. The publish path
+  /// MUST fail hard when this throws, otherwise `plans.client_id` gets
+  /// written as NULL and `get_plan_full` falls back to default consent
+  /// (line-drawing only). Notable error signals callers should handle:
+  ///
+  /// * [PostgrestException] `23505` with "already uses that name" —
+  ///   a soft-deleted client in this practice owns [name]. The
+  ///   practitioner must restore it from the recycle bin or rename
+  ///   before republishing; no automatic resolution.
+  /// * [PostgrestException] `42501` — caller isn't a member of
+  ///   [practiceId].
+  /// * Any other exception — network / auth / transient DB error.
+  ///
+  /// Returns null only when the RPC succeeds but yields no id (defensive;
+  /// the SQL contract guarantees a uuid on success).
   Future<String?> upsertClient({
     required String practiceId,
     required String name,
   }) async {
-    try {
-      final result = await _guardAuth(() => raw.rpc(
-            'upsert_client',
-            params: {'p_practice_id': practiceId, 'p_name': name},
-          ));
-      if (result is String && result.isNotEmpty) return result;
-      return null;
-    } catch (e) {
-      debugPrint('ApiClient.upsertClient failed: $e');
-      return null;
-    }
+    final result = await _guardAuth(() => raw.rpc(
+          'upsert_client',
+          params: {'p_practice_id': practiceId, 'p_name': name},
+        ));
+    if (result is String && result.isNotEmpty) return result;
+    return null;
   }
 
   /// `upsert_client_with_id(p_id, p_practice_id, p_name)` — offline-first

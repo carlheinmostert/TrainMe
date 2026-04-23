@@ -53,6 +53,20 @@ class UnconsentedTreatmentsException implements Exception {
       'for $clientName)';
 }
 
+/// Carries a pre-formatted user-visible publish error message without the
+/// `Bad state:` / `Exception:` prefixes that `StateError` / `Exception`
+/// produce via `.toString()`. Used as the `error` payload on
+/// [PublishResult.networkFailed] when the underlying failure has a
+/// cleaner caller-authored message (e.g. client-linkage collisions).
+/// Falling back to [StateError] for raw exceptions still works —
+/// [PublishResult.toErrorString] handles both.
+class PublishFailureMessage implements Exception {
+  final String message;
+  const PublishFailureMessage(this.message);
+  @override
+  String toString() => message;
+}
+
 /// Outcome of a publish attempt. Exhaustive via the five factories:
 /// [PublishResult.success], [PublishResult.preflightFailed],
 /// [PublishResult.networkFailed], [PublishResult.insufficientCredits],
@@ -455,13 +469,45 @@ class UploadService {
       // clientName. Without this, plans.client_id stays null, which
       // blocks get_plan_full from issuing the grayscale / original
       // signed URLs (the RPC needs a client to check video_consent
-      // against). Best-effort: if the upsert fails we continue with a
-      // null client_id — the plan still publishes, but cloud B&W /
-      // Original won't work until a subsequent publish links it.
-      final clientId = await _api.upsertClient(
-        practiceId: practiceId,
-        name: session.clientName,
-      );
+      // against).
+      //
+      // Hard failure: if the upsert throws we MUST bail before
+      // consume_credit runs. Previously we swallowed the error inside
+      // ApiClient.upsertClient and continued with a null client_id —
+      // the plan still "published" but the web player couldn't surface
+      // B&W / Original treatments even after consent. The most common
+      // throw is SQLSTATE 23505 "a deleted client already uses that
+      // name — restore it instead", which the practitioner can only
+      // fix by restoring from the recycle bin or renaming the client;
+      // retrying the publish as-is will loop forever.
+      //
+      // Ordering: runs BEFORE consume_credit (step 3b) so a throw
+      // here means no credits were taken and no refund is needed.
+      final String? clientId;
+      try {
+        clientId = await _api.upsertClient(
+          practiceId: practiceId,
+          name: session.clientName,
+        );
+      } catch (e) {
+        final String userMessage;
+        if (e is PostgrestException &&
+            e.code == '23505' &&
+            (e.message.toLowerCase().contains('already uses that name') ||
+                e.message.toLowerCase().contains('restore it instead'))) {
+          userMessage =
+              'This client name collides with a deleted client. Open the '
+              'recycle bin and restore it, or rename before republishing.';
+        } else {
+          userMessage =
+              'Could not register client with server — check connection '
+              'and retry.';
+        }
+        await _recordFailure(session, userMessage);
+        return PublishResult.networkFailed(
+          error: PublishFailureMessage(userMessage),
+        );
+      }
 
       // Step 3b: ensure a plan row exists so consume_credit's FK is
       // satisfied on first-ever publish. On re-publish this is a no-op
