@@ -64,12 +64,27 @@ import CoreVideo
 //     0.70 so background black pixels now land at ~76/255 — dark grey
 //     instead of mid grey. Expect the equipment + environment sketches
 //     to feel substantially darker now.
+//   v7 (2026-04-22 "up the segmentation"): lo=1, hi=0.88, alpha=0.96, bgDim=0.50
+//     ↑ Carl's 2026-04-22 ask: "can we up the segmentation video effect
+//     which separates subject from background?" bgDim was over-lifting
+//     the background zone — at 0.70 a black line lands at ~76/255, only
+//     ~70% dimmed, so the body no longer popped against the environment.
+//     Dropping bgDim to 0.50 pushes background black pixels to ~128/255
+//     (mid grey) while the body zone stays untouched at full line-alpha
+//     intensity, restoring the subject/background contrast. Edge + line
+//     tuning unchanged — this is purely a segmentation-strength bump,
+//     not an edge-detection change. Vision quality level already on
+//     `.accurate` since v6; no change there.
 //
-//   ✅ LOCKED at v6 by Carl on 2026-04-20. Do NOT change these constants
-//      without an explicit Carl-sign-off — they're the product's
-//      signature visual identity and aesthetic signoff is a bar that
-//      shouldn't be crossed by a stray refactor. If a future agent has
-//      a thesis for adjusting them, open a separate discussion first.
+//   ✅ Edge / line tuning (edgeThresholdLo, edgeThresholdHi, lineAlpha)
+//      remains LOCKED at v6 by Carl on 2026-04-20. Do NOT change these
+//      three constants without explicit Carl-sign-off — they're the
+//      product's signature line-drawing aesthetic.
+//
+//   ✅ Segmentation tuning (backgroundDim) bumped to v7 on 2026-04-22
+//      with Carl's signoff. Subject/background separation is a separate
+//      visual axis from edge detection; if the body isn't popping enough
+//      on device, this is the first knob to turn.
 //
 // Safe tuning ranges (if you want to experiment on device):
 //   edgeThresholdLo  : 0 … 4   (int)
@@ -86,7 +101,10 @@ private let lineAlpha: Double = 0.96
 /// `lineAlpha` (`out = 255 - (255 - v) * bgDim`). Value of 1.0 would
 /// mean "no dim" (background equal-strength to body). The 0.35 baseline
 /// kept body popping but crushed equipment sketches to near-white.
-private let backgroundDim: Double = 0.70
+/// v6 bumped this to 0.70 to recover equipment legibility; v7 (2026-04-22)
+/// dropped it back to 0.50 to restore subject-pop after Carl's feedback
+/// that the body wasn't separating strongly enough from the background.
+private let backgroundDim: Double = 0.50
 
 /// Native iOS platform channel for video-to-line-drawing conversion.
 ///
