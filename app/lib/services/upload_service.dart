@@ -502,12 +502,29 @@ class UploadService {
       //
       // Ordering: runs BEFORE consume_credit (step 3b) so a throw
       // here means no credits were taken and no refund is needed.
+      // Prefer the ID-first RPC when the session already knows its
+      // clientId — `upsert_client_with_id` looks up by id and returns
+      // early if a live row exists, bypassing the name-collision check
+      // entirely. That matters when a soft-deleted client in this
+      // practice happens to share a name with the one we're about to
+      // publish: `upsert_client` would raise 23505, while
+      // `upsert_client_with_id` just resolves by id. Falls back to the
+      // name-only RPC for legacy sessions with no clientId.
       final String? clientId;
       try {
-        clientId = await _api.upsertClient(
-          practiceId: practiceId,
-          name: effectiveClientName,
-        );
+        final knownClientId = session.clientId;
+        if (knownClientId != null && knownClientId.isNotEmpty) {
+          clientId = await _api.upsertClientWithId(
+            clientId: knownClientId,
+            practiceId: practiceId,
+            name: effectiveClientName,
+          );
+        } else {
+          clientId = await _api.upsertClient(
+            practiceId: practiceId,
+            name: effectiveClientName,
+          );
+        }
       } catch (e) {
         final String userMessage;
         if (e is PostgrestException &&
