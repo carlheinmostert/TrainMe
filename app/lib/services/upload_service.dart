@@ -343,6 +343,25 @@ class UploadService {
     final nonRestCount = session.exercises.where((e) => !e.isRest).length;
     final creditsToCharge = creditCostFor(nonRestCount);
 
+    // Resolve the LIVE client name. `session.clientName` is a legacy
+    // mirror of `clients.name` — it was frozen at session creation and
+    // the R-11 rename flow (SyncService.queueRenameClient) only updates
+    // `cached_clients`, not existing sessions. Publish-via-stale-name
+    // hits 23505 "restore it instead" when the session's old name
+    // coincides with a soft-deleted client from before the rename.
+    //
+    // Fall back to `session.clientName` for legacy sessions where
+    // `clientId` is null (pre-R-11 rows) and for the extreme edge where
+    // the cache lookup returns null (client row purged while the
+    // session still exists).
+    String effectiveClientName = session.clientName;
+    if (session.clientId != null && session.clientId!.isNotEmpty) {
+      final cached = await _storage.getCachedClientById(session.clientId!);
+      if (cached != null && cached.name.trim().isNotEmpty) {
+        effectiveClientName = cached.name;
+      }
+    }
+
     // ------------------------------------------------------------------
     // Step 0: Pre-flight consent validation (Wave 16 / Milestone V)
     //
@@ -377,7 +396,7 @@ class UploadService {
       if (violations.isNotEmpty) {
         final exc = UnconsentedTreatmentsException(
           violations: violations,
-          clientName: session.clientName,
+          clientName: effectiveClientName,
         );
         await _recordFailure(session, exc.toString());
         return PublishResult.unconsentedTreatments(exc);
@@ -487,7 +506,7 @@ class UploadService {
       try {
         clientId = await _api.upsertClient(
           practiceId: practiceId,
-          name: session.clientName,
+          name: effectiveClientName,
         );
       } catch (e) {
         final String userMessage;
@@ -516,7 +535,7 @@ class UploadService {
       // conflict). The version stays at `session.version` here.
       await _api.upsertPlan({
         'id': session.id,
-        'client_name': session.clientName,
+        'client_name': effectiveClientName,
         'client_id': clientId,
         'title': session.displayTitle,
         // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
@@ -567,7 +586,7 @@ class UploadService {
       // ----------------------------------------------------------------
       await _api.upsertPlan({
         'id': session.id,
-        'client_name': session.clientName,
+        'client_name': effectiveClientName,
         'client_id': clientId,
         'title': session.displayTitle,
         'circuit_cycles': session.circuitCycles,
@@ -808,7 +827,7 @@ class UploadService {
         }
         final exc = UnconsentedTreatmentsException(
           violations: violations,
-          clientName: session.clientName,
+          clientName: effectiveClientName,
         );
         await _recordFailure(session, exc.toString());
         return PublishResult.unconsentedTreatments(exc);
