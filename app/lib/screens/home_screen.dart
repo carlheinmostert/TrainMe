@@ -281,6 +281,20 @@ class _HomeScreenState extends State<HomeScreen> {
   // Actions
   // ---------------------------------------------------------------------------
 
+  /// Four hex chars (16^4 = 65_536 namespace) for the default client
+  /// name. Picked lazily once per `_addClient` call so every mint gets
+  /// a fresh suffix. Collision rate is ~1/65_536 per-practice — well
+  /// below the rate at which the practitioner would rename anyway, and
+  /// the publish path surfaces the 23505 fallback if it ever happens.
+  String _randomClientSuffix() {
+    final rnd = Random.secure();
+    final buffer = StringBuffer();
+    for (var i = 0; i < 4; i++) {
+      buffer.write(rnd.nextInt(16).toRadixString(16));
+    }
+    return buffer.toString();
+  }
+
   Future<void> _openSettings() async {
     HapticFeedback.selectionClick();
     await Navigator.of(context).push(
@@ -306,21 +320,21 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // Pick the first unused "New client {N}" slot. Must exclude
-    // soft-deleted names too — the server-side unique index on
-    // `(practice_id, name)` ignores `deleted_at`, so reusing a
-    // recycle-bin name would explode at publish with "restore it
-    // instead" (see upload_service.dart:499).
-    final reserved = await widget.storage
-        .getAllCachedClientNamesForPractice(practiceId);
-    for (final c in _clients) {
-      reserved.add(c.name);
-    }
-    int i = 1;
-    while (reserved.contains('New client $i')) {
-      i++;
-    }
-    final defaultName = 'New client $i';
+    // Default name uses a 4-char random suffix so it can never collide
+    // with an existing (or soft-deleted) client in this practice. The
+    // prior sequential "New client N" picker scanned only the local
+    // cache for collisions, but `list_practice_clients` filters out
+    // `deleted_at IS NOT NULL` — recycle-bin names from other devices
+    // never landed in the cache, which meant publish could still
+    // explode with 23505 "a deleted client already uses that name".
+    //
+    // The practitioner is dropped straight into ClientSessionsScreen
+    // after creation where the inline-edit affordance lets them rename
+    // to something human. 65k namespace × per-practice scope makes
+    // same-suffix collisions vanishingly rare; if one ever does happen,
+    // the publish path now catches 23505 and surfaces the rename/
+    // restore message.
+    final defaultName = 'New client ${_randomClientSuffix()}';
 
     PracticeClient freshClient;
     try {

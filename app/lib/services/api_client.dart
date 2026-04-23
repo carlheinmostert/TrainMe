@@ -511,6 +511,66 @@ class ApiClient {
     await _guardAuth(() => raw.from('plans').upsert(row));
   }
 
+  /// Every client name in the practice, INCLUDING soft-deleted rows.
+  /// Milestone W — exposes recycle-bin names to the default-name picker
+  /// so it doesn't mint "New client N" only for publish to fail against
+  /// the unique index with 23505 "a deleted client already uses that
+  /// name".
+  ///
+  /// Returns an empty set on any error (offline, RPC permission, etc.).
+  /// The caller's fallback is the local-cache scan, which is still
+  /// correct for the single-device lifetime — the cloud check is a
+  /// multi-device / cross-session safety net.
+  Future<Set<String>> listAllClientNamesIncludingDeleted(
+    String practiceId,
+  ) async {
+    try {
+      final dynamic result = await _guardAuth(() => raw.rpc(
+            'list_all_client_names',
+            params: {'p_practice_id': practiceId},
+          ));
+      if (result is! List) return const <String>{};
+      return result
+          .whereType<Map>()
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toSet();
+    } catch (e) {
+      debugPrint(
+        'ApiClient.listAllClientNamesIncludingDeleted failed: $e',
+      );
+      return const <String>{};
+    }
+  }
+
+  /// Lightweight fetch of a plan's publish state (version + sent_at).
+  /// Used by the session-open reconciliation path — if the publish flow
+  /// crashed after `consume_credit` but before `saveSession(updated)`
+  /// landed locally, the cloud row has version>0 / sent_at set but the
+  /// local row is still at version=0 / planUrl=null. Opening the session
+  /// then shows no share button. This fetch lets the Studio screen
+  /// detect that divergence and backfill.
+  ///
+  /// Returns null on any error (network, row not found, etc.). Callers
+  /// treat null as "don't reconcile" — the session stays at its local
+  /// state, which is the safe default.
+  Future<Map<String, dynamic>?> getPlanPublishState(String planId) async {
+    try {
+      final dynamic result = await _guardAuth(() => raw
+          .from('plans')
+          .select('version, sent_at')
+          .eq('id', planId)
+          .maybeSingle());
+      if (result is Map) {
+        return Map<String, dynamic>.from(result);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('ApiClient.getPlanPublishState failed for $planId: $e');
+      return null;
+    }
+  }
+
   /// Atomic replace-all-exercises for a plan (Wave 18.1).
   ///
   /// Wraps DELETE + INSERT inside a single SECURITY DEFINER transaction

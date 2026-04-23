@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import '../config.dart';
 import '../models/session.dart';
+import '../services/api_client.dart';
 import '../services/local_storage_service.dart';
 import '../theme.dart';
 import 'capture_mode_screen.dart';
@@ -46,6 +50,47 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
     super.initState();
     _session = widget.session;
     _pageController = PageController(initialPage: widget.initialPage);
+    // If a previous publish crashed between cloud commit and the local
+    // `saveSession(updated)` write (e.g. the conversion-queue wedge
+    // triage before 23950b0 forced kill-and-restart), the local row is
+    // missing planUrl/version/sentAt while Supabase has the plan
+    // published. Studio then renders the share button as dim. Reconcile
+    // here so the bio gets their share link back without re-publishing.
+    unawaited(_reconcileWithCloudIfUnpublished());
+  }
+
+  Future<void> _reconcileWithCloudIfUnpublished() async {
+    if (_session.isPublished) return;
+    try {
+      final cloud = await ApiClient.instance.getPlanPublishState(_session.id);
+      if (cloud == null || !mounted) return;
+      final rawVersion = cloud['version'];
+      final cloudVersion = rawVersion is int
+          ? rawVersion
+          : (rawVersion is num ? rawVersion.toInt() : 0);
+      final sentAtStr = cloud['sent_at'];
+      if (cloudVersion <= 0 || sentAtStr is! String || sentAtStr.isEmpty) {
+        return;
+      }
+      final cloudSentAt = DateTime.tryParse(sentAtStr);
+      if (cloudSentAt == null) return;
+      final planUrl = '${AppConfig.webPlayerBaseUrl}/p/${_session.id}';
+      final healed = _session.copyWith(
+        version: cloudVersion,
+        planUrl: planUrl,
+        sentAt: cloudSentAt,
+        lastPublishedAt: cloudSentAt,
+      );
+      await widget.storage.saveSession(healed);
+      if (!mounted) return;
+      setState(() => _session = healed);
+      debugPrint(
+        'SessionShell: reconciled local row for ${_session.id} — '
+        'cloud v$cloudVersion sentAt=$sentAtStr',
+      );
+    } catch (e) {
+      debugPrint('SessionShell reconcile failed: $e');
+    }
   }
 
   @override
