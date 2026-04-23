@@ -213,7 +213,15 @@ class ConversionService extends ChangeNotifier {
                 'timeMs': 0,
                 'autoPick': true,
                 'grayscale': true,
-              });
+              }).timeout(
+                const Duration(seconds: 30),
+                onTimeout: () {
+                  throw TimeoutException(
+                    'Native extractFrame exceeded 30s '
+                    '(exercise=${exercise.id})',
+                  );
+                },
+              );
               done = done.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
             }
           } catch (e) {
@@ -230,6 +238,14 @@ class ConversionService extends ChangeNotifier {
             final ms = await _videoChannel.invokeMethod<int>(
               'getVideoDuration',
               {'inputPath': rawPath},
+            ).timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                throw TimeoutException(
+                  'Native getVideoDuration exceeded 10s '
+                  '(exercise=${exercise.id})',
+                );
+              },
             );
             if (ms != null && ms > 0) {
               done = done.copyWith(videoDurationMs: ms);
@@ -481,6 +497,14 @@ class ConversionService extends ChangeNotifier {
           'autoPick': true,
           'grayscale': true,
         },
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException(
+            'Native thumb extractFrame exceeded 30s '
+            '(exercise=$exerciseId)',
+          );
+        },
       );
       if (result != null && await File(thumbPath).exists()) {
         debugPrint('Native thumb channel succeeded: $thumbPath');
@@ -527,6 +551,14 @@ class ConversionService extends ChangeNotifier {
           'timeMs': 0,
           'autoPick': true,
           'grayscale': true,
+        },
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException(
+            'Native extractThumbnail exceeded 30s '
+            '(exercise=$exerciseId)',
+          );
         },
       );
       if (result != null && result['success'] == true) {
@@ -668,9 +700,21 @@ class ConversionService extends ChangeNotifier {
       if (maskOutputPath != null) {
         args['maskOutputPath'] = maskOutputPath;
       }
+      // Hard ceiling — if the native side stalls (AVAssetWriter drain
+       // deadlock, disk backpressure, etc.) we'd otherwise wedge the entire
+      // ConversionService queue forever. 3 min is ~30x the worst realistic
+      // runtime for a 30s capture at 30fps; anything longer is pathological.
       final result = await _videoChannel.invokeMethod<Map>(
         'convertVideo',
         args,
+      ).timeout(
+        const Duration(minutes: 3),
+        onTimeout: () {
+          throw TimeoutException(
+            'Native convertVideo exceeded 3 min — treating as failed '
+            '(inputPath=$inputPath)',
+          );
+        },
       );
       if (result != null && result['success'] == true) {
         final segPath = result['segmentedOutputPath'] as String?;
