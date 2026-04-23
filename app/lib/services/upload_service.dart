@@ -53,6 +53,20 @@ class UnconsentedTreatmentsException implements Exception {
       'for $clientName)';
 }
 
+/// Carries a pre-formatted user-visible publish error message without the
+/// `Bad state:` / `Exception:` prefixes that `StateError` / `Exception`
+/// produce via `.toString()`. Used as the `error` payload on
+/// [PublishResult.networkFailed] when the underlying failure has a
+/// cleaner caller-authored message (e.g. client-linkage collisions).
+/// Falling back to [StateError] for raw exceptions still works —
+/// [PublishResult.toErrorString] handles both.
+class PublishFailureMessage implements Exception {
+  final String message;
+  const PublishFailureMessage(this.message);
+  @override
+  String toString() => message;
+}
+
 /// Outcome of a publish attempt. Exhaustive via the five factories:
 /// [PublishResult.success], [PublishResult.preflightFailed],
 /// [PublishResult.networkFailed], [PublishResult.insufficientCredits],
@@ -455,13 +469,45 @@ class UploadService {
       // clientName. Without this, plans.client_id stays null, which
       // blocks get_plan_full from issuing the grayscale / original
       // signed URLs (the RPC needs a client to check video_consent
-      // against). Best-effort: if the upsert fails we continue with a
-      // null client_id — the plan still publishes, but cloud B&W /
-      // Original won't work until a subsequent publish links it.
-      final clientId = await _api.upsertClient(
-        practiceId: practiceId,
-        name: session.clientName,
-      );
+      // against).
+      //
+      // Hard failure: if the upsert throws we MUST bail before
+      // consume_credit runs. Previously we swallowed the error inside
+      // ApiClient.upsertClient and continued with a null client_id —
+      // the plan still "published" but the web player couldn't surface
+      // B&W / Original treatments even after consent. The most common
+      // throw is SQLSTATE 23505 "a deleted client already uses that
+      // name — restore it instead", which the practitioner can only
+      // fix by restoring from the recycle bin or renaming the client;
+      // retrying the publish as-is will loop forever.
+      //
+      // Ordering: runs BEFORE consume_credit (step 3b) so a throw
+      // here means no credits were taken and no refund is needed.
+      final String? clientId;
+      try {
+        clientId = await _api.upsertClient(
+          practiceId: practiceId,
+          name: session.clientName,
+        );
+      } catch (e) {
+        final String userMessage;
+        if (e is PostgrestException &&
+            e.code == '23505' &&
+            (e.message.toLowerCase().contains('already uses that name') ||
+                e.message.toLowerCase().contains('restore it instead'))) {
+          userMessage =
+              'This client name collides with a deleted client. Open the '
+              'recycle bin and restore it, or rename before republishing.';
+        } else {
+          userMessage =
+              'Could not register client with server — check connection '
+              'and retry.';
+        }
+        await _recordFailure(session, userMessage);
+        return PublishResult.networkFailed(
+          error: PublishFailureMessage(userMessage),
+        );
+      }
 
       // Step 3b: ensure a plan row exists so consume_credit's FK is
       // satisfied on first-ever publish. On re-publish this is a no-op
@@ -602,6 +648,15 @@ class UploadService {
                 // "Prep seconds" inline field. Surfaces on the web
                 // player via get_plan_full (emitted by to_jsonb(e)).
                 'prep_seconds': e.prepSeconds,
+                // Inter-set rest "Post Rep Breather" (Milestone Q).
+                // null = no breather (legacy rows); 0 = explicit
+                // disable; positive int = practitioner-configured
+                // breather seconds between sets. Fresh mobile captures
+                // seed 15 via withPersistenceDefaults(). Surfaces on
+                // the web player via get_plan_full (emitted by
+                // to_jsonb(e)); the player shows a segmented progress
+                // bar + sage countdown chip between sets when sets > 1.
+                'inter_set_rest_seconds': e.interSetRestSeconds,
               })
           .toList();
 
@@ -862,6 +917,116 @@ class UploadService {
         meta: {
           'exercise_id': exercise.id,
           'storage_path': storagePath,
+        },
+        swallow: true,
+      );
+    }
+
+    // --- Segmented-color raw variant (Option 1-augment) ---
+    //
+    // Independent best-effort pass for the dual-output segmented mp4 the
+    // native converter writes alongside the line drawing. Stored at
+    // `{practiceId}/{planId}/{exerciseId}.segmented.mp4` in the same
+    // private `raw-archive` bucket. The web player's Color + B&W
+    // treatments pull this over the untouched original when
+    // `get_plan_full` returns a signed URL for it.
+    //
+    // Why a second loop (not folded into the one above):
+    //   * The two files are independently produced and independently
+    //     tracked — the segmented file can be missing on legacy rows
+    //     while the original is present, or vice versa on a future
+    //     re-run of just the segmented pass.
+    //   * Re-publish idempotency is the same pattern either way, but
+    //     we intentionally do NOT track "segmented uploaded" with a
+    //     dedicated column — Supabase storage upserts are safe to
+    //     retry, and skipping by filename prefix keeps the schema
+    //     smaller. Re-publishes will re-transfer if needed; the file
+    //     is small (720p + dim) and this is the exception path, not
+    //     the hot path.
+    //   * Failure here MUST NOT affect the original upload bookkeeping
+    //     above — we've already stamped `rawArchiveUploadedAt` for
+    //     the original; the segmented variant is additive.
+    for (final exercise in session.exercises) {
+      if (exercise.isRest) continue;
+      final segRel = exercise.segmentedRawFilePath;
+      if (segRel == null || segRel.isEmpty) continue;
+      final absSeg = exercise.absoluteSegmentedRawFilePath;
+      if (absSeg == null) continue;
+      final segFile = File(absSeg);
+      if (!segFile.existsSync()) {
+        debugPrint(
+          'UploadService: segmented raw file missing for exercise ${exercise.id} '
+          'at $absSeg — skipping.',
+        );
+        continue;
+      }
+      final segStoragePath =
+          '$practiceId/${session.id}/${exercise.id}.segmented.mp4';
+      await loudSwallow<bool>(
+        () async {
+          await _api.uploadRawArchive(path: segStoragePath, file: segFile);
+          return true;
+        },
+        kind: 'raw_archive_segmented_upload_failed',
+        source: 'UploadService._uploadRawArchives',
+        severity: 'warn',
+        meta: {
+          'practice_id': practiceId,
+          'plan_id': session.id,
+          'exercise_id': exercise.id,
+          'storage_path': segStoragePath,
+        },
+        swallow: true,
+      );
+    }
+
+    // --- Person-segmentation mask sidecar (Milestone P2) ---
+    //
+    // Third independent best-effort pass. Uploads the grayscale mask mp4
+    // produced by the native third AVAssetWriter to:
+    //   `{practiceId}/{planId}/{exerciseId}.mask.mp4`
+    //
+    // Same structural contract as the segmented loop above:
+    //   * Fully independent from the original + segmented passes — a
+    //     failure here MUST NOT disturb either of them (or vice versa).
+    //   * Skipped silently when `maskFilePath` is null (legacy rows,
+    //     mask writer failed non-fatally, OpenCV fallback that doesn't
+    //     produce a mask).
+    //   * No dedicated "mask uploaded at" column. Storage upserts are
+    //     idempotent; re-publishes re-transfer, matching the segmented
+    //     file's pattern.
+    //   * Today the mask has NO consumer. Storing it now is insurance
+    //     so future playback-time compositing (tunable backgroundDim,
+    //     other effects) can work against already-published plans.
+    for (final exercise in session.exercises) {
+      if (exercise.isRest) continue;
+      final maskRel = exercise.maskFilePath;
+      if (maskRel == null || maskRel.isEmpty) continue;
+      final absMask = exercise.absoluteMaskFilePath;
+      if (absMask == null) continue;
+      final maskFile = File(absMask);
+      if (!maskFile.existsSync()) {
+        debugPrint(
+          'UploadService: mask sidecar file missing for exercise ${exercise.id} '
+          'at $absMask — skipping.',
+        );
+        continue;
+      }
+      final maskStoragePath =
+          '$practiceId/${session.id}/${exercise.id}.mask.mp4';
+      await loudSwallow<bool>(
+        () async {
+          await _api.uploadRawArchive(path: maskStoragePath, file: maskFile);
+          return true;
+        },
+        kind: 'raw_archive_mask_upload_failed',
+        source: 'UploadService._uploadRawArchives',
+        severity: 'warn',
+        meta: {
+          'practice_id': practiceId,
+          'plan_id': session.id,
+          'exercise_id': exercise.id,
+          'storage_path': maskStoragePath,
         },
         swallow: true,
       );

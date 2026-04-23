@@ -56,6 +56,27 @@ class ExerciseCapture {
   /// previous hard-coded 15s baseline. Rest periods ignore this field.
   final int? prepSeconds;
 
+  /// Per-exercise inter-set rest ("Post Rep Breather") in seconds
+  /// (Milestone Q). Semantics:
+  ///
+  ///   * null → no breather (legacy rows, pre-migration).
+  ///   * 0    → practitioner explicitly disabled the breather.
+  ///   * > 0  → breather seconds played between sets on the client
+  ///            web player.
+  ///
+  /// Fresh captures seed to 15 via [withPersistenceDefaults]; existing
+  /// rows stay null (no backfill). Feeds the duration math used by the
+  /// progress-pill matrix + the workout-timeline ETA:
+  ///
+  ///   exercise_total = sets × per_set
+  ///                  + max(0, sets - 1) × (interSetRestSeconds ?? 0)
+  ///
+  /// Rest periods + isometric-only exercises skip the default seed —
+  /// the former have no sets, the latter run the hold as the primary
+  /// dose. The player hides the segmented progress bar when sets <= 1
+  /// (breather has no meaning with a single set).
+  final int? interSetRestSeconds;
+
   /// Duration of the raw video file in milliseconds. Populated by the
   /// conversion service after a successful video conversion using the native
   /// AVURLAsset probe. For video exercises, this is used as "one rep" in the
@@ -80,6 +101,33 @@ class ExerciseCapture {
   /// never fail the publish. Null means "not yet uploaded" (or upload failed
   /// on the last attempt); the next publish retries the upload.
   final DateTime? rawArchiveUploadedAt;
+
+  /// Relative path (via [PathResolver]) to the dual-output segmented-color
+  /// variant of the raw capture — same Vision body mask as the line drawing
+  /// is reused to pop the body through pristine while dimming the background.
+  /// This file is uploaded to the private `raw-archive` Supabase bucket at
+  /// `{practice_id}/{plan_id}/{exercise_id}.segmented.mp4` and consumed by the
+  /// web player's Color + B&W treatments so they show the same body-pop effect
+  /// as the line drawing. Null for photos, rest periods, and legacy rows
+  /// pre-migration (v22). Best-effort — missing segmented files fall through
+  /// to the untouched original on both mobile + web.
+  final String? segmentedRawFilePath;
+
+  /// Relative path (via [PathResolver]) to the Vision person-segmentation
+  /// mask sidecar — a grayscale H.264 mp4 where each pixel's luminance
+  /// carries the per-frame segmentation weight that drove both the line
+  /// drawing + segmented-colour composites. Insurance for future playback-
+  /// time compositing: storing it today means already-published plans will
+  /// have the data available when tunable backgroundDim / other effects
+  /// land, without needing to re-capture.
+  ///
+  /// Uploaded best-effort to the private `raw-archive` Supabase bucket at
+  /// `{practice_id}/{plan_id}/{exercise_id}.mask.mp4`. Null for photos,
+  /// rest periods, and legacy rows pre-migration (v23), or when the mask
+  /// writer failed non-fatally (line-drawing + segmented still succeed).
+  /// No consumer today — `get_plan_full` emits a `mask_url` that the web
+  /// player passes through unused.
+  final String? maskFilePath;
 
   /// Remote line drawing URL (returned by `get_plan_full`). Runtime-only;
   /// not persisted to SQLite. Used by the practitioner's preview screen to
@@ -142,10 +190,13 @@ class ExerciseCapture {
     this.includeAudio = false,
     this.customDurationSeconds,
     this.prepSeconds,
+    this.interSetRestSeconds,
     this.videoDurationMs,
     this.archiveFilePath,
     this.archivedAt,
     this.rawArchiveUploadedAt,
+    this.segmentedRawFilePath,
+    this.maskFilePath,
     this.lineDrawingUrl,
     this.grayscaleUrl,
     this.originalUrl,
@@ -213,6 +264,7 @@ class ExerciseCapture {
       includeAudio: (map['include_audio'] as int?) == 1,
       customDurationSeconds: map['custom_duration'] as int?,
       prepSeconds: map['prep_seconds'] as int?,
+      interSetRestSeconds: map['inter_set_rest_seconds'] as int?,
       videoDurationMs: map['video_duration_ms'] as int?,
       archiveFilePath: map['archive_file_path'] as String?,
       archivedAt: map['archived_at'] != null
@@ -222,6 +274,8 @@ class ExerciseCapture {
           ? DateTime.fromMillisecondsSinceEpoch(
               map['raw_archive_uploaded_at'] as int)
           : null,
+      segmentedRawFilePath: map['segmented_raw_file_path'] as String?,
+      maskFilePath: map['mask_file_path'] as String?,
       preferredTreatment: treatmentFromWire(map['preferred_treatment']),
     );
   }
@@ -247,10 +301,13 @@ class ExerciseCapture {
       'include_audio': includeAudio ? 1 : 0,
       'custom_duration': customDurationSeconds,
       'prep_seconds': prepSeconds,
+      'inter_set_rest_seconds': interSetRestSeconds,
       'video_duration_ms': videoDurationMs,
       'archive_file_path': archiveFilePath,
       'archived_at': archivedAt?.millisecondsSinceEpoch,
       'raw_archive_uploaded_at': rawArchiveUploadedAt?.millisecondsSinceEpoch,
+      'segmented_raw_file_path': segmentedRawFilePath,
+      'mask_file_path': maskFilePath,
       'preferred_treatment': preferredTreatment?.wireValue,
     };
   }
@@ -281,6 +338,8 @@ class ExerciseCapture {
     bool clearCustomDuration = false,
     int? prepSeconds,
     bool clearPrepSeconds = false,
+    int? interSetRestSeconds,
+    bool clearInterSetRestSeconds = false,
     int? videoDurationMs,
     bool clearVideoDurationMs = false,
     String? archiveFilePath,
@@ -289,6 +348,10 @@ class ExerciseCapture {
     bool clearArchivedAt = false,
     DateTime? rawArchiveUploadedAt,
     bool clearRawArchiveUploadedAt = false,
+    String? segmentedRawFilePath,
+    bool clearSegmentedRawFilePath = false,
+    String? maskFilePath,
+    bool clearMaskFilePath = false,
     String? lineDrawingUrl,
     bool clearLineDrawingUrl = false,
     String? grayscaleUrl,
@@ -320,6 +383,9 @@ class ExerciseCapture {
           : (customDurationSeconds ?? this.customDurationSeconds),
       prepSeconds:
           clearPrepSeconds ? null : (prepSeconds ?? this.prepSeconds),
+      interSetRestSeconds: clearInterSetRestSeconds
+          ? null
+          : (interSetRestSeconds ?? this.interSetRestSeconds),
       videoDurationMs: clearVideoDurationMs
           ? null
           : (videoDurationMs ?? this.videoDurationMs),
@@ -330,6 +396,12 @@ class ExerciseCapture {
       rawArchiveUploadedAt: clearRawArchiveUploadedAt
           ? null
           : (rawArchiveUploadedAt ?? this.rawArchiveUploadedAt),
+      segmentedRawFilePath: clearSegmentedRawFilePath
+          ? null
+          : (segmentedRawFilePath ?? this.segmentedRawFilePath),
+      maskFilePath: clearMaskFilePath
+          ? null
+          : (maskFilePath ?? this.maskFilePath),
       lineDrawingUrl:
           clearLineDrawingUrl ? null : (lineDrawingUrl ?? this.lineDrawingUrl),
       grayscaleUrl:
@@ -341,12 +413,75 @@ class ExerciseCapture {
     );
   }
 
+  /// Backfill the per-capture persistence defaults (Option 1 from the
+  /// 2026-04-22 player-grammar discussion).
+  ///
+  /// Problem: when a practitioner captures an exercise and never touches
+  /// reps / sets, those columns persist as NULL. Downstream consumers
+  /// (web player, plan preview) then have to guess defaults at display
+  /// time, which produced inconsistent grammar across exercises captured
+  /// in the same session — one card showed "5 reps", the next showed
+  /// nothing, because the display-time fallback differed per surface.
+  ///
+  /// Fix: at the persistence boundary, backfill missing reps / sets with
+  /// the same canonical defaults the Studio card would have drawn
+  /// (3 sets x 10 reps). Truthful data, no display-time imputation.
+  ///
+  /// Milestone Q extension (2026-04-23): also stamp
+  /// `interSetRestSeconds = 15` on fresh captures so the new "Post Rep
+  /// Breather" feature has a meaningful default on day one. Same
+  /// exceptions apply — rest periods and isometric-only captures skip
+  /// the seed. Existing rows with a non-null value are never
+  /// overwritten, matching the null-fill discipline below.
+  ///
+  /// Exceptions:
+  ///   * Rest periods (`mediaType == rest`) have no reps / sets
+  ///     semantics — returned unchanged.
+  ///   * Isometric exercises (`holdSeconds` set AND `reps` still null)
+  ///     skip the reps default. Hold is the primary duration; reps
+  ///     isn't semantically meaningful. Sets default still applies.
+  ///     Inter-set rest is also skipped — an isometric capture typically
+  ///     runs as a single hold, not a reps-per-set block.
+  ///
+  /// Fields already set are never overwritten — the helper only fills
+  /// nulls.
+  ExerciseCapture withPersistenceDefaults() {
+    if (isRest) return this;
+    final isIsometric = holdSeconds != null && reps == null;
+    final nextReps = reps ?? (isIsometric ? null : 10);
+    final nextSets = sets ?? 3;
+    final nextInterSetRest = interSetRestSeconds ??
+        (isIsometric ? null : 15);
+    if (nextReps == reps &&
+        nextSets == sets &&
+        nextInterSetRest == interSetRestSeconds) {
+      return this;
+    }
+    return copyWith(
+      reps: nextReps,
+      sets: nextSets,
+      interSetRestSeconds: nextInterSetRest,
+    );
+  }
+
   /// Estimated duration in seconds for this exercise (all sets).
   /// Rest periods simply return their holdSeconds.
   ///
   /// For video exercises, "one rep" is the actual video duration (the video
   /// IS the demonstration of one iteration). For photos, it falls back to
   /// the config-level [AppConfig.secondsPerRep] constant.
+  ///
+  /// Milestone Q — inter-set rest is now per-exercise. The stored
+  /// [interSetRestSeconds] replaces the legacy [AppConfig.restBetweenSets]
+  /// baseline in the math:
+  ///
+  ///   exercise_total = sets × per_set
+  ///                  + max(0, sets - 1) × (interSetRestSeconds ?? 0)
+  ///
+  /// Legacy rows (null) therefore compute without any inter-set rest —
+  /// a deliberate shift per the brief. Fresh captures seed to 15 via
+  /// [withPersistenceDefaults] so the default experience is unchanged
+  /// in spirit (just shorter by design).
   int get estimatedDurationSeconds {
     if (isRest) return holdSeconds ?? AppConfig.defaultRestDuration;
     final perRep = (mediaType == MediaType.video &&
@@ -358,7 +493,8 @@ class ExerciseCapture {
     final holdTime = holdSeconds ?? 0;
     final perSetTime = repsTime + holdTime;
     final totalSets = sets ?? 3;
-    final restTime = (totalSets > 1) ? (totalSets - 1) * AppConfig.restBetweenSets : 0;
+    final betweenSet = interSetRestSeconds ?? 0;
+    final restTime = (totalSets > 1) ? (totalSets - 1) * betweenSet : 0;
     return (perSetTime * totalSets) + restTime;
   }
 
@@ -388,4 +524,14 @@ class ExerciseCapture {
   /// Absolute path to the compressed raw archive, or null.
   String? get absoluteArchiveFilePath =>
       archiveFilePath != null ? PathResolver.resolve(archiveFilePath!) : null;
+
+  /// Absolute path to the segmented-color raw variant, or null.
+  String? get absoluteSegmentedRawFilePath => segmentedRawFilePath != null
+      ? PathResolver.resolve(segmentedRawFilePath!)
+      : null;
+
+  /// Absolute path to the Vision person-segmentation mask sidecar mp4,
+  /// or null when the mask pass didn't run / failed non-fatally.
+  String? get absoluteMaskFilePath =>
+      maskFilePath != null ? PathResolver.resolve(maskFilePath!) : null;
 }

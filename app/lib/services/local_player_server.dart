@@ -320,6 +320,7 @@ class LocalPlayerServer {
       'include_audio': e.includeAudio,
       'custom_duration_seconds': e.customDurationSeconds,
       'prep_seconds': e.prepSeconds,
+      'inter_set_rest_seconds': e.interSetRestSeconds,
       'preferred_treatment': e.preferredTreatment?.wireValue,
       // Three-treatment keys. Same source file covers B&W and Original;
       // the web-player applies grayscale CSS filter to its own side.

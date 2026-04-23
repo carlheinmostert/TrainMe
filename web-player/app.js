@@ -121,11 +121,19 @@ function treatmentFromWire(wire) {
  * The effective treatment for [exercise]. Honours the practitioner's
  * per-exercise `preferred_treatment` when the corresponding URL is
  * available; else falls back to Line (the always-present default).
+ *
+ * Availability check considers BOTH the segmented dual-output URL
+ * (Milestone P, preferred) and the untouched original URL (fallback) —
+ * consent-wise they move together, but keeping the check permissive
+ * ensures a plan with only one of the two still honours the
+ * practitioner's sticky choice.
  */
 function slideTreatment(exercise) {
   const candidate = treatmentFromWire(exercise && exercise.preferred_treatment);
-  if (candidate === 'bw' && !(exercise && exercise.grayscale_url)) return 'line';
-  if (candidate === 'original' && !(exercise && exercise.original_url)) return 'line';
+  const hasGray = !!(exercise && (exercise.grayscale_segmented_url || exercise.grayscale_url));
+  const hasOrig = !!(exercise && (exercise.original_segmented_url || exercise.original_url));
+  if (candidate === 'bw' && !hasGray) return 'line';
+  if (candidate === 'original' && !hasOrig) return 'line';
   return candidate;
 }
 
@@ -136,6 +144,28 @@ let remainingSeconds = 0;
 let totalSeconds = 0;
 let workoutTimer = null;
 let workoutStartTime = null;
+
+// ------------------------------------------------------------------
+// Milestone Q — Post Rep Breather state.
+//
+// Tracks the per-exercise set/rest structure for the active slide so
+// the 1-second tick loop can pause the video at set boundaries, count
+// down the breather, then resume video playback from the paused frame
+// (no currentTime reset = continuous playback). All fields reset on
+// every slide transition via `beginSetMachineForCurrent()`.
+// ------------------------------------------------------------------
+// Current set index (0-based). Incremented when the in-set timer hits
+// zero; bumped again at the end of the breather.
+let currentSetIndex = 0;
+// Total sets for the active slide (cached; same as slides[currentIndex].sets).
+let totalSetsForSlide = 1;
+// 'set' | 'rest'. 'rest' means we're inside the inter-set breather.
+let setPhase = 'set';
+// Phase-local remaining seconds — counts down from the per-set duration
+// (or breather seconds). When zero, transitions to the next phase.
+let setPhaseRemaining = 0;
+// Breather seconds for the active slide (cached).
+let interSetRestForSlide = 0;
 
 // Prep-countdown state. Default runway is 5s (Wave 3 / Milestone P);
 // each exercise can override via `prep_seconds` on the get_plan_full
@@ -164,6 +194,42 @@ function prepSecondsFor(slide) {
 // every rendered <video> element without touching its paused/playing
 // state. Persists across slide changes within the same session.
 let isMuted = false;
+
+// Segmented-background-effect opt-out (Milestone P toggle — 2026-04-23).
+//
+// When ON (default) the Color + B&W treatments prefer the segmented
+// dual-output mp4 that dims the background behind the body. When OFF
+// they play the untouched raw-archive original. Line treatment is
+// unaffected either way — it's a separate pipeline.
+//
+// Per-device preference: read from localStorage at boot, written back
+// on toggle. No server round-trip. Key is explicit + namespaced so
+// future playback prefs (inter-set rest, autoplay-next, ...) can stack
+// under `homefit.playback.*`.
+const SEGMENTED_EFFECT_STORAGE_KEY = 'homefit.playback.segmentedEffect';
+let segmentedEffectEnabled = readSegmentedEffectPreference();
+
+function readSegmentedEffectPreference() {
+  try {
+    const raw = window.localStorage.getItem(SEGMENTED_EFFECT_STORAGE_KEY);
+    if (raw === 'off') return false;
+    // Default ON — treat any other value (including nulls, legacy data,
+    // or a future 'on') as enabled. The toggle only stores 'on' | 'off'.
+    return true;
+  } catch (_) {
+    // Private-mode Safari / blocked storage — fall back to the default.
+    return true;
+  }
+}
+
+function writeSegmentedEffectPreference(enabled) {
+  try {
+    window.localStorage.setItem(SEGMENTED_EFFECT_STORAGE_KEY, enabled ? 'on' : 'off');
+  } catch (_) {
+    // Best-effort; if storage is blocked the in-memory flag still drives
+    // this session's playback — we just lose persistence across reloads.
+  }
+}
 
 // Timing constants (from config.dart)
 const SECONDS_PER_REP = 3;
@@ -208,6 +274,19 @@ const $restCountdownNumber = document.getElementById('rest-countdown-number');
 const $cardNotes = document.getElementById('card-notes');
 const $cardNotesText = document.getElementById('card-notes-text');
 
+// Milestone Q — inter-set rest overlays.
+//   * #set-progress-bar sits above the media on every exercise slide
+//     that has sets > 1 OR a breather > 0. It's a horizontal strip of
+//     segments: coral for set phases, sage for breather phases. The
+//     active segment fills smoothly with its phase-local countdown;
+//     completed segments are solid, upcoming segments are outlined.
+//   * #breather-overlay sits on top of the paused video and shows a
+//     big sage countdown number + a restful-person glyph during the
+//     inter-set breather. Hidden outside breathers.
+const $setProgressBar = document.getElementById('set-progress-bar');
+const $breatherOverlay = document.getElementById('breather-overlay');
+const $breatherNumber = document.getElementById('breather-number');
+
 // Wall-clock ticker for the ETA widget. Runs 1/sec so the finish-time label
 // keeps drifting forward while the workout is paused (remaining holds steady,
 // now() advances → finish = now + remaining also advances). Independent of
@@ -229,6 +308,16 @@ const $footerLogo = document.getElementById('footer-logo');
 // toggle) at 100% alpha for 3s, then they fade back to ~30%.
 let chromeRevealTimer = null;
 const CHROME_REVEAL_MS = 3000;
+
+// iPhone Safari does not expose Element.requestFullscreen (the WebKit
+// variant is iPad/macOS only). When the real API is unavailable we fall
+// back to a CSS-only "faux" fullscreen: toggle body.is-fullscreen directly
+// + lock document scroll. All downstream layout already keys off the body
+// class, so faux mode gets the full ambient layout (the only visible
+// difference is that Safari's own URL bar stays on screen).
+let fauxFullscreenActive = false;
+let fauxFullscreenPrevHtmlOverflow = '';
+let fauxFullscreenPrevBodyOverflow = '';
 
 // ============================================================
 // Data fetching
@@ -464,22 +553,17 @@ function buildDecodedGrammar(slide) {
   const hasSets = Number.isFinite(setsRaw) && setsRaw > 0;
   const hasReps = Number.isFinite(repsRaw) && repsRaw > 0;
   const hasHold = Number.isFinite(holdRaw) && holdRaw > 0;
-  // Wave 19.3: mirror calculateDuration's defaults (3 sets / 10 reps) so
-  // every exercise reads consistently. Previously a slide with only a hold
-  // captured showed "30s hold" while another with only reps showed "5 reps"
-  // and bare slides showed nothing — Carl flagged this as inconsistent.
-  // Isometric exercises (hold with no reps) drop the reps term for clarity.
-  const isIsometric = !hasReps && hasHold;
+  // Wave 19.4: full defaults — every exercise reads as `{sets} sets · {reps}
+  // reps [· Ts hold]`. The earlier isometric short-circuit (suppressed reps
+  // when only hold was captured) caused three consecutive circuit exercises
+  // to show "30s hold", "10 reps", and "5 reps" — visibly inconsistent. Now
+  // reps always shows (defaulting to 10 when null); hold appends when set.
   const sets = hasSets ? setsRaw : 3;
   const reps = hasReps ? repsRaw : 10;
 
   if (!isCircuit) parts.push(`${sets} sets`);
-  if (isIsometric) {
-    parts.push(`${holdRaw}s hold`);
-  } else {
-    parts.push(`${reps} reps`);
-    if (hasHold) parts.push(`${holdRaw}s hold`);
-  }
+  parts.push(`${reps} reps`);
+  if (hasHold) parts.push(`${holdRaw}s hold`);
 
   return parts.join(' · ');
 }
@@ -619,18 +703,46 @@ function buildMedia(exercise, index) {
  * Resolve the URL for a given exercise + treatment.
  *
  *   'line'     → line_drawing_url (always present on post-migration plans;
- *                falls back to legacy `media_url` for old plans)
- *   'bw'       → grayscale_url (the raw original — the CSS
- *                grayscale filter is applied to the <video> element)
- *   'original' → original_url (raw unfiltered)
+ *                falls back to legacy `media_url` for old plans). Never
+ *                gated by the segmented-effect toggle — line drawing is
+ *                its own pipeline, not a dual-output variant.
+ *   'bw'       → grayscale_segmented_url || grayscale_url, toggle ON
+ *                (default). When the per-device toggle is OFF we skip
+ *                the segmented variant and play the untouched original
+ *                directly — same source, no body-pop effect. CSS
+ *                grayscale filter is applied to the <video> either way.
+ *   'original' → original_segmented_url || original_url, toggle ON
+ *                (default). Toggle OFF → untouched original only.
+ *
+ * Segmented-first preference: Milestone P (2026-04-23) adds a dual-output
+ * mp4 alongside the line drawing that reuses the same Vision person-
+ * segmentation mask — body pristine, background dimmed. Using it for the
+ * Color + B&W treatments keeps the body-pop effect consistent across
+ * all three treatments. Legacy plans + exercises captured before the
+ * dual-output pass shipped still render correctly via the untouched
+ * original fallback.
  *
  * Returns null when the treatment has no URL (consent-absent). Callers
  * must handle this gracefully (disable segment + fall back to line).
  */
 function resolveTreatmentUrl(exercise, treatment) {
   if (!exercise) return null;
-  if (treatment === 'bw') return exercise.grayscale_url || null;
-  if (treatment === 'original') return exercise.original_url || null;
+  if (treatment === 'bw') {
+    if (segmentedEffectEnabled) {
+      return exercise.grayscale_segmented_url || exercise.grayscale_url || null;
+    }
+    // Toggle OFF — skip the segmented variant entirely and play the
+    // untouched original. When the raw original is missing we still
+    // fall through to the segmented copy so the slide can play at all
+    // (rare — would only happen on a mangled upload).
+    return exercise.grayscale_url || exercise.grayscale_segmented_url || null;
+  }
+  if (treatment === 'original') {
+    if (segmentedEffectEnabled) {
+      return exercise.original_segmented_url || exercise.original_url || null;
+    }
+    return exercise.original_url || exercise.original_segmented_url || null;
+  }
   // 'line' + unknown treatments → line drawing (the always-available default).
   return exercise.line_drawing_url || exercise.media_url || null;
 }
@@ -1212,6 +1324,10 @@ function updateUI() {
   // Rest countdown overlay state — shown only on the active rest slide.
   updateRestCountdownOverlay();
 
+  // Milestone Q — set/breather overlays track the active slide too.
+  updateSetProgressBar();
+  updateBreatherOverlay();
+
   // Nav buttons
   $btnPrev.disabled = currentIndex === 0;
   $btnNext.disabled = currentIndex === total - 1;
@@ -1298,6 +1414,13 @@ function onTouchEnd() {
 // ============================================================
 
 function onKeyDown(e) {
+  // Escape closes the settings popover before any slide-nav gesture —
+  // the user's mental model is "dismiss the panel I just opened", not
+  // "go somewhere else".
+  if (e.key === 'Escape' && isSettingsPopoverOpen()) {
+    setSettingsPopoverOpen(false);
+    return;
+  }
   if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
     e.preventDefault();
     goNext();
@@ -1324,23 +1447,62 @@ function onKeyDown(e) {
 // ============================================================
 
 /**
+ * Milestone Q — return the practitioner-configured inter-set rest
+ * ("Post Rep Breather") for a slide, clamped to 0 for null values.
+ * Legacy rows (null) compute WITHOUT any inter-set rest — this is a
+ * deliberate behaviour change on re-publish, acceptable per the brief.
+ * The 30s REST_BETWEEN_SETS baseline is retired.
+ */
+function getInterSetRestSeconds(slide) {
+  const v = slide.inter_set_rest_seconds;
+  if (v === null || v === undefined) return 0;
+  return Math.max(0, Number(v) | 0);
+}
+
+/**
+ * Milestone Q — per-set duration (reps × per-rep + hold). Exposed as
+ * a helper so the set/rest state machine can derive set boundaries
+ * consistently with the total duration.
+ */
+function calculatePerSetSeconds(slide) {
+  if (slide.custom_duration_seconds) {
+    // Manual total / sets; rounded down to the nearest integer second.
+    const sets = slide.sets || 1;
+    if (sets <= 1) return slide.custom_duration_seconds;
+    return Math.max(1, Math.floor(slide.custom_duration_seconds / sets));
+  }
+  const reps = slide.reps || 10;
+  const holdPerSet = slide.hold_seconds || 0;
+  return (reps * SECONDS_PER_REP) + holdPerSet;
+}
+
+/**
  * Calculate the duration in seconds for an exercise slide.
  * Uses custom_duration_seconds if set, otherwise computes from reps/sets/hold.
+ *
+ * Milestone Q math:
+ *   exercise_total = sets × per_set
+ *                  + max(0, sets - 1) × COALESCE(inter_set_rest_seconds, 0)
+ *
+ * custom_duration_seconds stores the total across all sets (per-rep ×
+ * reps × sets from the Studio UI), so we add the inter-set rest ON TOP
+ * of it — the practitioner's "per-rep" choice doesn't include breather
+ * time.
  */
 function calculateDuration(slide) {
-  if (slide.custom_duration_seconds) {
-    return slide.custom_duration_seconds;
-  }
-
   if (slide.media_type === 'rest') {
     return slide.hold_seconds || slide.custom_duration_seconds || 30;
   }
 
-  const reps = slide.reps || 10;
   const sets = slide.sets || 3;
-  const holdPerSet = slide.hold_seconds || 0;
-  const perSet = (reps * SECONDS_PER_REP) + holdPerSet;
-  const restTotal = (sets - 1) * REST_BETWEEN_SETS;
+  const breather = getInterSetRestSeconds(slide);
+  const restTotal = (sets > 1) ? (sets - 1) * breather : 0;
+
+  if (slide.custom_duration_seconds) {
+    return slide.custom_duration_seconds + restTotal;
+  }
+
+  const perSet = calculatePerSetSeconds(slide);
   return (perSet * sets) + restTotal;
 }
 
@@ -1530,6 +1692,11 @@ function enterWorkoutPhaseForCurrent() {
   totalSeconds = calculateDuration(slide);
   remainingSeconds = totalSeconds;
 
+  // Milestone Q — prime the set/rest state machine for this slide. The
+  // per-set duration + breather seconds are cached here so the 1-second
+  // tick loop can swap phases without re-reading the slide.
+  beginSetMachineForCurrent();
+
   if (slide.media_type === 'rest') {
     // Rest — no prep, auto-start countdown. The bottom-right timer chip
     // is the single source of truth for the rest countdown.
@@ -1538,6 +1705,29 @@ function enterWorkoutPhaseForCurrent() {
     // Exercise — run 15s prep runway, then startTimer()
     startPrepPhase();
   }
+}
+
+/**
+ * Milestone Q — reset the set/rest state machine to the first set of
+ * the active slide. Called whenever a new slide becomes active
+ * (enterWorkoutPhaseForCurrent), including when the practitioner swipes
+ * mid-breather — the new slide starts fresh on its first set.
+ */
+function beginSetMachineForCurrent() {
+  const slide = slides[currentIndex];
+  if (!slide || slide.media_type === 'rest') {
+    currentSetIndex = 0;
+    totalSetsForSlide = 1;
+    setPhase = 'set';
+    setPhaseRemaining = 0;
+    interSetRestForSlide = 0;
+    return;
+  }
+  currentSetIndex = 0;
+  totalSetsForSlide = Math.max(1, slide.sets || 1);
+  setPhase = 'set';
+  setPhaseRemaining = calculatePerSetSeconds(slide);
+  interSetRestForSlide = getInterSetRestSeconds(slide);
 }
 
 /**
@@ -1611,6 +1801,8 @@ function startTimer() {
   isTimerRunning = true;
   updatePauseOverlay();
   updateRestCountdownOverlay();
+  updateSetProgressBar();
+  updateBreatherOverlay();
   updateTimelineBar();
 
   workoutTimer = setInterval(onTimerTick, 1000);
@@ -1634,6 +1826,13 @@ function onTimerTick() {
   if (!isTimerRunning) return;
 
   remainingSeconds--;
+  // Milestone Q — phase-local timer ticks in lockstep with the overall
+  // remaining counter. When it hits zero we check whether another set
+  // / breather follows on THIS slide before falling through to the next
+  // slide.
+  if (!isRestSlide()) {
+    setPhaseRemaining--;
+  }
 
   if (remainingSeconds <= 0) {
     remainingSeconds = 0;
@@ -1647,13 +1846,95 @@ function onTimerTick() {
     return;
   }
 
+  // Milestone Q — phase boundary inside the active slide (set → rest or
+  // rest → set). The overall `remainingSeconds` keeps ticking; only the
+  // phase-local counter wraps.
+  if (!isRestSlide() && setPhaseRemaining <= 0) {
+    advanceSetPhase();
+  }
+
   // Matrix active-pill fill needs a per-second nudge too.
   updateProgressMatrix();
   updateRestCountdownOverlay();
+  updateSetProgressBar();
+  updateBreatherOverlay();
   updateTimelineBar();
   // (MM:SS) remaining rides in the active-slide title — needs a per-tick
   // refresh same as the timeline and matrix.
   updateActiveSlideHeader();
+}
+
+function isRestSlide() {
+  const slide = slides[currentIndex];
+  return !!(slide && slide.media_type === 'rest');
+}
+
+/**
+ * Milestone Q — move from set → rest or rest → next set at a phase
+ * boundary. This is the one place that pauses/resumes the active video
+ * around the breather. Video currentTime is NEVER reset — pause holds
+ * the last visible frame, play() resumes from there.
+ *
+ * Called ONLY from onTimerTick() when setPhaseRemaining hits zero AND
+ * remainingSeconds > 0 (meaning more of this slide is still ahead). If
+ * it's the last set, this function is never reached because
+ * remainingSeconds drops to 0 at the same tick and onTimerComplete()
+ * advances to the next slide.
+ */
+function advanceSetPhase() {
+  if (setPhase === 'set') {
+    // Set done. Is there a breather OR another set to come?
+    const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
+    if (isLastSet) {
+      // Last set ending coincides with remainingSeconds hitting 0;
+      // onTimerTick will take the auto-advance branch. Nothing to do.
+      return;
+    }
+    if (interSetRestForSlide > 0) {
+      // Enter breather. Pause the video at its current frame (no reset).
+      setPhase = 'rest';
+      setPhaseRemaining = interSetRestForSlide;
+      pauseActiveVideoForBreather();
+    } else {
+      // No breather — skip straight to the next set, keep the video
+      // playing without interruption.
+      currentSetIndex++;
+      setPhase = 'set';
+      setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+    }
+  } else {
+    // rest → next set. Bump set index, resume video.
+    currentSetIndex++;
+    setPhase = 'set';
+    setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+    resumeActiveVideoAfterBreather();
+  }
+  updateSetProgressBar();
+  updateBreatherOverlay();
+}
+
+/**
+ * Milestone Q — pause the active video at its current frame for the
+ * inter-set breather. NO seek, NO reset — the browser holds the last
+ * decoded frame visually, which is exactly what the brief specifies
+ * ("continuous playback, no reset"). On resume we call play() without
+ * touching currentTime.
+ */
+function pauseActiveVideoForBreather() {
+  const video = document.getElementById(`video-${currentIndex}`);
+  if (video && !video.paused) {
+    try { video.pause(); } catch (_) { /* best-effort */ }
+  }
+}
+
+function resumeActiveVideoAfterBreather() {
+  if (!isTimerRunning) return;
+  const video = document.getElementById(`video-${currentIndex}`);
+  if (video && video.paused) {
+    video.play().catch((err) => {
+      console.warn('video resume after breather failed:', err);
+    });
+  }
 }
 
 // updateTimerDisplay + setTimerModeIcon removed — the dedicated chip is
@@ -1692,6 +1973,7 @@ function pauseTimer() {
   }
   updatePauseOverlay();
   updateRestCountdownOverlay();
+  updateBreatherOverlay();
   // ETA clock keeps running in the background — remaining stays static,
   // finish-time drifts forward. Nudge once to reflect immediately.
   updateTimelineBar();
@@ -1708,15 +1990,19 @@ function resumeTimer() {
   if (isTimerRunning) return;
   isTimerRunning = true;
   workoutTimer = setInterval(onTimerTick, 1000);
-  // Resume video playback alongside the timer.
+  // Resume video playback alongside the timer — BUT ONLY if we're in a
+  // set phase. During a breather the video is meant to be paused on
+  // the last visible frame; resuming the timer just continues counting
+  // down the breather.
   const currentVideo = document.getElementById(`video-${currentIndex}`);
-  if (currentVideo && currentVideo.paused) {
+  if (currentVideo && currentVideo.paused && setPhase !== 'rest') {
     currentVideo.play().catch((err) => {
       console.warn('video resume failed:', err);
     });
   }
   updatePauseOverlay();
   updateRestCountdownOverlay();
+  updateBreatherOverlay();
   updateTimelineBar();
   // Flash the pause icon at full alpha for ~900ms so the tap's outcome is
   // legible on top of the running video.
@@ -1803,6 +2089,137 @@ function toggleMute() {
     svg.innerHTML = isMuted
       ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'
       : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>';
+  });
+}
+
+// ============================================================
+// Settings popover — per-device playback preferences
+// ============================================================
+//
+// Currently hosts the Milestone P segmented-effect toggle. Shaped to
+// grow: the popover is a vertical stack of .settings-row entries, each
+// an independent label+switch pair. Add a row by duplicating the
+// existing <label> block in index.html + binding a change handler
+// here. No global settings-bus needed at this scale.
+//
+// State lives in module-scope flags (e.g. segmentedEffectEnabled) that
+// `resolveTreatmentUrl` + other renderers read directly. No event bus.
+
+const $btnSettings = document.getElementById('btn-settings');
+const $settingsPopover = document.getElementById('settings-popover');
+const $toggleSegmentedEffect = document.getElementById('toggle-segmented-effect');
+const $toggleSegmentedEffectHint = document.getElementById('toggle-segmented-effect-hint');
+
+/** Sync the hint copy to the current toggle state. */
+function updateSegmentedEffectHint() {
+  if (!$toggleSegmentedEffectHint) return;
+  $toggleSegmentedEffectHint.textContent = segmentedEffectEnabled
+    ? 'Body in focus — background dimmed'
+    : 'Original untouched';
+}
+
+/** Open / close the settings popover. */
+function setSettingsPopoverOpen(open) {
+  if (!$settingsPopover || !$btnSettings) return;
+  if (open) {
+    $settingsPopover.hidden = false;
+    // Next frame so the transition runs from closed → open.
+    requestAnimationFrame(() => {
+      $settingsPopover.setAttribute('data-open', 'true');
+    });
+    $btnSettings.setAttribute('aria-expanded', 'true');
+  } else {
+    $settingsPopover.setAttribute('data-open', 'false');
+    $btnSettings.setAttribute('aria-expanded', 'false');
+    // Wait for the fade-out to complete before hiding — matches the
+    // 160ms transition in styles.css.
+    setTimeout(() => {
+      if ($settingsPopover.getAttribute('data-open') !== 'true') {
+        $settingsPopover.hidden = true;
+      }
+    }, 180);
+  }
+}
+
+function isSettingsPopoverOpen() {
+  return !!($settingsPopover && $settingsPopover.getAttribute('data-open') === 'true');
+}
+
+/**
+ * Apply a change to the segmented-effect toggle: persist the new
+ * value, update the hint copy, and re-point every rendered <video>
+ * whose treatment URL just changed. Keeps the current slide's
+ * playback position and playing state so the swap is invisible if
+ * the client is mid-workout.
+ */
+function applySegmentedEffectChange(nextEnabled) {
+  if (nextEnabled === segmentedEffectEnabled) return;
+  segmentedEffectEnabled = nextEnabled;
+  writeSegmentedEffectPreference(segmentedEffectEnabled);
+  updateSegmentedEffectHint();
+  rebindVideoSources();
+}
+
+/**
+ * Walk every rendered <video> in the card track, re-resolve the URL
+ * its slide should now use, and swap the `src` in place if it changed.
+ * For the currently active slide we preserve `currentTime` and resume
+ * playback post-swap so the toggle feels seamless mid-exercise.
+ *
+ * Non-active slides get a naive src swap (no resume) — they're paused
+ * anyway, and the next time they become active `autoPlayCurrentVideo`
+ * will kick them off. This keeps memory/CPU pressure down vs. forcing
+ * every video to reload + play immediately.
+ */
+function rebindVideoSources() {
+  if (!$cardTrack) return;
+  const videos = $cardTrack.querySelectorAll('video[id^="video-"]');
+  videos.forEach((videoEl) => {
+    const card = videoEl.closest('.exercise-card');
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const slide = slides[idx];
+    if (!slide) return;
+    const slideT = slideTreatment(slide);
+    const nextUrl = resolveTreatmentUrl(slide, slideT);
+    if (!nextUrl) return;
+    // getAttribute is the raw attribute text; videoEl.src is the
+    // resolved absolute URL (prefixed with the origin). Compare via
+    // the attribute for a stable check.
+    const currentAttr = videoEl.getAttribute('src');
+    if (currentAttr === nextUrl) return;
+
+    const isActive = idx === currentIndex;
+    const wasPlaying = isActive && !videoEl.paused && !videoEl.ended;
+    const resumeAt = isActive ? videoEl.currentTime : 0;
+
+    videoEl.setAttribute('src', nextUrl);
+    // `load()` is required after a src swap for the new media to be
+    // picked up reliably on all browsers (Safari in particular).
+    videoEl.load();
+
+    if (isActive) {
+      // Restore playback position once metadata is loaded. `loadedmetadata`
+      // fires once per src change — the { once: true } option auto-cleans.
+      const restore = () => {
+        try {
+          // If the new source is shorter than resumeAt (shouldn't happen
+          // — segmented + original are the same length — but defensive),
+          // clamp to 0 so we don't stall.
+          videoEl.currentTime = Math.min(resumeAt, videoEl.duration || resumeAt);
+        } catch (_) {
+          // Some browsers throw if currentTime is set too early; ignore.
+        }
+        if (wasPlaying) {
+          videoEl.play().catch(() => {
+            // Autoplay policy — a user gesture should have unlocked this
+            // already (the toggle click counts), but swallow defensively.
+          });
+        }
+      };
+      videoEl.addEventListener('loadedmetadata', restore, { once: true });
+    }
   });
 }
 
@@ -1929,6 +2346,112 @@ function updateRestCountdownOverlay() {
 }
 
 /**
+ * Milestone Q — render the per-exercise segmented progress bar. One
+ * segment per set (coral) + one segment per breather (sage) interleaved.
+ *
+ * Segment visual states:
+ *   * complete — solid full fill
+ *   * active   — partial fill driven by `setPhaseRemaining` vs the
+ *                phase's total duration; only ONE segment is active at
+ *                any moment
+ *   * upcoming — empty outline
+ *
+ * Hidden when:
+ *   * pre-workout (outside workout mode) — keeps the pre-start preview clean
+ *   * rest slides (rest slide already gets #rest-countdown-overlay)
+ *   * single-set exercises with no breather (nothing meaningful to show)
+ */
+function updateSetProgressBar() {
+  if (!$setProgressBar) return;
+  const slide = slides[currentIndex];
+  const eligible = !!slide
+    && slide.media_type !== 'rest'
+    && isWorkoutMode
+    && (totalSetsForSlide > 1 || interSetRestForSlide > 0);
+  $setProgressBar.hidden = !eligible;
+  if (!eligible) {
+    $setProgressBar.innerHTML = '';
+    return;
+  }
+
+  const perSet = calculatePerSetSeconds(slide);
+  const reps = slide.reps || 0;
+  const segments = [];
+  for (let i = 0; i < totalSetsForSlide; i++) {
+    segments.push({ kind: 'set', index: i, total: perSet });
+    if (i < totalSetsForSlide - 1 && interSetRestForSlide > 0) {
+      segments.push({ kind: 'rest', index: i, total: interSetRestForSlide });
+    }
+  }
+
+  // Determine which segment is active.
+  let activeSegIdx = -1;
+  for (let s = 0; s < segments.length; s++) {
+    const seg = segments[s];
+    const matchSet = seg.kind === 'set' && setPhase === 'set' && seg.index === currentSetIndex;
+    const matchRest = seg.kind === 'rest' && setPhase === 'rest' && seg.index === currentSetIndex;
+    if (matchSet || matchRest) { activeSegIdx = s; break; }
+  }
+
+  // Build / refresh the segment DOM. Rebuild in full — cheap (tens of
+  // children max) and keeps state simple.
+  const html = segments.map((seg, s) => {
+    let stateClass;
+    let fillPct = 0;
+    if (s < activeSegIdx) {
+      stateClass = 'set-progress-bar-segment--complete';
+      fillPct = 100;
+    } else if (s === activeSegIdx) {
+      stateClass = 'set-progress-bar-segment--active';
+      const remaining = Math.max(0, setPhaseRemaining);
+      const total = Math.max(1, seg.total);
+      fillPct = Math.max(0, Math.min(100, ((total - remaining) / total) * 100));
+    } else {
+      stateClass = 'set-progress-bar-segment--upcoming';
+    }
+    const kindClass = seg.kind === 'set'
+      ? 'set-progress-bar-segment--set'
+      : 'set-progress-bar-segment--rest';
+    const label = seg.kind === 'set'
+      ? (reps > 0 ? `Set ${seg.index + 1} · ${reps} reps` : `Set ${seg.index + 1}`)
+      : 'Breather';
+    return `<div class="set-progress-bar-segment ${kindClass} ${stateClass}"
+                 role="presentation">
+              <div class="set-progress-bar-segment-fill"
+                   style="width: ${fillPct.toFixed(1)}%"></div>
+              <div class="set-progress-bar-segment-label">${escapeHTML(label)}</div>
+            </div>`;
+  }).join('');
+  $setProgressBar.innerHTML = html;
+}
+
+/**
+ * Milestone Q — sage countdown overlay shown during the inter-set
+ * breather. Sits on top of the paused video (set phase pauses video at
+ * last visible frame; breather overlay fades in over it). Big sage
+ * number + a restful glyph + "Breather" label.
+ *
+ * Hidden when:
+ *   * not in workout mode
+ *   * prep phase (coral prep overlay owns the viewport then)
+ *   * set phase (video is playing)
+ *   * rest slide (rest slide has its own dedicated rest overlay)
+ */
+function updateBreatherOverlay() {
+  if (!$breatherOverlay || !$breatherNumber) return;
+  const slide = slides[currentIndex];
+  const isRest = !!(slide && slide.media_type === 'rest');
+  const visible = isWorkoutMode
+    && !isPrepPhase
+    && !isRest
+    && setPhase === 'rest';
+  $breatherOverlay.hidden = !visible;
+  if (visible) {
+    $breatherNumber.textContent = String(Math.max(0, setPhaseRemaining));
+  }
+}
+
+/**
  * Prep play-gating — during the prep countdown, the active video is
  * paused and reset to the first frame so nothing plays behind the coral
  * digits. Called by startPrepPhase + finishPrepPhase.
@@ -1966,10 +2489,30 @@ function requestFullscreen() {
   const req = el.requestFullscreen || el.webkitRequestFullscreen;
   if (req) {
     try { req.call(el); } catch (_) { /* swallow */ }
+    return;
   }
+  // iPhone Safari fallback — no Fullscreen API. Flip the body class
+  // ourselves, lock scroll, and re-run the change handler so aria state +
+  // icon swap match the real-API path. The fullscreenchange event is
+  // browser-only; faux mode never fires it, hence the explicit call.
+  fauxFullscreenActive = true;
+  fauxFullscreenPrevHtmlOverflow = document.documentElement.style.overflow || '';
+  fauxFullscreenPrevBodyOverflow = document.body.style.overflow || '';
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
+  onFullscreenChange();
 }
 
 function exitFullscreen() {
+  if (fauxFullscreenActive) {
+    fauxFullscreenActive = false;
+    document.documentElement.style.overflow = fauxFullscreenPrevHtmlOverflow;
+    document.body.style.overflow = fauxFullscreenPrevBodyOverflow;
+    fauxFullscreenPrevHtmlOverflow = '';
+    fauxFullscreenPrevBodyOverflow = '';
+    onFullscreenChange();
+    return;
+  }
   const ex = document.exitFullscreen || document.webkitExitFullscreen;
   if (ex) {
     try { ex.call(document); } catch (_) { /* swallow */ }
@@ -1977,7 +2520,11 @@ function exitFullscreen() {
 }
 
 function isFullscreenActive() {
-  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+  return !!(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    fauxFullscreenActive
+  );
 }
 
 function toggleFullscreen() {
@@ -2280,6 +2827,41 @@ async function init() {
     }
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+
+    // Settings popover — opens on click, closes on outside click / Esc.
+    // The checkbox drives the segmented-effect opt-out (Milestone P).
+    if ($btnSettings && $settingsPopover) {
+      // Prime the visible state from the persisted preference before
+      // the first interaction, so reopens reflect what's actually live.
+      if ($toggleSegmentedEffect) {
+        $toggleSegmentedEffect.checked = segmentedEffectEnabled;
+      }
+      updateSegmentedEffectHint();
+
+      $btnSettings.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSettingsPopoverOpen(!isSettingsPopoverOpen());
+      });
+      // Clicks inside the popover must NOT bubble to the document-level
+      // outside-click handler below — stop at the popover boundary.
+      $settingsPopover.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+      if ($toggleSegmentedEffect) {
+        $toggleSegmentedEffect.addEventListener('change', () => {
+          applySegmentedEffectChange(!!$toggleSegmentedEffect.checked);
+        });
+      }
+      // Outside-click closes the popover. Capture=true so we see the
+      // event before other handlers (card-viewport taps, etc.) can
+      // swallow it.
+      document.addEventListener('click', (e) => {
+        if (!isSettingsPopoverOpen()) return;
+        const t = e.target;
+        if (t && (t.closest && (t.closest('#settings-popover') || t.closest('#btn-settings')))) return;
+        setSettingsPopoverOpen(false);
+      }, true);
+    }
 
     // Card notes overlay — tap toggles 3-line clamp vs full.
     if ($cardNotes) {

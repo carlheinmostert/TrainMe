@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 21;
+  static const _dbVersion = 24;
 
   Database? _db;
 
@@ -115,6 +115,9 @@ class LocalStorageService {
         raw_archive_uploaded_at INTEGER,
         preferred_treatment TEXT,
         prep_seconds INTEGER,
+        segmented_raw_file_path TEXT,
+        mask_file_path TEXT,
+        inter_set_rest_seconds INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -439,6 +442,72 @@ class LocalStorageService {
         "ALTER TABLE cached_clients ADD COLUMN client_exercise_defaults TEXT NOT NULL DEFAULT '{}'",
       );
     }
+    if (oldVersion < 22) {
+      // Dual-output segmented-color raw variant (Option 1-augment).
+      //
+      // The native AVAssetReader/Writer pass now produces TWO outputs
+      // from a single Vision person-segmentation pass: the classic
+      // line drawing (unchanged) AND a segmented-color mp4 that reuses
+      // the same mask to pop the body through pristine while dimming
+      // the background via the v7 backgroundDim LUT. The new file is
+      // written alongside the line drawing, stored as a relative path
+      // here, and best-effort uploaded to the private `raw-archive`
+      // bucket at `{practice_id}/{plan_id}/{exercise_id}.segmented.mp4`
+      // by UploadService. The web player's Color + B&W treatments
+      // prefer the segmented file via `get_plan_full` and fall back
+      // to the untouched original when it's missing (pre-v22 rows +
+      // exercises captured before this ships).
+      //
+      // Nullable — legacy + new-capture-without-segmented both tolerate
+      // NULL. No backfill; forward-only.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN segmented_raw_file_path TEXT',
+      );
+    }
+    if (oldVersion < 23) {
+      // Person-segmentation mask sidecar (Milestone P2).
+      //
+      // The native dual-output pass now emits a THIRD file: the Vision
+      // mask itself, written out as a grayscale H.264 mp4. Same resolution
+      // + fps as the line-drawing + segmented outputs so the mask is
+      // pixel-perfect aligned with both. Stored as a relative path here
+      // and best-effort uploaded to the private `raw-archive` bucket at
+      // `{practice_id}/{plan_id}/{exercise_id}.mask.mp4` by UploadService.
+      //
+      // Insurance for future playback-time compositing — today the mask
+      // has NO consumer. Storing it now means published plans will have
+      // the data when tunable backgroundDim / other effects land, without
+      // needing to re-capture.
+      //
+      // Nullable — legacy + new-capture-without-mask both tolerate NULL
+      // (mask writer failure is non-fatal; line-drawing + segmented still
+      // succeed). No backfill; forward-only.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN mask_file_path TEXT',
+      );
+    }
+    if (oldVersion < 24) {
+      // Per-exercise inter-set rest "Post Rep Breather" (Milestone Q).
+      //
+      // Semantics:
+      //   * NULL → no breather (legacy rows, pre-migration).
+      //   * 0    → practitioner explicitly disabled.
+      //   * > 0  → breather seconds between sets on the web player.
+      //
+      // Fresh captures seed to 15 via
+      // ExerciseCapture.withPersistenceDefaults() (the same helper that
+      // stamps sets=3 / reps=10). Existing rows stay NULL — no backfill
+      // per the brief, so pre-Q captures simply play without inter-set
+      // rest on the web player.
+      //
+      // Supabase has a matching column in
+      // schema_milestone_q_inter_set_rest.sql — the mobile column stays
+      // in lockstep so publish + sync can round-trip the field without
+      // any translation.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN inter_set_rest_seconds INTEGER',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -748,9 +817,20 @@ class LocalStorageService {
           ? null
           : ExerciseCapture.fromMap(existingRows.first);
 
+      // Option 1 (2026-04-22 player-grammar discussion) — on the FIRST
+      // insert of an exercise row, backfill sets=3 / reps=10 for
+      // practitioners who captured without explicitly touching those
+      // fields. Scoped to brand-new rows only: existing null columns on
+      // pre-existing rows stay null (no retroactive backfill). See
+      // [ExerciseCapture.withPersistenceDefaults] for the isometric +
+      // rest-row exceptions.
+      final toPersist = existing == null
+          ? exercise.withPersistenceDefaults()
+          : exercise;
+
       await txn.insert(
         'exercises',
-        exercise.toMap(),
+        toPersist.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
 
@@ -760,8 +840,8 @@ class LocalStorageService {
       // rows only flip the stamp when a content-shaped field actually
       // changed; conversion-status churn alone is a no-op.
       final contentChanged =
-          existing == null || _isUserContentDelta(existing, exercise);
-      final sessionId = exercise.sessionId;
+          existing == null || _isUserContentDelta(existing, toPersist);
+      final sessionId = toPersist.sessionId;
       if (contentChanged && sessionId != null && sessionId.isNotEmpty) {
         final nowMs = DateTime.now().millisecondsSinceEpoch;
         await txn.update(
@@ -800,6 +880,7 @@ class LocalStorageService {
       return true;
     }
     if (prev.prepSeconds != next.prepSeconds) return true;
+    if (prev.interSetRestSeconds != next.interSetRestSeconds) return true;
     if (prev.includeAudio != next.includeAudio) return true;
     if (prev.preferredTreatment != next.preferredTreatment) return true;
     if ((prev.notes ?? '') != (next.notes ?? '')) return true;
@@ -810,6 +891,14 @@ class LocalStorageService {
   /// Batch insert or update multiple exercises in a single transaction.
   /// Far cheaper than calling [saveExercise] in a loop — ~10-100x faster
   /// for large batches because a single fsync amortises the cost.
+  ///
+  /// Unlike [saveExercise], the batch path does NOT pre-read each row to
+  /// decide whether to apply the Option 1 persistence defaults — callers
+  /// should pass exercises already in their desired persisted shape. The
+  /// first-ever save of a freshly-captured exercise always goes through
+  /// [saveExercise] (capture and camera flows both do so individually);
+  /// this batch path is reserved for reorders and other operations that
+  /// re-save pre-existing rows.
   Future<void> saveExercises(Iterable<ExerciseCapture> exercises) async {
     await db.transaction((txn) async {
       final batch = txn.batch();

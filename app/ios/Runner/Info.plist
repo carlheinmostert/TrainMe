@@ -64,6 +64,8 @@
 	<string>homefit.studio records audio when you capture video demonstrations so you can include verbal cues.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>homefit.studio needs access to your photo library to import existing videos or photos of exercises into client plans.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Saves the original video to your Camera Roll.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

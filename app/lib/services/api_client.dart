@@ -647,21 +647,32 @@ class ApiClient {
   /// `upsert_client(p_practice_id, p_name)` — idempotent lookup-or-create.
   /// Returns the client id (uuid). Used by the publish path so existing
   /// plans with `clientName` free-text become linked to a `clients` row.
+  ///
+  /// Errors propagate — matches [upsertClientWithId]. The publish path
+  /// MUST fail hard when this throws, otherwise `plans.client_id` gets
+  /// written as NULL and `get_plan_full` falls back to default consent
+  /// (line-drawing only). Notable error signals callers should handle:
+  ///
+  /// * [PostgrestException] `23505` with "already uses that name" —
+  ///   a soft-deleted client in this practice owns [name]. The
+  ///   practitioner must restore it from the recycle bin or rename
+  ///   before republishing; no automatic resolution.
+  /// * [PostgrestException] `42501` — caller isn't a member of
+  ///   [practiceId].
+  /// * Any other exception — network / auth / transient DB error.
+  ///
+  /// Returns null only when the RPC succeeds but yields no id (defensive;
+  /// the SQL contract guarantees a uuid on success).
   Future<String?> upsertClient({
     required String practiceId,
     required String name,
   }) async {
-    try {
-      final result = await _guardAuth(() => raw.rpc(
-            'upsert_client',
-            params: {'p_practice_id': practiceId, 'p_name': name},
-          ));
-      if (result is String && result.isNotEmpty) return result;
-      return null;
-    } catch (e) {
-      debugPrint('ApiClient.upsertClient failed: $e');
-      return null;
-    }
+    final result = await _guardAuth(() => raw.rpc(
+          'upsert_client',
+          params: {'p_practice_id': practiceId, 'p_name': name},
+        ));
+    if (result is String && result.isNotEmpty) return result;
+    return null;
   }
 
   /// `upsert_client_with_id(p_id, p_practice_id, p_name)` — offline-first
@@ -881,6 +892,47 @@ class ApiClient {
             contentType: 'video/mp4',
           ),
         ));
+  }
+
+  /// Sign a time-limited URL for an object in the private `raw-archive`
+  /// bucket. Returns null when the vault secrets aren't populated (the
+  /// `sign_storage_url` helper returns NULL in that case — see
+  /// `schema_milestone_g_three_treatment.sql`) or when the RPC errors.
+  ///
+  /// Path shape: `{practice_id}/{plan_id}/{exercise_id}.mp4`. Used by the
+  /// download-original action sheet (Wave 19.5) as a fallback when the
+  /// local `archiveFilePath` is missing or past its 90-day retention
+  /// window. Unlike the `get_plan_full` embedded signed URLs, this path
+  /// is for practitioner-side playback of THEIR OWN capture — no client-
+  /// consent gate applies.
+  ///
+  /// `expiresIn` is seconds; defaults to 30 min (matches the
+  /// `get_plan_full` helper's default). The signed URL is single-use from
+  /// the caller's perspective: it's consumed immediately to download the
+  /// video to a temp file, so caching the URL serves no purpose.
+  Future<String?> signRawArchiveUrl({
+    required String practiceId,
+    required String planId,
+    required String exerciseId,
+    int expiresIn = 1800,
+  }) async {
+    try {
+      final path =
+          '$practiceId/$planId/$exerciseId.mp4';
+      final result = await _guardAuth(() => raw.rpc(
+            'sign_storage_url',
+            params: {
+              'bucket': rawArchiveBucket,
+              'path': path,
+              'expires_in': expiresIn,
+            },
+          ));
+      if (result is String && result.isNotEmpty) return result;
+      return null;
+    } catch (e) {
+      debugPrint('ApiClient.signRawArchiveUrl failed: $e');
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------------

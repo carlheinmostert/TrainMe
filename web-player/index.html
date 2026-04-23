@@ -146,10 +146,73 @@
         </svg>
       </button>
 
+      <!-- Playback settings (top-right; sits to the left of the fullscreen
+           toggle). Opens a small popover with per-device preferences —
+           currently just the segmented-background effect toggle (Milestone
+           P), shaped to grow into a broader playback-settings surface
+           (inter-set rest, etc.) without needing new chrome. -->
+      <button id="btn-settings" class="settings-toggle" aria-label="Playback settings" aria-haspopup="dialog" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+
+      <!-- Playback-settings popover. Anchored just below the settings
+           button (top-right area of the card viewport). Hidden by default;
+           toggled visible via [data-open="true"]. Copy follows
+           docs/design/project/voice.md — short label up top, a
+           one-line "what this does" helper beneath the switch. -->
+      <div id="settings-popover" class="settings-popover" role="dialog" aria-labelledby="settings-popover-title" hidden>
+        <div class="settings-popover-title" id="settings-popover-title">Playback</div>
+        <label class="settings-row" for="toggle-segmented-effect">
+          <span class="settings-row-main">
+            <span class="settings-row-label">Enhanced background</span>
+            <span class="settings-row-hint" id="toggle-segmented-effect-hint">Body in focus — background dimmed</span>
+          </span>
+          <span class="settings-switch">
+            <input type="checkbox" id="toggle-segmented-effect" class="settings-switch-input" checked>
+            <span class="settings-switch-track" aria-hidden="true">
+              <span class="settings-switch-thumb"></span>
+            </span>
+          </span>
+        </label>
+      </div>
+
       <!-- Rest countdown — big coral number overlaid on the last visible
            frame during rest slides. Reuses .prep-overlay-number styling. -->
       <div id="rest-countdown-overlay" class="rest-countdown-overlay" hidden>
         <div class="rest-countdown-number" id="rest-countdown-number">0</div>
+      </div>
+
+      <!-- Milestone Q — per-exercise segmented progress bar. Coral
+           segments for sets (with rep count), sage segments for the
+           inter-set breather. Built per active slide by app.js; hidden
+           outside workout mode + on rest slides + on single-set
+           exercises with no breather. Sits near the top of the
+           viewport overlay stack. -->
+      <div id="set-progress-bar" class="set-progress-bar" role="presentation" hidden></div>
+
+      <!-- Milestone Q — breather overlay. Sage countdown + restful
+           glyph + "Breather" label shown during the inter-set rest.
+           Only visible when setPhase === 'rest' on an exercise slide.
+           The active video is paused on the last visible frame behind
+           this overlay (no currentTime reset) so playback resumes
+           smoothly from the same position into the next set. -->
+      <div id="breather-overlay" class="breather-overlay" hidden aria-hidden="true">
+        <div class="breather-overlay-inner">
+          <div class="breather-overlay-glyph" aria-hidden="true">
+            <!-- Minimal seated-figure glyph: circle head + trunk lines.
+                 Non-semantic; the label + countdown carry the meaning. -->
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="24" cy="14" r="4.5"/>
+              <path d="M17 36 C 17 27, 24 24, 24 24 S 31 27, 31 36"/>
+              <path d="M12 40 L 36 40"/>
+            </svg>
+          </div>
+          <div class="breather-overlay-number" id="breather-number">0</div>
+          <div class="breather-overlay-label">Breather</div>
+        </div>
       </div>
 
       <!-- Card notes — optional practitioner note, overlaid at the bottom

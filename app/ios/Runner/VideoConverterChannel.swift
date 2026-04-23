@@ -64,12 +64,61 @@ import CoreVideo
 //     0.70 so background black pixels now land at ~76/255 — dark grey
 //     instead of mid grey. Expect the equipment + environment sketches
 //     to feel substantially darker now.
+//   v7 (2026-04-22 "up the segmentation"): lo=1, hi=0.88, alpha=0.96, bgDim=0.50
+//     ↑ Carl's 2026-04-22 ask: "can we up the segmentation video effect
+//     which separates subject from background?" bgDim was over-lifting
+//     the background zone — at 0.70 a black line lands at ~76/255, only
+//     ~70% dimmed, so the body no longer popped against the environment.
+//     Dropping bgDim to 0.50 pushes background black pixels to ~128/255
+//     (mid grey) while the body zone stays untouched at full line-alpha
+//     intensity, restoring the subject/background contrast. Edge + line
+//     tuning unchanged — this is purely a segmentation-strength bump,
+//     not an edge-detection change. Vision quality level already on
+//     `.accurate` since v6; no change there.
+//   v7.1 (2026-04-23 "segmented colour companion"):
+//     lo=1, hi=0.88, alpha=0.96, bgDim=0.50 (UNCHANGED — tuning LOCKED).
+//     Structural change only: `convertVideo` now runs a dual-output pass.
+//     The existing line-drawing pipeline is unchanged; a SECOND writer
+//     produces a parallel segmented-COLOUR .mp4 that applies the same
+//     Vision person mask (body = full-colour passthrough; background =
+//     dimmed colour via the shared `backgroundDim` constant). No edge
+//     detection, no coral lines — this is the colour twin of the line
+//     drawing. The segmented file is uploaded alongside the untouched
+//     original to `raw-archive/{practice}/{plan}/{exercise}.segmented.mp4`
+//     so the web player's Color and B&W treatments gain the body-pop
+//     effect (B&W is CSS-filtered from the same source). The Vision
+//     mask is generated ONCE per frame and consumed by both outputs.
+//     Carl's 2026-04-22 signoff: "always keep the original file as well"
+//     — the original untouched raw-archive file continues to upload;
+//     the segmented file is additive, not a replacement.
+//   v7.2 (2026-04-23 "mask sidecar"):
+//     lo=1, hi=0.88, alpha=0.96, bgDim=0.50 (UNCHANGED — tuning LOCKED).
+//     Structural change only: the dual-output pass gains a THIRD writer
+//     that emits the Vision person-segmentation mask itself as a
+//     grayscale H.264 mp4 sidecar. Same resolution + fps as the line-
+//     drawing + segmented outputs so the mask is pixel-perfect aligned
+//     with the segmented-colour file. Body luminance = 255 (full white
+//     where the person is), background = 0 (black where they aren't);
+//     the Planar8 mask is up-converted to BGRA for H.264 compatibility
+//     because most H.264 encoders refuse single-channel input. Video-
+//     only writer — no audio track (mask audio would be meaningless).
+//     Uploaded to `raw-archive/{practice}/{plan}/{exercise}.mask.mp4`
+//     and exposed via `get_plan_full` as a `mask_url` key. Insurance
+//     for future playback-time compositing: today the mask has NO
+//     consumer; storing it now means already-published plans will have
+//     the data available when tunable backgroundDim / other effects
+//     land, without needing to re-capture. Mask writer failure is
+//     non-fatal — line-drawing + segmented passes continue.
 //
-//   ✅ LOCKED at v6 by Carl on 2026-04-20. Do NOT change these constants
-//      without an explicit Carl-sign-off — they're the product's
-//      signature visual identity and aesthetic signoff is a bar that
-//      shouldn't be crossed by a stray refactor. If a future agent has
-//      a thesis for adjusting them, open a separate discussion first.
+//   ✅ Edge / line tuning (edgeThresholdLo, edgeThresholdHi, lineAlpha)
+//      remains LOCKED at v6 by Carl on 2026-04-20. Do NOT change these
+//      three constants without explicit Carl-sign-off — they're the
+//      product's signature line-drawing aesthetic.
+//
+//   ✅ Segmentation tuning (backgroundDim) bumped to v7 on 2026-04-22
+//      with Carl's signoff. Subject/background separation is a separate
+//      visual axis from edge detection; if the body isn't popping enough
+//      on device, this is the first knob to turn.
 //
 // Safe tuning ranges (if you want to experiment on device):
 //   edgeThresholdLo  : 0 … 4   (int)
@@ -86,7 +135,10 @@ private let lineAlpha: Double = 0.96
 /// `lineAlpha` (`out = 255 - (255 - v) * bgDim`). Value of 1.0 would
 /// mean "no dim" (background equal-strength to body). The 0.35 baseline
 /// kept body popping but crushed equipment sketches to near-white.
-private let backgroundDim: Double = 0.70
+/// v6 bumped this to 0.70 to recover equipment legibility; v7 (2026-04-22)
+/// dropped it back to 0.50 to restore subject-pop after Carl's feedback
+/// that the body wasn't separating strongly enough from the background.
+private let backgroundDim: Double = 0.50
 
 /// Native iOS platform channel for video-to-line-drawing conversion.
 ///
@@ -146,10 +198,23 @@ class VideoConverterChannel {
             // or writer attached) and is known to complete cleanly — useful
             // while the mux hang is being triaged. See `config.dart`.
             let includeAudio = (args["includeAudio"] as? Bool) ?? true
+            // v7.1 dual-output — optional second writer produces a segmented
+            // COLOUR .mp4 (body passthrough, background dimmed via the same
+            // Vision mask). Omit for legacy callers → line-drawing only.
+            let segmentedOutputPath = args["segmentedOutputPath"] as? String
+            // v7.2 mask sidecar — optional THIRD writer emits the Vision
+            // mask itself as a grayscale H.264 mp4. Same pixel-grid as the
+            // segmented composite so the two files are perfectly aligned
+            // for future compositing. Omit for legacy callers → no mask
+            // output. Independently best-effort; a failure here never
+            // disturbs the line-drawing or segmented writers.
+            let maskOutputPath = args["maskOutputPath"] as? String
             processingQueue.async { [weak self] in
                 self?.convertVideo(
                     inputPath: inputPath,
                     outputPath: outputPath,
+                    segmentedOutputPath: segmentedOutputPath,
+                    maskOutputPath: maskOutputPath,
                     blurKernel: blurKernel,
                     thresholdBlock: thresholdBlock,
                     contrastLow: contrastLow,
@@ -253,6 +318,8 @@ class VideoConverterChannel {
     private func convertVideo(
         inputPath: String,
         outputPath: String,
+        segmentedOutputPath: String?,
+        maskOutputPath: String?,
         blurKernel: Int,
         thresholdBlock: Int,
         contrastLow: Int,
@@ -403,6 +470,105 @@ class VideoConverterChannel {
         )
         writer.add(writerInput)
 
+        // --- Segmented-colour writer setup (v7.1 dual-output) ---
+        //
+        // Optional second writer that shares the reader and Vision mask with
+        // the line-drawing pipeline above. Produces a parallel .mp4 where the
+        // body zone is full-colour passthrough from the source frame and the
+        // background zone is dimmed via the same `backgroundDim` constant
+        // (no edge detection, no coral lines — this is the colour sibling of
+        // the sketch).
+        //
+        // Best-effort: any failure below (writer init, input add, audio
+        // attach) logs and falls through to line-drawing-only output. The
+        // segmented file is additive; the original file continues to upload
+        // via the existing compressVideo / raw-archive path so a missing
+        // .segmented.mp4 downgrades gracefully to the pre-v7.1 client
+        // experience.
+        var segWriter: AVAssetWriter? = nil
+        var segWriterInput: AVAssetWriterInput? = nil
+        var segAdaptor: AVAssetWriterInputPixelBufferAdaptor? = nil
+        var segAudioWriterInput: AVAssetWriterInput? = nil
+        if let segPath = segmentedOutputPath {
+            let segURL = URL(fileURLWithPath: segPath)
+            try? FileManager.default.removeItem(at: segURL)
+            do {
+                let sw = try AVAssetWriter(outputURL: segURL, fileType: .mp4)
+                let sInput = AVAssetWriterInput(
+                    mediaType: .video,
+                    outputSettings: writerOutputSettings
+                )
+                sInput.expectsMediaDataInRealTime = false
+                sInput.transform = transform
+                let sAdaptor = AVAssetWriterInputPixelBufferAdaptor(
+                    assetWriterInput: sInput,
+                    sourcePixelBufferAttributes: pixelBufferAttributes
+                )
+                if sw.canAdd(sInput) {
+                    sw.add(sInput)
+                    segWriter = sw
+                    segWriterInput = sInput
+                    segAdaptor = sAdaptor
+                    NSLog("[VideoConverter] segmented writer attached at \(segPath)")
+                } else {
+                    NSLog("[VideoConverter] segmented writer.canAdd(video) failed — skipping")
+                }
+            } catch {
+                NSLog("[VideoConverter] segmented AVAssetWriter init failed: \(error.localizedDescription) — skipping")
+            }
+        }
+
+        // --- Mask sidecar writer setup (v7.2) ---
+        //
+        // Optional third writer that emits the Vision person-segmentation
+        // mask as a grayscale H.264 mp4. Same resolution, fps, and
+        // pixel-buffer pool shape as the segmented composite so the two
+        // files are pixel-perfect aligned for future playback-time
+        // compositing.
+        //
+        // Encoding note: the Vision mask is Planar8 (single-channel), but
+        // H.264 encoders on iOS refuse single-channel input. We render
+        // the mask as BGRA with R=G=B=maskValue so any standard mp4
+        // decoder can read it back. Alpha is always 255.
+        //
+        // Video-only — no audio input. A mask sidecar's audio track would
+        // be meaningless, and skipping it keeps the file smaller.
+        //
+        // Best-effort: init / canAdd / startWriting failures log and
+        // downgrade to "no mask output" without touching the line-drawing
+        // or segmented writers.
+        var maskWriter: AVAssetWriter? = nil
+        var maskWriterInput: AVAssetWriterInput? = nil
+        var maskAdaptor: AVAssetWriterInputPixelBufferAdaptor? = nil
+        if let mPath = maskOutputPath {
+            let mURL = URL(fileURLWithPath: mPath)
+            try? FileManager.default.removeItem(at: mURL)
+            do {
+                let mw = try AVAssetWriter(outputURL: mURL, fileType: .mp4)
+                let mInput = AVAssetWriterInput(
+                    mediaType: .video,
+                    outputSettings: writerOutputSettings
+                )
+                mInput.expectsMediaDataInRealTime = false
+                mInput.transform = transform
+                let mAdaptor = AVAssetWriterInputPixelBufferAdaptor(
+                    assetWriterInput: mInput,
+                    sourcePixelBufferAttributes: pixelBufferAttributes
+                )
+                if mw.canAdd(mInput) {
+                    mw.add(mInput)
+                    maskWriter = mw
+                    maskWriterInput = mInput
+                    maskAdaptor = mAdaptor
+                    NSLog("[VideoConverter] mask writer attached at \(mPath)")
+                } else {
+                    NSLog("[VideoConverter] mask writer.canAdd(video) failed — skipping")
+                }
+            } catch {
+                NSLog("[VideoConverter] mask writer failed: \(error.localizedDescription) — skipping")
+            }
+        }
+
         // --- Audio passthrough setup ---
         // Copy the audio track as-is (no re-encoding) so the converted video
         // retains the original audio. If the source has no audio track, or
@@ -464,6 +630,29 @@ class VideoConverterChannel {
                     audioReaderOutput = nil
                     NSLog("[VideoConverter] audio mux skipped — writer.canAdd(audioInput)=false")
                 }
+
+                // v7.1: attach a second AVAssetWriterInput (same format hint)
+                // to the segmented writer so the .segmented.mp4 carries the
+                // same audio track as the line-drawing output. The reader
+                // produces the audio sample exactly once per pump iteration;
+                // we append the same CMSampleBuffer to BOTH writer audio
+                // inputs in the audio pump below. Safe — passthrough samples
+                // are immutable; the writers keep their own retain counts.
+                if let sw = segWriter {
+                    let segAudioInput = AVAssetWriterInput(
+                        mediaType: .audio,
+                        outputSettings: nil,
+                        sourceFormatHint: formatHint
+                    )
+                    segAudioInput.expectsMediaDataInRealTime = false
+                    if sw.canAdd(segAudioInput) {
+                        sw.add(segAudioInput)
+                        segAudioWriterInput = segAudioInput
+                        NSLog("[VideoConverter] segmented audio mux attached")
+                    } else {
+                        NSLog("[VideoConverter] segmented audio mux skipped — canAdd=false")
+                    }
+                }
             } else {
                 NSLog("[VideoConverter] audio mux skipped — reader.canAdd(audioOutput)=false")
             }
@@ -495,6 +684,43 @@ class VideoConverterChannel {
         }
         writer.startSession(atSourceTime: .zero)
 
+        // v7.1: start the segmented writer in parallel. If it refuses to
+        // start (disk full, sandbox violation), log and downgrade to
+        // line-drawing-only so the main pipeline still succeeds.
+        if let sw = segWriter {
+            if sw.startWriting() {
+                sw.startSession(atSourceTime: .zero)
+                NSLog("[VideoConverter] segmented writer started")
+            } else {
+                NSLog(
+                    "[VideoConverter] segmented writer startWriting failed: " +
+                    "\(sw.error?.localizedDescription ?? "unknown") — disabling seg output"
+                )
+                segWriter = nil
+                segWriterInput = nil
+                segAdaptor = nil
+                segAudioWriterInput = nil
+            }
+        }
+
+        // v7.2: start the mask writer in parallel. Independent of the
+        // segmented writer — either can fail without disturbing the
+        // other or the line-drawing output.
+        if let mw = maskWriter {
+            if mw.startWriting() {
+                mw.startSession(atSourceTime: .zero)
+                NSLog("[VideoConverter] mask writer started")
+            } else {
+                NSLog(
+                    "[VideoConverter] mask writer startWriting failed: " +
+                    "\(mw.error?.localizedDescription ?? "unknown") — disabling mask output"
+                )
+                maskWriter = nil
+                maskWriterInput = nil
+                maskAdaptor = nil
+            }
+        }
+
         // Pre-allocate the line drawing processor for reuse across frames.
         let processor = LineDrawingProcessor(
             width: videoWidth,
@@ -503,6 +729,15 @@ class VideoConverterChannel {
             thresholdBlock: thresholdBlock,
             contrastLow: contrastLow
         )
+
+        // v7.1 dual-output: optional colour-segmented processor. Same Vision
+        // mask, but the compositing is a colour-passthrough body + dimmed
+        // colour background (no sketch / edge detection). Only allocated
+        // when the segmented writer is live — keeps memory off the table
+        // for legacy callers.
+        let segProcessor: SegmentedColorProcessor? = (segWriter != nil)
+            ? SegmentedColorProcessor(width: videoWidth, height: videoHeight)
+            : nil
 
         // Pre-allocate the person segmenter (iOS 15+). Returns nil on older iOS
         // and the pipeline falls through to unmasked output. Pooled across frames
@@ -551,8 +786,24 @@ class VideoConverterChannel {
         // channel so progress invocations still fire even if the owning
         // VideoConverterChannel is released mid-conversion — the reader,
         // writer, and pumps are all self-sufficient once the drain starts.
+        //
+        // v7.1 dual-output: when `segAdaptor` is non-nil, each iteration
+        // additionally composes a segmented-colour frame (sharing the
+        // Vision mask generated above) and appends to the segmented
+        // adaptor. Vision segmentation runs ONCE per frame regardless;
+        // both outputs share the same mask pointer.
+        //
+        // `segVideoFinished` is tracked independently of the line-drawing
+        // pump so we can markAsFinished + group.leave on its input as
+        // soon as the reader drains — matching the line writer exactly.
         group.enter()
+        if segWriterInput != nil { group.enter() }
+        if maskWriterInput != nil { group.enter() }
         var videoPumpFinished = false
+        var segVideoFinished = false
+        var maskVideoFinished = false
+        var segFramesProcessed = 0
+        var maskFramesProcessed = 0
         let progressChannel = self.channel
         writerInput.requestMediaDataWhenReady(on: videoQueue) {
             while writerInput.isReadyForMoreMediaData {
@@ -562,12 +813,26 @@ class VideoConverterChannel {
                             videoPumpFinished = true
                             NSLog(
                                 "[VideoConverter] video pump exited — frames=\(framesProcessed) " +
+                                "segFrames=\(segFramesProcessed) " +
+                                "maskFrames=\(maskFramesProcessed) " +
                                 "readerStatus=\(reader.status.rawValue) " +
                                 "readerError=\(reader.error?.localizedDescription ?? "nil")"
                             )
                             writerInput.markAsFinished()
                             NSLog("[VideoConverter] video input markAsFinished called")
                             group.leave()
+                            if let segInput = segWriterInput, !segVideoFinished {
+                                segVideoFinished = true
+                                segInput.markAsFinished()
+                                NSLog("[VideoConverter] segmented video input markAsFinished called")
+                                group.leave()
+                            }
+                            if let mInput = maskWriterInput, !maskVideoFinished {
+                                maskVideoFinished = true
+                                mInput.markAsFinished()
+                                NSLog("[VideoConverter] mask video input markAsFinished called")
+                                group.leave()
+                            }
                         }
                         return
                     }
@@ -624,6 +889,106 @@ class VideoConverterChannel {
                     adaptor.append(outBuffer, withPresentationTime: presentationTime)
                     framesProcessed += 1
 
+                    // v7.1 segmented-colour pass. Same Vision mask, different
+                    // compositing (body passthrough, background dimmed). We
+                    // allocate a second output pixel buffer from the segmented
+                    // adaptor's pool, compose, and append. Best-effort — any
+                    // failure (pool exhausted, append returned false) is
+                    // logged at frame-level and the seg output continues to
+                    // receive subsequent frames. If appends stall because the
+                    // seg input isn't ready we briefly spin — matches the
+                    // AVFoundation canonical pattern where one ready input
+                    // drives the tick and the paired input's buffer absorbs
+                    // the burst.
+                    if let segAd = segAdaptor,
+                       let segInput = segWriterInput,
+                       let sProc = segProcessor,
+                       !segVideoFinished {
+                        var segOut: CVPixelBuffer?
+                        let segAlloc: CVReturn
+                        if let pool = segAd.pixelBufferPool {
+                            segAlloc = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &segOut)
+                        } else {
+                            segAlloc = CVPixelBufferCreate(
+                                kCFAllocatorDefault,
+                                videoWidth,
+                                videoHeight,
+                                kCVPixelFormatType_32BGRA,
+                                nil,
+                                &segOut
+                            )
+                        }
+                        if segAlloc == kCVReturnSuccess, let segBuffer = segOut {
+                            if sProc.processFrame(pixelBuffer, mask: maskPtr, into: segBuffer) {
+                                // Brief spin-wait up to ~200ms for seg input
+                                // to absorb backpressure. Beyond that we drop
+                                // the frame rather than block the line pump.
+                                var waited = 0
+                                while !segInput.isReadyForMoreMediaData && waited < 200 {
+                                    usleep(1000) // 1ms
+                                    waited += 1
+                                }
+                                if segInput.isReadyForMoreMediaData {
+                                    if segAd.append(segBuffer, withPresentationTime: presentationTime) {
+                                        segFramesProcessed += 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // v7.2 mask-sidecar pass. Takes the same Vision mask
+                    // already computed for the line-drawing + segmented
+                    // outputs, expands Planar8 → BGRA (R=G=B=maskValue,
+                    // alpha=255) so the H.264 encoder will accept it, and
+                    // appends to the mask adaptor. Best-effort — any
+                    // failure (pool exhausted, missing mask, append backed
+                    // off) is swallowed and the other two passes continue
+                    // unchanged. If no Vision mask was produced for this
+                    // frame (iOS <15, empty scene), we emit an all-black
+                    // frame so timeline alignment with the segmented file
+                    // is preserved.
+                    if let mAd = maskAdaptor,
+                       let mInput = maskWriterInput,
+                       !maskVideoFinished {
+                        var mOut: CVPixelBuffer?
+                        let mAlloc: CVReturn
+                        if let pool = mAd.pixelBufferPool {
+                            mAlloc = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &mOut)
+                        } else {
+                            mAlloc = CVPixelBufferCreate(
+                                kCFAllocatorDefault,
+                                videoWidth,
+                                videoHeight,
+                                kCVPixelFormatType_32BGRA,
+                                nil,
+                                &mOut
+                            )
+                        }
+                        if mAlloc == kCVReturnSuccess, let mBuffer = mOut {
+                            if MaskOutputProcessor.writePlanar8MaskAsBGRA(
+                                mask: maskPtr,
+                                width: videoWidth,
+                                height: videoHeight,
+                                into: mBuffer
+                            ) {
+                                // Same 200ms spin-wait as segmented — the
+                                // writer can stall briefly when the audio
+                                // input is still catching up.
+                                var waited = 0
+                                while !mInput.isReadyForMoreMediaData && waited < 200 {
+                                    usleep(1000)
+                                    waited += 1
+                                }
+                                if mInput.isReadyForMoreMediaData {
+                                    if mAd.append(mBuffer, withPresentationTime: presentationTime) {
+                                        maskFramesProcessed += 1
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Report progress every 30 frames.
                     if framesProcessed - lastProgressReport >= 30 {
                         lastProgressReport = framesProcessed
@@ -636,6 +1001,8 @@ class VideoConverterChannel {
                         }
                         NSLog(
                             "[VideoConverter] pump progress frame=\(framesProcessed)/\(estimatedTotalFrames) " +
+                            "segFrames=\(segFramesProcessed) " +
+                            "maskFrames=\(maskFramesProcessed) " +
                             "audioInputReady=\(audioWriterInput?.isReadyForMoreMediaData ?? false)"
                         )
                     }
@@ -648,13 +1015,25 @@ class VideoConverterChannel {
         // attached to both reader and writer during setup. Runs concurrently
         // with the video pump, on its own queue, so the AVAssetWriter can
         // interleave samples without either input starving the other.
+        //
+        // v7.1 dual-output: when `segAudioWriterInput` is live we append the
+        // same CMSampleBuffer to BOTH audio writer inputs per iteration.
+        // Audio samples are passthrough (no re-encoding) so the buffer is
+        // immutable; each writer retains its own reference. If the seg
+        // input is not ready we briefly spin (matches the video pump's
+        // backpressure pattern) before dropping the sample. A dropped seg
+        // audio sample produces a tiny gap in the segmented file's audio
+        // track — non-fatal for playback.
         if let audioOutput = audioReaderOutput, let audioInput = audioWriterInput {
             NSLog(
                 "[VideoConverter] starting audio pump — " +
-                "readerStatus=\(reader.status.rawValue)"
+                "readerStatus=\(reader.status.rawValue) " +
+                "segAudioAttached=\(segAudioWriterInput != nil)"
             )
             group.enter()
+            if segAudioWriterInput != nil { group.enter() }
             var audioPumpFinished = false
+            var segAudioFinished = false
             audioInput.requestMediaDataWhenReady(on: audioQueue) {
                 while audioInput.isReadyForMoreMediaData {
                     autoreleasepool {
@@ -668,11 +1047,30 @@ class VideoConverterChannel {
                                 audioInput.markAsFinished()
                                 NSLog("[VideoConverter] audio input markAsFinished called")
                                 group.leave()
+                                if let segAudio = segAudioWriterInput, !segAudioFinished {
+                                    segAudioFinished = true
+                                    segAudio.markAsFinished()
+                                    NSLog("[VideoConverter] segmented audio input markAsFinished called")
+                                    group.leave()
+                                }
                             }
                             return
                         }
                         if audioInput.append(audioSample) {
                             audioSamplesWritten += 1
+                        }
+                        // Tee to the segmented writer's audio input. Spin
+                        // briefly if it's still backpressured; drop the
+                        // sample if the spin times out.
+                        if let segAudio = segAudioWriterInput, !segAudioFinished {
+                            var waited = 0
+                            while !segAudio.isReadyForMoreMediaData && waited < 200 {
+                                usleep(1000)
+                                waited += 1
+                            }
+                            if segAudio.isReadyForMoreMediaData {
+                                _ = segAudio.append(audioSample)
+                            }
                         }
                     }
                     if audioPumpFinished { return }
@@ -692,6 +1090,13 @@ class VideoConverterChannel {
         // `processingQueue` (which is serial and still owns this call frame
         // until convertVideo returns — we don't want follow-up channel calls
         // to block behind finishWriting's 60s timeout).
+        //
+        // v7.1 dual-output: finish writing on BOTH writers in sequence,
+        // each guarded by its own 60s semaphore. Line-drawing failure is
+        // fatal (propagates as WRITE_FAILED). Segmented-writer failure is
+        // best-effort — the result still reports success for the line
+        // output, and segmentedOutputPath is simply omitted from the
+        // return map so the Dart side knows the segmented file is absent.
         let notifyQueue = DispatchQueue.global(qos: .userInitiated)
         group.notify(queue: notifyQueue) {
             NSLog("[VideoConverter] calling finishWriting (60s timeout)")
@@ -710,6 +1115,8 @@ class VideoConverterChannel {
                     "readerError=\(reader.error?.localizedDescription ?? "nil")"
                 )
                 writer.cancelWriting()
+                if let sw = segWriter { sw.cancelWriting() }
+                if let mw = maskWriter { mw.cancelWriting() }
                 reader.cancelReading()
                 DispatchQueue.main.async {
                     result(FlutterError(
@@ -720,6 +1127,77 @@ class VideoConverterChannel {
                     endBackgroundTask()
                 }
                 return
+            }
+
+            // v7.1: finish the segmented writer, best-effort. A failure
+            // here doesn't poison the line-drawing result — the segmented
+            // file is additive, and the pre-v7.1 client experience is
+            // preserved when it's absent.
+            var segSuccessPath: String? = nil
+            if let sw = segWriter, let segPath = segmentedOutputPath {
+                let segSem = DispatchSemaphore(value: 0)
+                sw.finishWriting {
+                    segSem.signal()
+                }
+                let segWait = segSem.wait(timeout: .now() + 60)
+                if segWait == .timedOut {
+                    NSLog(
+                        "[VideoConverter] segmented finishWriting TIMEOUT — " +
+                        "segFrames=\(segFramesProcessed) " +
+                        "segWriterStatus=\(sw.status.rawValue) " +
+                        "segWriterError=\(sw.error?.localizedDescription ?? "nil")"
+                    )
+                    sw.cancelWriting()
+                    // Don't set segSuccessPath — segmented output is
+                    // deliberately omitted from the result so Dart skips
+                    // persisting / uploading a partial file.
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: segPath))
+                } else if sw.status == .completed {
+                    NSLog("[VideoConverter] segmented finishWriting completed — segFrames=\(segFramesProcessed)")
+                    segSuccessPath = segPath
+                } else {
+                    NSLog(
+                        "[VideoConverter] segmented finishWriting failed — " +
+                        "segWriterStatus=\(sw.status.rawValue) " +
+                        "segWriterError=\(sw.error?.localizedDescription ?? "nil")"
+                    )
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: segPath))
+                }
+            }
+
+            // v7.2: finish the mask writer. Same best-effort contract as
+            // the segmented writer — failure here is silent; only the
+            // mask-sidecar key is omitted from the result so Dart knows
+            // to skip persisting / uploading a partial file. Line-drawing
+            // + segmented outputs are already finalised by this point;
+            // nothing this block does can poison them.
+            var maskSuccessPath: String? = nil
+            if let mw = maskWriter, let maskPath = maskOutputPath {
+                let mSem = DispatchSemaphore(value: 0)
+                mw.finishWriting {
+                    mSem.signal()
+                }
+                let mWait = mSem.wait(timeout: .now() + 60)
+                if mWait == .timedOut {
+                    NSLog(
+                        "[VideoConverter] mask finishWriting TIMEOUT — " +
+                        "maskFrames=\(maskFramesProcessed) " +
+                        "maskWriterStatus=\(mw.status.rawValue) " +
+                        "maskWriterError=\(mw.error?.localizedDescription ?? "nil")"
+                    )
+                    mw.cancelWriting()
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: maskPath))
+                } else if mw.status == .completed {
+                    NSLog("[VideoConverter] mask finishWriting completed — maskFrames=\(maskFramesProcessed)")
+                    maskSuccessPath = maskPath
+                } else {
+                    NSLog(
+                        "[VideoConverter] mask finishWriting failed — " +
+                        "maskWriterStatus=\(mw.status.rawValue) " +
+                        "maskWriterError=\(mw.error?.localizedDescription ?? "nil")"
+                    )
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: maskPath))
+                }
             }
 
             reader.cancelReading()
@@ -734,6 +1212,10 @@ class VideoConverterChannel {
                 "[VideoConverter] convert done — frames=\(framesProcessed) " +
                 "audioIncluded=\(includeAudio) audioInputAttached=\(audioWriterInput != nil) " +
                 "audioSamplesWritten=\(audioSamplesWritten) " +
+                "segOutputWritten=\(segSuccessPath != nil) " +
+                "segFrames=\(segFramesProcessed) " +
+                "maskOutputWritten=\(maskSuccessPath != nil) " +
+                "maskFrames=\(maskFramesProcessed) " +
                 "writerStatus=\(writer.status.rawValue) " +
                 "writerError=\(writer.error?.localizedDescription ?? "nil") " +
                 "readerStatus=\(reader.status.rawValue) " +
@@ -742,12 +1224,21 @@ class VideoConverterChannel {
 
             if writer.status == .completed {
                 DispatchQueue.main.async {
-                    result([
+                    var payload: [String: Any] = [
                         "success": true,
                         "framesProcessed": framesProcessed,
                         "audioSamplesWritten": audioSamplesWritten,
                         "outputPath": outputPath,
-                    ])
+                    ]
+                    if let segPath = segSuccessPath {
+                        payload["segmentedOutputPath"] = segPath
+                        payload["segFramesProcessed"] = segFramesProcessed
+                    }
+                    if let maskPath = maskSuccessPath {
+                        payload["maskOutputPath"] = maskPath
+                        payload["maskFramesProcessed"] = maskFramesProcessed
+                    }
+                    result(payload)
                     endBackgroundTask()
                 }
             } else {
@@ -1924,6 +2415,224 @@ private class LineDrawingProcessor {
                 dstPtr[i] = UInt8(min(boosted, 255))
             }
         }
+    }
+}
+
+// MARK: - Segmented Colour Processor (v7.1 dual-output)
+
+/// Per-frame compositing for the segmented-COLOUR companion video.
+///
+/// Input : BGRA source pixel buffer + planar8 Vision person mask.
+/// Output: BGRA pixel buffer where body-zone pixels are full-colour
+///         passthrough and background-zone pixels are dimmed via the
+///         same `backgroundDim` constant the line-drawing pipeline uses.
+///
+/// No edge detection, no sketch — this is the colour sibling of the
+/// line drawing, designed to drive the web player's Colour + B&W
+/// treatments with the same body-pop separation users already see on
+/// the Line treatment. B&W is applied client-side via CSS filter on
+/// the same source URL.
+///
+/// Mask handling mirrors `LineDrawingProcessor.applyMaskedDim`:
+///   1. tent-convolve the raw mask so the body/background boundary
+///      becomes a smooth gradient (no cutout glue edge);
+///   2. per pixel, let w = softMask[i] / 255; lerp each BGR channel
+///      between dim(channel) at w=0 and channel at w=1 (alpha left
+///      untouched at source). White paper stays white; black pixels
+///      drop toward mid-grey.
+///
+/// Reuses the same scratch buffer pattern as LineDrawingProcessor —
+/// one allocation at init, freed at deinit — so per-frame cost is
+/// just the tent convolve + the inner loop.
+private class SegmentedColorProcessor {
+    let width: Int
+    let height: Int
+
+    // Softened-mask scratch. One allocation, reused every frame.
+    private var blurredMaskBuffer: vImage_Buffer
+
+    init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+        blurredMaskBuffer = vImage_Buffer(
+            data: UnsafeMutableRawPointer.allocate(byteCount: width * height, alignment: 16),
+            height: vImagePixelCount(height),
+            width: vImagePixelCount(width),
+            rowBytes: width
+        )
+    }
+
+    deinit {
+        blurredMaskBuffer.data.deallocate()
+    }
+
+    /// Compose a segmented-colour frame.
+    ///
+    /// `mask` may be nil — in that case we fall through to a straight
+    /// BGRA copy (no body-pop). Returns false on any lock / base-address
+    /// failure so the caller can skip the append.
+    func processFrame(
+        _ inputBuffer: CVPixelBuffer,
+        mask: UnsafePointer<UInt8>?,
+        into outBuffer: CVPixelBuffer
+    ) -> Bool {
+        CVPixelBufferLockBaseAddress(inputBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(inputBuffer, .readOnly) }
+
+        guard let srcBase = CVPixelBufferGetBaseAddress(inputBuffer) else {
+            return false
+        }
+
+        let srcBytesPerRow = CVPixelBufferGetBytesPerRow(inputBuffer)
+        let bufWidth = CVPixelBufferGetWidth(inputBuffer)
+        let bufHeight = CVPixelBufferGetHeight(inputBuffer)
+
+        CVPixelBufferLockBaseAddress(outBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(outBuffer, []) }
+
+        guard let dstBase = CVPixelBufferGetBaseAddress(outBuffer) else {
+            return false
+        }
+        let dstBytesPerRow = CVPixelBufferGetBytesPerRow(outBuffer)
+
+        let srcPtr = srcBase.assumingMemoryBound(to: UInt8.self)
+        let dstPtr = dstBase.assumingMemoryBound(to: UInt8.self)
+
+        // Precompute dim LUT once per frame. Matches the dim curve used
+        // by the line-drawing background-zone blend, so the two treatments
+        // share a visual language — background gets identically lifted
+        // regardless of which output the client flips to.
+        var dimLUT = [UInt8](repeating: 0, count: 256)
+        for v in 0...255 {
+            let dimmed = 255.0 - (255.0 - Double(v)) * backgroundDim
+            dimLUT[v] = UInt8(max(0, min(255, Int(dimmed.rounded()))))
+        }
+
+        if let maskPtr = mask {
+            // Soften the mask via tent convolve so the body/background
+            // boundary is a smooth gradient, not a hard cutout.
+            var srcMaskBuf = vImage_Buffer(
+                data: UnsafeMutableRawPointer(mutating: maskPtr),
+                height: vImagePixelCount(bufHeight),
+                width: vImagePixelCount(bufWidth),
+                rowBytes: bufWidth
+            )
+            let tentErr = vImageTentConvolve_Planar8(
+                &srcMaskBuf,
+                &blurredMaskBuffer,
+                nil,
+                0, 0,
+                5, 5,
+                0,
+                vImage_Flags(kvImageEdgeExtend)
+            )
+            let softMaskPtr: UnsafePointer<UInt8>
+            if tentErr == kvImageNoError {
+                softMaskPtr = UnsafePointer(blurredMaskBuffer.data.assumingMemoryBound(to: UInt8.self))
+            } else {
+                softMaskPtr = maskPtr
+            }
+
+            dimLUT.withUnsafeBufferPointer { lutBuf in
+                guard let lut = lutBuf.baseAddress else { return }
+                for y in 0..<bufHeight {
+                    let srcRow = y * srcBytesPerRow
+                    let dstRow = y * dstBytesPerRow
+                    let maskRow = y * bufWidth
+                    for x in 0..<bufWidth {
+                        let w = Int(softMaskPtr[maskRow + x])
+                        let inv = 255 - w
+                        let sp = srcRow + x * 4
+                        let dp = dstRow + x * 4
+                        // BGRA: blend B, G, R independently; carry alpha
+                        // straight through from source (typically 255).
+                        for c in 0..<3 {
+                            let s = Int(srcPtr[sp + c])
+                            let d = Int(lut[s])
+                            let blended = (d * inv + s * w + 127) / 255
+                            dstPtr[dp + c] = UInt8(blended)
+                        }
+                        dstPtr[dp + 3] = srcPtr[sp + 3]
+                    }
+                }
+            }
+        } else {
+            // No mask — straight copy. Keeps the seg output alive on
+            // older iOS where Vision segmentation isn't available;
+            // the client gets the colour source with no body-pop effect
+            // rather than an empty file.
+            for y in 0..<bufHeight {
+                let srcRow = srcBase.advanced(by: y * srcBytesPerRow)
+                let dstRow = dstBase.advanced(by: y * dstBytesPerRow)
+                memcpy(dstRow, srcRow, bufWidth * 4)
+            }
+        }
+
+        return true
+    }
+}
+
+// MARK: - Mask Output Processor (v7.2)
+
+/// Writes a Vision person-segmentation Planar8 mask into a BGRA pixel
+/// buffer so it can be muxed through an `AVAssetWriter` configured for
+/// H.264 — most iOS H.264 encoders refuse single-channel input, so we
+/// expand each mask byte as `B = G = R = maskValue, A = 255`. The
+/// resulting video is a grayscale silhouette (body=white, background=
+/// black) that a future playback-time compositor can blend directly
+/// against the segmented-colour file for tunable dim / other effects.
+///
+/// Stateless — no per-frame allocations. All work is a single sweep
+/// over the destination buffer. If `mask` is nil (iOS <15, empty
+/// scene), we emit an all-black frame so the mask timeline stays
+/// aligned with the segmented file.
+private enum MaskOutputProcessor {
+    static func writePlanar8MaskAsBGRA(
+        mask: UnsafePointer<UInt8>?,
+        width: Int,
+        height: Int,
+        into outBuffer: CVPixelBuffer
+    ) -> Bool {
+        CVPixelBufferLockBaseAddress(outBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(outBuffer, []) }
+
+        guard let dstBase = CVPixelBufferGetBaseAddress(outBuffer) else {
+            return false
+        }
+        let dstBytesPerRow = CVPixelBufferGetBytesPerRow(outBuffer)
+        let dstPtr = dstBase.assumingMemoryBound(to: UInt8.self)
+
+        if let maskPtr = mask {
+            for y in 0..<height {
+                let dstRow = y * dstBytesPerRow
+                let maskRow = y * width
+                for x in 0..<width {
+                    let v = maskPtr[maskRow + x]
+                    let dp = dstRow + x * 4
+                    // BGRA: R = G = B = mask value, A = 255.
+                    dstPtr[dp + 0] = v
+                    dstPtr[dp + 1] = v
+                    dstPtr[dp + 2] = v
+                    dstPtr[dp + 3] = 255
+                }
+            }
+        } else {
+            // No mask for this frame — emit black with full alpha so the
+            // timeline stays aligned with the segmented file and any
+            // future compositor reads "no person here" for this frame.
+            for y in 0..<height {
+                let dstRow = y * dstBytesPerRow
+                for x in 0..<width {
+                    let dp = dstRow + x * 4
+                    dstPtr[dp + 0] = 0
+                    dstPtr[dp + 1] = 0
+                    dstPtr[dp + 2] = 0
+                    dstPtr[dp + 3] = 255
+                }
+            }
+        }
+
+        return true
     }
 }
 

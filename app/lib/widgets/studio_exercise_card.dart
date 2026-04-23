@@ -34,6 +34,14 @@ class StudioDefaults {
   /// `_kPrepSeconds` in plan_preview_screen.dart and `PREP_SECONDS` in
   /// web-player/app.js.
   static const int prepSeconds = 5;
+
+  /// Post Rep Breather — inter-set rest in seconds (Milestone Q). This is
+  /// the seed the Studio UI shows when `exercise.interSetRestSeconds` is
+  /// null AND no sticky per-client default exists. Fresh captures are
+  /// persisted with 15s at write-boundary via
+  /// `ExerciseCapture.withPersistenceDefaults()`; legacy rows stay NULL
+  /// (no breather) until the practitioner explicitly sets one.
+  static const int interSetRestSeconds = 15;
 }
 
 /// Returns true when [exercise] has any setting that deviates from the
@@ -54,6 +62,13 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
   if (exercise.includeAudio) return true;
   if (exercise.customDurationSeconds != null) return true;
   if (exercise.prepSeconds != null) return true;
+  // Milestone Q — inter-set rest counts as customised when the stored
+  // value differs from the persistence default (15s). Null stays
+  // non-customised (legacy rows / pre-migration captures).
+  if (exercise.interSetRestSeconds != null &&
+      exercise.interSetRestSeconds != StudioDefaults.interSetRestSeconds) {
+    return true;
+  }
   return false;
 }
 
@@ -83,6 +98,12 @@ class StudioExerciseCard extends StatefulWidget {
   /// caller surfaces the undo snackbar.
   final VoidCallback onDelete;
 
+  /// Thumbnail long-press → "Download original" action (video captures
+  /// only). Caller is expected to call `showDownloadOriginalSheet(...)`
+  /// with the plan's practice + plan ids. Null (default) disables the
+  /// row so the peek menu keeps its legacy three-action shape.
+  final VoidCallback? onDownloadOriginal;
+
   /// Optional sticky per-rep seed for DURATION PER REP's Manual seed
   /// path (Wave 18.7). Parent looks up the client's
   /// `custom_duration_per_rep` default and passes it through; null
@@ -99,6 +120,7 @@ class StudioExerciseCard extends StatefulWidget {
     required this.onThumbnailTap,
     required this.onReplaceMedia,
     required this.onDelete,
+    this.onDownloadOriginal,
     this.stickyCustomDurationPerRep,
   });
 
@@ -328,6 +350,7 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           onOpenFullScreen: widget.onThumbnailTap,
           onReplaceMedia: widget.onReplaceMedia,
           onDelete: widget.onDelete,
+          onDownloadOriginal: widget.onDownloadOriginal,
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -425,6 +448,14 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     final ex = widget.exercise;
     if (ex.prepSeconds != null) return true;
     if (ex.customDurationSeconds != null) return true;
+    // Milestone Q — inter-set rest counts as "non-default" only when it
+    // differs from the persistence default (15s). A freshly-seeded 15s
+    // row should NOT light the coral dot; only a deliberate deviation
+    // (0 = disabled, any other positive integer) does.
+    if (ex.interSetRestSeconds != null &&
+        ex.interSetRestSeconds != StudioDefaults.interSetRestSeconds) {
+      return true;
+    }
     return false;
   }
 
@@ -473,6 +504,18 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     if (ex.customDurationSeconds != null) {
       final perRep = _perRepFromCustom();
       parts.add('${perRep}s per rep');
+    }
+    // Milestone Q — surface the breather in the collapsed summary so a
+    // practitioner can see it without expanding the accordion. Only
+    // non-default values show up (matches `_pacingHasNonDefaults`); a
+    // 15s freshly-seeded value stays invisible in the summary.
+    final breather = ex.interSetRestSeconds;
+    if (breather != null && breather != StudioDefaults.interSetRestSeconds) {
+      if (breather == 0) {
+        parts.add('no breather');
+      } else {
+        parts.add('${breather}s breather');
+      }
     }
     if (parts.isEmpty) return 'defaults';
     return parts.join(', ');
@@ -684,6 +727,27 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
                   } else {
                     widget.onUpdate(
                       widget.exercise.copyWith(prepSeconds: override),
+                    );
+                  }
+                },
+              ),
+              // Milestone Q — Post Rep Breather. Shown for all non-rest
+              // exercises regardless of sets count (practitioners should
+              // be able to configure ahead of time even when sets == 1,
+              // per brief). Same inline editor pattern as PREP.
+              _InterSetRestRow(
+                currentValue: widget.exercise.interSetRestSeconds,
+                globalDefault: StudioDefaults.interSetRestSeconds,
+                onCommit: (override) {
+                  if (override == null) {
+                    widget.onUpdate(
+                      widget.exercise
+                          .copyWith(clearInterSetRestSeconds: true),
+                    );
+                  } else {
+                    widget.onUpdate(
+                      widget.exercise
+                          .copyWith(interSetRestSeconds: override),
                     );
                   }
                 },
@@ -1696,6 +1760,209 @@ class _PrepSecondsRowState extends State<_PrepSecondsRow> {
             const SizedBox(height: 6),
             // Full-width editor — the enclosing Column stretches it
             // via crossAxisAlignment, so no Expanded wrapper needed.
+            InlineNumericEditor(
+              controller: _controller,
+              focusNode: _focusNode,
+              accentColor: AppColors.primary,
+              onCancel: _cancel,
+              onCommit: _commit,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// "Post Rep Breather" inline-editable integer field for the Studio
+/// exercise card's PACING accordion (Milestone Q). Configures seconds
+/// of rest between sets within a single exercise — played back on the
+/// web player as a sage countdown chip over the last visible frame
+/// (video pauses + resumes without reset).
+///
+/// Three-state semantics (mirrors the Supabase column):
+///   * NULL → no breather (legacy rows / pre-migration captures).
+///     Displayed as "{default}s" in muted tone (tap to set).
+///   * 0 → practitioner explicitly disabled. Displayed as "Off" in
+///     muted tone. A committed value of 0 is persisted (distinct
+///     from NULL in intent).
+///   * Positive integer → breather seconds. Displayed as "{N}s" in
+///     bold white when it differs from the default; muted white when
+///     it matches the default (because it's likely a freshly-seeded
+///     15s that the practitioner has not touched).
+///
+/// Commit rules — mirror PREP almost exactly, with one difference:
+///   * Empty → clear (copyWith(clearInterSetRestSeconds: true))
+///   * Negative / non-numeric → clear
+///   * 0 → persist 0 (explicit disable — DO NOT clear, that's the
+///     difference vs PREP where 0 meant "clear")
+///   * Value == default (15) → clear, since a "coincidence override"
+///     shouldn't paint the customised dot.
+///   * Positive non-default → persist as the override
+class _InterSetRestRow extends StatefulWidget {
+  final int? currentValue;
+  final int globalDefault;
+  final ValueChanged<int?> onCommit;
+
+  const _InterSetRestRow({
+    required this.currentValue,
+    required this.globalDefault,
+    required this.onCommit,
+  });
+
+  @override
+  State<_InterSetRestRow> createState() => _InterSetRestRowState();
+}
+
+class _InterSetRestRowState extends State<_InterSetRestRow> {
+  late final TextEditingController _controller;
+  final FocusNode _focusNode = FocusNode();
+  bool _editing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: widget.currentValue?.toString() ?? '',
+    );
+    _focusNode.addListener(_onFocusChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant _InterSetRestRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_editing && oldWidget.currentValue != widget.currentValue) {
+      _controller.text = widget.currentValue?.toString() ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.removeListener(_onFocusChange);
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChange() {
+    if (!_focusNode.hasFocus && _editing) {
+      _commit();
+    }
+  }
+
+  void _startEditing() {
+    HapticFeedback.selectionClick();
+    // Seed the editor with the currently-displayed value (override OR
+    // global default). Matches the PREP pattern — tapping the dashed
+    // underline shows the number the practitioner just saw rather
+    // than an empty field.
+    _controller.text =
+        (widget.currentValue ?? widget.globalDefault).toString();
+    setState(() => _editing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+      _controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _controller.text.length,
+      );
+    });
+  }
+
+  void _commit() {
+    final text = _controller.text.trim();
+    int? next;
+    if (text.isEmpty) {
+      next = null;
+    } else {
+      final parsed = int.tryParse(text);
+      if (parsed == null || parsed < 0) {
+        // Garbage / negative → clear.
+        next = null;
+      } else if (parsed == widget.globalDefault) {
+        // Value == default → clear the override so we don't paint the
+        // customised dot for a coincidence match. On fresh captures
+        // the stored value is already 15 via withPersistenceDefaults()
+        // so clearing here is a no-op at the persistence layer.
+        next = null;
+      } else {
+        // 0 is a valid explicit-disable value; persist it.
+        next = parsed;
+      }
+    }
+    if (next != widget.currentValue) {
+      widget.onCommit(next);
+    }
+    setState(() => _editing = false);
+  }
+
+  void _cancel() {
+    HapticFeedback.selectionClick();
+    setState(() => _editing = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasOverride = widget.currentValue != null;
+    final isExplicitDisable = widget.currentValue == 0;
+    final displayValue = hasOverride
+        ? widget.currentValue!
+        : widget.globalDefault;
+    // "Off" reads cleaner than "0s" for the deliberate-disable case;
+    // matches the DOSE.Hold convention (`Hold off`).
+    final displayText = isExplicitDisable ? 'Off' : '${displayValue}s';
+    // Bold white only when the override differs from the default.
+    // A stored 15 (default) or null renders muted — nothing to shout
+    // about visually.
+    final isCustomised = hasOverride && widget.currentValue != widget.globalDefault;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'POST REP BREATHER',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                  color: AppColors.textSecondaryOnDark,
+                ),
+              ),
+              if (!_editing) ...[
+                const Spacer(),
+                GestureDetector(
+                  onTap: _startEditing,
+                  behavior: HitTestBehavior.opaque,
+                  child: CustomPaint(
+                    painter: _DashedUnderlinePainter(color: AppColors.grey500),
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(
+                        displayText,
+                        style: TextStyle(
+                          fontFamily: 'JetBrainsMono',
+                          fontFamilyFallback: const ['Menlo', 'Courier'],
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: isCustomised
+                              ? AppColors.textOnDark
+                              : AppColors.textSecondaryOnDark
+                                  .withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (_editing) ...[
+            const SizedBox(height: 6),
             InlineNumericEditor(
               controller: _controller,
               focusNode: _focusNode,

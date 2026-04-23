@@ -20,6 +20,7 @@ import '../models/treatment.dart';
 import '../services/sync_service.dart';
 import '../widgets/unconsented_treatments_sheet.dart';
 import '../widgets/circuit_control_sheet.dart';
+import '../widgets/download_original_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
@@ -1189,6 +1190,17 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           }
           _deleteExercise(dataIndex);
         },
+        // Video-only: pipe the thumbnail peek's "Download original"
+        // row into the Save / Share bottom sheet. Rest + photo rows
+        // don't render this option (gated in ThumbnailPeek).
+        onDownloadOriginal: exercise.mediaType == MediaType.video
+            ? () => showDownloadOriginalSheet(
+                  context,
+                  exercise: exercise,
+                  practiceId: _session.practiceId,
+                  planId: _session.id,
+                )
+            : null,
       );
       cardContent = Dismissible(
         key: ValueKey('swipe_${exercise.id}'),
