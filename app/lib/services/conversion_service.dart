@@ -125,10 +125,19 @@ class ConversionService extends ChangeNotifier {
   }
 
   /// The processing loop. Runs until the queue is drained.
+  ///
+  /// Wrapped in a top-level try/finally so `_processing` always resets to
+  /// false on exit, even if an unexpected exception escapes the per-item
+  /// catch (e.g. a SQLite write lock error hitting `saveExercise` before
+  /// the inner try begins). Without this guard the singleton could get
+  /// stuck `_processing=true` forever, and every future `queueConversion`
+  /// call would early-return at line 129 — leaving the last item in a
+  /// capture burst wedged until the app restarts.
   Future<void> _processQueue() async {
     if (_processing) return;
     _processing = true;
 
+    try {
     while (_queue.isNotEmpty) {
       final exercise = _queue.removeAt(0);
 
@@ -284,8 +293,14 @@ class ConversionService extends ChangeNotifier {
         debugPrint('Conversion failed for ${exercise.id}: $e');
       }
     }
-
-    _processing = false;
+    } catch (e, stack) {
+      // Last-resort catch — covers any exception that escapes the inner
+      // try (e.g. `saveExercise(converting)` hitting a SQLite lock). Logs
+      // and moves on; the finally still resets `_processing`.
+      debugPrint('_processQueue aborted unexpectedly: $e\n$stack');
+    } finally {
+      _processing = false;
+    }
   }
 
   /// Convert a single capture. Dispatches to photo or video handler.
@@ -577,6 +592,12 @@ class ConversionService extends ChangeNotifier {
   /// crossing the isolate boundary (opencv_dart Mat handles wrap FFI
   /// pointers that don't survive isolate hops).
   Future<void> _convertPhoto(String inputPath, String outputPath) async {
+    // 30s timeout is insurance against a legitimately hung OpenCV isolate
+    // (observed in the wild: the last capture in a rapid burst would sit
+    // at "converting" forever). The photo pipeline runs end-to-end in
+    // ~400-800ms on a 12MP image, so 30s is well past any legitimate
+    // work window. On timeout the outer catch marks the row as
+    // `ConversionStatus.failed` so the "N failed" retry pill surfaces.
     await compute<_PhotoConvertArgs, void>(
       _convertPhotoIsolate,
       _PhotoConvertArgs(
@@ -586,6 +607,14 @@ class ConversionService extends ChangeNotifier {
         thresholdBlock: AppConfig.thresholdBlock,
         contrastLow: AppConfig.contrastLow,
       ),
+    ).timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        throw TimeoutException(
+          'Photo conversion exceeded 30s — isolate likely hung '
+          '(inputPath=$inputPath)',
+        );
+      },
     );
   }
 
