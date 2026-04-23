@@ -306,8 +306,18 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    // Pick the first unused "New client {N}" slot. Must exclude
+    // soft-deleted names too — the server-side unique index on
+    // `(practice_id, name)` ignores `deleted_at`, so reusing a
+    // recycle-bin name would explode at publish with "restore it
+    // instead" (see upload_service.dart:499).
+    final reserved = await widget.storage
+        .getAllCachedClientNamesForPractice(practiceId);
+    for (final c in _clients) {
+      reserved.add(c.name);
+    }
     int i = 1;
-    while (_clients.any((c) => c.name == 'New client $i')) {
+    while (reserved.contains('New client $i')) {
       i++;
     }
     final defaultName = 'New client $i';

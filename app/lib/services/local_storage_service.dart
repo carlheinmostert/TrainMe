@@ -995,6 +995,22 @@ class LocalStorageService {
     return rows.map((r) => CachedClient.fromMap(r)).toList(growable: false);
   }
 
+  /// Every cached client name for a practice, INCLUDING soft-deleted
+  /// rows (recycle bin). Used by the "New client" default-name picker
+  /// so we don't mint a name that collides with a soft-deleted client
+  /// — the server-side unique index on `(practice_id, name)` ignores
+  /// `deleted_at`, so an auto-picked name that happens to match a
+  /// recycle-bin row explodes at publish time.
+  Future<Set<String>> getAllCachedClientNamesForPractice(String practiceId) async {
+    final rows = await db.query(
+      'cached_clients',
+      columns: ['name'],
+      where: 'practice_id = ?',
+      whereArgs: [practiceId],
+    );
+    return rows.map((r) => r['name'] as String).toSet();
+  }
+
   /// Upsert a single cached client row. Used by SyncService on both
   /// cloud pulls (`dirty=0`) and local mutations (`dirty=1`).
   Future<void> upsertCachedClient(CachedClient client) async {
