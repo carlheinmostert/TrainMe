@@ -18,11 +18,22 @@ class CaptureThumbnail extends StatelessWidget {
   /// the thumbnail swaps silently from raw → converted instead.
   final bool showConversionOverlay;
 
+  /// When false, the chrome that's only useful in the small list cell
+  /// (the centred play-circle glyph on video thumbnails + the
+  /// bottom-left media-type badge) is suppressed. Used by the
+  /// long-press peek preview at 240×240 — that surface sits behind a
+  /// live `VideoPlayer` once the controller initialises, so the
+  /// chrome would briefly flash through the menu open transition and
+  /// then vanish ("something popping in background", Wave 19.4 item
+  /// 24). Defaults to true so list cells keep their full glyphery.
+  final bool showChrome;
+
   const CaptureThumbnail({
     super.key,
     required this.exercise,
     this.size = 64,
     this.showConversionOverlay = true,
+    this.showChrome = true,
   });
 
   @override
@@ -42,7 +53,7 @@ class CaptureThumbnail extends StatelessWidget {
           children: [
             _buildImage(cacheWidth),
             if (showConversionOverlay) _buildConversionOverlay(),
-            _buildMediaTypeBadge(),
+            if (showChrome) _buildMediaTypeBadge(),
           ],
         ),
       ),
@@ -88,10 +99,11 @@ class CaptureThumbnail extends StatelessWidget {
                 ),
               ),
             ),
-            Center(
-              child: Icon(Icons.play_circle_outline,
-                  color: Colors.white70, size: size * 0.4),
-            ),
+            if (showChrome)
+              Center(
+                child: Icon(Icons.play_circle_outline,
+                    color: Colors.white70, size: size * 0.4),
+              ),
           ],
         );
       }

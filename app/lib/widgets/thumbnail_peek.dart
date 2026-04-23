@@ -111,6 +111,13 @@ class ThumbnailPeek extends StatelessWidget {
         // Only build the video preview once the menu is opening — keeps
         // the list cheap (no VideoPlayerController per card at rest).
         final useBigPreview = t > 0.02;
+        // The moment the open animation kicks in (t > 0), strip chrome
+        // from the still thumbnail. Otherwise the centred play-circle
+        // glyph + media-type badge would be visible for the first
+        // 0.02 of the animation, then vanish abruptly when the
+        // _PeekPreview takes over — exactly the "popping in
+        // background" Carl flagged on Wave 19.4 item 24.
+        final chromeOff = t > 0.0;
         return SizedBox(
           width: size,
           height: size,
@@ -122,7 +129,12 @@ class ThumbnailPeek extends StatelessWidget {
               : GestureDetector(
                   onTap: onTap,
                   behavior: HitTestBehavior.opaque,
-                  child: CaptureThumbnail(exercise: exercise, size: 56),
+                  child: CaptureThumbnail(
+                    exercise: exercise,
+                    size: 56,
+                    showChrome: !chromeOff,
+                    showConversionOverlay: !chromeOff,
+                  ),
                 ),
         );
       },
@@ -171,16 +183,40 @@ class _PeekPreviewState extends State<_PeekPreview> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isVideo && _initialized && _controller != null) {
-      return FittedBox(
-        fit: BoxFit.cover,
-        child: SizedBox(
-          width: _controller!.value.size.width,
-          height: _controller!.value.size.height,
-          child: VideoPlayer(_controller!),
+    // Always render the still thumbnail underneath. The video texture,
+    // when ready, stacks on top — never swap children mid-animation.
+    //
+    // Pre-fix the peek build returned EITHER a `CaptureThumbnail(240)`
+    // OR a `VideoPlayer`, swapping the moment the controller
+    // initialised (~100-300ms in). At 240×240 the still-thumbnail
+    // fallback exposed a centred 96px play-circle glyph + a media-type
+    // badge + (sometimes) a green check / spinner — all of which
+    // flashed for a frame as the menu opened, then vanished when the
+    // video texture replaced them. Carl saw this as "something popping
+    // in background" (Wave 19.4 test item 24).
+    //
+    // Now: the still sits underneath WITHOUT chrome (no play-circle,
+    // no media-type badge, no conversion overlay) and the video fades
+    // in on top once ready. No swap, no flash, no chrome strobing.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        CaptureThumbnail(
+          exercise: widget.exercise,
+          size: 240,
+          showConversionOverlay: false,
+          showChrome: false,
         ),
-      );
-    }
-    return CaptureThumbnail(exercise: widget.exercise, size: 240);
+        if (_isVideo && _initialized && _controller != null)
+          FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: _controller!.value.size.width,
+              height: _controller!.value.size.height,
+              child: VideoPlayer(_controller!),
+            ),
+          ),
+      ],
+    );
   }
 }
