@@ -43,21 +43,21 @@
   }
   .lede strong { color: var(--text); }
   .checklist { list-style: none; padding-left: 0; margin: 0; }
-  .checklist li {
+  .checklist > li {
     padding: 10px 12px 10px 118px; margin: 4px 0;
     position: relative; background: transparent; border-radius: 8px;
     transition: background 150ms, border-color 150ms;
     border: 1px solid transparent;
   }
-  .checklist li:hover { background: var(--raised); }
-  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
-  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
-  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
-  .checklist li .vote {
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote {
     position: absolute; left: 10px; top: 8px;
     display: flex; gap: 4px;
   }
-  .checklist li .vote button {
+  .checklist > li .vote button {
     width: 26px; height: 26px;
     border: 1.5px solid var(--text-dim); border-radius: 6px;
     background: transparent; color: var(--text-dim);
@@ -65,15 +65,15 @@
     cursor: pointer; padding: 0;
     transition: all 120ms;
   }
-  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
-  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
-  .checklist li[data-status="pass"] .vote button.pass {
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass {
     background: var(--coral); border-color: var(--coral); color: white;
   }
-  .checklist li[data-status="fail"] .vote button.fail {
+  .checklist > li[data-status="fail"] .vote button.fail {
     background: #EF4444; border-color: #EF4444; color: white;
   }
-  .checklist li .num {
+  .checklist > li .num {
     position: absolute; left: 78px; top: 13px;
     display: inline-block; width: 30px;
     font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -81,20 +81,38 @@
     color: var(--coral);
     text-align: right; letter-spacing: 0;
   }
-  .checklist li .text { display: block; }
-  .checklist li .note-row { margin-top: 8px; display: none; }
-  .checklist li[data-status="pass"] .note-row,
-  .checklist li[data-status="fail"] .note-row { display: block; }
-  .checklist li .note-row input {
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row,
+  .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input {
     width: 100%; padding: 6px 10px;
     background: var(--bg); color: var(--text);
     border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
     font-family: inherit; font-size: 13px;
   }
-  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
-  .checklist li .note-row input::placeholder { color: var(--text-dim); }
-  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
-  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps {
+    list-style: none; padding: 0; margin: 8px 0 0 0;
+  }
+  .steps li {
+    position: relative; padding: 4px 0 4px 42px; margin: 0;
+    color: var(--text); font-size: 13px; line-height: 1.5;
+    background: transparent; border: none;
+  }
+  .steps li::before {
+    content: attr(data-sub);
+    position: absolute; left: 0; top: 4px; width: 34px;
+    text-align: right;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px; font-weight: 600; color: var(--text-mute);
+    letter-spacing: 0;
+  }
+  .checklist > li[data-status="pass"] .steps li,
+  .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
   code {
     background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
     font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -158,13 +176,27 @@
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
         <span class="num">1.</span>
-        <span class="text">Open Studio → create a fresh client → new session → capture ONE new exercise (video or photo). Do NOT edit reps / sets. Publish. Open the plan URL in Safari. The active-slide grammar reads <strong>"{name} · 3 sets · 10 reps"</strong> — <em>not</em> just "{name}" or "{name} · 3 sets". Open the Flutter preview for the same plan: same grammar. The defaults survived the capture → publish → get_plan_full round-trip.</span>
+        <span class="text">Fresh capture inherits sets=3 / reps=10 through publish.</span>
+        <ol class="steps">
+          <li data-sub="1.1">Studio → create a fresh client → new session.</li>
+          <li data-sub="1.2">Capture ONE new exercise (video or photo). Do NOT edit reps / sets.</li>
+          <li data-sub="1.3">Publish. Open the plan URL in Safari.</li>
+          <li data-sub="1.4">Expect: active-slide grammar reads <strong>"{name} · 3 sets · 10 reps"</strong> — not just "{name}" or "{name} · 3 sets".</li>
+          <li data-sub="1.5">Open the Flutter preview for the same plan. Expect: identical grammar (R-10).</li>
+          <li data-sub="1.6">Defaults survived the capture → publish → <code>get_plan_full</code> round-trip.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="2" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
         <span class="num">2.</span>
-        <span class="text">Repeat (1) but create a <strong>REST row</strong> (long-press gutter rail → add rest). Rest row should NOT pick up the default (rest has no reps / sets grammar). The published rest slide renders as the existing compact rest card — no "3 sets · 10 reps" anywhere on it.</span>
+        <span class="text">Rest rows do NOT inherit the reps / sets defaults.</span>
+        <ol class="steps">
+          <li data-sub="2.1">Repeat (1) but create a REST row (long-press gutter rail → add rest).</li>
+          <li data-sub="2.2">Publish. Open the plan in Safari.</li>
+          <li data-sub="2.3">Expect: rest slide renders as the existing compact rest card.</li>
+          <li data-sub="2.4">Expect: NO "3 sets · 10 reps" anywhere on the rest slide.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -174,13 +206,29 @@
       <li data-num="3" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
         <span class="num">3.</span>
-        <span class="text">Happy path: create a new client + session + publish on good connectivity. <strong>No error SnackBar</strong>. Plan URL works. Open the plan in Safari → exercise videos show the segmented-colour effect on Colour / B&W (per (F)). In past sessions we had a plan publish where upsert_client silently swallowed a 23505 collision and produced a plan with <code>client_id = NULL</code>; fresh captures should never hit that again.</span>
+        <span class="text">Happy path — fresh client + session publishes cleanly.</span>
+        <ol class="steps">
+          <li data-sub="3.1">Create new client + session, capture, publish on good connectivity.</li>
+          <li data-sub="3.2">Expect: NO error SnackBar. Plan URL works.</li>
+          <li data-sub="3.3">Open plan in Safari → exercise videos show segmented-colour effect on Colour / B&W (per (F)).</li>
+          <li data-sub="3.4">Background: previously <code>upsert_client</code> silently swallowed 23505 collisions and produced plans with <code>client_id = NULL</code>. Fresh captures should never hit that.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
         <span class="num">4.</span>
-        <span class="text">Force the failure path (manual collision): on Home, long-press a client → <strong>Delete</strong> → <strong>let the Undo SnackBar dismiss itself</strong> (don't restore). Then FAB <strong>New client</strong> → rename the freshly-minted client to the <strong>exact name</strong> of the one you just deleted → add one capture → Publish. A <strong>user-visible SnackBar</strong> surfaces: <em>"This client name collides with a deleted client. Open the recycle bin and restore it, or rename before republishing."</em> Not a cryptic <code>Bad state</code> or raw <code>23505</code>. The session is NOT marked published. <em>(Note: the default-name collision path from the original wave brief is now unreachable — new clients mint with a 4-hex suffix, so this item exercises the same server-side guard via manual same-name re-entry.)</em></span>
+        <span class="text">Manual same-name collision surfaces a friendly SnackBar (not a raw 23505).</span>
+        <ol class="steps">
+          <li data-sub="4.1">On Home, long-press a client → <strong>Delete</strong>.</li>
+          <li data-sub="4.2">Let the Undo SnackBar dismiss itself — do NOT restore.</li>
+          <li data-sub="4.3">FAB → New client → rename the freshly-minted client to the <strong>exact name</strong> of the one you just deleted.</li>
+          <li data-sub="4.4">Add one capture → Publish.</li>
+          <li data-sub="4.5">Expect: user-visible SnackBar reads <em>"This client name collides with a deleted client. Open the recycle bin and restore it, or rename before republishing."</em></li>
+          <li data-sub="4.6">NOT a cryptic <code>Bad state</code> or raw <code>23505</code>.</li>
+          <li data-sub="4.7">Expect: session is NOT marked published.</li>
+          <li data-sub="4.8">Note: the original default-name collision path is now unreachable — new clients mint with a 4-hex suffix. This item exercises the same server-side guard via manual same-name re-entry.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -190,7 +238,13 @@
       <li data-num="5" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
         <span class="num">5.</span>
-        <span class="text">Open plan <code>3a5a5c39-d735-46be-960c-31c60851a587</code> (the hold-only isometric case from earlier in the session). Navigate to the exercise that historically rendered as <strong>"30s hold"</strong> only. The active-slide title now reads <strong>"{name} · 3 sets · 10 reps · 30s hold"</strong> — reps are no longer suppressed when only the hold field is set. Confirm on both web player AND Flutter preview (R-10).</span>
+        <span class="text">Hold-only isometric exercise no longer suppresses reps in the title.</span>
+        <ol class="steps">
+          <li data-sub="5.1">Open plan <code>3a5a5c39-d735-46be-960c-31c60851a587</code> (the historic isometric case).</li>
+          <li data-sub="5.2">Navigate to the exercise that previously rendered as <strong>"30s hold"</strong> only.</li>
+          <li data-sub="5.3">Expect: active-slide title reads <strong>"{name} · 3 sets · 10 reps · 30s hold"</strong>.</li>
+          <li data-sub="5.4">Confirm on both web player AND Flutter preview (R-10).</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -200,7 +254,16 @@
       <li data-num="6" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
         <span class="num">6.</span>
-        <span class="text">On the iPhone (physical device, Safari, NOT the preview WebView), open any published plan. Tap the fullscreen toggle (top-right). The plan-bar + footer hide, the video goes edge-to-edge, the matrix + active-slide title remain visible — identical visual outcome to desktop Chrome's real fullscreen. Tap again → chrome restores. There is NO console error about <code>requestFullscreen is not a function</code>. Before this fix the button was a dead click on iPhone.</span>
+        <span class="text">Fullscreen toggle works on iPhone Safari via body-class fallback.</span>
+        <ol class="steps">
+          <li data-sub="6.1">On iPhone (physical device, Safari, NOT the preview WebView), open any published plan.</li>
+          <li data-sub="6.2">Tap the fullscreen toggle (top-right).</li>
+          <li data-sub="6.3">Expect: plan-bar + footer hide, video goes edge-to-edge, matrix + active-slide title remain visible.</li>
+          <li data-sub="6.4">Visual outcome identical to desktop Chrome's real fullscreen.</li>
+          <li data-sub="6.5">Tap again → chrome restores.</li>
+          <li data-sub="6.6">Expect: NO console error about <code>requestFullscreen is not a function</code>.</li>
+          <li data-sub="6.7">Pre-fix: button was a dead click on iPhone.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -210,7 +273,15 @@
       <li data-num="7" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
         <span class="num">7.</span>
-        <span class="text">Capture a fresh video exercise on iPhone (real device). Wait for conversion. Open the line drawing in Studio. Compare against a v6 reference (any plan converted before 2026-04-22). The v7 line drawing's <strong>body silhouette reads more distinctly</strong> against a visibly darker background. Edge / line tuning unchanged (v6 LOCKED — only <code>backgroundDim</code> moved 0.70 → 0.50). Aesthetic sign-off: Carl only.</span>
+        <span class="text">v7 line drawings show stronger body / background contrast than v6.</span>
+        <ol class="steps">
+          <li data-sub="7.1">Capture a fresh video exercise on iPhone (real device). Wait for conversion.</li>
+          <li data-sub="7.2">Open the line drawing in Studio.</li>
+          <li data-sub="7.3">Compare against a v6 reference (any plan converted before 2026-04-22).</li>
+          <li data-sub="7.4">Expect: v7 body silhouette reads more distinctly against a visibly darker background.</li>
+          <li data-sub="7.5">Edge / line tuning unchanged (v6 LOCKED — only <code>backgroundDim</code> moved 0.70 → 0.50).</li>
+          <li data-sub="7.6">Aesthetic sign-off: Carl only.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -220,13 +291,28 @@
       <li data-num="8" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
         <span class="num">8.</span>
-        <span class="text">Capture + publish a fresh exercise with the Colour + Grayscale consents granted. Open the plan in Safari → switch to the <strong>Colour</strong> treatment segment. The body is pristine full-colour; the background is dimmed. This is the NEW dual-output segmented-colour file — not the untouched original. Switch to <strong>B&W</strong> — same effect with CSS greyscale filter on top. Switch to <strong>Line</strong> — the v7 line drawing (matches (E)). All three treatments should show the same body-pop aesthetic.</span>
+        <span class="text">All three treatments share the same body-pop aesthetic.</span>
+        <ol class="steps">
+          <li data-sub="8.1">Capture + publish a fresh exercise with Colour + Grayscale consents granted.</li>
+          <li data-sub="8.2">Open plan in Safari → switch to <strong>Colour</strong> treatment segment.</li>
+          <li data-sub="8.3">Expect: body is pristine full-colour; background is dimmed (NEW dual-output segmented file, not the untouched original).</li>
+          <li data-sub="8.4">Switch to <strong>B&W</strong>. Expect: same effect with CSS greyscale filter on top.</li>
+          <li data-sub="8.5">Switch to <strong>Line</strong>. Expect: v7 line drawing (matches (E)).</li>
+          <li data-sub="8.6">Expect: all three treatments show the same body-pop aesthetic.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="9" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
         <span class="num">9.</span>
-        <span class="text">Legacy fallback: open a plan published BEFORE this session (e.g. the control plan). Switch to Colour / B&W. The video plays the <strong>untouched original</strong> (no body-pop — backgrounds look as captured). No console error. No broken video element. The player falls through <code>grayscale_segmented_url → grayscale_url</code> silently.</span>
+        <span class="text">Legacy plan falls back silently to untouched original.</span>
+        <ol class="steps">
+          <li data-sub="9.1">Open a plan published BEFORE this session (e.g. control plan).</li>
+          <li data-sub="9.2">Switch to Colour / B&W.</li>
+          <li data-sub="9.3">Expect: video plays the untouched original (no body-pop — backgrounds look as captured).</li>
+          <li data-sub="9.4">Expect: no console error, no broken video element.</li>
+          <li data-sub="9.5">Player falls through <code>grayscale_segmented_url → grayscale_url</code> silently.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -236,19 +322,39 @@
       <li data-num="10" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
         <span class="num">10.</span>
-        <span class="text">On a Milestone-P plan (item 8), tap the <strong>gear button</strong> top-right of the card viewport (between the mute button and the fullscreen toggle). A small settings popover opens with a single switch labeled <strong>"Enhanced background"</strong>, default ON, hint text "Body in focus — background dimmed". Tap outside OR press Escape → popover closes.</span>
+        <span class="text">Gear popover surfaces the "Enhanced background" switch.</span>
+        <ol class="steps">
+          <li data-sub="10.1">On a Milestone-P plan (item 8), tap the <strong>gear button</strong> top-right of the card viewport (between mute + fullscreen toggle).</li>
+          <li data-sub="10.2">Expect: small settings popover opens with one switch labeled <strong>"Enhanced background"</strong>.</li>
+          <li data-sub="10.3">Expect: switch default ON; hint text reads "Body in focus — background dimmed".</li>
+          <li data-sub="10.4">Tap outside OR press Escape → expect popover closes.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="11" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
         <span class="num">11.</span>
-        <span class="text">Flip the switch OFF. The video element swaps in place — the CURRENT frame's background is no longer dimmed; you're now seeing the untouched original. The hint text flips to <strong>"Original untouched"</strong>. Playback continues from the same <code>currentTime</code>, no page reload, no video restart. Flip back ON → body-pop returns. Line treatment is unaffected regardless of switch state.</span>
+        <span class="text">Switch hot-swaps the source without restarting playback.</span>
+        <ol class="steps">
+          <li data-sub="11.1">Flip the switch OFF.</li>
+          <li data-sub="11.2">Expect: video element swaps in place; current frame's background no longer dimmed.</li>
+          <li data-sub="11.3">Expect: hint text flips to <strong>"Original untouched"</strong>.</li>
+          <li data-sub="11.4">Expect: playback continues from the same <code>currentTime</code> — no page reload, no video restart.</li>
+          <li data-sub="11.5">Flip back ON → expect: body-pop returns.</li>
+          <li data-sub="11.6">Expect: Line treatment unaffected regardless of switch state.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="12" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
         <span class="num">12.</span>
-        <span class="text">Set switch OFF, close the tab, open the plan URL again (fresh navigation). The switch is STILL off on reopen (persisted in <code>localStorage</code> under <code>homefit.playback.segmentedEffect</code>). Set it back ON → close → reopen → still ON. Per-device, per-browser, no server round-trip.</span>
+        <span class="text">Switch state persists across navigations via localStorage.</span>
+        <ol class="steps">
+          <li data-sub="12.1">Set switch OFF, close the tab, open the plan URL again (fresh navigation).</li>
+          <li data-sub="12.2">Expect: switch is STILL off on reopen (persisted under <code>homefit.playback.segmentedEffect</code>).</li>
+          <li data-sub="12.3">Set it back ON → close → reopen → expect: still ON.</li>
+          <li data-sub="12.4">Per-device, per-browser, no server round-trip.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -258,13 +364,27 @@
       <li data-num="13" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
         <span class="num">13.</span>
-        <span class="text">Capture + publish a fresh exercise. Check the Supabase Storage dashboard → <code>raw-archive</code> bucket → <code>{practice_id}/{plan_id}/</code> folder. THREE files per video exercise: <code>{id}.mp4</code>, <code>{id}.segmented.mp4</code>, <code>{id}.mask.mp4</code>. The mask file is a grayscale-looking video (body outline white against black). Mask upload failure is non-fatal — if just the mask is missing, the segmented + original still play. No UI consumer for the mask today; this test confirms the file lands so future playback-time tuning has the data.</span>
+        <span class="text">Three files land in raw-archive per video exercise.</span>
+        <ol class="steps">
+          <li data-sub="13.1">Capture + publish a fresh exercise.</li>
+          <li data-sub="13.2">Open Supabase Storage dashboard → <code>raw-archive</code> bucket → <code>{practice_id}/{plan_id}/</code> folder.</li>
+          <li data-sub="13.3">Expect: THREE files per video exercise — <code>{id}.mp4</code>, <code>{id}.segmented.mp4</code>, <code>{id}.mask.mp4</code>.</li>
+          <li data-sub="13.4">Expect: mask file is a grayscale-looking video (body outline white against black).</li>
+          <li data-sub="13.5">Mask upload failure is non-fatal — if just the mask is missing, segmented + original still play.</li>
+          <li data-sub="13.6">No UI consumer for the mask today; this confirms the file lands so future tuning has the data.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="14" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
         <span class="num">14.</span>
-        <span class="text">Run <code>supabase db query --linked "SELECT jsonb_pretty(public.get_plan_full('&lt;fresh-plan-uuid&gt;'::uuid))"</code>. The exercises array shows a <code>mask_url</code> key per video exercise alongside <code>grayscale_segmented_url</code> / <code>original_segmented_url</code>. URL is a signed Supabase URL with a 30-min expiry. For rest rows + legacy exercises the key is <code>null</code>.</span>
+        <span class="text">get_plan_full RPC returns mask_url alongside segmented URLs.</span>
+        <ol class="steps">
+          <li data-sub="14.1">Run: <code>supabase db query --linked "SELECT jsonb_pretty(public.get_plan_full('&lt;fresh-plan-uuid&gt;'::uuid))"</code>.</li>
+          <li data-sub="14.2">Expect: exercises array shows a <code>mask_url</code> key per video exercise alongside <code>grayscale_segmented_url</code> / <code>original_segmented_url</code>.</li>
+          <li data-sub="14.3">Expect: URL is a signed Supabase URL with 30-min expiry.</li>
+          <li data-sub="14.4">Expect: for rest rows + legacy exercises, the key is <code>null</code>.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -274,43 +394,93 @@
       <li data-num="15" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
         <span class="num">15.</span>
-        <span class="text">Fresh capture defaults: create a new session on the iPhone, capture a video exercise, tap into its Studio card → PACING accordion. <strong>"POST REP BREATHER"</strong> row appears with value <strong>"15s"</strong> (the default-seeded value — not "Off", not the customised-dot). Confirm <strong>REPS = 10</strong>, <strong>SETS = 3</strong> per (A).</span>
+        <span class="text">Fresh capture seeds POST REP BREATHER = 15s by default.</span>
+        <ol class="steps">
+          <li data-sub="15.1">Create a new session on the iPhone, capture a video exercise.</li>
+          <li data-sub="15.2">Tap into its Studio card → PACING accordion.</li>
+          <li data-sub="15.3">Expect: <strong>"POST REP BREATHER"</strong> row appears with value <strong>"15s"</strong> (the default-seeded value — not "Off", not the customised-dot).</li>
+          <li data-sub="15.4">Confirm <strong>REPS = 10</strong>, <strong>SETS = 3</strong> (per (A)).</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="16" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
         <span class="num">16.</span>
-        <span class="text">Tap the "15s" → inline numeric editor opens (same pattern as REPS / SETS / HOLD / PREP — no modal, no bottom-sheet picker). Change to <strong>20s</strong>. The PACING collapsed summary now shows the customised-dot indicator (value differs from the 15s seed). Tap the "20s" → change to <strong>0</strong> → displays as <strong>"Off"</strong>. Revert to 15 → summary dot goes back to clean.</span>
+        <span class="text">Inline numeric editor for breather (no modal, no bottom-sheet picker).</span>
+        <ol class="steps">
+          <li data-sub="16.1">Tap the "15s".</li>
+          <li data-sub="16.2">Expect: inline numeric editor opens (same pattern as REPS / SETS / HOLD / PREP).</li>
+          <li data-sub="16.3">Change to <strong>20s</strong>. Expect: PACING collapsed summary now shows the customised-dot indicator (value differs from the 15s seed).</li>
+          <li data-sub="16.4">Tap the "20s" → change to <strong>0</strong>. Expect: displays as <strong>"Off"</strong>.</li>
+          <li data-sub="16.5">Revert to 15. Expect: summary dot goes back to clean.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="17" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
         <span class="num">17.</span>
-        <span class="text">Existing-exercise preservation: open any PRE-milestone-Q plan in Studio. Its exercises' POST REP BREATHER row reads <strong>"Off"</strong> (the <code>inter_set_rest_seconds</code> column is NULL on legacy rows — no backfill, no retroactive 15s). Editing still works; changing a legacy exercise to 20s persists normally.</span>
+        <span class="text">Legacy exercises are NOT retroactively backfilled.</span>
+        <ol class="steps">
+          <li data-sub="17.1">Open any PRE-milestone-Q plan in Studio.</li>
+          <li data-sub="17.2">Expect: exercises' POST REP BREATHER row reads <strong>"Off"</strong> (the <code>inter_set_rest_seconds</code> column is NULL on legacy rows — no backfill).</li>
+          <li data-sub="17.3">Confirm editing still works; change a legacy exercise to 20s and expect: persists normally.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="18" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
         <span class="num">18.</span>
-        <span class="text">Publish the fresh session from item 15 (sets=3, reps=10, breather=15s). Open the plan URL in Safari. On the exercise slide, a <strong>thin segmented progress bar</strong> renders at the TOP of the video, spanning its full width, reading: <code>[Set 1 · 10 reps][Rest 15s][Set 2 · 10 reps][Rest 15s][Set 3 · 10 reps]</code>. Set segments are coral; rest segments are sage green. Labels INCLUDE the rep count. Segment widths are proportional to their duration.</span>
+        <span class="text">Segmented progress bar renders [Set · Rest · Set · Rest · Set] at the top of the video.</span>
+        <ol class="steps">
+          <li data-sub="18.1">Publish the fresh session from item 15 (sets=3, reps=10, breather=15s).</li>
+          <li data-sub="18.2">Open the plan URL in Safari.</li>
+          <li data-sub="18.3">Expect: thin segmented progress bar at the TOP of the video, spanning its full width.</li>
+          <li data-sub="18.4">Expect: bar reads <code>[Set 1 · 10 reps][Rest 15s][Set 2 · 10 reps][Rest 15s][Set 3 · 10 reps]</code>.</li>
+          <li data-sub="18.5">Expect: set segments are coral; rest segments are sage green.</li>
+          <li data-sub="18.6">Expect: labels INCLUDE the rep count.</li>
+          <li data-sub="18.7">Expect: segment widths are proportional to their duration.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="19" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 19">✓</button><button class="fail" type="button" aria-label="Fail 19">✗</button></div>
         <span class="num">19.</span>
-        <span class="text">Tap Start Workout. Video plays through Set 1; the first segment fills / highlights as elapsed time advances. At the Set 1 → Rest 1 boundary: the video <strong>pauses on the current frame</strong> (does NOT reset to 0, does NOT fade, does NOT swap). A <strong>sage countdown chip</strong> overlays the video with a resting-person glyph + "15" counting down. At 0 the chip vanishes and the video <strong>resumes from the same frame</strong> into Set 2. Repeat at Rest 2 → Set 3. At end of Set 3 the slide completes and advances.</span>
+        <span class="text">Video pauses on-frame at set boundaries; sage countdown overlay; resumes from the same frame.</span>
+        <ol class="steps">
+          <li data-sub="19.1">Tap Start Workout.</li>
+          <li data-sub="19.2">Expect: video plays through Set 1; first segment fills / highlights as elapsed time advances.</li>
+          <li data-sub="19.3">At Set 1 → Rest 1 boundary: expect video <strong>pauses on the current frame</strong> (does NOT reset to 0, does NOT fade, does NOT swap).</li>
+          <li data-sub="19.4">Expect: <strong>sage countdown chip</strong> overlays the video with a resting-person glyph + "15" counting down.</li>
+          <li data-sub="19.5">At 0: expect chip vanishes and video <strong>resumes from the same frame</strong> into Set 2.</li>
+          <li data-sub="19.6">Repeat at Rest 2 → Set 3.</li>
+          <li data-sub="19.7">At end of Set 3: expect slide completes and advances.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="20" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 20">✓</button><button class="fail" type="button" aria-label="Fail 20">✗</button></div>
         <span class="num">20.</span>
-        <span class="text">Mid-rest skip: start the exercise, wait until you're in the first breather (sage countdown visible). Tap the RIGHT chevron. The breather timer is cancelled cleanly, no leaked interval fires a stale countdown, the next slide renders correctly. Return to the exercise via the LEFT chevron: the segmented bar resets to Set 1 start; video restarts cleanly. No console errors.</span>
+        <span class="text">Mid-rest skip cancels timer cleanly; no leaked countdowns.</span>
+        <ol class="steps">
+          <li data-sub="20.1">Start the exercise; wait until you're in the first breather (sage countdown visible).</li>
+          <li data-sub="20.2">Tap the RIGHT chevron.</li>
+          <li data-sub="20.3">Expect: breather timer cancelled cleanly; no leaked interval fires a stale countdown; next slide renders correctly.</li>
+          <li data-sub="20.4">Return via LEFT chevron.</li>
+          <li data-sub="20.5">Expect: segmented bar resets to Set 1 start; video restarts cleanly.</li>
+          <li data-sub="20.6">Expect: no console errors.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="21" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 21">✓</button><button class="fail" type="button" aria-label="Fail 21">✗</button></div>
         <span class="num">21.</span>
-        <span class="text">Duration math: a sets=3 / breather=15s exercise at 10s per-set should take <strong>60s total</strong> (3×10 set + 2×15 breather). Confirm the workout-timeline-bar "remaining total" figure agrees with 60s at slide start and the <strong>projected finish wall-clock</strong> in the timeline-bar includes the breathers. Sets=1 exercises (or breather=0 / Off) hide the segmented bar entirely — single-set slides render as they did pre-Q.</span>
+        <span class="text">Total duration math + sets=1 / breather=Off path.</span>
+        <ol class="steps">
+          <li data-sub="21.1">A sets=3 / breather=15s exercise at 10s per-set should take <strong>60s total</strong> (3×10 set + 2×15 breather).</li>
+          <li data-sub="21.2">Confirm the workout-timeline-bar "remaining total" agrees with 60s at slide start.</li>
+          <li data-sub="21.3">Confirm the projected finish wall-clock in the timeline-bar includes the breathers.</li>
+          <li data-sub="21.4">Sets=1 exercises (or breather=0 / Off): expect segmented bar hidden entirely; single-set slides render as they did pre-Q.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -320,13 +490,26 @@
       <li data-num="22" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 22">✓</button><button class="fail" type="button" aria-label="Fail 22">✗</button></div>
         <span class="num">22.</span>
-        <span class="text">Safari → Advanced → Web Inspector → Storage on the plan URL. Cache Storage name reads <strong><code>homefit-player-v39-inter-set-rest</code></strong>. Old caches (v35 / v36 / v37 / v38) purged after first hard-reload. No <code>app.js</code> console errors about missing <code>resolveTreatmentUrl</code>, <code>rebindVideoSources</code>, set/rest state machine, or segment-bar rendering. <code>api.js</code> log shows the cached payload carries <code>grayscale_segmented_url</code> / <code>original_segmented_url</code> / <code>mask_url</code> / <code>inter_set_rest_seconds</code> keys (null on legacy rows, populated on fresh rows).</span>
+        <span class="text">Service worker advanced + payload carries new keys.</span>
+        <ol class="steps">
+          <li data-sub="22.1">Safari → Advanced → Web Inspector → Storage on the plan URL.</li>
+          <li data-sub="22.2">Expect: Cache Storage name reads <strong><code>homefit-player-v39-inter-set-rest</code></strong>.</li>
+          <li data-sub="22.3">Expect: old caches (v35 / v36 / v37 / v38) purged after first hard-reload.</li>
+          <li data-sub="22.4">Expect: no <code>app.js</code> console errors about missing <code>resolveTreatmentUrl</code>, <code>rebindVideoSources</code>, set/rest state machine, or segment-bar rendering.</li>
+          <li data-sub="22.5">Expect: <code>api.js</code> log shows the cached payload carries <code>grayscale_segmented_url</code> / <code>original_segmented_url</code> / <code>mask_url</code> / <code>inter_set_rest_seconds</code> keys (null on legacy, populated on fresh).</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="23" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 23">✓</button><button class="fail" type="button" aria-label="Fail 23">✗</button></div>
         <span class="num">23.</span>
-        <span class="text">R-10 parity check: open the fresh session from item 15 in the <strong>Flutter practitioner preview</strong> (Share → Preview, or Home → Sessions → tap → Preview). All of (F), (G), (I) work identically inside the WebView. Segmented-effect toggle, segmented bar, breather overlay, duration math — all present because the preview runs the same <code>web-player/</code> bundle via <code>UnifiedPlayerSchemeHandler</code>. No Flutter-side twin needed.</span>
+        <span class="text">R-10 parity — Flutter preview runs the same bundle.</span>
+        <ol class="steps">
+          <li data-sub="23.1">Open the fresh session from item 15 in the <strong>Flutter practitioner preview</strong> (Share → Preview, or Home → Sessions → tap → Preview).</li>
+          <li data-sub="23.2">Expect: all of (F), (G), (I) work identically inside the WebView.</li>
+          <li data-sub="23.3">Expect: segmented-effect toggle, segmented bar, breather overlay, duration math — all present.</li>
+          <li data-sub="23.4">Preview runs the same <code>web-player/</code> bundle via <code>UnifiedPlayerSchemeHandler</code> — no Flutter-side twin needed.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -336,25 +519,59 @@
       <li data-num="24" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 24">✓</button><button class="fail" type="button" aria-label="Fail 24">✗</button></div>
         <span class="num">24.</span>
-        <span class="text">Menu visibility gate: in Studio, long-press the thumbnail of a <strong>video</strong> exercise card. The Cupertino context menu shows four rows in order: <strong>Open full-screen · Replace media · Download original · Delete exercise</strong>. Long-press a <strong>photo</strong> card — the menu shows only the three legacy rows (no "Download original"). Long-press a <strong>rest</strong> row — no thumbnail peek surfaces at all (rest has no capture). The icon on the Download row is the <code>arrow_down_to_line</code> glyph.</span>
+        <span class="text">Long-press menu surfaces the new "Download original" row only on video cards.</span>
+        <ol class="steps">
+          <li data-sub="24.1">In Studio, long-press the thumbnail of a <strong>VIDEO</strong> exercise card.</li>
+          <li data-sub="24.2">Expect: Cupertino context menu shows four rows in order — <strong>Open full-screen · Replace media · Download original · Delete exercise</strong>.</li>
+          <li data-sub="24.3">Long-press a <strong>PHOTO</strong> card. Expect: menu shows only the three legacy rows (no "Download original").</li>
+          <li data-sub="24.4">Long-press a <strong>REST</strong> row. Expect: no thumbnail peek surfaces at all (rest has no capture).</li>
+          <li data-sub="24.5">Expect: icon on the Download row is the <code>arrow_down_to_line</code> glyph.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="25" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 25">✓</button><button class="fail" type="button" aria-label="Fail 25">✗</button></div>
         <span class="num">25.</span>
-        <span class="text">Save to Camera Roll — happy path. Fresh capture (so the 720p archive lives locally under <code>{Documents}/archive/</code>). Long-press → Download original → bottom sheet opens with <strong>title "Original video"</strong>, subtitle "The colour capture, straight from the camera.", three rows: Save to Camera Roll · Share · Cancel. Tap <strong>Save to Camera Roll</strong>. First time: iOS prompts <em>"homefit.studio Would Like to Add to your Photos"</em> (the <code>NSPhotoLibraryAddUsageDescription</code> copy). Allow. SnackBar appears: <strong>"Saved to Camera Roll"</strong>. Open the Photos app → Recents → the original colour mp4 is the top item, full frame rate, audio intact.</span>
+        <span class="text">Save to Camera Roll — happy path with first-run permission prompt.</span>
+        <ol class="steps">
+          <li data-sub="25.1">Use a fresh capture (so the 720p archive lives locally under <code>{Documents}/archive/</code>).</li>
+          <li data-sub="25.2">Long-press → Download original.</li>
+          <li data-sub="25.3">Expect: bottom sheet opens with title <strong>"Original video"</strong>, subtitle "The colour capture, straight from the camera.", three rows: Save to Camera Roll · Share · Cancel.</li>
+          <li data-sub="25.4">Tap <strong>Save to Camera Roll</strong>.</li>
+          <li data-sub="25.5">First time: expect iOS prompt <em>"homefit.studio Would Like to Add to your Photos"</em> (the <code>NSPhotoLibraryAddUsageDescription</code> copy). Allow.</li>
+          <li data-sub="25.6">Expect: SnackBar reads <strong>"Saved to Camera Roll"</strong>.</li>
+          <li data-sub="25.7">Open Photos app → Recents.</li>
+          <li data-sub="25.8">Expect: original colour mp4 is the top item, full frame rate, audio intact.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="26" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 26">✓</button><button class="fail" type="button" aria-label="Fail 26">✗</button></div>
         <span class="num">26.</span>
-        <span class="text">Share sheet: same card. Long-press → Download original → tap <strong>Share</strong>. The native iOS share sheet opens with the mp4 as an <code>XFile</code> (not a URL). Messages / AirDrop / Save to Files all appear as destinations. Pick Messages → attach to a draft to yourself — the mp4 is a proper video attachment (preview thumbnail visible). Cancel the share sheet → no SnackBar, no crash. No console errors about missing <code>sharePositionOrigin</code>.</span>
+        <span class="text">Share sheet attaches the mp4 as a video, not a URL.</span>
+        <ol class="steps">
+          <li data-sub="26.1">On the same card: long-press → Download original → tap <strong>Share</strong>.</li>
+          <li data-sub="26.2">Expect: native iOS share sheet opens with the mp4 as an <code>XFile</code> (not a URL).</li>
+          <li data-sub="26.3">Expect: Messages / AirDrop / Save to Files all appear as destinations.</li>
+          <li data-sub="26.4">Pick Messages → attach to a draft to yourself.</li>
+          <li data-sub="26.5">Expect: the mp4 is a proper video attachment (preview thumbnail visible).</li>
+          <li data-sub="26.6">Cancel the share sheet.</li>
+          <li data-sub="26.7">Expect: no SnackBar, no crash, no console errors about missing <code>sharePositionOrigin</code>.</li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="27" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 27">✓</button><button class="fail" type="button" aria-label="Fail 27">✗</button></div>
         <span class="num">27.</span>
-        <span class="text">Signed-URL fallback + error surface. To force the remote path: delete the local archive (<code>rm -rf ~/Library/Developer/CoreSimulator/Devices/&lt;sim-id&gt;/data/Containers/Data/Application/&lt;app-guid&gt;/Documents/archive/</code>) or test with a legacy exercise whose 90-day archive has aged out. Long-press → Download original → Save to Camera Roll. The service signs a URL via <code>ApiClient.signRawArchiveUrl</code>, downloads to a temp file, then saves to Photos. Same <strong>"Saved to Camera Roll"</strong> SnackBar. If the vault secrets are missing OR the object is 404 OR connectivity is offline, the SnackBar reads <strong>"Couldn't fetch the original video. Check your signal and try again."</strong> — no silent failure. A truly orphan exercise (no local + no cloud) shows <strong>"Original video no longer available — recapture to re-archive."</strong></span>
+        <span class="text">Signed-URL fallback path + clear error copy when the file's gone.</span>
+        <ol class="steps">
+          <li data-sub="27.1">Force the remote path: delete the local archive (<code>rm -rf ~/Library/Developer/CoreSimulator/Devices/&lt;sim-id&gt;/data/Containers/Data/Application/&lt;app-guid&gt;/Documents/archive/</code>) OR test with a legacy exercise whose 90-day archive has aged out.</li>
+          <li data-sub="27.2">Long-press → Download original → Save to Camera Roll.</li>
+          <li data-sub="27.3">Expect: service signs a URL via <code>ApiClient.signRawArchiveUrl</code>, downloads to a temp file, then saves to Photos.</li>
+          <li data-sub="27.4">Expect: same <strong>"Saved to Camera Roll"</strong> SnackBar.</li>
+          <li data-sub="27.5">If vault secrets are missing OR the object is 404 OR connectivity is offline: expect SnackBar reads <strong>"Couldn't fetch the original video. Check your signal and try again."</strong> — no silent failure.</li>
+          <li data-sub="27.6">A truly orphan exercise (no local + no cloud): expect <strong>"Original video no longer available — recapture to re-archive."</strong></li>
+        </ol>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -379,7 +596,7 @@
         .finally(apply);
 
       function apply() {
-        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
           var num = li.getAttribute('data-num');
           var entry = state[num];
           if (!entry) { li.setAttribute('data-status', ''); return; }
@@ -398,7 +615,7 @@
         }).catch(function() { /* offline — localStorage still holds */ });
       }
 
-      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
         var num = li.getAttribute('data-num');
         var passBtn = li.querySelector('button.pass');
         var failBtn = li.querySelector('button.fail');
