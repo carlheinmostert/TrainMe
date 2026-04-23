@@ -151,7 +151,7 @@ export default async function NetworkPage({
               <p className="mt-2 text-sm text-ink-muted">
                 One-handed shutter, long-press for video. Line-drawing
                 conversion runs on-device while you move to the next
-                exercise. Your client's face is abstracted — POPIA is
+                exercise. Your client&apos;s face is abstracted — POPIA is
                 built in.
               </p>
             </div>
@@ -179,7 +179,7 @@ export default async function NetworkPage({
           </div>
 
           <p className="mt-8 max-w-[640px] text-sm font-medium text-ink">
-            The plan your client receives is the plan they'll actually do.
+            The plan your client receives is the plan they&apos;ll actually do.
           </p>
         </section>
 

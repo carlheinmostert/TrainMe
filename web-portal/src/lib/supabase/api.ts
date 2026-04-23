@@ -14,7 +14,6 @@ import type { Database, Tables, TablesInsert } from './database.types';
  * which have Database-wide type guarantees regardless of the outer
  * generics shape.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type CompatSupabase = SupabaseClient<Database, any, any>;
 
 /**
