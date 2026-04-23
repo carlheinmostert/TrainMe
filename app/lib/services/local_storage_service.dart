@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 22;
+  static const _dbVersion = 23;
 
   Database? _db;
 
@@ -116,6 +116,7 @@ class LocalStorageService {
         preferred_treatment TEXT,
         prep_seconds INTEGER,
         segmented_raw_file_path TEXT,
+        mask_file_path TEXT,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -460,6 +461,28 @@ class LocalStorageService {
       // NULL. No backfill; forward-only.
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN segmented_raw_file_path TEXT',
+      );
+    }
+    if (oldVersion < 23) {
+      // Person-segmentation mask sidecar (Milestone P2).
+      //
+      // The native dual-output pass now emits a THIRD file: the Vision
+      // mask itself, written out as a grayscale H.264 mp4. Same resolution
+      // + fps as the line-drawing + segmented outputs so the mask is
+      // pixel-perfect aligned with both. Stored as a relative path here
+      // and best-effort uploaded to the private `raw-archive` bucket at
+      // `{practice_id}/{plan_id}/{exercise_id}.mask.mp4` by UploadService.
+      //
+      // Insurance for future playback-time compositing — today the mask
+      // has NO consumer. Storing it now means published plans will have
+      // the data when tunable backgroundDim / other effects land, without
+      // needing to re-capture.
+      //
+      // Nullable — legacy + new-capture-without-mask both tolerate NULL
+      // (mask writer failure is non-fatal; line-drawing + segmented still
+      // succeed). No backfill; forward-only.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN mask_file_path TEXT',
       );
     }
   }

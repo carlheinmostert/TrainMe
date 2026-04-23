@@ -164,6 +164,9 @@ class ConversionService extends ChangeNotifier {
           segmentedRawFilePath: result.segmentedPath != null
               ? PathResolver.toRelative(result.segmentedPath!)
               : null,
+          maskFilePath: result.maskPath != null
+              ? PathResolver.toRelative(result.maskPath!)
+              : null,
         );
 
         // Regenerate the stored thumbnail now that conversion is done.
@@ -352,16 +355,24 @@ class ConversionService extends ChangeNotifier {
       // aligned makes it easier to grep / reason about.
       final segmentedOutputPath =
           p.join(convertedDir, '${exercise.id}_segmented.mp4');
+      // Milestone P2: the Vision mask is emitted as a THIRD output — a
+      // grayscale H.264 mp4 that's pixel-perfect aligned with the segmented
+      // composite. Upload lands at `{...}.mask.mp4` in raw-archive; today
+      // it has no consumer (insurance for future playback-time compositing).
+      final maskOutputPath =
+          p.join(convertedDir, '${exercise.id}_mask.mp4');
       try {
         final segResult = await _convertVideo(
           exercise.absoluteRawFilePath,
           videoOutputPath,
           segmentedOutputPath: segmentedOutputPath,
+          maskOutputPath: maskOutputPath,
           includeAudio: AppConfig.audioMuxEnabled,
         );
         return _ConvertResult(
           convertedPath: videoOutputPath,
-          segmentedPath: segResult,
+          segmentedPath: segResult.segmentedPath,
+          maskPath: segResult.maskPath,
         );
       } catch (e, stack) {
         debugPrint(
@@ -594,13 +605,22 @@ class ConversionService extends ChangeNotifier {
   /// line drawing to also write a segmented-color mp4 alongside it (body
   /// untouched, background dimmed). Best-effort — a failure in the
   /// segmented writer never blocks or fails the line-drawing conversion.
-  /// Returns the absolute segmented path when the native side reports a
-  /// successful write, or null otherwise (photo fallback, OpenCV fallback,
-  /// or any segmented-writer failure).
-  Future<String?> _convertVideo(
+  ///
+  /// [maskOutputPath] opts into the mask-sidecar pass (Milestone P2): the
+  /// SAME Vision mask that drives the line-drawing + segmented composites
+  /// is written out as a grayscale H.264 mp4. Insurance for future
+  /// playback-time compositing — no consumer today. Best-effort, same as
+  /// the segmented writer; a failure never blocks line-drawing output.
+  ///
+  /// Returns a [_NativeVideoResult] carrying the absolute segmented + mask
+  /// paths when the native side reports successful writes, or nulls
+  /// otherwise (photo fallback, OpenCV fallback, or any individual sidecar
+  /// writer failure).
+  Future<_NativeVideoResult> _convertVideo(
     String inputPath,
     String outputPath, {
     String? segmentedOutputPath,
+    String? maskOutputPath,
     bool includeAudio = true,
   }) async {
     // --- Attempt 1: Native iOS platform channel ---
@@ -616,19 +636,27 @@ class ConversionService extends ChangeNotifier {
       if (segmentedOutputPath != null) {
         args['segmentedOutputPath'] = segmentedOutputPath;
       }
+      if (maskOutputPath != null) {
+        args['maskOutputPath'] = maskOutputPath;
+      }
       final result = await _videoChannel.invokeMethod<Map>(
         'convertVideo',
         args,
       );
       if (result != null && result['success'] == true) {
         final segPath = result['segmentedOutputPath'] as String?;
+        final maskPath = result['maskOutputPath'] as String?;
         debugPrint(
             'Native video conversion complete: '
             '${result["framesProcessed"]} frames '
             '(audioSamplesWritten=${result["audioSamplesWritten"]}, '
             'audioMuxEnabled=${AppConfig.audioMuxEnabled}, '
-            'segFrames=${result["segFramesProcessed"] ?? 0}) -> $outputPath');
-        return segPath;
+            'segFrames=${result["segFramesProcessed"] ?? 0}, '
+            'maskFrames=${result["maskFramesProcessed"] ?? 0}) -> $outputPath');
+        return _NativeVideoResult(
+          segmentedPath: segPath,
+          maskPath: maskPath,
+        );
       }
     } on PlatformException catch (e) {
       debugPrint(
@@ -642,7 +670,7 @@ class ConversionService extends ChangeNotifier {
 
     // --- Attempt 2: OpenCV VideoCapture/VideoWriter ---
     await _convertVideoViaOpenCV(inputPath, outputPath);
-    return null;
+    return const _NativeVideoResult();
   }
 
   /// Convert a video frame-by-frame using OpenCV's VideoCapture/VideoWriter.
@@ -997,14 +1025,30 @@ class ConversionService extends ChangeNotifier {
 
 /// Result of a single [ConversionService._convert] call. Carries the
 /// primary line-drawing path plus the optional segmented-color raw
-/// variant (populated only when the native dual-output pass succeeded).
+/// variant and mask sidecar (populated only when the native dual-output
+/// + mask passes succeeded — each is independently best-effort).
 class _ConvertResult {
   final String convertedPath;
   final String? segmentedPath;
+  final String? maskPath;
 
   const _ConvertResult({
     required this.convertedPath,
     this.segmentedPath,
+    this.maskPath,
+  });
+}
+
+/// Result of the native-side `convertVideo` platform channel call.
+/// Plain value object — carries the two optional sidecar paths the
+/// caller needs to thread back onto [ExerciseCapture].
+class _NativeVideoResult {
+  final String? segmentedPath;
+  final String? maskPath;
+
+  const _NativeVideoResult({
+    this.segmentedPath,
+    this.maskPath,
   });
 }
 

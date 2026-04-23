@@ -92,6 +92,22 @@ class ExerciseCapture {
   /// to the untouched original on both mobile + web.
   final String? segmentedRawFilePath;
 
+  /// Relative path (via [PathResolver]) to the Vision person-segmentation
+  /// mask sidecar — a grayscale H.264 mp4 where each pixel's luminance
+  /// carries the per-frame segmentation weight that drove both the line
+  /// drawing + segmented-colour composites. Insurance for future playback-
+  /// time compositing: storing it today means already-published plans will
+  /// have the data available when tunable backgroundDim / other effects
+  /// land, without needing to re-capture.
+  ///
+  /// Uploaded best-effort to the private `raw-archive` Supabase bucket at
+  /// `{practice_id}/{plan_id}/{exercise_id}.mask.mp4`. Null for photos,
+  /// rest periods, and legacy rows pre-migration (v23), or when the mask
+  /// writer failed non-fatally (line-drawing + segmented still succeed).
+  /// No consumer today — `get_plan_full` emits a `mask_url` that the web
+  /// player passes through unused.
+  final String? maskFilePath;
+
   /// Remote line drawing URL (returned by `get_plan_full`). Runtime-only;
   /// not persisted to SQLite. Used by the practitioner's preview screen to
   /// display the published treatment without re-reading the local
@@ -158,6 +174,7 @@ class ExerciseCapture {
     this.archivedAt,
     this.rawArchiveUploadedAt,
     this.segmentedRawFilePath,
+    this.maskFilePath,
     this.lineDrawingUrl,
     this.grayscaleUrl,
     this.originalUrl,
@@ -235,6 +252,7 @@ class ExerciseCapture {
               map['raw_archive_uploaded_at'] as int)
           : null,
       segmentedRawFilePath: map['segmented_raw_file_path'] as String?,
+      maskFilePath: map['mask_file_path'] as String?,
       preferredTreatment: treatmentFromWire(map['preferred_treatment']),
     );
   }
@@ -265,6 +283,7 @@ class ExerciseCapture {
       'archived_at': archivedAt?.millisecondsSinceEpoch,
       'raw_archive_uploaded_at': rawArchiveUploadedAt?.millisecondsSinceEpoch,
       'segmented_raw_file_path': segmentedRawFilePath,
+      'mask_file_path': maskFilePath,
       'preferred_treatment': preferredTreatment?.wireValue,
     };
   }
@@ -305,6 +324,8 @@ class ExerciseCapture {
     bool clearRawArchiveUploadedAt = false,
     String? segmentedRawFilePath,
     bool clearSegmentedRawFilePath = false,
+    String? maskFilePath,
+    bool clearMaskFilePath = false,
     String? lineDrawingUrl,
     bool clearLineDrawingUrl = false,
     String? grayscaleUrl,
@@ -349,6 +370,9 @@ class ExerciseCapture {
       segmentedRawFilePath: clearSegmentedRawFilePath
           ? null
           : (segmentedRawFilePath ?? this.segmentedRawFilePath),
+      maskFilePath: clearMaskFilePath
+          ? null
+          : (maskFilePath ?? this.maskFilePath),
       lineDrawingUrl:
           clearLineDrawingUrl ? null : (lineDrawingUrl ?? this.lineDrawingUrl),
       grayscaleUrl:
@@ -444,4 +468,9 @@ class ExerciseCapture {
   String? get absoluteSegmentedRawFilePath => segmentedRawFilePath != null
       ? PathResolver.resolve(segmentedRawFilePath!)
       : null;
+
+  /// Absolute path to the Vision person-segmentation mask sidecar mp4,
+  /// or null when the mask pass didn't run / failed non-fatally.
+  String? get absoluteMaskFilePath =>
+      maskFilePath != null ? PathResolver.resolve(maskFilePath!) : null;
 }

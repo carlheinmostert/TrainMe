@@ -970,6 +970,58 @@ class UploadService {
         swallow: true,
       );
     }
+
+    // --- Person-segmentation mask sidecar (Milestone P2) ---
+    //
+    // Third independent best-effort pass. Uploads the grayscale mask mp4
+    // produced by the native third AVAssetWriter to:
+    //   `{practiceId}/{planId}/{exerciseId}.mask.mp4`
+    //
+    // Same structural contract as the segmented loop above:
+    //   * Fully independent from the original + segmented passes — a
+    //     failure here MUST NOT disturb either of them (or vice versa).
+    //   * Skipped silently when `maskFilePath` is null (legacy rows,
+    //     mask writer failed non-fatally, OpenCV fallback that doesn't
+    //     produce a mask).
+    //   * No dedicated "mask uploaded at" column. Storage upserts are
+    //     idempotent; re-publishes re-transfer, matching the segmented
+    //     file's pattern.
+    //   * Today the mask has NO consumer. Storing it now is insurance
+    //     so future playback-time compositing (tunable backgroundDim,
+    //     other effects) can work against already-published plans.
+    for (final exercise in session.exercises) {
+      if (exercise.isRest) continue;
+      final maskRel = exercise.maskFilePath;
+      if (maskRel == null || maskRel.isEmpty) continue;
+      final absMask = exercise.absoluteMaskFilePath;
+      if (absMask == null) continue;
+      final maskFile = File(absMask);
+      if (!maskFile.existsSync()) {
+        debugPrint(
+          'UploadService: mask sidecar file missing for exercise ${exercise.id} '
+          'at $absMask — skipping.',
+        );
+        continue;
+      }
+      final maskStoragePath =
+          '$practiceId/${session.id}/${exercise.id}.mask.mp4';
+      await loudSwallow<bool>(
+        () async {
+          await _api.uploadRawArchive(path: maskStoragePath, file: maskFile);
+          return true;
+        },
+        kind: 'raw_archive_mask_upload_failed',
+        source: 'UploadService._uploadRawArchives',
+        severity: 'warn',
+        meta: {
+          'practice_id': practiceId,
+          'plan_id': session.id,
+          'exercise_id': exercise.id,
+          'storage_path': maskStoragePath,
+        },
+        swallow: true,
+      );
+    }
   }
 
   /// Append a raw-archive upload failure to `{Documents}/raw_archive_error.log`.
