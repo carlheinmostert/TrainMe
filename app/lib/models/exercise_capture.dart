@@ -341,6 +341,38 @@ class ExerciseCapture {
     );
   }
 
+  /// Backfill the per-capture persistence defaults (Option 1 from the
+  /// 2026-04-22 player-grammar discussion).
+  ///
+  /// Problem: when a practitioner captures an exercise and never touches
+  /// reps / sets, those columns persist as NULL. Downstream consumers
+  /// (web player, plan preview) then have to guess defaults at display
+  /// time, which produced inconsistent grammar across exercises captured
+  /// in the same session — one card showed "5 reps", the next showed
+  /// nothing, because the display-time fallback differed per surface.
+  ///
+  /// Fix: at the persistence boundary, backfill missing reps / sets with
+  /// the same canonical defaults the Studio card would have drawn
+  /// (3 sets x 10 reps). Truthful data, no display-time imputation.
+  ///
+  /// Exceptions:
+  ///   * Rest periods (`mediaType == rest`) have no reps / sets
+  ///     semantics — returned unchanged.
+  ///   * Isometric exercises (`holdSeconds` set AND `reps` still null)
+  ///     skip the reps default. Hold is the primary duration; reps
+  ///     isn't semantically meaningful. Sets default still applies.
+  ///
+  /// Fields already set are never overwritten — the helper only fills
+  /// nulls.
+  ExerciseCapture withPersistenceDefaults() {
+    if (isRest) return this;
+    final isIsometric = holdSeconds != null && reps == null;
+    final nextReps = reps ?? (isIsometric ? null : 10);
+    final nextSets = sets ?? 3;
+    if (nextReps == reps && nextSets == sets) return this;
+    return copyWith(reps: nextReps, sets: nextSets);
+  }
+
   /// Estimated duration in seconds for this exercise (all sets).
   /// Rest periods simply return their holdSeconds.
   ///

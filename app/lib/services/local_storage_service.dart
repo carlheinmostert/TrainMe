@@ -748,9 +748,20 @@ class LocalStorageService {
           ? null
           : ExerciseCapture.fromMap(existingRows.first);
 
+      // Option 1 (2026-04-22 player-grammar discussion) — on the FIRST
+      // insert of an exercise row, backfill sets=3 / reps=10 for
+      // practitioners who captured without explicitly touching those
+      // fields. Scoped to brand-new rows only: existing null columns on
+      // pre-existing rows stay null (no retroactive backfill). See
+      // [ExerciseCapture.withPersistenceDefaults] for the isometric +
+      // rest-row exceptions.
+      final toPersist = existing == null
+          ? exercise.withPersistenceDefaults()
+          : exercise;
+
       await txn.insert(
         'exercises',
-        exercise.toMap(),
+        toPersist.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
 
@@ -760,8 +771,8 @@ class LocalStorageService {
       // rows only flip the stamp when a content-shaped field actually
       // changed; conversion-status churn alone is a no-op.
       final contentChanged =
-          existing == null || _isUserContentDelta(existing, exercise);
-      final sessionId = exercise.sessionId;
+          existing == null || _isUserContentDelta(existing, toPersist);
+      final sessionId = toPersist.sessionId;
       if (contentChanged && sessionId != null && sessionId.isNotEmpty) {
         final nowMs = DateTime.now().millisecondsSinceEpoch;
         await txn.update(
@@ -810,6 +821,14 @@ class LocalStorageService {
   /// Batch insert or update multiple exercises in a single transaction.
   /// Far cheaper than calling [saveExercise] in a loop — ~10-100x faster
   /// for large batches because a single fsync amortises the cost.
+  ///
+  /// Unlike [saveExercise], the batch path does NOT pre-read each row to
+  /// decide whether to apply the Option 1 persistence defaults — callers
+  /// should pass exercises already in their desired persisted shape. The
+  /// first-ever save of a freshly-captured exercise always goes through
+  /// [saveExercise] (capture and camera flows both do so individually);
+  /// this batch path is reserved for reorders and other operations that
+  /// re-save pre-existing rows.
   Future<void> saveExercises(Iterable<ExerciseCapture> exercises) async {
     await db.transaction((txn) async {
       final batch = txn.batch();
