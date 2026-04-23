@@ -339,6 +339,12 @@ function renderPlan() {
   updateCardNotes();
 
   updateUI();
+  // Wave 19.3 fix: the pause overlay is baked with play-icon-default in
+  // buildMediaPauseOverlay(), but the initial glyph state should reflect
+  // "video is playing" (= PAUSE glyph) on first paint. updateUI() does not
+  // touch the overlay so we flip it explicitly here — otherwise the first
+  // time the user sees fullscreen they get a dimmed ▶ instead of ||.
+  updatePauseOverlay();
 }
 
 function buildCard(slide, index) {
@@ -402,13 +408,16 @@ function buildRestCard(slide, index) {
  * currently active, paused slide.
  */
 function buildMediaPauseOverlay() {
+  // Wave 19.3: default the visible glyph to PAUSE because the video begins
+  // playing on first paint (preview autoplay). updatePauseOverlay() then
+  // swaps to PLAY only during the explicit mid-workout paused state.
   return `
     <div class="media-pause-overlay">
       <div class="pause-disc">
-        <svg class="pause-icon pause-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <svg class="pause-icon pause-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
           <polygon points="6 3 20 12 6 21 6 3"/>
         </svg>
-        <svg class="pause-icon pause-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
+        <svg class="pause-icon pause-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <rect x="6" y="4" width="4" height="16" rx="1"/>
           <rect x="14" y="4" width="4" height="16" rx="1"/>
         </svg>
@@ -807,9 +816,15 @@ function buildProgressMatrix() {
     const firstRow = rounds[0] || [];
     const rowDurations = firstRow.map((idx) => calculateDuration(slides[idx]) || 1);
     const circuitWeight = rowDurations.reduce((a, b) => a + b, 0) || 1;
+    // Wave 19.3: weight pills WITHIN a round by their duration too, not just
+    // the block as a whole. grid-template-columns is set as fractional units
+    // so a 60s exercise inside a superset is twice as wide as a 30s one. We
+    // mirror the weights across all rounds because each round is a repeat of
+    // the same exercises by construction.
+    const rowTemplate = rowDurations.map((d) => `${d}fr`).join(' ');
     const roundsHTML = rounds.map((row, roundIdx) => {
       const rowPills = row.map((slideIdx) => pillHTML(slideIdx)).join('');
-      return `<div class="matrix-circuit-row" data-round="${roundIdx + 1}" style="grid-template-columns: repeat(${groupSize}, 1fr);">${rowPills}</div>`;
+      return `<div class="matrix-circuit-row" data-round="${roundIdx + 1}" style="grid-template-columns: ${rowTemplate};">${rowPills}</div>`;
     }).join('');
     return `<div class="matrix-circuit" data-circuit="${block.circuitId}" data-col="${blockIdx}" style="--circuit-cols: ${groupSize}; --circuit-weight: ${circuitWeight};">${roundsHTML}</div>`;
   }).join('');
