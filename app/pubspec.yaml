@@ -90,6 +90,14 @@ dependencies:
   shelf: ^1.4.1
   shelf_static: ^1.1.3
 
+  # Wave 19.5 — Save the original colour capture to the practitioner's
+  # iOS Camera Roll from the Studio exercise card's long-press menu.
+  # photo_manager wraps PHPhotoLibrary with a minimal surface
+  # (`PhotoManager.requestPermissionExtend` for the addOnly prompt +
+  # `PhotoManager.editor.saveVideo` for the write). share_plus already
+  # handles the Share path; no separate gallery-saver needed.
+  photo_manager: ^3.6.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

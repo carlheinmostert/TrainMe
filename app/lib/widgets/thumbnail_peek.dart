@@ -10,6 +10,7 @@ import 'capture_thumbnail.dart';
 /// muted; the action sheet below has:
 ///   - Open full-screen  (primary)
 ///   - Replace media
+///   - Download original (videos only — opens the Save/Share bottom sheet)
 ///   - Delete exercise   (destructive, immediate, undo-via-toast)
 ///
 /// No modal confirmation before delete — R-01 across the board.
@@ -20,6 +21,14 @@ class ThumbnailPeek extends StatelessWidget {
   final VoidCallback onReplaceMedia;
   final VoidCallback onDelete;
 
+  /// Fires when the practitioner taps "Download original" in the
+  /// long-press menu for a video exercise. The handler is expected to
+  /// call `showDownloadOriginalSheet(...)` with the plan's practice +
+  /// plan ids so the signed-URL fallback can resolve. Null disables
+  /// the action (e.g. the card is rendered in a context without plan
+  /// coordinates — today only Studio wires it).
+  final VoidCallback? onDownloadOriginal;
+
   const ThumbnailPeek({
     super.key,
     required this.exercise,
@@ -27,6 +36,7 @@ class ThumbnailPeek extends StatelessWidget {
     required this.onOpenFullScreen,
     required this.onReplaceMedia,
     required this.onDelete,
+    this.onDownloadOriginal,
   });
 
   @override
@@ -52,6 +62,7 @@ class ThumbnailPeek extends StatelessWidget {
     // overflow, no Clip.none, no z-order surprises. The embedded list
     // render sees t=0 only, so the list's layout never flexes; iOS's
     // overlay sees the animated growth.
+    final isVideo = exercise.mediaType == MediaType.video;
     return CupertinoContextMenu.builder(
       actions: [
         CupertinoContextMenuAction(
@@ -70,6 +81,19 @@ class ThumbnailPeek extends StatelessWidget {
           },
           child: const Text('Replace media'),
         ),
+        // Video-only: pull the original colour capture down to the
+        // practitioner's device via Photos / share sheet. Wired into
+        // the Studio card via `onDownloadOriginal`; no-ops for photos
+        // and rest periods (rest never reaches this branch anyway).
+        if (isVideo && onDownloadOriginal != null)
+          CupertinoContextMenuAction(
+            trailingIcon: CupertinoIcons.arrow_down_to_line,
+            onPressed: () {
+              Navigator.of(context, rootNavigator: true).pop();
+              onDownloadOriginal!();
+            },
+            child: const Text('Download original'),
+          ),
         CupertinoContextMenuAction(
           isDestructiveAction: true,
           trailingIcon: CupertinoIcons.delete,

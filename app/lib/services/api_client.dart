@@ -894,6 +894,47 @@ class ApiClient {
         ));
   }
 
+  /// Sign a time-limited URL for an object in the private `raw-archive`
+  /// bucket. Returns null when the vault secrets aren't populated (the
+  /// `sign_storage_url` helper returns NULL in that case — see
+  /// `schema_milestone_g_three_treatment.sql`) or when the RPC errors.
+  ///
+  /// Path shape: `{practice_id}/{plan_id}/{exercise_id}.mp4`. Used by the
+  /// download-original action sheet (Wave 19.5) as a fallback when the
+  /// local `archiveFilePath` is missing or past its 90-day retention
+  /// window. Unlike the `get_plan_full` embedded signed URLs, this path
+  /// is for practitioner-side playback of THEIR OWN capture — no client-
+  /// consent gate applies.
+  ///
+  /// `expiresIn` is seconds; defaults to 30 min (matches the
+  /// `get_plan_full` helper's default). The signed URL is single-use from
+  /// the caller's perspective: it's consumed immediately to download the
+  /// video to a temp file, so caching the URL serves no purpose.
+  Future<String?> signRawArchiveUrl({
+    required String practiceId,
+    required String planId,
+    required String exerciseId,
+    int expiresIn = 1800,
+  }) async {
+    try {
+      final path =
+          '$practiceId/$planId/$exerciseId.mp4';
+      final result = await _guardAuth(() => raw.rpc(
+            'sign_storage_url',
+            params: {
+              'bucket': rawArchiveBucket,
+              'path': path,
+              'expires_in': expiresIn,
+            },
+          ));
+      if (result is String && result.isNotEmpty) return result;
+      return null;
+    } catch (e) {
+      debugPrint('ApiClient.signRawArchiveUrl failed: $e');
+      return null;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Referral
   // ---------------------------------------------------------------------------

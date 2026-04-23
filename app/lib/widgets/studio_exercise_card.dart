@@ -98,6 +98,12 @@ class StudioExerciseCard extends StatefulWidget {
   /// caller surfaces the undo snackbar.
   final VoidCallback onDelete;
 
+  /// Thumbnail long-press → "Download original" action (video captures
+  /// only). Caller is expected to call `showDownloadOriginalSheet(...)`
+  /// with the plan's practice + plan ids. Null (default) disables the
+  /// row so the peek menu keeps its legacy three-action shape.
+  final VoidCallback? onDownloadOriginal;
+
   /// Optional sticky per-rep seed for DURATION PER REP's Manual seed
   /// path (Wave 18.7). Parent looks up the client's
   /// `custom_duration_per_rep` default and passes it through; null
@@ -114,6 +120,7 @@ class StudioExerciseCard extends StatefulWidget {
     required this.onThumbnailTap,
     required this.onReplaceMedia,
     required this.onDelete,
+    this.onDownloadOriginal,
     this.stickyCustomDurationPerRep,
   });
 
@@ -343,6 +350,7 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
           onOpenFullScreen: widget.onThumbnailTap,
           onReplaceMedia: widget.onReplaceMedia,
           onDelete: widget.onDelete,
+          onDownloadOriginal: widget.onDownloadOriginal,
         ),
         const SizedBox(width: 12),
         Expanded(

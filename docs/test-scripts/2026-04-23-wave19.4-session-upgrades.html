@@ -134,6 +134,7 @@
       <br><strong>(G)</strong> <strong>Segmented-effect toggle</strong> — a gear-button popover in the card chrome lets clients opt out of (F); default ON; persisted in <code>localStorage</code>.
       <br><strong>(H)</strong> <strong>Milestone P2 — mask sidecar</strong> — third output emits the Vision segmentation mask as its own mp4; uploaded to <code>raw-archive</code>; <code>get_plan_full</code> exposes <code>mask_url</code>. No player consumer today — door open for future playback-time tuning.
       <br><strong>(I)</strong> <strong>Milestone Q — inter-set rest ("Post Rep Breather")</strong> — per-exercise <code>inter_set_rest_seconds</code>, default 15s on fresh captures; top-of-video segmented bar renders <code>[Set 1 · 10 reps][Rest 15s][Set 2 · 10 reps]…</code>; video plays continuously, pausing on-frame at set boundaries and resuming into the next set.
+      <br><strong>(J)</strong> <strong>Download original video</strong> — long-press a video card's thumbnail in Studio → new "Download original" action in the context menu (video-only). Opens a bottom sheet with Save to Camera Roll · Share · Cancel. Local-first (reads the 720p H.264 raw archive under <code>{Documents}/archive/</code>), falls through to a signed <code>raw-archive</code> URL via the new <code>ApiClient.signRawArchiveUrl</code> helper when the local copy is missing / evicted.
       <br><br>
       <strong>In scope:</strong> the unified web-player bundle (<code>web-player/*</code>), the Flutter trainer app (<code>app/lib/...</code>), the native video pipeline (<code>app/ios/Runner/VideoConverterChannel.swift</code>), and Supabase schema (Milestones P, P2, Q applied). R-10 parity holds — the mobile practitioner preview runs the same bundle via the <code>homefit-local://</code> scheme handler.
       <br><br>
@@ -144,7 +145,8 @@
       <h3>Prerequisites</h3>
       <ul>
         <li>Branch <code>claude/relaxed-dhawan-bfffb1</code> merged to <code>main</code> (or preview URL available). Vercel auto-deploys the web player + portal on push.</li>
-        <li><code>./install-device.sh</code> from the repo root — pulls main, release-builds, installs to iPhone CHM. Needed for (A), (B), (E), (F native side), (H native side), (I Studio side).</li>
+        <li><code>./install-device.sh</code> from the repo root — pulls main, release-builds, installs to iPhone CHM. Needed for (A), (B), (E), (F native side), (H native side), (I Studio side), (J).</li>
+        <li>Photos app reachable on the test iPhone — item 25 checks the Camera Roll after a save, and the first tap will trigger the iOS <strong>"add-only"</strong> photo-library permission prompt (the new <code>NSPhotoLibraryAddUsageDescription</code> copy).</li>
         <li>Safari hard-reload on the plan URL so the service worker advances to <code>homefit-player-v39-inter-set-rest</code> (Wave 19.4's final SW name; individual milestone bumps P → v36, P2 → v38, Q → v39).</li>
         <li>A <strong>fresh</strong> practice client with <code>video_consent</code> granting both <code>grayscale</code> and <code>original</code> (Settings → practitioner consent). Needed to observe (F) + (G) + (H) end-to-end.</li>
         <li>A <strong>legacy</strong> plan published BEFORE this session's merges (e.g. <code>3a5a5c39-d735-46be-960c-31c60851a587</code>) on hand — used as fallback-path control.</li>
@@ -329,8 +331,36 @@
       </li>
     </ul>
 
+    <h2>K · Download original video (Studio long-press)</h2>
+    <ul class="checklist">
+      <li data-num="24" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 24">✓</button><button class="fail" type="button" aria-label="Fail 24">✗</button></div>
+        <span class="num">24.</span>
+        <span class="text">Menu visibility gate: in Studio, long-press the thumbnail of a <strong>video</strong> exercise card. The Cupertino context menu shows four rows in order: <strong>Open full-screen · Replace media · Download original · Delete exercise</strong>. Long-press a <strong>photo</strong> card — the menu shows only the three legacy rows (no "Download original"). Long-press a <strong>rest</strong> row — no thumbnail peek surfaces at all (rest has no capture). The icon on the Download row is the <code>arrow_down_to_line</code> glyph.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="25" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 25">✓</button><button class="fail" type="button" aria-label="Fail 25">✗</button></div>
+        <span class="num">25.</span>
+        <span class="text">Save to Camera Roll — happy path. Fresh capture (so the 720p archive lives locally under <code>{Documents}/archive/</code>). Long-press → Download original → bottom sheet opens with <strong>title "Original video"</strong>, subtitle "The colour capture, straight from the camera.", three rows: Save to Camera Roll · Share · Cancel. Tap <strong>Save to Camera Roll</strong>. First time: iOS prompts <em>"homefit.studio Would Like to Add to your Photos"</em> (the <code>NSPhotoLibraryAddUsageDescription</code> copy). Allow. SnackBar appears: <strong>"Saved to Camera Roll"</strong>. Open the Photos app → Recents → the original colour mp4 is the top item, full frame rate, audio intact.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="26" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 26">✓</button><button class="fail" type="button" aria-label="Fail 26">✗</button></div>
+        <span class="num">26.</span>
+        <span class="text">Share sheet: same card. Long-press → Download original → tap <strong>Share</strong>. The native iOS share sheet opens with the mp4 as an <code>XFile</code> (not a URL). Messages / AirDrop / Save to Files all appear as destinations. Pick Messages → attach to a draft to yourself — the mp4 is a proper video attachment (preview thumbnail visible). Cancel the share sheet → no SnackBar, no crash. No console errors about missing <code>sharePositionOrigin</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="27" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 27">✓</button><button class="fail" type="button" aria-label="Fail 27">✗</button></div>
+        <span class="num">27.</span>
+        <span class="text">Signed-URL fallback + error surface. To force the remote path: delete the local archive (<code>rm -rf ~/Library/Developer/CoreSimulator/Devices/&lt;sim-id&gt;/data/Containers/Data/Application/&lt;app-guid&gt;/Documents/archive/</code>) or test with a legacy exercise whose 90-day archive has aged out. Long-press → Download original → Save to Camera Roll. The service signs a URL via <code>ApiClient.signRawArchiveUrl</code>, downloads to a temp file, then saves to Photos. Same <strong>"Saved to Camera Roll"</strong> SnackBar. If the vault secrets are missing OR the object is 404 OR connectivity is offline, the SnackBar reads <strong>"Couldn't fetch the original video. Check your signal and try again."</strong> — no silent failure. A truly orphan exercise (no local + no cloud) shows <strong>"Original video no longer available — recapture to re-archive."</strong></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
     <footer>
-      Wave 19.4 bundles Milestones P / P2 / Q plus four session polish fixes. Commits on <code>claude/relaxed-dhawan-bfffb1</code>: <code>ac077b2</code> · <code>a5f5c2a</code> · <code>9c5dbfb</code> · <code>06d179f</code> · <code>774cb4c</code> · <code>3dfc28e</code> · <code>d04bc03</code> · <code>fa6d8f8</code> · <code>f4b2d53</code> · <code>d7453e6</code> · <code>f89e32a</code> · <code>59df4b6</code>. Supabase migrations applied via linked CLI: <code>schema_milestone_p_segmented_raw.sql</code> · <code>schema_milestone_p2_mask_sidecar.sql</code> · <code>schema_milestone_q_inter_set_rest.sql</code>. R-10 parity enforced by the unified-player bundle. 23 items.
+      Wave 19.4 bundles Milestones P / P2 / Q plus four session polish fixes plus the download-original bumper (items 24–27). Commits on <code>claude/relaxed-dhawan-bfffb1</code>: <code>ac077b2</code> · <code>a5f5c2a</code> · <code>9c5dbfb</code> · <code>06d179f</code> · <code>774cb4c</code> · <code>3dfc28e</code> · <code>d04bc03</code> · <code>fa6d8f8</code> · <code>f4b2d53</code> · <code>d7453e6</code> · <code>f89e32a</code> · <code>59df4b6</code>. Supabase migrations applied via linked CLI: <code>schema_milestone_p_segmented_raw.sql</code> · <code>schema_milestone_p2_mask_sidecar.sql</code> · <code>schema_milestone_q_inter_set_rest.sql</code>. R-10 parity enforced by the unified-player bundle. 27 items.
     </footer>
   </div>
   <script>
