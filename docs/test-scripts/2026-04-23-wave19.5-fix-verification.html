@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 19.5 fix verification</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist > li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist > li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist > li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row,
+  .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps {
+    list-style: none; padding: 0; margin: 8px 0 0 0;
+  }
+  .steps li {
+    position: relative; padding: 4px 0 4px 42px; margin: 0;
+    color: var(--text); font-size: 13px; line-height: 1.5;
+    background: transparent; border: none;
+  }
+  .steps li::before {
+    content: attr(data-sub);
+    position: absolute; left: 0; top: 4px; width: 34px;
+    text-align: right;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px; font-weight: 600; color: var(--text-mute);
+    letter-spacing: 0;
+  }
+  .checklist > li[data-status="pass"] .steps li,
+  .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+  .prev-link {
+    color: var(--text-mute); font-size: 12px; margin-top: 6px;
+  }
+  .prev-link a { color: var(--coral); text-decoration: none; }
+  .prev-link a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-23 · Wave 19.5 · Fix verification</div>
+    <h1>Device QA — Wave 19.5 fix verification</h1>
+    <div class="prev-link">Follow-up to <a href="./2026-04-23-wave19.4-session-upgrades.html">Wave 19.4</a> — retests the three bugs + items blocked by those bugs + previously untested items.</div>
+    <p class="lede" style="margin-top: 20px;">
+      <strong>Purpose:</strong> verify three bug fixes landed today, then clear the items that were blocked by them and pick up anything that was skipped in 19.4.
+      <br><br>
+      <strong>Fixes under test:</strong>
+      <br><strong>(A) Web-player toggle rebind</strong> — <code>Enhanced background</code> switch now fires both <code>change</code> and a deferred <code>click</code> handler so iOS Safari can't swallow the flip via label-routing. <code>applySegmentedEffectChange</code> is idempotent.
+      <br><strong>(B) Segmented progress bar visibility</strong> — read sets / breather straight off the slide payload (cached module state wasn't primed pre-workout); drop the <code>isWorkoutMode</code> gate so the bar renders on first paint as a calm preview; rest label now says <code>Rest 15s</code> instead of <code>Breather</code>.
+      <br><strong>(C) Studio long-press peek chrome strobe</strong> — <code>_PeekPreview</code> now Stacks a chrome-less still under the video texture so there's no mid-animation child swap. <code>CaptureThumbnail</code> gets a <code>showChrome</code> flag so the small peek cell strips chrome the instant the open-animation starts.
+      <br><br>
+      <strong>SW cache name:</strong> <code>homefit-player-v40-toggle-rebind-and-bar</code> (was <code>v39-inter-set-rest</code>). First visit after install should show the new name in Storage.
+      <br><br>
+      <strong>Out of scope</strong> (these stay open — will be handled separately): automation of Storage / SQL checks (19.4 items 13 / 14 / 27); default exercise name numbering ignoring rest rows (19.4 item 2 note); adding the treatment toggle to the client web player (19.4 item 8 reversal). All tracked in the next-wave backlog.
+      <br><br>
+      <strong>Already passing in 19.4 — skip:</strong> items 1, 2 (note logged), 3, 4, 5, 6, 7, 8 (note logged), 9, 10, 15, 17. Do not retest these.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Latest <code>./install-device.sh</code> (today). Build SHA on Home footer should match the fix commits.</li>
+        <li>Safari hard-reload on any plan URL so the service worker advances to <code>homefit-player-v40-toggle-rebind-and-bar</code>.</li>
+        <li>A <strong>fresh</strong> session captured today — sets=3, reps=10, inter-set breather=15s by default. You can reuse the one you made in 19.4 item 15 if it's still around; otherwise capture a new one.</li>
+        <li>Fresh client still has the <code>grayscale</code> + <code>original</code> consents granted (same one from 19.4).</li>
+      </ul>
+    </div>
+
+    <h2>A · Bug fixes (re-test)</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Enhanced-background toggle actually swaps the video source. (re-test of 19.4 item 11)</span>
+        <ol class="steps">
+          <li data-sub="1.1">Open a Milestone-P plan in Safari → tap the gear button top-right → popover opens with switch default ON.</li>
+          <li data-sub="1.2">Flip the switch OFF.</li>
+          <li data-sub="1.3">Expect: background is no longer dimmed — you're now seeing the untouched original.</li>
+          <li data-sub="1.4">Expect: hint text reads <strong>"Original untouched"</strong>.</li>
+          <li data-sub="1.5">Expect: playback continues from the same <code>currentTime</code> — no reload, no restart.</li>
+          <li data-sub="1.6">Flip back ON → body-pop returns; hint flips back to <strong>"Body in focus — background dimmed"</strong>.</li>
+          <li data-sub="1.7">Line treatment: flip the switch while Line is active — expect no visible change (Line is unaffected by the toggle).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Segmented progress bar renders at the top of the video. (re-test of 19.4 item 18)</span>
+        <ol class="steps">
+          <li data-sub="2.1">Open the fresh sets=3 / breather=15s / 10-reps session in Safari.</li>
+          <li data-sub="2.2">Expect: thin segmented progress bar at the TOP of the video, full-width, visible immediately (before Start Workout).</li>
+          <li data-sub="2.3">Expect: bar reads <code>[Set 1 · 10 reps][Rest 15s][Set 2 · 10 reps][Rest 15s][Set 3 · 10 reps]</code>.</li>
+          <li data-sub="2.4">Expect: coral set segments; sage rest segments.</li>
+          <li data-sub="2.5">Expect: rest label says <strong>"Rest 15s"</strong> (not "Breather").</li>
+          <li data-sub="2.6">Expect: pre-workout, ALL segments look upcoming / idle (no segment appears in-progress).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Long-press peek opens without chrome strobe. (re-test of 19.4 item 24)</span>
+        <ol class="steps">
+          <li data-sub="3.1">In Studio, long-press the thumbnail of a VIDEO exercise card.</li>
+          <li data-sub="3.2">Watch the menu-open animation carefully for any background flash / pop.</li>
+          <li data-sub="3.3">Expect: the 240×240 preview fades in cleanly. No play-circle glyph flashes then vanishes. No media-type badge appears then disappears.</li>
+          <li data-sub="3.4">Expect: Cupertino menu rows still in order — <strong>Open full-screen · Replace media · Download original · Delete exercise</strong>.</li>
+          <li data-sub="3.5">Repeat with a PHOTO card — expect: no artifact; menu shows only the three legacy rows.</li>
+          <li data-sub="3.6">Repeat with a REST row — expect: no peek at all (unchanged).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>B · Cascade items (previously blocked by the bugs above)</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Toggle state persists across navigations. (19.4 item 12)</span>
+        <ol class="steps">
+          <li data-sub="4.1">Set the Enhanced background switch OFF, close the tab, open the plan URL again (fresh navigation).</li>
+          <li data-sub="4.2">Expect: switch is STILL off on reopen (persisted under <code>homefit.playback.segmentedEffect</code>).</li>
+          <li data-sub="4.3">Set it back ON → close → reopen → expect: still ON.</li>
+          <li data-sub="4.4">Per-device, per-browser — no server round-trip.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Video pauses on-frame at set boundaries; sage countdown; resumes from the same frame. (19.4 item 19)</span>
+        <ol class="steps">
+          <li data-sub="5.1">On the fresh sets=3 plan, tap Start Workout.</li>
+          <li data-sub="5.2">Expect: video plays through Set 1; the first segment fills / highlights as elapsed time advances.</li>
+          <li data-sub="5.3">At Set 1 → Rest 1 boundary: expect video <strong>pauses on the current frame</strong> (NOT reset, NOT faded, NOT swapped).</li>
+          <li data-sub="5.4">Expect: <strong>sage countdown chip</strong> overlays with a resting-person glyph + "15" counting down.</li>
+          <li data-sub="5.5">At 0: expect chip vanishes; video <strong>resumes from the same frame</strong> into Set 2.</li>
+          <li data-sub="5.6">Repeat at Rest 2 → Set 3.</li>
+          <li data-sub="5.7">At end of Set 3: expect slide completes and advances.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Mid-rest skip cancels the breather timer cleanly. (19.4 item 20)</span>
+        <ol class="steps">
+          <li data-sub="6.1">Start the exercise; wait until you're in the first breather (sage countdown visible).</li>
+          <li data-sub="6.2">Tap the RIGHT chevron.</li>
+          <li data-sub="6.3">Expect: breather timer cancelled cleanly; no stale countdown fires on the next slide; next slide renders correctly.</li>
+          <li data-sub="6.4">Return via LEFT chevron. Expect: segmented bar resets to Set 1 start; video restarts cleanly.</li>
+          <li data-sub="6.5">Expect: no console errors (check Web Inspector).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Duration math + sets=1 / breather=Off hide path. (19.4 item 21)</span>
+        <ol class="steps">
+          <li data-sub="7.1">A sets=3 / breather=15s exercise at ~10s per set should take <strong>60s total</strong> (3×10 + 2×15).</li>
+          <li data-sub="7.2">Confirm the workout-timeline-bar "remaining total" agrees with 60s at slide start.</li>
+          <li data-sub="7.3">Confirm the projected finish wall-clock in the timeline-bar includes the breathers.</li>
+          <li data-sub="7.4">Set a different exercise to sets=1 (or breather=0/Off). Expect: segmented bar hidden entirely; single-set slide renders as pre-Q.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Save to Camera Roll — happy path. (19.4 item 25)</span>
+        <ol class="steps">
+          <li data-sub="8.1">Use a fresh capture so the 720p archive lives locally under <code>{Documents}/archive/</code>.</li>
+          <li data-sub="8.2">Long-press the video card's thumbnail → Download original.</li>
+          <li data-sub="8.3">Expect: bottom sheet opens — title "Original video", subtitle "The colour capture, straight from the camera.", three rows: Save to Camera Roll · Share · Cancel.</li>
+          <li data-sub="8.4">Tap Save to Camera Roll. First time: expect iOS prompt <em>"homefit.studio Would Like to Add to your Photos"</em>. Allow.</li>
+          <li data-sub="8.5">Expect: SnackBar reads <strong>"Saved to Camera Roll"</strong>.</li>
+          <li data-sub="8.6">Open Photos → Recents. Expect: original colour mp4 at the top, full frame rate, audio intact.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">Share sheet attaches the mp4 as a video, not a URL. (19.4 item 26)</span>
+        <ol class="steps">
+          <li data-sub="9.1">Same card: long-press → Download original → Share.</li>
+          <li data-sub="9.2">Expect: native iOS share sheet opens with the mp4 as an <code>XFile</code> (not a URL).</li>
+          <li data-sub="9.3">Expect: Messages / AirDrop / Save to Files appear as destinations.</li>
+          <li data-sub="9.4">Pick Messages → attach to a draft to yourself. Expect: proper video attachment with thumbnail.</li>
+          <li data-sub="9.5">Cancel the share sheet. Expect: no SnackBar, no crash.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>C · Previously untested in 19.4</h2>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">Inline numeric editor for POST REP BREATHER. (19.4 item 16)</span>
+        <ol class="steps">
+          <li data-sub="10.1">Open a fresh capture in Studio → PACING accordion → tap the "15s" breather value.</li>
+          <li data-sub="10.2">Expect: inline numeric editor opens in place (same pattern as REPS / SETS / HOLD / PREP — no modal, no bottom-sheet picker).</li>
+          <li data-sub="10.3">Change to 20s. Expect: PACING collapsed summary shows the customised-dot indicator.</li>
+          <li data-sub="10.4">Change to 0. Expect: displays as <strong>"Off"</strong>.</li>
+          <li data-sub="10.5">Revert to 15. Expect: summary dot goes back to clean.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Service worker advanced; payload carries Milestone P/P2/Q keys. (19.4 item 22)</span>
+        <ol class="steps">
+          <li data-sub="11.1">Safari → Advanced → Web Inspector → Storage on the plan URL.</li>
+          <li data-sub="11.2">Expect: Cache Storage name reads <strong><code>homefit-player-v40-toggle-rebind-and-bar</code></strong>.</li>
+          <li data-sub="11.3">Expect: older caches (v35 through v39) purged after first hard-reload.</li>
+          <li data-sub="11.4">Expect: no <code>app.js</code> console errors.</li>
+          <li data-sub="11.5">Expect: <code>api.js</code> log shows payload carries <code>grayscale_segmented_url</code> / <code>original_segmented_url</code> / <code>mask_url</code> / <code>inter_set_rest_seconds</code> keys (null on legacy rows; populated on fresh rows).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+        <span class="num">12.</span>
+        <span class="text">R-10 parity — Flutter preview runs the same bundle. (19.4 item 23)</span>
+        <ol class="steps">
+          <li data-sub="12.1">Open the fresh session in the Flutter practitioner preview (Share → Preview, or Home → Sessions → tap → Preview).</li>
+          <li data-sub="12.2">Expect: Enhanced background toggle, segmented bar, breather overlay, duration math — all present, identical to Safari.</li>
+          <li data-sub="12.3">Expect: toggle flip works inside the WebView (bug 11 fix carries via the unified bundle).</li>
+          <li data-sub="12.4">Preview runs the same <code>web-player/</code> bundle via <code>UnifiedPlayerSchemeHandler</code>.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 19.5 verifies three fix commits on <code>claude/wonderful-burnell-933210</code>: <code>fix(web-player): toggle rebind + segmented bar visibility</code> · <code>fix(studio): remove long-press peek chrome strobe</code>. Follow-up to <a href="./2026-04-23-wave19.4-session-upgrades.html" style="color: var(--coral);">Wave 19.4</a>. 12 items.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-23-wave19.5-fix-verification.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave19.5-fix-verification', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>
