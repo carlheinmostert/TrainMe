@@ -230,6 +230,16 @@ const $footerLogo = document.getElementById('footer-logo');
 let chromeRevealTimer = null;
 const CHROME_REVEAL_MS = 3000;
 
+// iPhone Safari does not expose Element.requestFullscreen (the WebKit
+// variant is iPad/macOS only). When the real API is unavailable we fall
+// back to a CSS-only "faux" fullscreen: toggle body.is-fullscreen directly
+// + lock document scroll. All downstream layout already keys off the body
+// class, so faux mode gets the full ambient layout (the only visible
+// difference is that Safari's own URL bar stays on screen).
+let fauxFullscreenActive = false;
+let fauxFullscreenPrevHtmlOverflow = '';
+let fauxFullscreenPrevBodyOverflow = '';
+
 // ============================================================
 // Data fetching
 // ============================================================
@@ -1966,10 +1976,30 @@ function requestFullscreen() {
   const req = el.requestFullscreen || el.webkitRequestFullscreen;
   if (req) {
     try { req.call(el); } catch (_) { /* swallow */ }
+    return;
   }
+  // iPhone Safari fallback — no Fullscreen API. Flip the body class
+  // ourselves, lock scroll, and re-run the change handler so aria state +
+  // icon swap match the real-API path. The fullscreenchange event is
+  // browser-only; faux mode never fires it, hence the explicit call.
+  fauxFullscreenActive = true;
+  fauxFullscreenPrevHtmlOverflow = document.documentElement.style.overflow || '';
+  fauxFullscreenPrevBodyOverflow = document.body.style.overflow || '';
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
+  onFullscreenChange();
 }
 
 function exitFullscreen() {
+  if (fauxFullscreenActive) {
+    fauxFullscreenActive = false;
+    document.documentElement.style.overflow = fauxFullscreenPrevHtmlOverflow;
+    document.body.style.overflow = fauxFullscreenPrevBodyOverflow;
+    fauxFullscreenPrevHtmlOverflow = '';
+    fauxFullscreenPrevBodyOverflow = '';
+    onFullscreenChange();
+    return;
+  }
   const ex = document.exitFullscreen || document.webkitExitFullscreen;
   if (ex) {
     try { ex.call(document); } catch (_) { /* swallow */ }
@@ -1977,7 +2007,11 @@ function exitFullscreen() {
 }
 
 function isFullscreenActive() {
-  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+  return !!(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    fauxFullscreenActive
+  );
 }
 
 function toggleFullscreen() {

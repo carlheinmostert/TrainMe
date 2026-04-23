@@ -1386,6 +1386,14 @@ video.is-prep-paused {
      • The fullscreen toggle itself stays at 100% alpha throughout
        (you need a way out).
 */
+/* Defensive scroll lock for faux-fullscreen fallback on iPhone Safari
+   (where Element.requestFullscreen is undefined). app.js also toggles the
+   inline style on <html>/<body> for the faux path; this rule backs that
+   up in case a future refactor forgets, and kills rubber-band scroll. */
+body.is-fullscreen {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 body.is-fullscreen #app {
   padding-top: 0;
   padding-bottom: 0;
