@@ -121,11 +121,19 @@ function treatmentFromWire(wire) {
  * The effective treatment for [exercise]. Honours the practitioner's
  * per-exercise `preferred_treatment` when the corresponding URL is
  * available; else falls back to Line (the always-present default).
+ *
+ * Availability check considers BOTH the segmented dual-output URL
+ * (Milestone P, preferred) and the untouched original URL (fallback) —
+ * consent-wise they move together, but keeping the check permissive
+ * ensures a plan with only one of the two still honours the
+ * practitioner's sticky choice.
  */
 function slideTreatment(exercise) {
   const candidate = treatmentFromWire(exercise && exercise.preferred_treatment);
-  if (candidate === 'bw' && !(exercise && exercise.grayscale_url)) return 'line';
-  if (candidate === 'original' && !(exercise && exercise.original_url)) return 'line';
+  const hasGray = !!(exercise && (exercise.grayscale_segmented_url || exercise.grayscale_url));
+  const hasOrig = !!(exercise && (exercise.original_segmented_url || exercise.original_url));
+  if (candidate === 'bw' && !hasGray) return 'line';
+  if (candidate === 'original' && !hasOrig) return 'line';
   return candidate;
 }
 
@@ -625,17 +633,32 @@ function buildMedia(exercise, index) {
  *
  *   'line'     → line_drawing_url (always present on post-migration plans;
  *                falls back to legacy `media_url` for old plans)
- *   'bw'       → grayscale_url (the raw original — the CSS
- *                grayscale filter is applied to the <video> element)
- *   'original' → original_url (raw unfiltered)
+ *   'bw'       → grayscale_segmented_url || grayscale_url (the segmented
+ *                dual-output file when available, else the untouched
+ *                original — the CSS grayscale filter is applied to the
+ *                <video> element)
+ *   'original' → original_segmented_url || original_url (segmented
+ *                preferred, untouched original as fallback)
+ *
+ * Segmented-first preference: Milestone P (2026-04-23) adds a dual-output
+ * mp4 alongside the line drawing that reuses the same Vision person-
+ * segmentation mask — body pristine, background dimmed. Using it for the
+ * Color + B&W treatments keeps the body-pop effect consistent across
+ * all three treatments. Legacy plans + exercises captured before the
+ * dual-output pass shipped still render correctly via the untouched
+ * original fallback.
  *
  * Returns null when the treatment has no URL (consent-absent). Callers
  * must handle this gracefully (disable segment + fall back to line).
  */
 function resolveTreatmentUrl(exercise, treatment) {
   if (!exercise) return null;
-  if (treatment === 'bw') return exercise.grayscale_url || null;
-  if (treatment === 'original') return exercise.original_url || null;
+  if (treatment === 'bw') {
+    return exercise.grayscale_segmented_url || exercise.grayscale_url || null;
+  }
+  if (treatment === 'original') {
+    return exercise.original_segmented_url || exercise.original_url || null;
+  }
   // 'line' + unknown treatments → line drawing (the always-available default).
   return exercise.line_drawing_url || exercise.media_url || null;
 }

@@ -23,6 +23,18 @@
  * normalises to always-present-but-nullable keys so `app.js` never
  * needs to check `undefined` vs `null`.
  *
+ * ## Segmented-color raw variant (Option 1-augment, 2026-04-23)
+ *
+ * Milestone P extended `get_plan_full` with two more per-exercise keys:
+ *   - grayscale_segmented_url
+ *   - original_segmented_url
+ * Both point at the dual-output segmented-color mp4 written alongside
+ * the line drawing (`*.segmented.mp4`), consent-gated the same way as
+ * the untouched grayscale/original URLs. This module normalises those
+ * to explicit null when absent; `app.js` prefers the segmented URL and
+ * falls back to the untouched original when the segmented file is
+ * missing (legacy captures, older plans, 404 on playback).
+ *
  * Exposed on `window.HomefitApi` so `app.js` (a plain script, not an
  * ES module) can reach it. When the web player gains a bundler this
  * turns into a proper `export`.
@@ -86,6 +98,8 @@
       line_drawing_url: e.line_drawing_url || e.media_url || null,
       grayscale_url: e.grayscale_url || null,
       original_url: e.original_url || null,
+      grayscale_segmented_url: e.grayscale_segmented_url || null,
+      original_segmented_url: e.original_segmented_url || null,
     }));
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     return { ...payload, exercises };
@@ -133,6 +147,8 @@
       line_drawing_url: e.line_drawing_url || e.media_url || null,
       grayscale_url: e.grayscale_url || null,
       original_url: e.original_url || null,
+      grayscale_segmented_url: e.grayscale_segmented_url || null,
+      original_segmented_url: e.original_segmented_url || null,
     }));
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
