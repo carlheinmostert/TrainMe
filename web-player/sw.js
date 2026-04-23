@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v31-pause-glyph-circuit-weights';
+const CACHE_NAME = 'homefit-player-v32-grammar-defaults';
 
 // App shell files — always cached
 const APP_SHELL = [

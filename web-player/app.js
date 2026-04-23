@@ -458,13 +458,28 @@ function buildDecodedGrammar(slide) {
 
   const parts = [];
   const isCircuit = !!slide.circuitRound;
-  const sets = Number.parseInt(slide.sets, 10);
-  const reps = Number.parseInt(slide.reps, 10);
-  const hold = Number.parseInt(slide.hold_seconds, 10);
+  const setsRaw = Number.parseInt(slide.sets, 10);
+  const repsRaw = Number.parseInt(slide.reps, 10);
+  const holdRaw = Number.parseInt(slide.hold_seconds, 10);
+  const hasSets = Number.isFinite(setsRaw) && setsRaw > 0;
+  const hasReps = Number.isFinite(repsRaw) && repsRaw > 0;
+  const hasHold = Number.isFinite(holdRaw) && holdRaw > 0;
+  // Wave 19.3: mirror calculateDuration's defaults (3 sets / 10 reps) so
+  // every exercise reads consistently. Previously a slide with only a hold
+  // captured showed "30s hold" while another with only reps showed "5 reps"
+  // and bare slides showed nothing — Carl flagged this as inconsistent.
+  // Isometric exercises (hold with no reps) drop the reps term for clarity.
+  const isIsometric = !hasReps && hasHold;
+  const sets = hasSets ? setsRaw : 3;
+  const reps = hasReps ? repsRaw : 10;
 
-  if (!isCircuit && Number.isFinite(sets) && sets > 0) parts.push(`${sets} sets`);
-  if (Number.isFinite(reps) && reps > 0) parts.push(`${reps} reps`);
-  if (Number.isFinite(hold) && hold > 0) parts.push(`${hold}s hold`);
+  if (!isCircuit) parts.push(`${sets} sets`);
+  if (isIsometric) {
+    parts.push(`${holdRaw}s hold`);
+  } else {
+    parts.push(`${reps} reps`);
+    if (hasHold) parts.push(`${holdRaw}s hold`);
+  }
 
   return parts.join(' · ');
 }
