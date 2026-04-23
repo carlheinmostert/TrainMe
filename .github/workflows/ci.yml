@@ -1,0 +1,69 @@
+# CI for homefit.studio.
+# Three parallel jobs, one per surface:
+#   - flutter-app: flutter analyze + flutter test against the mobile app.
+#   - web-portal: npm lint + tsc typecheck against the Next.js portal.
+#   - web-player: node --check on the static JS to catch syntax breakage
+#     before Vercel deploys.
+# See docs/TEST_STRATEGY.md for the full rationale and roadmap.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter-app:
+    name: Flutter app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.6'
+          channel: stable
+          cache: true
+      - name: flutter pub get
+        working-directory: app
+        run: flutter pub get
+      - name: flutter analyze
+        working-directory: app
+        run: flutter analyze
+      - name: flutter test
+        working-directory: app
+        run: flutter test
+
+  web-portal:
+    name: Web portal
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web-portal/package-lock.json
+      - name: npm ci
+        working-directory: web-portal
+        run: npm ci
+      - name: npm run lint
+        working-directory: web-portal
+        run: npm run lint
+      - name: npm run typecheck
+        working-directory: web-portal
+        run: npm run typecheck
+
+  web-player:
+    name: Web player
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: node --check on web-player/*.js
+        run: |
+          for f in web-player/*.js; do
+            node --check "$f"
+          done
