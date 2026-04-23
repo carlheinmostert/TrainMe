@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 19.4 session upgrades</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-23 · Wave 19.4 · Session upgrades</div>
+    <h1>Device QA — Wave 19.4 session upgrades</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify the session's cross-stack work that followed Wave 19.3. Spans native iOS, Flutter Studio, Supabase schema, and the unified web-player bundle.
+      <br><br>
+      <strong>Feature slices under test:</strong>
+      <br><strong>(A)</strong> <strong>Capture defaults</strong> — fresh captures persist <code>sets=3</code> + <code>reps=10</code> so published grammar no longer collapses to "X reps" fragments.
+      <br><strong>(B)</strong> <strong>Publish robustness</strong> — <code>upsert_client</code> errors now fail hard with a user-visible SnackBar (previously swallowed; produced orphan plans with no client link).
+      <br><strong>(C)</strong> <strong>Grammar fix</strong> — removed isometric short-circuit; the active-slide title always carries the reps fallback.
+      <br><strong>(D)</strong> <strong>iPhone faux-fullscreen</strong> — Safari doesn't support <code>Element.requestFullscreen</code>; a body-class toggle now gates ambient mode.
+      <br><strong>(E)</strong> <strong>Native v7 segmentation</strong> — <code>backgroundDim 0.70 → 0.50</code> for stronger subject pop on line drawings.
+      <br><strong>(F)</strong> <strong>Milestone P — segmented-colour variant</strong> — native dual-output produces a second mp4 where the body is pristine + background dimmed; web player prefers it for Colour + B&W treatments, falls back to untouched original for legacy plans.
+      <br><strong>(G)</strong> <strong>Segmented-effect toggle</strong> — a gear-button popover in the card chrome lets clients opt out of (F); default ON; persisted in <code>localStorage</code>.
+      <br><strong>(H)</strong> <strong>Milestone P2 — mask sidecar</strong> — third output emits the Vision segmentation mask as its own mp4; uploaded to <code>raw-archive</code>; <code>get_plan_full</code> exposes <code>mask_url</code>. No player consumer today — door open for future playback-time tuning.
+      <br><strong>(I)</strong> <strong>Milestone Q — inter-set rest ("Post Rep Breather")</strong> — per-exercise <code>inter_set_rest_seconds</code>, default 15s on fresh captures; top-of-video segmented bar renders <code>[Set 1 · 10 reps][Rest 15s][Set 2 · 10 reps]…</code>; video plays continuously, pausing on-frame at set boundaries and resuming into the next set.
+      <br><br>
+      <strong>In scope:</strong> the unified web-player bundle (<code>web-player/*</code>), the Flutter trainer app (<code>app/lib/...</code>), the native video pipeline (<code>app/ios/Runner/VideoConverterChannel.swift</code>), and Supabase schema (Milestones P, P2, Q applied). R-10 parity holds — the mobile practitioner preview runs the same bundle via the <code>homefit-local://</code> scheme handler.
+      <br><br>
+      <strong>Out of scope:</strong> Portal changes. PayFast webhook. Edge middleware. Login / auth. Audio mux (unchanged from v7). Android (still iOS-only).
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Branch <code>claude/relaxed-dhawan-bfffb1</code> merged to <code>main</code> (or preview URL available). Vercel auto-deploys the web player + portal on push.</li>
+        <li><code>./install-device.sh</code> from the repo root — pulls main, release-builds, installs to iPhone CHM. Needed for (A), (B), (E), (F native side), (H native side), (I Studio side).</li>
+        <li>Safari hard-reload on the plan URL so the service worker advances to <code>homefit-player-v39-inter-set-rest</code> (Wave 19.4's final SW name; individual milestone bumps P → v36, P2 → v38, Q → v39).</li>
+        <li>A <strong>fresh</strong> practice client with <code>video_consent</code> granting both <code>grayscale</code> and <code>original</code> (Settings → practitioner consent). Needed to observe (F) + (G) + (H) end-to-end.</li>
+        <li>A <strong>legacy</strong> plan published BEFORE this session's merges (e.g. <code>3a5a5c39-d735-46be-960c-31c60851a587</code>) on hand — used as fallback-path control.</li>
+      </ul>
+    </div>
+
+    <h2>A · Capture defaults — sets=3 / reps=10 persist</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open Studio → create a fresh client → new session → capture ONE new exercise (video or photo). Do NOT edit reps / sets. Publish. Open the plan URL in Safari. The active-slide grammar reads <strong>"{name} · 3 sets · 10 reps"</strong> — <em>not</em> just "{name}" or "{name} · 3 sets". Open the Flutter preview for the same plan: same grammar. The defaults survived the capture → publish → get_plan_full round-trip.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Repeat (1) but create a <strong>REST row</strong> (long-press gutter rail → add rest). Rest row should NOT pick up the default (rest has no reps / sets grammar). The published rest slide renders as the existing compact rest card — no "3 sets · 10 reps" anywhere on it.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>B · Publish robustness — upsert_client fails loudly</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Happy path: create a new client + session + publish on good connectivity. <strong>No error SnackBar</strong>. Plan URL works. Open the plan in Safari → exercise videos show the segmented-colour effect on Colour / B&W (per (F)). In past sessions we had a plan publish where upsert_client silently swallowed a 23505 collision and produced a plan with <code>client_id = NULL</code>; fresh captures should never hit that again.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Force the failure path: in Settings → Recycle Bin, soft-delete a client (don't restore). Back to Home → FAB "New client" → accept the default name (which collides with the deleted client's name). Attempt to publish. A <strong>user-visible SnackBar</strong> surfaces: <em>"A client named "{X}" was deleted recently — restore it instead of creating a new one."</em> Not a cryptic "Bad state" error. The session is NOT published.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>C · Grammar always shows reps fallback</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Open plan <code>3a5a5c39-d735-46be-960c-31c60851a587</code> (the hold-only isometric case from earlier in the session). Navigate to the exercise that historically rendered as <strong>"30s hold"</strong> only. The active-slide title now reads <strong>"{name} · 3 sets · 10 reps · 30s hold"</strong> — reps are no longer suppressed when only the hold field is set. Confirm on both web player AND Flutter preview (R-10).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>D · iPhone Safari faux-fullscreen</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">On the iPhone (physical device, Safari, NOT the preview WebView), open any published plan. Tap the fullscreen toggle (top-right). The plan-bar + footer hide, the video goes edge-to-edge, the matrix + active-slide title remain visible — identical visual outcome to desktop Chrome's real fullscreen. Tap again → chrome restores. There is NO console error about <code>requestFullscreen is not a function</code>. Before this fix the button was a dead click on iPhone.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>E · Native v7 segmentation — stronger subject pop</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Capture a fresh video exercise on iPhone (real device). Wait for conversion. Open the line drawing in Studio. Compare against a v6 reference (any plan converted before 2026-04-22). The v7 line drawing's <strong>body silhouette reads more distinctly</strong> against a visibly darker background. Edge / line tuning unchanged (v6 LOCKED — only <code>backgroundDim</code> moved 0.70 → 0.50). Aesthetic sign-off: Carl only.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>F · Milestone P — segmented-colour variant</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Capture + publish a fresh exercise with the Colour + Grayscale consents granted. Open the plan in Safari → switch to the <strong>Colour</strong> treatment segment. The body is pristine full-colour; the background is dimmed. This is the NEW dual-output segmented-colour file — not the untouched original. Switch to <strong>B&W</strong> — same effect with CSS greyscale filter on top. Switch to <strong>Line</strong> — the v7 line drawing (matches (E)). All three treatments should show the same body-pop aesthetic.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">Legacy fallback: open a plan published BEFORE this session (e.g. the control plan). Switch to Colour / B&W. The video plays the <strong>untouched original</strong> (no body-pop — backgrounds look as captured). No console error. No broken video element. The player falls through <code>grayscale_segmented_url → grayscale_url</code> silently.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>G · Segmented-effect toggle</h2>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">On a Milestone-P plan (item 8), tap the <strong>gear button</strong> top-right of the card viewport (between the mute button and the fullscreen toggle). A small settings popover opens with a single switch labeled <strong>"Enhanced background"</strong>, default ON, hint text "Body in focus — background dimmed". Tap outside OR press Escape → popover closes.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Flip the switch OFF. The video element swaps in place — the CURRENT frame's background is no longer dimmed; you're now seeing the untouched original. The hint text flips to <strong>"Original untouched"</strong>. Playback continues from the same <code>currentTime</code>, no page reload, no video restart. Flip back ON → body-pop returns. Line treatment is unaffected regardless of switch state.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+        <span class="num">12.</span>
+        <span class="text">Set switch OFF, close the tab, open the plan URL again (fresh navigation). The switch is STILL off on reopen (persisted in <code>localStorage</code> under <code>homefit.playback.segmentedEffect</code>). Set it back ON → close → reopen → still ON. Per-device, per-browser, no server round-trip.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>H · Milestone P2 — mask sidecar (backend-only today)</h2>
+    <ul class="checklist">
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
+        <span class="num">13.</span>
+        <span class="text">Capture + publish a fresh exercise. Check the Supabase Storage dashboard → <code>raw-archive</code> bucket → <code>{practice_id}/{plan_id}/</code> folder. THREE files per video exercise: <code>{id}.mp4</code>, <code>{id}.segmented.mp4</code>, <code>{id}.mask.mp4</code>. The mask file is a grayscale-looking video (body outline white against black). Mask upload failure is non-fatal — if just the mask is missing, the segmented + original still play. No UI consumer for the mask today; this test confirms the file lands so future playback-time tuning has the data.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+        <span class="num">14.</span>
+        <span class="text">Run <code>supabase db query --linked "SELECT jsonb_pretty(public.get_plan_full('&lt;fresh-plan-uuid&gt;'::uuid))"</code>. The exercises array shows a <code>mask_url</code> key per video exercise alongside <code>grayscale_segmented_url</code> / <code>original_segmented_url</code>. URL is a signed Supabase URL with a 30-min expiry. For rest rows + legacy exercises the key is <code>null</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>I · Milestone Q — inter-set rest ("Post Rep Breather")</h2>
+    <ul class="checklist">
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+        <span class="num">15.</span>
+        <span class="text">Fresh capture defaults: create a new session on the iPhone, capture a video exercise, tap into its Studio card → PACING accordion. <strong>"POST REP BREATHER"</strong> row appears with value <strong>"15s"</strong> (the default-seeded value — not "Off", not the customised-dot). Confirm <strong>REPS = 10</strong>, <strong>SETS = 3</strong> per (A).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
+        <span class="num">16.</span>
+        <span class="text">Tap the "15s" → inline numeric editor opens (same pattern as REPS / SETS / HOLD / PREP — no modal, no bottom-sheet picker). Change to <strong>20s</strong>. The PACING collapsed summary now shows the customised-dot indicator (value differs from the 15s seed). Tap the "20s" → change to <strong>0</strong> → displays as <strong>"Off"</strong>. Revert to 15 → summary dot goes back to clean.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
+        <span class="num">17.</span>
+        <span class="text">Existing-exercise preservation: open any PRE-milestone-Q plan in Studio. Its exercises' POST REP BREATHER row reads <strong>"Off"</strong> (the <code>inter_set_rest_seconds</code> column is NULL on legacy rows — no backfill, no retroactive 15s). Editing still works; changing a legacy exercise to 20s persists normally.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
+        <span class="num">18.</span>
+        <span class="text">Publish the fresh session from item 15 (sets=3, reps=10, breather=15s). Open the plan URL in Safari. On the exercise slide, a <strong>thin segmented progress bar</strong> renders at the TOP of the video, spanning its full width, reading: <code>[Set 1 · 10 reps][Rest 15s][Set 2 · 10 reps][Rest 15s][Set 3 · 10 reps]</code>. Set segments are coral; rest segments are sage green. Labels INCLUDE the rep count. Segment widths are proportional to their duration.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="19" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 19">✓</button><button class="fail" type="button" aria-label="Fail 19">✗</button></div>
+        <span class="num">19.</span>
+        <span class="text">Tap Start Workout. Video plays through Set 1; the first segment fills / highlights as elapsed time advances. At the Set 1 → Rest 1 boundary: the video <strong>pauses on the current frame</strong> (does NOT reset to 0, does NOT fade, does NOT swap). A <strong>sage countdown chip</strong> overlays the video with a resting-person glyph + "15" counting down. At 0 the chip vanishes and the video <strong>resumes from the same frame</strong> into Set 2. Repeat at Rest 2 → Set 3. At end of Set 3 the slide completes and advances.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="20" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 20">✓</button><button class="fail" type="button" aria-label="Fail 20">✗</button></div>
+        <span class="num">20.</span>
+        <span class="text">Mid-rest skip: start the exercise, wait until you're in the first breather (sage countdown visible). Tap the RIGHT chevron. The breather timer is cancelled cleanly, no leaked interval fires a stale countdown, the next slide renders correctly. Return to the exercise via the LEFT chevron: the segmented bar resets to Set 1 start; video restarts cleanly. No console errors.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="21" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 21">✓</button><button class="fail" type="button" aria-label="Fail 21">✗</button></div>
+        <span class="num">21.</span>
+        <span class="text">Duration math: a sets=3 / breather=15s exercise at 10s per-set should take <strong>60s total</strong> (3×10 set + 2×15 breather). Confirm the workout-timeline-bar "remaining total" figure agrees with 60s at slide start and the <strong>projected finish wall-clock</strong> in the timeline-bar includes the breathers. Sets=1 exercises (or breather=0 / Off) hide the segmented bar entirely — single-set slides render as they did pre-Q.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>J · Cache + surface sanity</h2>
+    <ul class="checklist">
+      <li data-num="22" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 22">✓</button><button class="fail" type="button" aria-label="Fail 22">✗</button></div>
+        <span class="num">22.</span>
+        <span class="text">Safari → Advanced → Web Inspector → Storage on the plan URL. Cache Storage name reads <strong><code>homefit-player-v39-inter-set-rest</code></strong>. Old caches (v35 / v36 / v37 / v38) purged after first hard-reload. No <code>app.js</code> console errors about missing <code>resolveTreatmentUrl</code>, <code>rebindVideoSources</code>, set/rest state machine, or segment-bar rendering. <code>api.js</code> log shows the cached payload carries <code>grayscale_segmented_url</code> / <code>original_segmented_url</code> / <code>mask_url</code> / <code>inter_set_rest_seconds</code> keys (null on legacy rows, populated on fresh rows).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="23" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 23">✓</button><button class="fail" type="button" aria-label="Fail 23">✗</button></div>
+        <span class="num">23.</span>
+        <span class="text">R-10 parity check: open the fresh session from item 15 in the <strong>Flutter practitioner preview</strong> (Share → Preview, or Home → Sessions → tap → Preview). All of (F), (G), (I) work identically inside the WebView. Segmented-effect toggle, segmented bar, breather overlay, duration math — all present because the preview runs the same <code>web-player/</code> bundle via <code>UnifiedPlayerSchemeHandler</code>. No Flutter-side twin needed.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 19.4 bundles Milestones P / P2 / Q plus four session polish fixes. Commits on <code>claude/relaxed-dhawan-bfffb1</code>: <code>ac077b2</code> · <code>a5f5c2a</code> · <code>9c5dbfb</code> · <code>06d179f</code> · <code>774cb4c</code> · <code>3dfc28e</code> · <code>d04bc03</code> · <code>fa6d8f8</code> · <code>f4b2d53</code> · <code>d7453e6</code> · <code>f89e32a</code> · <code>59df4b6</code>. Supabase migrations applied via linked CLI: <code>schema_milestone_p_segmented_raw.sql</code> · <code>schema_milestone_p2_mask_sidecar.sql</code> · <code>schema_milestone_q_inter_set_rest.sql</code>. R-10 parity enforced by the unified-player bundle. 23 items.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-23-wave19.4-session-upgrades.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave19.4-session-upgrades', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>
