@@ -1160,6 +1160,175 @@ video.is-prep-paused {
   text-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
 }
 
+/* === Milestone Q — Post Rep Breather (inter-set rest) ===============
+   Two surfaces:
+     1. .set-progress-bar — segmented strip above the media showing
+        the set / breather structure for the active exercise. Coral
+        segments for sets, sage segments for breathers. Active segment
+        fills from left→right with the phase-local countdown.
+     2. .breather-overlay — sage countdown + restful glyph shown on
+        top of the paused video during the inter-set rest.
+   Both use brand tokens (--c-brand, --c-rest, --c-ink-*) so they
+   inherit any future palette adjustments. */
+
+.set-progress-bar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  height: 20px;
+  z-index: 12;
+  pointer-events: none;
+}
+.set-progress-bar[hidden] { display: none; }
+
+.set-progress-bar-segment {
+  flex: 1 1 auto;
+  position: relative;
+  height: 100%;
+  min-width: 18px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.set-progress-bar-segment--rest {
+  /* Sage breather segments sit visually "between" sets — slightly
+     narrower feel via a thinner min-width and a muted base. */
+  flex-grow: 0.7;
+  min-width: 14px;
+  background: rgba(134, 239, 172, 0.10);
+  box-shadow: inset 0 0 0 1px var(--c-rest-tint-border);
+}
+.set-progress-bar-segment--set {
+  box-shadow: inset 0 0 0 1px var(--c-brand-tint-border);
+}
+
+/* Active segment — visible outline so the eye finds it fast. */
+.set-progress-bar-segment--active.set-progress-bar-segment--set {
+  box-shadow: inset 0 0 0 1.5px var(--c-brand),
+              0 0 12px rgba(255, 107, 53, 0.35);
+}
+.set-progress-bar-segment--active.set-progress-bar-segment--rest {
+  box-shadow: inset 0 0 0 1.5px var(--c-rest),
+              0 0 12px rgba(134, 239, 172, 0.35);
+}
+
+/* Complete segments — solid full fill via the fill child. */
+.set-progress-bar-segment-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  background: var(--c-brand);
+  transition: width 0.95s linear;
+  will-change: width;
+}
+.set-progress-bar-segment--rest .set-progress-bar-segment-fill {
+  background: var(--c-rest);
+}
+.set-progress-bar-segment--complete .set-progress-bar-segment-fill {
+  width: 100% !important;
+  transition: none;
+}
+.set-progress-bar-segment--upcoming .set-progress-bar-segment-fill {
+  width: 0% !important;
+  transition: none;
+}
+
+.set-progress-bar-segment-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--f-body);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--c-ink-primary);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+  padding: 0 6px;
+  pointer-events: none;
+}
+.set-progress-bar-segment--rest .set-progress-bar-segment-label {
+  color: var(--c-rest);
+  letter-spacing: 0.3px;
+}
+.set-progress-bar-segment--complete .set-progress-bar-segment-label {
+  color: rgba(240, 240, 245, 0.85);
+}
+
+/* Hide labels on narrow segments so a 4-set exercise doesn't clash. */
+@media (max-width: 420px) {
+  .set-progress-bar-segment-label { font-size: 9px; }
+}
+
+/* === Breather overlay =============================================== */
+.breather-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 11;
+  color: var(--c-rest);
+  background: rgba(0, 0, 0, 0.42);
+  animation: breather-fade-in 220ms ease-out;
+}
+.breather-overlay[hidden] { display: none; }
+
+.breather-overlay-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
+}
+
+.breather-overlay-glyph {
+  width: 68px;
+  height: 68px;
+  color: var(--c-rest);
+  opacity: 0.9;
+  filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.5));
+}
+
+.breather-overlay-number {
+  font-family: var(--f-display);
+  font-size: 160px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -7px;
+  color: var(--c-rest);
+}
+
+.breather-overlay-label {
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--c-rest);
+  opacity: 0.85;
+}
+
+@keyframes breather-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (max-width: 420px) {
+  .breather-overlay-number { font-size: 120px; letter-spacing: -5px; }
+  .breather-overlay-glyph  { width: 54px; height: 54px; }
+}
+
 /* === Rest card — inherit the surface gradient so the rest slide
      still has a calm sage pane behind the countdown. =============== */
 .rest-card {

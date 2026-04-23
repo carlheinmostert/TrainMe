@@ -185,6 +185,36 @@
         <div class="rest-countdown-number" id="rest-countdown-number">0</div>
       </div>
 
+      <!-- Milestone Q — per-exercise segmented progress bar. Coral
+           segments for sets (with rep count), sage segments for the
+           inter-set breather. Built per active slide by app.js; hidden
+           outside workout mode + on rest slides + on single-set
+           exercises with no breather. Sits near the top of the
+           viewport overlay stack. -->
+      <div id="set-progress-bar" class="set-progress-bar" role="presentation" hidden></div>
+
+      <!-- Milestone Q — breather overlay. Sage countdown + restful
+           glyph + "Breather" label shown during the inter-set rest.
+           Only visible when setPhase === 'rest' on an exercise slide.
+           The active video is paused on the last visible frame behind
+           this overlay (no currentTime reset) so playback resumes
+           smoothly from the same position into the next set. -->
+      <div id="breather-overlay" class="breather-overlay" hidden aria-hidden="true">
+        <div class="breather-overlay-inner">
+          <div class="breather-overlay-glyph" aria-hidden="true">
+            <!-- Minimal seated-figure glyph: circle head + trunk lines.
+                 Non-semantic; the label + countdown carry the meaning. -->
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="24" cy="14" r="4.5"/>
+              <path d="M17 36 C 17 27, 24 24, 24 24 S 31 27, 31 36"/>
+              <path d="M12 40 L 36 40"/>
+            </svg>
+          </div>
+          <div class="breather-overlay-number" id="breather-number">0</div>
+          <div class="breather-overlay-label">Breather</div>
+        </div>
+      </div>
+
       <!-- Card notes — optional practitioner note, overlaid at the bottom
            of the video as plain coral text (no box). 3-line clamp; tap to
            expand. Populated by app.js per active slide. -->

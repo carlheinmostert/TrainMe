@@ -145,6 +145,28 @@ let totalSeconds = 0;
 let workoutTimer = null;
 let workoutStartTime = null;
 
+// ------------------------------------------------------------------
+// Milestone Q — Post Rep Breather state.
+//
+// Tracks the per-exercise set/rest structure for the active slide so
+// the 1-second tick loop can pause the video at set boundaries, count
+// down the breather, then resume video playback from the paused frame
+// (no currentTime reset = continuous playback). All fields reset on
+// every slide transition via `beginSetMachineForCurrent()`.
+// ------------------------------------------------------------------
+// Current set index (0-based). Incremented when the in-set timer hits
+// zero; bumped again at the end of the breather.
+let currentSetIndex = 0;
+// Total sets for the active slide (cached; same as slides[currentIndex].sets).
+let totalSetsForSlide = 1;
+// 'set' | 'rest'. 'rest' means we're inside the inter-set breather.
+let setPhase = 'set';
+// Phase-local remaining seconds — counts down from the per-set duration
+// (or breather seconds). When zero, transitions to the next phase.
+let setPhaseRemaining = 0;
+// Breather seconds for the active slide (cached).
+let interSetRestForSlide = 0;
+
 // Prep-countdown state. Default runway is 5s (Wave 3 / Milestone P);
 // each exercise can override via `prep_seconds` on the get_plan_full
 // payload. Resolve per slide via `prepSecondsFor(slide)` rather than
@@ -251,6 +273,19 @@ const $restCountdownOverlay = document.getElementById('rest-countdown-overlay');
 const $restCountdownNumber = document.getElementById('rest-countdown-number');
 const $cardNotes = document.getElementById('card-notes');
 const $cardNotesText = document.getElementById('card-notes-text');
+
+// Milestone Q — inter-set rest overlays.
+//   * #set-progress-bar sits above the media on every exercise slide
+//     that has sets > 1 OR a breather > 0. It's a horizontal strip of
+//     segments: coral for set phases, sage for breather phases. The
+//     active segment fills smoothly with its phase-local countdown;
+//     completed segments are solid, upcoming segments are outlined.
+//   * #breather-overlay sits on top of the paused video and shows a
+//     big sage countdown number + a restful-person glyph during the
+//     inter-set breather. Hidden outside breathers.
+const $setProgressBar = document.getElementById('set-progress-bar');
+const $breatherOverlay = document.getElementById('breather-overlay');
+const $breatherNumber = document.getElementById('breather-number');
 
 // Wall-clock ticker for the ETA widget. Runs 1/sec so the finish-time label
 // keeps drifting forward while the workout is paused (remaining holds steady,
@@ -1289,6 +1324,10 @@ function updateUI() {
   // Rest countdown overlay state — shown only on the active rest slide.
   updateRestCountdownOverlay();
 
+  // Milestone Q — set/breather overlays track the active slide too.
+  updateSetProgressBar();
+  updateBreatherOverlay();
+
   // Nav buttons
   $btnPrev.disabled = currentIndex === 0;
   $btnNext.disabled = currentIndex === total - 1;
@@ -1408,23 +1447,62 @@ function onKeyDown(e) {
 // ============================================================
 
 /**
+ * Milestone Q — return the practitioner-configured inter-set rest
+ * ("Post Rep Breather") for a slide, clamped to 0 for null values.
+ * Legacy rows (null) compute WITHOUT any inter-set rest — this is a
+ * deliberate behaviour change on re-publish, acceptable per the brief.
+ * The 30s REST_BETWEEN_SETS baseline is retired.
+ */
+function getInterSetRestSeconds(slide) {
+  const v = slide.inter_set_rest_seconds;
+  if (v === null || v === undefined) return 0;
+  return Math.max(0, Number(v) | 0);
+}
+
+/**
+ * Milestone Q — per-set duration (reps × per-rep + hold). Exposed as
+ * a helper so the set/rest state machine can derive set boundaries
+ * consistently with the total duration.
+ */
+function calculatePerSetSeconds(slide) {
+  if (slide.custom_duration_seconds) {
+    // Manual total / sets; rounded down to the nearest integer second.
+    const sets = slide.sets || 1;
+    if (sets <= 1) return slide.custom_duration_seconds;
+    return Math.max(1, Math.floor(slide.custom_duration_seconds / sets));
+  }
+  const reps = slide.reps || 10;
+  const holdPerSet = slide.hold_seconds || 0;
+  return (reps * SECONDS_PER_REP) + holdPerSet;
+}
+
+/**
  * Calculate the duration in seconds for an exercise slide.
  * Uses custom_duration_seconds if set, otherwise computes from reps/sets/hold.
+ *
+ * Milestone Q math:
+ *   exercise_total = sets × per_set
+ *                  + max(0, sets - 1) × COALESCE(inter_set_rest_seconds, 0)
+ *
+ * custom_duration_seconds stores the total across all sets (per-rep ×
+ * reps × sets from the Studio UI), so we add the inter-set rest ON TOP
+ * of it — the practitioner's "per-rep" choice doesn't include breather
+ * time.
  */
 function calculateDuration(slide) {
-  if (slide.custom_duration_seconds) {
-    return slide.custom_duration_seconds;
-  }
-
   if (slide.media_type === 'rest') {
     return slide.hold_seconds || slide.custom_duration_seconds || 30;
   }
 
-  const reps = slide.reps || 10;
   const sets = slide.sets || 3;
-  const holdPerSet = slide.hold_seconds || 0;
-  const perSet = (reps * SECONDS_PER_REP) + holdPerSet;
-  const restTotal = (sets - 1) * REST_BETWEEN_SETS;
+  const breather = getInterSetRestSeconds(slide);
+  const restTotal = (sets > 1) ? (sets - 1) * breather : 0;
+
+  if (slide.custom_duration_seconds) {
+    return slide.custom_duration_seconds + restTotal;
+  }
+
+  const perSet = calculatePerSetSeconds(slide);
   return (perSet * sets) + restTotal;
 }
 
@@ -1614,6 +1692,11 @@ function enterWorkoutPhaseForCurrent() {
   totalSeconds = calculateDuration(slide);
   remainingSeconds = totalSeconds;
 
+  // Milestone Q — prime the set/rest state machine for this slide. The
+  // per-set duration + breather seconds are cached here so the 1-second
+  // tick loop can swap phases without re-reading the slide.
+  beginSetMachineForCurrent();
+
   if (slide.media_type === 'rest') {
     // Rest — no prep, auto-start countdown. The bottom-right timer chip
     // is the single source of truth for the rest countdown.
@@ -1622,6 +1705,29 @@ function enterWorkoutPhaseForCurrent() {
     // Exercise — run 15s prep runway, then startTimer()
     startPrepPhase();
   }
+}
+
+/**
+ * Milestone Q — reset the set/rest state machine to the first set of
+ * the active slide. Called whenever a new slide becomes active
+ * (enterWorkoutPhaseForCurrent), including when the practitioner swipes
+ * mid-breather — the new slide starts fresh on its first set.
+ */
+function beginSetMachineForCurrent() {
+  const slide = slides[currentIndex];
+  if (!slide || slide.media_type === 'rest') {
+    currentSetIndex = 0;
+    totalSetsForSlide = 1;
+    setPhase = 'set';
+    setPhaseRemaining = 0;
+    interSetRestForSlide = 0;
+    return;
+  }
+  currentSetIndex = 0;
+  totalSetsForSlide = Math.max(1, slide.sets || 1);
+  setPhase = 'set';
+  setPhaseRemaining = calculatePerSetSeconds(slide);
+  interSetRestForSlide = getInterSetRestSeconds(slide);
 }
 
 /**
@@ -1695,6 +1801,8 @@ function startTimer() {
   isTimerRunning = true;
   updatePauseOverlay();
   updateRestCountdownOverlay();
+  updateSetProgressBar();
+  updateBreatherOverlay();
   updateTimelineBar();
 
   workoutTimer = setInterval(onTimerTick, 1000);
@@ -1718,6 +1826,13 @@ function onTimerTick() {
   if (!isTimerRunning) return;
 
   remainingSeconds--;
+  // Milestone Q — phase-local timer ticks in lockstep with the overall
+  // remaining counter. When it hits zero we check whether another set
+  // / breather follows on THIS slide before falling through to the next
+  // slide.
+  if (!isRestSlide()) {
+    setPhaseRemaining--;
+  }
 
   if (remainingSeconds <= 0) {
     remainingSeconds = 0;
@@ -1731,13 +1846,95 @@ function onTimerTick() {
     return;
   }
 
+  // Milestone Q — phase boundary inside the active slide (set → rest or
+  // rest → set). The overall `remainingSeconds` keeps ticking; only the
+  // phase-local counter wraps.
+  if (!isRestSlide() && setPhaseRemaining <= 0) {
+    advanceSetPhase();
+  }
+
   // Matrix active-pill fill needs a per-second nudge too.
   updateProgressMatrix();
   updateRestCountdownOverlay();
+  updateSetProgressBar();
+  updateBreatherOverlay();
   updateTimelineBar();
   // (MM:SS) remaining rides in the active-slide title — needs a per-tick
   // refresh same as the timeline and matrix.
   updateActiveSlideHeader();
+}
+
+function isRestSlide() {
+  const slide = slides[currentIndex];
+  return !!(slide && slide.media_type === 'rest');
+}
+
+/**
+ * Milestone Q — move from set → rest or rest → next set at a phase
+ * boundary. This is the one place that pauses/resumes the active video
+ * around the breather. Video currentTime is NEVER reset — pause holds
+ * the last visible frame, play() resumes from there.
+ *
+ * Called ONLY from onTimerTick() when setPhaseRemaining hits zero AND
+ * remainingSeconds > 0 (meaning more of this slide is still ahead). If
+ * it's the last set, this function is never reached because
+ * remainingSeconds drops to 0 at the same tick and onTimerComplete()
+ * advances to the next slide.
+ */
+function advanceSetPhase() {
+  if (setPhase === 'set') {
+    // Set done. Is there a breather OR another set to come?
+    const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
+    if (isLastSet) {
+      // Last set ending coincides with remainingSeconds hitting 0;
+      // onTimerTick will take the auto-advance branch. Nothing to do.
+      return;
+    }
+    if (interSetRestForSlide > 0) {
+      // Enter breather. Pause the video at its current frame (no reset).
+      setPhase = 'rest';
+      setPhaseRemaining = interSetRestForSlide;
+      pauseActiveVideoForBreather();
+    } else {
+      // No breather — skip straight to the next set, keep the video
+      // playing without interruption.
+      currentSetIndex++;
+      setPhase = 'set';
+      setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+    }
+  } else {
+    // rest → next set. Bump set index, resume video.
+    currentSetIndex++;
+    setPhase = 'set';
+    setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+    resumeActiveVideoAfterBreather();
+  }
+  updateSetProgressBar();
+  updateBreatherOverlay();
+}
+
+/**
+ * Milestone Q — pause the active video at its current frame for the
+ * inter-set breather. NO seek, NO reset — the browser holds the last
+ * decoded frame visually, which is exactly what the brief specifies
+ * ("continuous playback, no reset"). On resume we call play() without
+ * touching currentTime.
+ */
+function pauseActiveVideoForBreather() {
+  const video = document.getElementById(`video-${currentIndex}`);
+  if (video && !video.paused) {
+    try { video.pause(); } catch (_) { /* best-effort */ }
+  }
+}
+
+function resumeActiveVideoAfterBreather() {
+  if (!isTimerRunning) return;
+  const video = document.getElementById(`video-${currentIndex}`);
+  if (video && video.paused) {
+    video.play().catch((err) => {
+      console.warn('video resume after breather failed:', err);
+    });
+  }
 }
 
 // updateTimerDisplay + setTimerModeIcon removed — the dedicated chip is
@@ -1776,6 +1973,7 @@ function pauseTimer() {
   }
   updatePauseOverlay();
   updateRestCountdownOverlay();
+  updateBreatherOverlay();
   // ETA clock keeps running in the background — remaining stays static,
   // finish-time drifts forward. Nudge once to reflect immediately.
   updateTimelineBar();
@@ -1792,15 +1990,19 @@ function resumeTimer() {
   if (isTimerRunning) return;
   isTimerRunning = true;
   workoutTimer = setInterval(onTimerTick, 1000);
-  // Resume video playback alongside the timer.
+  // Resume video playback alongside the timer — BUT ONLY if we're in a
+  // set phase. During a breather the video is meant to be paused on
+  // the last visible frame; resuming the timer just continues counting
+  // down the breather.
   const currentVideo = document.getElementById(`video-${currentIndex}`);
-  if (currentVideo && currentVideo.paused) {
+  if (currentVideo && currentVideo.paused && setPhase !== 'rest') {
     currentVideo.play().catch((err) => {
       console.warn('video resume failed:', err);
     });
   }
   updatePauseOverlay();
   updateRestCountdownOverlay();
+  updateBreatherOverlay();
   updateTimelineBar();
   // Flash the pause icon at full alpha for ~900ms so the tap's outcome is
   // legible on top of the running video.
@@ -2140,6 +2342,112 @@ function updateRestCountdownOverlay() {
   $restCountdownOverlay.hidden = !visible;
   if (visible) {
     $restCountdownNumber.textContent = String(Math.max(0, remainingSeconds));
+  }
+}
+
+/**
+ * Milestone Q — render the per-exercise segmented progress bar. One
+ * segment per set (coral) + one segment per breather (sage) interleaved.
+ *
+ * Segment visual states:
+ *   * complete — solid full fill
+ *   * active   — partial fill driven by `setPhaseRemaining` vs the
+ *                phase's total duration; only ONE segment is active at
+ *                any moment
+ *   * upcoming — empty outline
+ *
+ * Hidden when:
+ *   * pre-workout (outside workout mode) — keeps the pre-start preview clean
+ *   * rest slides (rest slide already gets #rest-countdown-overlay)
+ *   * single-set exercises with no breather (nothing meaningful to show)
+ */
+function updateSetProgressBar() {
+  if (!$setProgressBar) return;
+  const slide = slides[currentIndex];
+  const eligible = !!slide
+    && slide.media_type !== 'rest'
+    && isWorkoutMode
+    && (totalSetsForSlide > 1 || interSetRestForSlide > 0);
+  $setProgressBar.hidden = !eligible;
+  if (!eligible) {
+    $setProgressBar.innerHTML = '';
+    return;
+  }
+
+  const perSet = calculatePerSetSeconds(slide);
+  const reps = slide.reps || 0;
+  const segments = [];
+  for (let i = 0; i < totalSetsForSlide; i++) {
+    segments.push({ kind: 'set', index: i, total: perSet });
+    if (i < totalSetsForSlide - 1 && interSetRestForSlide > 0) {
+      segments.push({ kind: 'rest', index: i, total: interSetRestForSlide });
+    }
+  }
+
+  // Determine which segment is active.
+  let activeSegIdx = -1;
+  for (let s = 0; s < segments.length; s++) {
+    const seg = segments[s];
+    const matchSet = seg.kind === 'set' && setPhase === 'set' && seg.index === currentSetIndex;
+    const matchRest = seg.kind === 'rest' && setPhase === 'rest' && seg.index === currentSetIndex;
+    if (matchSet || matchRest) { activeSegIdx = s; break; }
+  }
+
+  // Build / refresh the segment DOM. Rebuild in full — cheap (tens of
+  // children max) and keeps state simple.
+  const html = segments.map((seg, s) => {
+    let stateClass;
+    let fillPct = 0;
+    if (s < activeSegIdx) {
+      stateClass = 'set-progress-bar-segment--complete';
+      fillPct = 100;
+    } else if (s === activeSegIdx) {
+      stateClass = 'set-progress-bar-segment--active';
+      const remaining = Math.max(0, setPhaseRemaining);
+      const total = Math.max(1, seg.total);
+      fillPct = Math.max(0, Math.min(100, ((total - remaining) / total) * 100));
+    } else {
+      stateClass = 'set-progress-bar-segment--upcoming';
+    }
+    const kindClass = seg.kind === 'set'
+      ? 'set-progress-bar-segment--set'
+      : 'set-progress-bar-segment--rest';
+    const label = seg.kind === 'set'
+      ? (reps > 0 ? `Set ${seg.index + 1} · ${reps} reps` : `Set ${seg.index + 1}`)
+      : 'Breather';
+    return `<div class="set-progress-bar-segment ${kindClass} ${stateClass}"
+                 role="presentation">
+              <div class="set-progress-bar-segment-fill"
+                   style="width: ${fillPct.toFixed(1)}%"></div>
+              <div class="set-progress-bar-segment-label">${escapeHTML(label)}</div>
+            </div>`;
+  }).join('');
+  $setProgressBar.innerHTML = html;
+}
+
+/**
+ * Milestone Q — sage countdown overlay shown during the inter-set
+ * breather. Sits on top of the paused video (set phase pauses video at
+ * last visible frame; breather overlay fades in over it). Big sage
+ * number + a restful glyph + "Breather" label.
+ *
+ * Hidden when:
+ *   * not in workout mode
+ *   * prep phase (coral prep overlay owns the viewport then)
+ *   * set phase (video is playing)
+ *   * rest slide (rest slide has its own dedicated rest overlay)
+ */
+function updateBreatherOverlay() {
+  if (!$breatherOverlay || !$breatherNumber) return;
+  const slide = slides[currentIndex];
+  const isRest = !!(slide && slide.media_type === 'rest');
+  const visible = isWorkoutMode
+    && !isPrepPhase
+    && !isRest
+    && setPhase === 'rest';
+  $breatherOverlay.hidden = !visible;
+  if (visible) {
+    $breatherNumber.textContent = String(Math.max(0, setPhaseRemaining));
   }
 }
 

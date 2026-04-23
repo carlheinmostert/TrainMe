@@ -115,6 +115,11 @@
       grayscale_segmented_url: e.grayscale_segmented_url || null,
       original_segmented_url: e.original_segmented_url || null,
       mask_url: e.mask_url || null,
+      // Milestone Q — per-exercise inter-set rest ("Post Rep Breather").
+      // null = no breather (legacy rows / pre-migration), 0 = explicit
+      // disable, >0 = breather seconds. app.js consumes this to drive
+      // the segmented progress bar + sage breather overlay.
+      inter_set_rest_seconds: e.inter_set_rest_seconds ?? null,
     }));
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     return { ...payload, exercises };
@@ -165,6 +170,11 @@
       grayscale_segmented_url: e.grayscale_segmented_url || null,
       original_segmented_url: e.original_segmented_url || null,
       mask_url: e.mask_url || null,
+      // Milestone Q — per-exercise inter-set rest ("Post Rep Breather").
+      // null = no breather (legacy rows / pre-migration), 0 = explicit
+      // disable, >0 = breather seconds. app.js consumes this to drive
+      // the segmented progress bar + sage breather overlay.
+      inter_set_rest_seconds: e.inter_set_rest_seconds ?? null,
     }));
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
