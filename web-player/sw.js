@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v37-segmented-toggle';
+const CACHE_NAME = 'homefit-player-v38-mask-sidecar';
 
 // App shell files — always cached
 const APP_SHELL = [

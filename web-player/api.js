@@ -35,6 +35,20 @@
  * falls back to the untouched original when the segmented file is
  * missing (legacy captures, older plans, 404 on playback).
  *
+ * ## Mask sidecar (Milestone P2, 2026-04-23)
+ *
+ * Milestone P2 added ONE more per-exercise key:
+ *   - mask_url
+ * A signed URL to the Vision person-segmentation mask mp4 written out
+ * as a grayscale H.264 sidecar (`*.mask.mp4`) during the same native
+ * conversion pass. Consent-gated on (grayscale OR original) — the mask
+ * is useless without at least one body treatment available. TODAY the
+ * mask has no consumer: `app.js` is untouched and just ignores the
+ * field. Storing it now is insurance so future playback-time
+ * compositing (tunable backgroundDim, other effects) can be built
+ * against already-published plans without re-capture. This module
+ * normalises `mask_url` to explicit null when absent.
+ *
  * Exposed on `window.HomefitApi` so `app.js` (a plain script, not an
  * ES module) can reach it. When the web player gains a bundler this
  * turns into a proper `export`.
@@ -100,6 +114,7 @@
       original_url: e.original_url || null,
       grayscale_segmented_url: e.grayscale_segmented_url || null,
       original_segmented_url: e.original_segmented_url || null,
+      mask_url: e.mask_url || null,
     }));
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     return { ...payload, exercises };
@@ -149,6 +164,7 @@
       original_url: e.original_url || null,
       grayscale_segmented_url: e.grayscale_segmented_url || null,
       original_segmented_url: e.original_segmented_url || null,
+      mask_url: e.mask_url || null,
     }));
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
