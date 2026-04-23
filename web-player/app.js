@@ -474,22 +474,17 @@ function buildDecodedGrammar(slide) {
   const hasSets = Number.isFinite(setsRaw) && setsRaw > 0;
   const hasReps = Number.isFinite(repsRaw) && repsRaw > 0;
   const hasHold = Number.isFinite(holdRaw) && holdRaw > 0;
-  // Wave 19.3: mirror calculateDuration's defaults (3 sets / 10 reps) so
-  // every exercise reads consistently. Previously a slide with only a hold
-  // captured showed "30s hold" while another with only reps showed "5 reps"
-  // and bare slides showed nothing — Carl flagged this as inconsistent.
-  // Isometric exercises (hold with no reps) drop the reps term for clarity.
-  const isIsometric = !hasReps && hasHold;
+  // Wave 19.4: full defaults — every exercise reads as `{sets} sets · {reps}
+  // reps [· Ts hold]`. The earlier isometric short-circuit (suppressed reps
+  // when only hold was captured) caused three consecutive circuit exercises
+  // to show "30s hold", "10 reps", and "5 reps" — visibly inconsistent. Now
+  // reps always shows (defaulting to 10 when null); hold appends when set.
   const sets = hasSets ? setsRaw : 3;
   const reps = hasReps ? repsRaw : 10;
 
   if (!isCircuit) parts.push(`${sets} sets`);
-  if (isIsometric) {
-    parts.push(`${holdRaw}s hold`);
-  } else {
-    parts.push(`${reps} reps`);
-    if (hasHold) parts.push(`${holdRaw}s hold`);
-  }
+  parts.push(`${reps} reps`);
+  if (hasHold) parts.push(`${holdRaw}s hold`);
 
   return parts.join(' · ');
 }
