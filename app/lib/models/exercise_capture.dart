@@ -56,6 +56,27 @@ class ExerciseCapture {
   /// previous hard-coded 15s baseline. Rest periods ignore this field.
   final int? prepSeconds;
 
+  /// Per-exercise inter-set rest ("Post Rep Breather") in seconds
+  /// (Milestone Q). Semantics:
+  ///
+  ///   * null → no breather (legacy rows, pre-migration).
+  ///   * 0    → practitioner explicitly disabled the breather.
+  ///   * > 0  → breather seconds played between sets on the client
+  ///            web player.
+  ///
+  /// Fresh captures seed to 15 via [withPersistenceDefaults]; existing
+  /// rows stay null (no backfill). Feeds the duration math used by the
+  /// progress-pill matrix + the workout-timeline ETA:
+  ///
+  ///   exercise_total = sets × per_set
+  ///                  + max(0, sets - 1) × (interSetRestSeconds ?? 0)
+  ///
+  /// Rest periods + isometric-only exercises skip the default seed —
+  /// the former have no sets, the latter run the hold as the primary
+  /// dose. The player hides the segmented progress bar when sets <= 1
+  /// (breather has no meaning with a single set).
+  final int? interSetRestSeconds;
+
   /// Duration of the raw video file in milliseconds. Populated by the
   /// conversion service after a successful video conversion using the native
   /// AVURLAsset probe. For video exercises, this is used as "one rep" in the
@@ -169,6 +190,7 @@ class ExerciseCapture {
     this.includeAudio = false,
     this.customDurationSeconds,
     this.prepSeconds,
+    this.interSetRestSeconds,
     this.videoDurationMs,
     this.archiveFilePath,
     this.archivedAt,
@@ -242,6 +264,7 @@ class ExerciseCapture {
       includeAudio: (map['include_audio'] as int?) == 1,
       customDurationSeconds: map['custom_duration'] as int?,
       prepSeconds: map['prep_seconds'] as int?,
+      interSetRestSeconds: map['inter_set_rest_seconds'] as int?,
       videoDurationMs: map['video_duration_ms'] as int?,
       archiveFilePath: map['archive_file_path'] as String?,
       archivedAt: map['archived_at'] != null
@@ -278,6 +301,7 @@ class ExerciseCapture {
       'include_audio': includeAudio ? 1 : 0,
       'custom_duration': customDurationSeconds,
       'prep_seconds': prepSeconds,
+      'inter_set_rest_seconds': interSetRestSeconds,
       'video_duration_ms': videoDurationMs,
       'archive_file_path': archiveFilePath,
       'archived_at': archivedAt?.millisecondsSinceEpoch,
@@ -314,6 +338,8 @@ class ExerciseCapture {
     bool clearCustomDuration = false,
     int? prepSeconds,
     bool clearPrepSeconds = false,
+    int? interSetRestSeconds,
+    bool clearInterSetRestSeconds = false,
     int? videoDurationMs,
     bool clearVideoDurationMs = false,
     String? archiveFilePath,
@@ -357,6 +383,9 @@ class ExerciseCapture {
           : (customDurationSeconds ?? this.customDurationSeconds),
       prepSeconds:
           clearPrepSeconds ? null : (prepSeconds ?? this.prepSeconds),
+      interSetRestSeconds: clearInterSetRestSeconds
+          ? null
+          : (interSetRestSeconds ?? this.interSetRestSeconds),
       videoDurationMs: clearVideoDurationMs
           ? null
           : (videoDurationMs ?? this.videoDurationMs),
@@ -398,12 +427,21 @@ class ExerciseCapture {
   /// the same canonical defaults the Studio card would have drawn
   /// (3 sets x 10 reps). Truthful data, no display-time imputation.
   ///
+  /// Milestone Q extension (2026-04-23): also stamp
+  /// `interSetRestSeconds = 15` on fresh captures so the new "Post Rep
+  /// Breather" feature has a meaningful default on day one. Same
+  /// exceptions apply — rest periods and isometric-only captures skip
+  /// the seed. Existing rows with a non-null value are never
+  /// overwritten, matching the null-fill discipline below.
+  ///
   /// Exceptions:
   ///   * Rest periods (`mediaType == rest`) have no reps / sets
   ///     semantics — returned unchanged.
   ///   * Isometric exercises (`holdSeconds` set AND `reps` still null)
   ///     skip the reps default. Hold is the primary duration; reps
   ///     isn't semantically meaningful. Sets default still applies.
+  ///     Inter-set rest is also skipped — an isometric capture typically
+  ///     runs as a single hold, not a reps-per-set block.
   ///
   /// Fields already set are never overwritten — the helper only fills
   /// nulls.
@@ -412,8 +450,18 @@ class ExerciseCapture {
     final isIsometric = holdSeconds != null && reps == null;
     final nextReps = reps ?? (isIsometric ? null : 10);
     final nextSets = sets ?? 3;
-    if (nextReps == reps && nextSets == sets) return this;
-    return copyWith(reps: nextReps, sets: nextSets);
+    final nextInterSetRest = interSetRestSeconds ??
+        (isIsometric ? null : 15);
+    if (nextReps == reps &&
+        nextSets == sets &&
+        nextInterSetRest == interSetRestSeconds) {
+      return this;
+    }
+    return copyWith(
+      reps: nextReps,
+      sets: nextSets,
+      interSetRestSeconds: nextInterSetRest,
+    );
   }
 
   /// Estimated duration in seconds for this exercise (all sets).
@@ -422,6 +470,18 @@ class ExerciseCapture {
   /// For video exercises, "one rep" is the actual video duration (the video
   /// IS the demonstration of one iteration). For photos, it falls back to
   /// the config-level [AppConfig.secondsPerRep] constant.
+  ///
+  /// Milestone Q — inter-set rest is now per-exercise. The stored
+  /// [interSetRestSeconds] replaces the legacy [AppConfig.restBetweenSets]
+  /// baseline in the math:
+  ///
+  ///   exercise_total = sets × per_set
+  ///                  + max(0, sets - 1) × (interSetRestSeconds ?? 0)
+  ///
+  /// Legacy rows (null) therefore compute without any inter-set rest —
+  /// a deliberate shift per the brief. Fresh captures seed to 15 via
+  /// [withPersistenceDefaults] so the default experience is unchanged
+  /// in spirit (just shorter by design).
   int get estimatedDurationSeconds {
     if (isRest) return holdSeconds ?? AppConfig.defaultRestDuration;
     final perRep = (mediaType == MediaType.video &&
@@ -433,7 +493,8 @@ class ExerciseCapture {
     final holdTime = holdSeconds ?? 0;
     final perSetTime = repsTime + holdTime;
     final totalSets = sets ?? 3;
-    final restTime = (totalSets > 1) ? (totalSets - 1) * AppConfig.restBetweenSets : 0;
+    final betweenSet = interSetRestSeconds ?? 0;
+    final restTime = (totalSets > 1) ? (totalSets - 1) * betweenSet : 0;
     return (perSetTime * totalSets) + restTime;
   }
 

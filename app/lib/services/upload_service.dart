@@ -648,6 +648,15 @@ class UploadService {
                 // "Prep seconds" inline field. Surfaces on the web
                 // player via get_plan_full (emitted by to_jsonb(e)).
                 'prep_seconds': e.prepSeconds,
+                // Inter-set rest "Post Rep Breather" (Milestone Q).
+                // null = no breather (legacy rows); 0 = explicit
+                // disable; positive int = practitioner-configured
+                // breather seconds between sets. Fresh mobile captures
+                // seed 15 via withPersistenceDefaults(). Surfaces on
+                // the web player via get_plan_full (emitted by
+                // to_jsonb(e)); the player shows a segmented progress
+                // bar + sage countdown chip between sets when sets > 1.
+                'inter_set_rest_seconds': e.interSetRestSeconds,
               })
           .toList();
 

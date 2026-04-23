@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 23;
+  static const _dbVersion = 24;
 
   Database? _db;
 
@@ -117,6 +117,7 @@ class LocalStorageService {
         prep_seconds INTEGER,
         segmented_raw_file_path TEXT,
         mask_file_path TEXT,
+        inter_set_rest_seconds INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -483,6 +484,28 @@ class LocalStorageService {
       // succeed). No backfill; forward-only.
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN mask_file_path TEXT',
+      );
+    }
+    if (oldVersion < 24) {
+      // Per-exercise inter-set rest "Post Rep Breather" (Milestone Q).
+      //
+      // Semantics:
+      //   * NULL → no breather (legacy rows, pre-migration).
+      //   * 0    → practitioner explicitly disabled.
+      //   * > 0  → breather seconds between sets on the web player.
+      //
+      // Fresh captures seed to 15 via
+      // ExerciseCapture.withPersistenceDefaults() (the same helper that
+      // stamps sets=3 / reps=10). Existing rows stay NULL — no backfill
+      // per the brief, so pre-Q captures simply play without inter-set
+      // rest on the web player.
+      //
+      // Supabase has a matching column in
+      // schema_milestone_q_inter_set_rest.sql — the mobile column stays
+      // in lockstep so publish + sync can round-trip the field without
+      // any translation.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN inter_set_rest_seconds INTEGER',
       );
     }
   }
@@ -857,6 +880,7 @@ class LocalStorageService {
       return true;
     }
     if (prev.prepSeconds != next.prepSeconds) return true;
+    if (prev.interSetRestSeconds != next.interSetRestSeconds) return true;
     if (prev.includeAudio != next.includeAudio) return true;
     if (prev.preferredTreatment != next.preferredTreatment) return true;
     if ((prev.notes ?? '') != (next.notes ?? '')) return true;
