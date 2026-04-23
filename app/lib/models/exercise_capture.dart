@@ -81,6 +81,17 @@ class ExerciseCapture {
   /// on the last attempt); the next publish retries the upload.
   final DateTime? rawArchiveUploadedAt;
 
+  /// Relative path (via [PathResolver]) to the dual-output segmented-color
+  /// variant of the raw capture — same Vision body mask as the line drawing
+  /// is reused to pop the body through pristine while dimming the background.
+  /// This file is uploaded to the private `raw-archive` Supabase bucket at
+  /// `{practice_id}/{plan_id}/{exercise_id}.segmented.mp4` and consumed by the
+  /// web player's Color + B&W treatments so they show the same body-pop effect
+  /// as the line drawing. Null for photos, rest periods, and legacy rows
+  /// pre-migration (v22). Best-effort — missing segmented files fall through
+  /// to the untouched original on both mobile + web.
+  final String? segmentedRawFilePath;
+
   /// Remote line drawing URL (returned by `get_plan_full`). Runtime-only;
   /// not persisted to SQLite. Used by the practitioner's preview screen to
   /// display the published treatment without re-reading the local
@@ -146,6 +157,7 @@ class ExerciseCapture {
     this.archiveFilePath,
     this.archivedAt,
     this.rawArchiveUploadedAt,
+    this.segmentedRawFilePath,
     this.lineDrawingUrl,
     this.grayscaleUrl,
     this.originalUrl,
@@ -222,6 +234,7 @@ class ExerciseCapture {
           ? DateTime.fromMillisecondsSinceEpoch(
               map['raw_archive_uploaded_at'] as int)
           : null,
+      segmentedRawFilePath: map['segmented_raw_file_path'] as String?,
       preferredTreatment: treatmentFromWire(map['preferred_treatment']),
     );
   }
@@ -251,6 +264,7 @@ class ExerciseCapture {
       'archive_file_path': archiveFilePath,
       'archived_at': archivedAt?.millisecondsSinceEpoch,
       'raw_archive_uploaded_at': rawArchiveUploadedAt?.millisecondsSinceEpoch,
+      'segmented_raw_file_path': segmentedRawFilePath,
       'preferred_treatment': preferredTreatment?.wireValue,
     };
   }
@@ -289,6 +303,8 @@ class ExerciseCapture {
     bool clearArchivedAt = false,
     DateTime? rawArchiveUploadedAt,
     bool clearRawArchiveUploadedAt = false,
+    String? segmentedRawFilePath,
+    bool clearSegmentedRawFilePath = false,
     String? lineDrawingUrl,
     bool clearLineDrawingUrl = false,
     String? grayscaleUrl,
@@ -330,6 +346,9 @@ class ExerciseCapture {
       rawArchiveUploadedAt: clearRawArchiveUploadedAt
           ? null
           : (rawArchiveUploadedAt ?? this.rawArchiveUploadedAt),
+      segmentedRawFilePath: clearSegmentedRawFilePath
+          ? null
+          : (segmentedRawFilePath ?? this.segmentedRawFilePath),
       lineDrawingUrl:
           clearLineDrawingUrl ? null : (lineDrawingUrl ?? this.lineDrawingUrl),
       grayscaleUrl:
@@ -420,4 +439,9 @@ class ExerciseCapture {
   /// Absolute path to the compressed raw archive, or null.
   String? get absoluteArchiveFilePath =>
       archiveFilePath != null ? PathResolver.resolve(archiveFilePath!) : null;
+
+  /// Absolute path to the segmented-color raw variant, or null.
+  String? get absoluteSegmentedRawFilePath => segmentedRawFilePath != null
+      ? PathResolver.resolve(segmentedRawFilePath!)
+      : null;
 }

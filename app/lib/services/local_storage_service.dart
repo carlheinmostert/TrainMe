@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 21;
+  static const _dbVersion = 22;
 
   Database? _db;
 
@@ -115,6 +115,7 @@ class LocalStorageService {
         raw_archive_uploaded_at INTEGER,
         preferred_treatment TEXT,
         prep_seconds INTEGER,
+        segmented_raw_file_path TEXT,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -437,6 +438,28 @@ class LocalStorageService {
       // through the pending-op queue via `set_client_exercise_default`.
       await db.execute(
         "ALTER TABLE cached_clients ADD COLUMN client_exercise_defaults TEXT NOT NULL DEFAULT '{}'",
+      );
+    }
+    if (oldVersion < 22) {
+      // Dual-output segmented-color raw variant (Option 1-augment).
+      //
+      // The native AVAssetReader/Writer pass now produces TWO outputs
+      // from a single Vision person-segmentation pass: the classic
+      // line drawing (unchanged) AND a segmented-color mp4 that reuses
+      // the same mask to pop the body through pristine while dimming
+      // the background via the v7 backgroundDim LUT. The new file is
+      // written alongside the line drawing, stored as a relative path
+      // here, and best-effort uploaded to the private `raw-archive`
+      // bucket at `{practice_id}/{plan_id}/{exercise_id}.segmented.mp4`
+      // by UploadService. The web player's Color + B&W treatments
+      // prefer the segmented file via `get_plan_full` and fall back
+      // to the untouched original when it's missing (pre-v22 rows +
+      // exercises captured before this ships).
+      //
+      // Nullable — legacy + new-capture-without-segmented both tolerate
+      // NULL. No backfill; forward-only.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN segmented_raw_file_path TEXT',
       );
     }
   }

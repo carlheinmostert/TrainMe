@@ -912,6 +912,64 @@ class UploadService {
         swallow: true,
       );
     }
+
+    // --- Segmented-color raw variant (Option 1-augment) ---
+    //
+    // Independent best-effort pass for the dual-output segmented mp4 the
+    // native converter writes alongside the line drawing. Stored at
+    // `{practiceId}/{planId}/{exerciseId}.segmented.mp4` in the same
+    // private `raw-archive` bucket. The web player's Color + B&W
+    // treatments pull this over the untouched original when
+    // `get_plan_full` returns a signed URL for it.
+    //
+    // Why a second loop (not folded into the one above):
+    //   * The two files are independently produced and independently
+    //     tracked — the segmented file can be missing on legacy rows
+    //     while the original is present, or vice versa on a future
+    //     re-run of just the segmented pass.
+    //   * Re-publish idempotency is the same pattern either way, but
+    //     we intentionally do NOT track "segmented uploaded" with a
+    //     dedicated column — Supabase storage upserts are safe to
+    //     retry, and skipping by filename prefix keeps the schema
+    //     smaller. Re-publishes will re-transfer if needed; the file
+    //     is small (720p + dim) and this is the exception path, not
+    //     the hot path.
+    //   * Failure here MUST NOT affect the original upload bookkeeping
+    //     above — we've already stamped `rawArchiveUploadedAt` for
+    //     the original; the segmented variant is additive.
+    for (final exercise in session.exercises) {
+      if (exercise.isRest) continue;
+      final segRel = exercise.segmentedRawFilePath;
+      if (segRel == null || segRel.isEmpty) continue;
+      final absSeg = exercise.absoluteSegmentedRawFilePath;
+      if (absSeg == null) continue;
+      final segFile = File(absSeg);
+      if (!segFile.existsSync()) {
+        debugPrint(
+          'UploadService: segmented raw file missing for exercise ${exercise.id} '
+          'at $absSeg — skipping.',
+        );
+        continue;
+      }
+      final segStoragePath =
+          '$practiceId/${session.id}/${exercise.id}.segmented.mp4';
+      await loudSwallow<bool>(
+        () async {
+          await _api.uploadRawArchive(path: segStoragePath, file: segFile);
+          return true;
+        },
+        kind: 'raw_archive_segmented_upload_failed',
+        source: 'UploadService._uploadRawArchives',
+        severity: 'warn',
+        meta: {
+          'practice_id': practiceId,
+          'plan_id': session.id,
+          'exercise_id': exercise.id,
+          'storage_path': segStoragePath,
+        },
+        swallow: true,
+      );
+    }
   }
 
   /// Append a raw-archive upload failure to `{Documents}/raw_archive_error.log`.
