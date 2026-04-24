@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 22 photos three-treatment</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist > li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist > li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist > li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row,
+  .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li {
+    position: relative; padding: 4px 0 4px 42px; margin: 0;
+    color: var(--text); font-size: 13px; line-height: 1.5;
+    background: transparent; border: none;
+  }
+  .steps li::before {
+    content: attr(data-sub);
+    position: absolute; left: 0; top: 4px; width: 34px;
+    text-align: right;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px; font-weight: 600; color: var(--text-mute);
+    letter-spacing: 0;
+  }
+  .checklist > li[data-status="pass"] .steps li,
+  .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-24 · Wave 22 · Photos three-treatment</div>
+    <h1>Device QA — Wave 22 photos three-treatment</h1>
+    <p class="lede" style="margin-top: 20px;">
+      <strong>Purpose:</strong> verify photos now flow through the same three-treatment pipeline as videos. A photo is just a video with one frame — the practitioner can pick Line / B&amp;W / Original per exercise; the client can flip "Show me" globally; consent gates Colour + B&amp;W just like videos.
+      <br><br>
+      <strong>What landed:</strong> mobile publish now ships TWO files per photo — line-drawing JPG to public <code>media</code> bucket (unchanged) AND raw colour JPG to private <code>raw-archive</code> bucket at <code>{practiceId}/{planId}/{exerciseId}.jpg</code>, gated on the client's <code>video_consent.original</code>. Supabase <code>get_plan_full</code> now branches on <code>media_type</code>: photos get the same <code>grayscale_url</code> + <code>original_url</code> keys videos do (signed; pointing at the <code>.jpg</code>). Web player <code>buildMedia</code> for photos routes through <code>resolveTreatmentUrl</code>, applies <code>.is-grayscale</code> when slide treatment is bw; CSS rule <code>img.is-grayscale</code> mirrors the existing <code>video.is-grayscale</code>. <code>rebindVideoSources</code> got a parallel photo-img loop so "Show me" flips hot-swap photo src + class instantly.
+      <br><br>
+      <strong>Surfaces touched:</strong> Supabase migration <code>schema_wave22_photos_three_treatment.sql</code>, mobile <code>upload_service.dart</code> (new photo loop in <code>_uploadRawArchives</code>) + <code>api_client.dart</code> (parametric <code>contentType</code> on <code>uploadRawArchive</code>), web-player <code>app.js</code> (<code>buildMedia</code> photo branch + <code>rebindVideoSources</code> photo loop) + <code>styles.css</code> (extended grayscale rule).
+      <br><br>
+      <strong>SW cache name:</strong> <code>homefit-player-v51-photos-three-treatment</code> (was <code>v50-stack-polish</code>). First Safari visit after install should show the new name.
+      <br><br>
+      <strong>What did NOT change:</strong> video three-treatment plumbing (segmented + mask sidecars stay video-only), the rep stack, soft trim, "Show me" override mechanics, consent flag wiring on the practitioner side, the practitioner Studio per-exercise treatment picker — all preserved.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Latest <code>./install-device.sh</code> (today). Build SHA on Home footer should match the Wave 22 commits.</li>
+        <li>Safari hard-reload on any plan URL so the service worker advances to <code>homefit-player-v51-photos-three-treatment</code>.</li>
+        <li>A test client (e.g. Lauren) with all three video consent flags GRANTED (Settings → Clients → toggle on Colour + B&amp;W).</li>
+        <li>A second test client with Colour + B&amp;W REVOKED — keeps the negative-path test honest.</li>
+      </ul>
+    </div>
+
+    <h2>A · Mobile publish — raw photo lands in raw-archive</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Capturing + publishing a photo writes both files.</span>
+        <ol class="steps">
+          <li data-sub="1.1">Open the consent-granted client. New session. Camera mode → short-press to capture a photo. Wait for line-drawing conversion.</li>
+          <li data-sub="1.2">Publish. Wait for the success snackbar.</li>
+          <li data-sub="1.3">In Supabase Studio Storage → <code>media</code> bucket → confirm <code>{plan_id}/{exercise_id}.jpg</code> exists (the line-drawing JPG, public, has been there pre-Wave-22).</li>
+          <li data-sub="1.4">Storage → <code>raw-archive</code> bucket → confirm <code>{practice_id}/{plan_id}/{exercise_id}.jpg</code> exists. Click it → expect a colour photo (the raw camera capture), NOT the line drawing.</li>
+          <li data-sub="1.5">If the raw <code>.jpg</code> is missing in raw-archive, the client probably hasn't granted Colour consent — the upload skips silently in that case. Check the client's consent and re-publish.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>B · Supabase — get_plan_full returns 3 URLs for photos</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">RPC payload exposes <code>line_drawing_url</code> + <code>grayscale_url</code> + <code>original_url</code> on the photo dict.</span>
+        <ol class="steps">
+          <li data-sub="2.1">Open the freshly-published plan URL in Safari.</li>
+          <li data-sub="2.2">Web Inspector → Network → filter <code>get_plan_full</code> → click the row → Response → find the photo exercise.</li>
+          <li data-sub="2.3">Expect: <code>line_drawing_url</code> populated (public URL into <code>media</code>), <code>grayscale_url</code> + <code>original_url</code> both populated and IDENTICAL (same signed URL into <code>raw-archive</code>, both end in <code>.jpg</code>).</li>
+          <li data-sub="2.4">Expect: <code>grayscale_segmented_url</code>, <code>original_segmented_url</code>, <code>mask_url</code> all NULL on the photo dict (those are video-only).</li>
+          <li data-sub="2.5">Confirm video exercises in the same plan still have ALL FIVE signed URLs (segmented + mask) — Wave 22 is additive, never strips.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>C · Web player — "Show me" enables Colour + B&amp;W on photos</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">All three "Show me" segments enabled on a photo slide (with consent).</span>
+        <ol class="steps">
+          <li data-sub="3.1">Plan URL open in Safari. Tap the gear icon top-right → "Show me" segmented control appears.</li>
+          <li data-sub="3.2">Navigate to the photo slide via the dot indicators or chevrons.</li>
+          <li data-sub="3.3">Expect: Line · B&amp;W · Colour all three segments are tappable (no lock glyph, no greyed pill). Active segment matches the practitioner's <code>preferred_treatment</code> for that photo.</li>
+          <li data-sub="3.4">Tap B&amp;W → expect: photo INSTANTLY desaturates in place (no reload flash, no spinner). The src does NOT change visibly — same image, just the CSS filter applied.</li>
+          <li data-sub="3.5">Tap Colour → expect: full-colour raw photo appears (the actual camera capture, not the line drawing).</li>
+          <li data-sub="3.6">Tap Line → expect: snaps back to the line-drawing JPG.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>D · B&amp;W is a CSS filter, not a separate file</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Confirm via inspector that B&amp;W on photos is the same src as Colour, just with the <code>.is-grayscale</code> class.</span>
+        <ol class="steps">
+          <li data-sub="4.1">On the photo slide with "Show me" set to B&amp;W, Web Inspector → Elements → find the <code>&lt;img&gt;</code> inside <code>.card-media</code>.</li>
+          <li data-sub="4.2">Expect: <code>class</code> contains <code>is-grayscale</code> + <code>data-treatment="bw"</code>.</li>
+          <li data-sub="4.3">Toggle "Show me" → Colour. Re-inspect the same <code>&lt;img&gt;</code>.</li>
+          <li data-sub="4.4">Expect: same <code>src</code> attribute (no change), <code>data-treatment="original"</code>, <code>.is-grayscale</code> class removed.</li>
+          <li data-sub="4.5">Computed styles → confirm <code>filter: grayscale(1) contrast(1.05)</code> applies in B&amp;W and disappears in Colour. Same selector that videos use — single source of truth.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>E · Consent revocation gates new variants on next fetch</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">A photo published with consent stays playable; revoking consent disables Colour + B&amp;W on next page load.</span>
+        <ol class="steps">
+          <li data-sub="5.1">Settings → Clients → the test client → toggle Colour + B&amp;W to OFF.</li>
+          <li data-sub="5.2">Re-publish the same plan (any tweak, then publish — credits aren't burned for non-structural edits).</li>
+          <li data-sub="5.3">In Safari, hard-reload the plan URL (Cmd+Shift+R).</li>
+          <li data-sub="5.4">Open "Show me" → expect Colour + B&amp;W are now greyed (lock glyph), unclickable. Line is the only enabled segment.</li>
+          <li data-sub="5.5">In Network → <code>get_plan_full</code> response → photo dict has <code>grayscale_url=null</code> + <code>original_url=null</code>; <code>line_drawing_url</code> populated.</li>
+          <li data-sub="5.6">Re-grant consent + re-publish → expect Colour + B&amp;W enabled again.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>F · Backwards compatibility — legacy photos</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Photos published before Wave 22 (only <code>media_url</code> populated) still play and don't crash the player.</span>
+        <ol class="steps">
+          <li data-sub="6.1">Pick a plan published BEFORE today (Wave 22 install). Open in Safari.</li>
+          <li data-sub="6.2">Navigate to a photo slide if any. Expect: line drawing renders normally; "Show me" Colour + B&amp;W segments greyed (no raw-archive object exists for that photo, so <code>get_plan_full</code> returns null URLs and the consent gate disables those segments).</li>
+          <li data-sub="6.3">Confirms legacy plans degrade gracefully — no JS errors in the console, no broken images.</li>
+          <li data-sub="6.4">Re-publish the legacy plan from mobile → expect the raw photo lands in raw-archive (visible in Storage), and after a hard-reload Colour + B&amp;W segments unlock.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 22 verifies photos joining the three-treatment system end-to-end across 4 commits on this worktree branch (Supabase migration · mobile upload · web player · test script). 6 items. Single source of truth: same raw <code>.jpg</code> serves Colour and B&amp;W; the player applies <code>filter: grayscale(1) contrast(1.05)</code> for B&amp;W via the same CSS rule that already covers videos. Skipped from photo path: segmented + mask sidecars (video-only — Vision person segmentation has no photo equivalent).
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-24-wave22-photos-three-treatment.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave22-photos-three-treatment', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
