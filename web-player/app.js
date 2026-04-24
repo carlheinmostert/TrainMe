@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v49-paint-handoffs';
+const PLAYER_VERSION = 'v50-stack-polish';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -1693,6 +1693,24 @@ function paintActiveRepBlock() {
     }
   }
 
+  // Carl 2026-04-24: the active rep block doubles as a 1-rep progress
+  // bar — its fill grows from 0% to 100% over the rep's window. So a
+  // 50s/10rep set has 5s per rep; the active block fills smoothly over
+  // those 5s, then "lands" as filled and the next block becomes active
+  // starting fresh at 0%. Computed per active set in the set branch
+  // below.
+  let activeFillPct = 0;
+  if (isWorkoutMode && setPhase === 'set') {
+    const totalReps = slide.reps || 0;
+    const perSet = calculatePerSetSeconds(slide);
+    if (totalReps > 0 && perSet > 0) {
+      const elapsedInSet = Math.max(0, perSet - setPhaseRemaining);
+      const perRep = perSet / totalReps;
+      const intraRep = elapsedInSet - (repsInSet * perRep);
+      activeFillPct = Math.max(0, Math.min(100, (intraRep / perRep) * 100));
+    }
+  }
+
   setSections.forEach((section) => {
     const setIdx = parseInt(section.getAttribute('data-set-index'), 10);
     if (Number.isNaN(setIdx)) return;
@@ -1718,15 +1736,23 @@ function paintActiveRepBlock() {
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
       const repNum = i + 1; // bottom-up
+      const fill = b.querySelector('.rep-stack-block-fill');
       if (repNum <= landedRep) {
         b.classList.add('rep-stack-block--filled');
         b.classList.remove('rep-stack-block--active');
+        if (fill) fill.style.height = ''; // CSS .filled rule handles 100%
       } else if (repNum === activeRep) {
         b.classList.add('rep-stack-block--active');
         b.classList.remove('rep-stack-block--filled');
+        // Active block doubles as a sub-rep progress bar. Inline height
+        // overrides the CSS default; the .rep-stack-block--active
+        // transition is tuned linear-1s in CSS so the fill flows
+        // continuously between 1Hz repaints instead of stepping.
+        if (fill) fill.style.height = `${activeFillPct.toFixed(1)}%`;
       } else {
         b.classList.remove('rep-stack-block--filled');
         b.classList.remove('rep-stack-block--active');
+        if (fill) fill.style.height = '';
       }
     }
   });
@@ -3099,11 +3125,33 @@ function updateRepStack() {
   // repaint fills. Rebuilding every tick would interrupt the 200ms
   // ease-in fill animation on the active rep block.
   const key = `${currentIndex}|${slideSets}|${slideReps}|${slideBreather}`;
-  if ($repStack.getAttribute('data-stack-key') === key) {
+  const oldKey = $repStack.getAttribute('data-stack-key');
+  if (oldKey === key) {
     paintActiveRepBlock();
     paintRestFill();
     return;
   }
+
+  // Carl 2026-04-24: when the slide CHANGES (different currentIndex
+  // in the key), animate the previous slide's fills down to 0 before
+  // wiping the structure. CSS .is-draining handles the 350ms shrink;
+  // we re-enter after the animation finishes to do the actual rebuild
+  // with the new slide's blocks. The dataset.draining flag prevents
+  // the 1Hz tick from re-triggering the drain mid-animation.
+  const oldIdx = oldKey ? parseInt(oldKey.split('|')[0], 10) : null;
+  const isSlideChange = oldKey !== null && oldIdx !== currentIndex;
+  if (isSlideChange && !$repStack.dataset.draining) {
+    $repStack.dataset.draining = 'true';
+    $repStackColumn.classList.add('is-draining');
+    setTimeout(() => {
+      delete $repStack.dataset.draining;
+      $repStackColumn.classList.remove('is-draining');
+      $repStack.removeAttribute('data-stack-key');
+      updateRepStack();
+    }, 350);
+    return;
+  }
+  if ($repStack.dataset.draining) return;
   $repStack.setAttribute('data-stack-key', key);
 
   // Build sections — interleave set + rest. Wave 21 spec: every set is
@@ -3135,10 +3183,13 @@ function updateRepStack() {
                 ${blocks.join('')}
               </div>`;
     }
-    // Rest section — single thinner block, fixed height.
+    // Rest section — single sage block, same physical size as ONE
+    // rep block (Carl 2026-04-24). Section grows by 1 (matching one
+    // rep within its set) so a 10-rep set renders as 11 equally
+    // sized blocks. Colour carries the category signal, not size.
     return `<div class="rep-stack-section rep-stack-section--rest"
                  data-rest-index="${sec.index}"
-                 style="flex: 0 0 auto;">
+                 style="flex: 1 1 0;">
               <div class="rep-stack-block rep-stack-block--rest" data-rest-index="${sec.index}">
                 <div class="rep-stack-block-fill"></div>
               </div>
@@ -3154,7 +3205,7 @@ function updateRepStack() {
                    style="flex: ${sec.reps} 1 0;">S${sec.index + 1}</div>`;
     }
     return `<div class="rep-stack-labels-section rep-stack-labels-section--rest"
-                 style="flex: 0 0 auto; height: var(--rep-stack-rest-height, 14px); margin-top: 2px;">R</div>`;
+                 style="flex: 1 1 0; margin-top: 2px;">R</div>`;
   }).join('');
   $repStackLabels.innerHTML = labelHtml;
 

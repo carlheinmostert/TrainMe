@@ -1412,14 +1412,14 @@ video.is-prep-paused {
   box-shadow: inset 0 0 0 1px var(--c-brand-tint-border);
 }
 .rep-stack-block--rest {
-  /* Single block per rest section; visually shorter than a rep
-     block (~70%) so the eye reads "different category" without a
-     label. The shrink wrapper keeps the bottom-up growth fill
-     anchored to the visible block's bottom edge. */
+  /* Carl 2026-04-24: rest block now matches rep-block sizing so the
+     column reads as a uniform stack — colour (sage vs coral) carries
+     the "different category" signal, not size. The rest section is
+     given the same flex grow as ONE rep block (see the inline style
+     in the JS structure builder), so a 10-rep set has 11 equally
+     sized blocks (10 coral reps + 1 sage rest). */
   background: var(--c-surface-raised);
   box-shadow: inset 0 0 0 1px var(--c-rest-tint-border);
-  flex: 0 0 var(--rep-stack-rest-height, 14px);
-  min-height: 6px;
   margin-top: 2px;
 }
 
@@ -1437,6 +1437,21 @@ video.is-prep-paused {
 }
 .rep-stack-block--filled .rep-stack-block-fill {
   height: 100%;
+}
+
+/* Carl 2026-04-24: active rep block doubles as a per-rep progress
+   bar. Linear 1.05s transition matches the 1Hz repaint cadence, with
+   a tiny tail so the fill never visually stalls between ticks. */
+.rep-stack-block--active .rep-stack-block-fill {
+  transition: height 1.05s linear;
+}
+
+/* Drain animation when the slide changes — every fill shrinks to 0
+   over 350ms before the column rebuilds for the new slide. Set via
+   the .is-draining class on the column root. */
+.rep-stack-column.is-draining .rep-stack-block-fill {
+  height: 0% !important;
+  transition: height 350ms ease-out;
 }
 .rep-stack-block--rest .rep-stack-block-fill {
   background: var(--c-rest);
