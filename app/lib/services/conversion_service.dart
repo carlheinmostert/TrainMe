@@ -139,7 +139,28 @@ class ConversionService extends ChangeNotifier {
 
     try {
     while (_queue.isNotEmpty) {
-      final exercise = _queue.removeAt(0);
+      final queued = _queue.removeAt(0);
+
+      // Re-read the row from SQLite before stamping `converting`. The queue
+      // holds the in-memory ExerciseCapture as it was at queueConversion()
+      // time — for fresh captures that's the pre-default object (reps/sets
+      // still null). The first saveExercise() in capture / studio flows
+      // routes that object through ExerciseCapture.withPersistenceDefaults()
+      // and writes sets=3 / reps=10 / interSetRestSeconds=15 to the row.
+      // If we copyWith() off the in-memory object here we'd clobber those
+      // defaulted columns back to null on every conversion, and the
+      // publish path (which reads from SQLite) would ship the nulls to
+      // Supabase. Reading fresh inherits the defaulted columns.
+      // Mirrors the post-_convert re-read at line ~161 below.
+      final freshAtStartRows = await _storage.db.query(
+        'exercises',
+        where: 'id = ?',
+        whereArgs: [queued.id],
+        limit: 1,
+      );
+      final exercise = freshAtStartRows.isNotEmpty
+          ? ExerciseCapture.fromMap(freshAtStartRows.first)
+          : queued;
 
       final converting = exercise.copyWith(
         conversionStatus: ConversionStatus.converting,
