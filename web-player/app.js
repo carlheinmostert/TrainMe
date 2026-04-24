@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v43-loop-crossfade-rep-tick';
+const PLAYER_VERSION = 'v44-soft-trim';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -1750,6 +1750,77 @@ function pauseAllVideos() {
   });
 }
 
+// ----------------------------------------------------------------
+// Wave 20 — soft-trim playback clamp
+// ----------------------------------------------------------------
+//
+// Per-exercise practitioner-controlled in/out window stored on
+// `slide.start_offset_ms` + `slide.end_offset_ms` (ms). Both null =
+// no trim, full clip plays. Both set = clamp `currentTime` to the
+// window and wrap the loop back to start when we cross the out-point.
+//
+// Hooked via delegated `loadedmetadata` + `timeupdate` listeners on
+// `$cardViewport` (see init()). The same trim applies across all
+// three treatments since they share source timing.
+
+/**
+ * Resolve `<video id="video-N">` → the slide payload that drives it,
+ * so we can read its trim window. Returns null when the element isn't
+ * ours / index out of range.
+ */
+function resolveSlideForVideoElement(video) {
+  if (!video || !video.id || video.id.indexOf('video-') !== 0) return null;
+  const idx = parseInt(video.id.slice('video-'.length), 10);
+  if (Number.isNaN(idx)) return null;
+  if (!slides || idx < 0 || idx >= slides.length) return null;
+  return slides[idx];
+}
+
+/**
+ * `loadedmetadata` handler — runs once per video src after the browser
+ * knows the duration. When the slide has a trim window, seek into it
+ * before the first painted frame so the loop begins inside the window.
+ */
+function onVideoLoadedMetadata(evt) {
+  const video = evt && evt.target;
+  if (!video || video.tagName !== 'VIDEO') return;
+  const slide = resolveSlideForVideoElement(video);
+  if (!slide) return;
+  const startMs = slide.start_offset_ms;
+  const endMs = slide.end_offset_ms;
+  if (startMs == null || endMs == null) return;
+  if (endMs <= startMs) return;
+  try {
+    video.currentTime = startMs / 1000;
+  } catch (_) {
+    // Some browsers throw if currentTime is set too early; ignore — the
+    // first timeupdate clamp will catch up.
+  }
+}
+
+/**
+ * `timeupdate` handler — wraps the loop at the out-point. Fires roughly
+ * every 250 ms in modern browsers (browser-driven, not setInterval), so
+ * the seam is tight enough for a clean loop. Idempotent: a duplicate
+ * seek when already at start is harmless.
+ */
+function onVideoTimeUpdate(evt) {
+  const video = evt && evt.target;
+  if (!video || video.tagName !== 'VIDEO') return;
+  const slide = resolveSlideForVideoElement(video);
+  if (!slide) return;
+  const startMs = slide.start_offset_ms;
+  const endMs = slide.end_offset_ms;
+  if (startMs == null || endMs == null) return;
+  if (endMs <= startMs) return;
+  const tMs = video.currentTime * 1000;
+  if (tMs >= endMs || tMs < startMs) {
+    try {
+      video.currentTime = startMs / 1000;
+    } catch (_) { /* swallow — next tick retries */ }
+  }
+}
+
 // ============================================================
 // Touch / Swipe Handling
 // ============================================================
@@ -3389,6 +3460,19 @@ async function init() {
     // Bind events
     $btnNext.addEventListener('click', goNext);
     $btnPrev.addEventListener('click', goPrev);
+
+    // Wave 20 — soft-trim playback clamp. Delegated listeners on the
+    // viewport so newly-rendered <video> elements don't need their own
+    // wire-up. `loadedmetadata` seeks into the trim window before the
+    // first painted frame; `timeupdate` wraps the loop at the out-point.
+    //
+    // TODO: integrate with loop-crossfade end trigger (parallel branch).
+    // The other agent's crossfade `endTrigger` should become
+    // `Math.min(duration, end_offset_ms / 1000)` so the dual-video
+    // seam fires exactly at the trimmed out-point. Until that lands,
+    // the timeupdate clamp below is the sole loop-wrap mechanism.
+    $cardViewport.addEventListener('loadedmetadata', onVideoLoadedMetadata, true);
+    $cardViewport.addEventListener('timeupdate', onVideoTimeUpdate, true);
     $cardViewport.addEventListener('touchstart', onTouchStart, { passive: true });
     $cardViewport.addEventListener('touchmove', onTouchMove, { passive: true });
     $cardViewport.addEventListener('touchend', onTouchEnd);
