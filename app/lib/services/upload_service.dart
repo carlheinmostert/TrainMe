@@ -1024,6 +1024,97 @@ class UploadService {
       );
     }
 
+    // --- Photo raw upload (Wave 22) ---
+    //
+    // Independent best-effort pass for photo exercises. The line-drawing JPG
+    // already shipped to the public `media` bucket above (Step 5). Here we
+    // ship the COLOR raw photo to the private `raw-archive` bucket at:
+    //   `{practiceId}/{planId}/{exerciseId}.jpg`
+    //
+    // This unlocks the three-treatment story for photos: get_plan_full's
+    // signed URL flips on `original_url` (consent-gated), the web player
+    // shows Colour + B&W as enabled segments and applies the same CSS
+    // grayscale filter to the <img> at playback time. Same source object
+    // serves both — no second file.
+    //
+    // Pattern mirrors the video raw-upload above (line 891+):
+    //   * per-exercise try/catch via loudSwallow — one failure can't poison
+    //     the rest;
+    //   * skipped silently when the client hasn't consented to original
+    //     (raw photos are a treatment surface, same gate as videos);
+    //   * legacy photos with no separate raw on device fall through —
+    //     the line drawing already shipped, the web player handles
+    //     `original_url=null` gracefully.
+    //
+    // No equivalent of `rawArchiveUploadedAt` is set: photos aren't
+    // tracked the way videos are (no archive pipeline + 90-day
+    // retention) and Storage upserts are idempotent on retry. Re-publish
+    // re-transfers the photo, which is cheap (sub-MB).
+    final clientId = session.clientId;
+    bool clientGrantedOriginal = false;
+    if (clientId != null && clientId.isNotEmpty) {
+      // Cheapest source of truth: the offline cache — populated on every
+      // SyncService pull and refreshed when the practitioner toggles
+      // consent. Avoids an extra round-trip per publish. CachedClient
+      // exposes `colourAllowed` which mirrors the cloud's
+      // `video_consent.original` jsonb flag.
+      final cached = await _storage.getCachedClientById(clientId);
+      if (cached != null) {
+        clientGrantedOriginal = cached.colourAllowed;
+      }
+    }
+    if (clientGrantedOriginal) {
+      for (final exercise in session.exercises) {
+        if (exercise.isRest) continue;
+        if (exercise.mediaType.name != 'photo') continue;
+        final rawRel = exercise.rawFilePath;
+        if (rawRel.isEmpty) continue;
+        final absRaw = exercise.absoluteRawFilePath;
+        final rawFile = File(absRaw);
+        if (!rawFile.existsSync()) {
+          debugPrint(
+            'UploadService: raw photo missing for exercise ${exercise.id} '
+            'at $absRaw — skipping (pre-migration / pruned).',
+          );
+          continue;
+        }
+        final ext = p.extension(absRaw).toLowerCase();
+        // Default to .jpg when the camera handed us something exotic —
+        // the file content is fine, the bucket only cares about the path
+        // segment for RLS, and get_plan_full's signed URL hard-codes
+        // .jpg as the suffix.
+        final normalisedExt =
+            (ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.heic')
+                ? '.jpg'
+                : '.jpg';
+        final mime = (ext == '.png')
+            ? 'image/png'
+            : (ext == '.heic' ? 'image/heic' : 'image/jpeg');
+        final storagePath =
+            '$practiceId/${session.id}/${exercise.id}$normalisedExt';
+        await loudSwallow<bool>(
+          () async {
+            await _api.uploadRawArchive(
+              path: storagePath,
+              file: rawFile,
+              contentType: mime,
+            );
+            return true;
+          },
+          kind: 'raw_archive_photo_upload_failed',
+          source: 'UploadService._uploadRawArchives',
+          severity: 'warn',
+          meta: {
+            'practice_id': practiceId,
+            'plan_id': session.id,
+            'exercise_id': exercise.id,
+            'storage_path': storagePath,
+          },
+          swallow: true,
+        );
+      }
+    }
+
     // --- Person-segmentation mask sidecar (Milestone P2) ---
     //
     // Third independent best-effort pass. Uploads the grayscale mask mp4

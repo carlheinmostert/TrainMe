@@ -941,16 +941,22 @@ class ApiClient {
   /// exist (pre-migration) or the RLS check fails, this throws and the
   /// caller is expected to log + swallow (see
   /// `UploadService._uploadRawArchives`).
+  ///
+  /// [contentType] defaults to `video/mp4` (the original 720p H.264
+  /// archive). Wave 22 adds the photo path which uploads `image/jpeg`
+  /// at `{practice_id}/{plan_id}/{exercise_id}.jpg` — same bucket,
+  /// same RLS, only the mime + extension differ.
   Future<void> uploadRawArchive({
     required String path,
     required File file,
+    String contentType = 'video/mp4',
   }) async {
     await _guardAuth(() => raw.storage.from(rawArchiveBucket).upload(
           path,
           file,
-          fileOptions: const FileOptions(
+          fileOptions: FileOptions(
             upsert: false,
-            contentType: 'video/mp4',
+            contentType: contentType,
           ),
         ));
   }
