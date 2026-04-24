@@ -1646,13 +1646,17 @@ function handleLoopBoundary(idx) {
   if (idx !== currentIndex) return;
   if (!isWorkoutMode || !isTimerRunning || isPrepPhase || setPhase !== 'set') return;
 
-  const targetReps = Math.max(1, slide.reps || 10);
+  // Wave 19.5 follow-up — do NOT fabricate a rep target on legacy data
+  // (slide.reps null/0). Let the counter free-run for the visual label;
+  // the 1Hz tick + advanceSetPhase() owns the time-based set→rest
+  // transition for those slides. Only reset on real reps targets.
+  const targetReps = slide.reps && slide.reps > 0 ? slide.reps : null;
   state.repsInSet = (state.repsInSet || 0) + 1;
-  if (state.repsInSet >= targetReps) {
-    // Set complete from a rep-counting perspective. Reset the per-set
-    // counter; the set→rest transition itself is owned by the 1Hz
-    // tick + advanceSetPhase(), so we don't fire it here. Worst case
-    // they're a tick apart visually, which is below perceptual budget.
+  if (targetReps !== null && state.repsInSet >= targetReps) {
+    // Set complete from a rep-counting perspective. The set→rest
+    // transition itself is owned by the 1Hz tick + advanceSetPhase(),
+    // so we don't fire it here — worst case they're a tick apart
+    // visually, which is below perceptual budget.
     state.repsInSet = 0;
   }
   loopState.set(idx, state);
@@ -2952,9 +2956,14 @@ function updateSetProgressBar() {
     let label;
     if (seg.kind === 'rest') {
       label = `Rest ${seg.total}s`;
-    } else if (s === activeSegIdx && reps > 0) {
-      const live = (loopState.get(currentIndex) || {}).repsInSet || 0;
-      label = `Set ${seg.index + 1} · ${live} of ${reps}`;
+    } else if (s === activeSegIdx) {
+      // Active set segment — live rep counter via handleLoopBoundary.
+      // Treat the in-progress first rep as rep 1 (not rep 0) on first paint;
+      // legacy slides with reps=null show the counter without a denominator.
+      const live = Math.max(1, (loopState.get(currentIndex) || {}).repsInSet || 0);
+      label = reps > 0
+        ? `Set ${seg.index + 1} · ${live} of ${reps}`
+        : `Set ${seg.index + 1} · Rep ${live}`;
     } else {
       label = reps > 0 ? `Set ${seg.index + 1} · ${reps} reps` : `Set ${seg.index + 1}`;
     }
