@@ -1197,13 +1197,21 @@ video.is-prep-paused {
 }
 .set-progress-bar-segment--rest {
   /* Sage breather segments sit visually "between" sets — slightly
-     narrower feel via a thinner min-width and a muted base. */
+     narrower feel via a thinner min-width and a muted base.
+     Translucent sage fill so upcoming segments are legible
+     pre-workout (Wave 19.5 follow-up — outline-only segments were
+     near-invisible on dark video). */
+  background: var(--c-rest-tint-bg);
   flex-grow: 0.7;
   min-width: 14px;
   background: rgba(134, 239, 172, 0.10);
   box-shadow: inset 0 0 0 1px var(--c-rest-tint-border);
 }
 .set-progress-bar-segment--set {
+  /* Translucent coral fill so upcoming set segments are legible
+     pre-workout (Wave 19.5 follow-up — outline-only segments were
+     near-invisible on dark video). */
+  background: var(--c-brand-tint-bg);
   box-shadow: inset 0 0 0 1px var(--c-brand-tint-border);
 }
 
