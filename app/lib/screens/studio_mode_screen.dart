@@ -2073,6 +2073,11 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// hydrated in [initState] so the viewer opens on the practitioner's
   /// last choice.
   bool _enhancedBackground = true;
+
+  /// Carl 2026-04-24: while a trim handle is being dragged, the video
+  /// is paused and the practitioner can scrub. We remember whether
+  /// the controller was playing pre-drag so we can resume on release.
+  bool _trimDragWasPlaying = false;
   static const String _enhancedBackgroundPrefsKey =
       'homefit.preview.enhanced_background';
 
@@ -2644,33 +2649,21 @@ class _MediaViewerState extends State<_MediaViewer> {
               child: SafeArea(
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TreatmentSegmentedControl(
-                        orientation: Axis.vertical,
-                        active: _treatment,
-                        grayscaleAvailable: hasArchive,
-                        originalAvailable: hasArchive,
-                        onChanged: _onTreatmentChanged,
-                        onLockTap: _onLockedSegmentTap,
-                        lockedMessages: hasArchive
-                            ? null
-                            : const {
-                                Treatment.grayscale:
-                                    'Older capture — re-record to enable.',
-                                Treatment.original:
-                                    'Older capture — re-record to enable.',
-                              },
-                      ),
-                      const SizedBox(height: 8),
-                      _EnhancedBackgroundTogglePill(
-                        enabled: _enhancedBackgroundEnabled,
-                        active: _enhancedBackground,
-                        onTap: _onEnhancedBackgroundToggle,
-                      ),
-                    ],
+                  child: TreatmentSegmentedControl(
+                    orientation: Axis.vertical,
+                    active: _treatment,
+                    grayscaleAvailable: hasArchive,
+                    originalAvailable: hasArchive,
+                    onChanged: _onTreatmentChanged,
+                    onLockTap: _onLockedSegmentTap,
+                    lockedMessages: hasArchive
+                        ? null
+                        : const {
+                            Treatment.grayscale:
+                                'Older capture — re-record to enable.',
+                            Treatment.original:
+                                'Older capture — re-record to enable.',
+                          },
                   ),
                 ),
               ),
@@ -2792,6 +2785,24 @@ class _MediaViewerState extends State<_MediaViewer> {
                 onTap: _toggleMute,
               ),
             ),
+          // Carl 2026-04-24: Enhanced Background pill stacked just above
+          // the mute pill at bottom-left. Was a vertical book-spine pill
+          // in the left-edge column under the treatment control;
+          // re-orientating to horizontal here both removes the
+          // accidental vertical-swipe metaphor AND co-locates it with
+          // the other playback chrome (mute) — practitioner reads them
+          // as a paired pair.
+          if (_isVideo(_current) && _videoInitialized)
+            Positioned(
+              left: 20,
+              bottom: MediaQuery.of(context).padding.bottom +
+                  12 + 36 + 8 + _bottomChromeTrimLift,
+              child: _EnhancedBackgroundTogglePill(
+                enabled: _enhancedBackgroundEnabled,
+                active: _enhancedBackground,
+                onTap: _onEnhancedBackgroundToggle,
+              ),
+            ),
           // Wave 20 — soft-trim editor. Always 100% opacity so the
           // practitioner can edit at any time. Hidden for photos /
           // rest rows / sub-1s videos via [_trimPanelVisible].
@@ -2809,6 +2820,26 @@ class _MediaViewerState extends State<_MediaViewer> {
                 onScrub: _onTrimScrub,
                 onGuardHit: () => HapticFeedback.lightImpact(),
                 onReset: _resetTrim,
+                // Pause-on-drag-down + resume-on-drag-up for the trim
+                // handles. Carl 2026-04-24: was confusing to scrub
+                // against a playing video; the loop kept fighting
+                // the drag feedback.
+                onDragStart: () {
+                  final c = _videoController;
+                  if (c == null) return;
+                  _trimDragWasPlaying = c.value.isPlaying;
+                  if (_trimDragWasPlaying) {
+                    c.pause();
+                  }
+                },
+                onDragEnd: () {
+                  final c = _videoController;
+                  if (c == null) return;
+                  if (_trimDragWasPlaying) {
+                    c.play();
+                  }
+                  _trimDragWasPlaying = false;
+                },
               ),
             ),
           Positioned(
@@ -2898,6 +2929,13 @@ class _MediaViewerState extends State<_MediaViewer> {
 ///     treatment segment) inside the same hairline-bordered pill.
 ///   • Disabled (treatment == Line) → ~40% opacity, no tap response,
 ///     tooltip explains why.
+/// Carl 2026-04-24 — repositioned from a vertical book-spine pill (under
+/// the treatment column) to a HORIZONTAL pill stacked above the mute pill
+/// at bottom-left. Vertical orientation suggested swipe semantics that
+/// don't apply (it's a tap toggle), and grouping it with mute makes the
+/// "playback chrome" cluster feel consistent. Mirrors `_MutePill`'s
+/// shape — pill, 1.5px coral border, coral fill when ON, transparent
+/// when OFF, icon + short label.
 class _EnhancedBackgroundTogglePill extends StatelessWidget {
   final bool enabled;
   final bool active;
@@ -2911,51 +2949,45 @@ class _EnhancedBackgroundTogglePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final labelColor = active
-        ? Colors.white
-        : (enabled
-            ? AppColors.textOnDark
-            : AppColors.textSecondaryOnDark.withValues(alpha: 0.6));
-    final labelStyle = TextStyle(
-      fontFamily: 'Inter',
-      fontSize: 11,
-      fontWeight: FontWeight.w600,
-      letterSpacing: 0.2,
-      color: labelColor,
-    );
+    // Single short label — visual fill state carries the on/off signal,
+    // matching the web player's "Body in focus — background dimmed"
+    // hint copy without overflowing the pill.
+    const label = 'Body focus';
+    final iconData =
+        active ? Icons.blur_on_rounded : Icons.blur_off_rounded;
+    final fillColor = active ? AppColors.primary : Colors.transparent;
+    final textColor = active ? Colors.white : AppColors.primary;
 
-    final pill = Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(9999),
-        border: Border.all(color: AppColors.surfaceBorder),
-      ),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        margin: const EdgeInsets.all(3),
-        width: 28,
-        // Tall enough to hold "Enhanced background" rotated bottom-to-top
-        // with comfortable padding. Two-word label needs more room than
-        // the single-word treatment segments (~72px each).
-        height: 132,
-        padding: EdgeInsets.zero,
-        decoration: BoxDecoration(
-          color: active ? AppColors.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(9999),
-        ),
-        alignment: Alignment.center,
-        // Book-spine label: quarterTurns=3 rotates 270° clockwise (= 90°
-        // counter-clockwise) so the baseline reads bottom-to-top — matches
-        // the conventional book-spine direction on iOS/macOS and the
-        // adjacent treatment pill.
-        child: RotatedBox(
-          quarterTurns: 3,
-          child: Text(
-            'Enhanced background',
-            style: labelStyle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+    final pill = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: fillColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: AppColors.primary,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(iconData, color: textColor, size: 16),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -2963,18 +2995,14 @@ class _EnhancedBackgroundTogglePill extends StatelessWidget {
 
     final tooltipMessage = enabled
         ? (active
-            ? 'Enhanced background ON — body pops, background dimmed.'
-            : 'Enhanced background OFF — playing the untouched colour file.')
-        : 'Background dimming applies to colour playback only.';
+            ? 'Body focus ON — background dimmed for clarity.'
+            : 'Body focus OFF — playing the untouched colour file.')
+        : 'Body focus applies to colour playback only.';
 
     final wrapped = Tooltip(
       message: tooltipMessage,
       triggerMode: TooltipTriggerMode.tap,
-      child: GestureDetector(
-        onTap: enabled ? onTap : null,
-        behavior: HitTestBehavior.opaque,
-        child: pill,
-      ),
+      child: pill,
     );
 
     if (enabled) return wrapped;
@@ -3208,6 +3236,17 @@ class _TrimPanel extends StatefulWidget {
   /// clearEndOffsetMs: true).
   final VoidCallback onReset;
 
+  /// Fired the moment a drag begins on either handle. Caller pauses
+  /// the active video so the practitioner can scrub freely without
+  /// the loop confusing the visual. Carl 2026-04-24: was: video kept
+  /// playing under the drag, which felt fighty.
+  final VoidCallback? onDragStart;
+
+  /// Fired when the drag releases. Caller resumes playback (only if
+  /// the video was actually playing pre-drag — caller's responsibility
+  /// to remember that state).
+  final VoidCallback? onDragEnd;
+
   const _TrimPanel({
     required this.durationMs,
     required this.startOffsetMs,
@@ -3217,6 +3256,8 @@ class _TrimPanel extends StatefulWidget {
     required this.onScrub,
     required this.onGuardHit,
     required this.onReset,
+    this.onDragStart,
+    this.onDragEnd,
   });
 
   /// Layout constant — total panel height including its internal padding.
@@ -3370,11 +3411,14 @@ class _TrimPanelState extends State<_TrimPanel> {
                           behavior: HitTestBehavior.opaque,
                           onPanStart: (_) {
                             HapticFeedback.selectionClick();
+                            widget.onDragStart?.call();
                           },
                           onPanUpdate: (d) => _updateHandle(
                             _TrimHandle.start,
                             d.delta.dx,
                           ),
+                          onPanEnd: (_) => widget.onDragEnd?.call(),
+                          onPanCancel: () => widget.onDragEnd?.call(),
                           child: const _TrimHandlePill(),
                         ),
                       ),
@@ -3386,11 +3430,14 @@ class _TrimPanelState extends State<_TrimPanel> {
                           behavior: HitTestBehavior.opaque,
                           onPanStart: (_) {
                             HapticFeedback.selectionClick();
+                            widget.onDragStart?.call();
                           },
                           onPanUpdate: (d) => _updateHandle(
                             _TrimHandle.end,
                             d.delta.dx,
                           ),
+                          onPanEnd: (_) => widget.onDragEnd?.call(),
+                          onPanCancel: () => widget.onDragEnd?.call(),
                           child: const _TrimHandlePill(),
                         ),
                       ),
