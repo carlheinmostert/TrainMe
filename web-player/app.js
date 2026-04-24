@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v47-rep-hold';
+const PLAYER_VERSION = 'v48-duration-is-truth';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -1649,31 +1649,11 @@ function handleLoopBoundary(idx) {
   state.prebuffered = false;
   loopState.set(idx, state);
 
-  // --- Rep tick --------------------------------------------------
-  // Only count reps for the active slide and only while the workout
-  // timer is actually running (a paused workout shouldn't tick reps;
-  // the video is paused too so this branch is mostly defensive).
-  if (idx !== currentIndex) return;
-  if (!isWorkoutMode || !isTimerRunning || isPrepPhase || setPhase !== 'set') return;
-
-  // Wave 19.5 follow-up — do NOT fabricate a rep target on legacy data
-  // (slide.reps null/0). Let the counter free-run for the visual label;
-  // the 1Hz tick + advanceSetPhase() owns the time-based set→rest
-  // transition for those slides. Only reset on real reps targets.
-  const targetReps = slide.reps && slide.reps > 0 ? slide.reps : null;
-  state.repsInSet = (state.repsInSet || 0) + 1;
-  if (targetReps !== null && state.repsInSet >= targetReps) {
-    // Set complete from a rep-counting perspective. The set→rest
-    // transition itself is owned by the 1Hz tick + advanceSetPhase(),
-    // so we don't fire it here — worst case they're a tick apart
-    // visually, which is below perceptual budget.
-    state.repsInSet = 0;
-  }
-  loopState.set(idx, state);
-
-  // Wave 21 — paint the just-landed rep block in the vertical stack.
-  // Rep counter is the source of truth; no time-based drift.
-  paintActiveRepBlock();
+  // Carl 2026-04-24 — the rep counter is now derived from elapsed time
+  // (the duration is the source of truth, not the loop seam). The loop
+  // seam still drives the crossfade above, but no longer touches the
+  // rep counter. The painter computes repsInSet from the timer on every
+  // 1Hz tick. Keeping handleLoopBoundary scoped to crossfade duties only.
 }
 
 /**
@@ -1693,19 +1673,18 @@ function paintActiveRepBlock() {
 
   // Walk every set in the column. For sets BEFORE currentSetIndex,
   // mark every rep filled (we're past them). For the active set,
-  // honour repsInSet. For future sets, leave empty.
+  // derive repsInSet from elapsed time. For future sets, leave empty.
   const setSections = $repStackColumn.querySelectorAll('.rep-stack-section--set');
-  const state = loopState.get(currentIndex) || {};
 
-  // Carl 2026-04-24: photos don't trigger handleLoopBoundary (no video
-  // loop seam), so `state.repsInSet` never advances on its own. Derive
-  // it from elapsed wall-clock proportion of the active set phase
-  // instead — the practitioner sees blocks land at the same cadence
-  // a 1-second-per-rep mental count would, scaled to the per-set
-  // duration. Videos keep using state.repsInSet (driven by the seam).
-  let repsInSet = state.repsInSet || 0;
-  const isPhoto = slide.media_type === 'photo';
-  if (isPhoto && isWorkoutMode && setPhase === 'set') {
+  // Carl 2026-04-24: ONE source of truth — the duration. The rep stack
+  // fill is purely a function of elapsed proportion of the per-set phase
+  // (not the video loop count). The video loops at its own natural rate
+  // underneath; the crossfade hides the seam visually but the counter
+  // doesn't depend on it. Whether per-set is 10s (manual short) or 30s
+  // (default) or 40s (long video), the stack ALWAYS reaches the top
+  // exactly when the set phase ends. Same logic for photos and videos.
+  let repsInSet = 0;
+  if (isWorkoutMode && setPhase === 'set') {
     const totalReps = slide.reps || 0;
     const perSet = calculatePerSetSeconds(slide);
     if (totalReps > 0 && perSet > 0) {
@@ -2400,34 +2379,13 @@ function hideTimerDisplay() {
 function onTimerTick() {
   if (!isTimerRunning) return;
 
-  // Carl 2026-04-24: for VIDEO slides, the per-set timer can underestimate
-  // (calculatePerSetSeconds = reps × 3s baseline vs actual video loop ×
-  // reps which can be 4-5s/loop). When the timer wants to advance the
-  // set but the rep counter (driven by handleLoopBoundary on the loop
-  // seam) hasn't caught up, we'd skip from "Rep 7" to "all done, rest"
-  // — exactly the bug Carl reported. Hold the set phase open until
-  // reps land, AND freeze the overall remainingSeconds with it so the
-  // slide doesn't auto-advance mid-set.
-  const slide = slides[currentIndex];
-  const isVideoSlide = !!slide && slide.media_type === 'video';
-  const targetReps = slide && slide.reps && slide.reps > 0 ? slide.reps : null;
-  const repsState = loopState.get(currentIndex);
-  const repsInSet = (repsState && repsState.repsInSet) || 0;
-  const repHold = isVideoSlide
-    && setPhase === 'set'
-    && targetReps !== null
-    && repsInSet < targetReps
-    && setPhaseRemaining <= 0;
-
-  if (!repHold) {
-    remainingSeconds--;
-    // Milestone Q — phase-local timer ticks in lockstep with the overall
-    // remaining counter. When it hits zero we check whether another set
-    // / breather follows on THIS slide before falling through to the next
-    // slide.
-    if (!isRestSlide()) {
-      setPhaseRemaining--;
-    }
+  remainingSeconds--;
+  // Milestone Q — phase-local timer ticks in lockstep with the overall
+  // remaining counter. When it hits zero we check whether another set
+  // / breather follows on THIS slide before falling through to the next
+  // slide.
+  if (!isRestSlide()) {
+    setPhaseRemaining--;
   }
 
   if (remainingSeconds <= 0) {
@@ -2445,7 +2403,7 @@ function onTimerTick() {
   // Milestone Q — phase boundary inside the active slide (set → rest or
   // rest → set). The overall `remainingSeconds` keeps ticking; only the
   // phase-local counter wraps.
-  if (!isRestSlide() && setPhaseRemaining <= 0 && !repHold) {
+  if (!isRestSlide() && setPhaseRemaining <= 0) {
     advanceSetPhase();
   }
 
