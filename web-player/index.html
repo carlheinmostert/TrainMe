@@ -248,13 +248,19 @@
         <div class="rest-countdown-number" id="rest-countdown-number">0</div>
       </div>
 
-      <!-- Milestone Q — per-exercise segmented progress bar. Coral
-           segments for sets (with rep count), sage segments for the
-           inter-set breather. Built per active slide by app.js; hidden
-           outside workout mode + on rest slides + on single-set
-           exercises with no breather. Sits near the top of the
-           viewport overlay stack. -->
-      <div id="set-progress-bar" class="set-progress-bar" role="presentation" hidden></div>
+      <!-- Wave 21 — vertical rep-block stack (replaces the horizontal
+           segmented bar). Pinned to the LEFT edge of the viewport,
+           vertically centered. Bottom-up "stacking up your reps"
+           metaphor: Set 1 at the bottom, Set N + trailing rest at the
+           top. One micro-block per rep + one thinner block per
+           inter-set rest (including AFTER the last set). Section
+           labels (S1, R, S2, …) sit OUTSIDE the column to the left.
+           Built per active slide by app.js; hidden on photos / rest
+           slides / single-set-no-breather / legacy null-rep slides. -->
+      <div id="rep-stack" class="rep-stack" role="presentation" hidden>
+        <div id="rep-stack-labels" class="rep-stack-labels" aria-hidden="true"></div>
+        <div id="rep-stack-column" class="rep-stack-column"></div>
+      </div>
 
       <!-- Milestone Q — breather overlay. Sage countdown + restful
            glyph + "Breather" label shown during the inter-set rest.

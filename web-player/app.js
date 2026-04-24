@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v44-soft-trim';
+const PLAYER_VERSION = 'v45-vertical-rep-stack';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -366,16 +366,26 @@ const $restCountdownNumber = document.getElementById('rest-countdown-number');
 const $cardNotes = document.getElementById('card-notes');
 const $cardNotesText = document.getElementById('card-notes-text');
 
-// Milestone Q — inter-set rest overlays.
-//   * #set-progress-bar sits above the media on every exercise slide
-//     that has sets > 1 OR a breather > 0. It's a horizontal strip of
-//     segments: coral for set phases, sage for breather phases. The
-//     active segment fills smoothly with its phase-local countdown;
-//     completed segments are solid, upcoming segments are outlined.
-//   * #breather-overlay sits on top of the paused video and shows a
-//     big sage countdown number + a restful-person glyph during the
-//     inter-set breather. Hidden outside breathers.
-const $setProgressBar = document.getElementById('set-progress-bar');
+// Wave 21 — vertical rep-block stack (replaces the Wave 19.7 horizontal
+// .set-progress-bar). Pinned to the LEFT edge of .card-viewport,
+// vertically centered. One micro-block per rep + one thinner block per
+// inter-set rest, stacked bottom-up. Section labels (S1, R, S2, …) sit
+// in a left gutter outside the column.
+//
+// Rendering ownership:
+//   * Skeleton (sections + blocks) is rebuilt via updateRepStack()
+//     whenever the active slide / set count / breather changes.
+//   * Per-rep fills are painted via paintActiveRepBlock() driven by
+//     handleLoopBoundary() — discrete bumps, no time drift (the prior
+//     time-based fill raced ahead of the rep label by ~rep 4 of 10).
+//   * Rest fills are time-based: paintRestFill() runs on the 1Hz
+//     onTimerTick() while setPhase === 'rest'.
+//
+// #breather-overlay still sits on top of the paused video and shows a
+// big sage countdown + restful-person glyph during the inter-set rest.
+const $repStack = document.getElementById('rep-stack');
+const $repStackColumn = document.getElementById('rep-stack-column');
+const $repStackLabels = document.getElementById('rep-stack-labels');
 const $breatherOverlay = document.getElementById('breather-overlay');
 const $breatherNumber = document.getElementById('breather-number');
 
@@ -1598,8 +1608,8 @@ function detachLoopListeners(videoEl) {
  *   1. Crossfade — flip data-active so the prebuffered inactive slot
  *      becomes the visible active slot. Reset the now-inactive slot to
  *      currentTime=0 + pause so it's ready for the next cycle.
- *   2. Rep tick — bump repsInSet, redraw the set-progress-bar label,
- *      pulse the active segment. When repsInSet === slide.reps, the
+ *   2. Rep tick — bump repsInSet, paint the just-landed rep block in
+ *      the vertical stack. When repsInSet === slide.reps, the
  *      breather/next-set state machine takes over (driven by the 1Hz
  *      tick loop, which is independent — so we just reset repsInSet
  *      to 0 and let the existing setPhase machinery handle the pause).
@@ -1661,24 +1671,70 @@ function handleLoopBoundary(idx) {
   }
   loopState.set(idx, state);
 
-  // Repaint the set-progress-bar label + flash the active segment.
-  updateSetProgressBar();
-  pulseActiveSetSegment();
+  // Wave 21 — paint the just-landed rep block in the vertical stack.
+  // Rep counter is the source of truth; no time-based drift.
+  paintActiveRepBlock();
 }
 
-/** Trigger the 200ms scale + glow pulse on the active set segment. */
-function pulseActiveSetSegment() {
-  if (!$setProgressBar) return;
-  const seg = $setProgressBar.querySelector('.set-progress-bar-segment--active');
-  if (!seg) return;
-  seg.classList.remove('is-rep-pulse');
-  // Force a reflow so the animation restarts on consecutive reps.
-  // eslint-disable-next-line no-unused-expressions
-  void seg.offsetWidth;
-  seg.classList.add('is-rep-pulse');
-  setTimeout(() => {
-    seg.classList.remove('is-rep-pulse');
-  }, REP_TICK_PULSE_MS);
+/**
+ * Wave 21 — fill the next rep block in the active set with solid
+ * coral. Driven by handleLoopBoundary's per-loop-seam tick (i.e. one
+ * rep per video loop). Discrete jump (200ms ease-in via the fill
+ * child's CSS transition); no partial fills, no time drift.
+ *
+ * The "next-to-land" block carries `--active`; once we mark this rep
+ * filled we promote the following block to active so the 1Hz pulse
+ * tracks "where the next rep will land".
+ */
+function paintActiveRepBlock() {
+  if (!$repStackColumn) return;
+  const slide = slides[currentIndex];
+  if (!slide || slide.media_type === 'rest') return;
+
+  // Walk every set in the column. For sets BEFORE currentSetIndex,
+  // mark every rep filled (we're past them). For the active set,
+  // honour repsInSet. For future sets, leave empty.
+  const setSections = $repStackColumn.querySelectorAll('.rep-stack-section--set');
+  const state = loopState.get(currentIndex) || {};
+  const repsInSet = state.repsInSet || 0;
+
+  setSections.forEach((section) => {
+    const setIdx = parseInt(section.getAttribute('data-set-index'), 10);
+    if (Number.isNaN(setIdx)) return;
+    const blocks = section.querySelectorAll('.rep-stack-block--rep');
+    let landedRep;
+    let activeRep = -1;
+    if (setIdx < currentSetIndex) {
+      // Past set — every rep filled.
+      landedRep = blocks.length;
+    } else if (setIdx === currentSetIndex && setPhase === 'set' && isWorkoutMode) {
+      // Active set, currently in set phase — repsInSet is the count of
+      // reps already landed; the next block is the active one.
+      landedRep = repsInSet;
+      activeRep = repsInSet + 1;
+    } else if (setIdx === currentSetIndex && setPhase === 'rest' && isWorkoutMode) {
+      // Active set just finished and we're in the trailing rest —
+      // every rep of THIS set is filled.
+      landedRep = blocks.length;
+    } else {
+      // Future set / pre-workout — empty.
+      landedRep = 0;
+    }
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      const repNum = i + 1; // bottom-up
+      if (repNum <= landedRep) {
+        b.classList.add('rep-stack-block--filled');
+        b.classList.remove('rep-stack-block--active');
+      } else if (repNum === activeRep) {
+        b.classList.add('rep-stack-block--active');
+        b.classList.remove('rep-stack-block--filled');
+      } else {
+        b.classList.remove('rep-stack-block--filled');
+        b.classList.remove('rep-stack-block--active');
+      }
+    }
+  });
 }
 
 /** Reset the rep-in-set counter for the active slide (slide jump, set boundary). */
@@ -1732,7 +1788,7 @@ function updateUI() {
   updateRestCountdownOverlay();
 
   // Milestone Q — set/breather overlays track the active slide too.
-  updateSetProgressBar();
+  updateRepStack();
   updateBreatherOverlay();
 
   // Nav buttons
@@ -1958,9 +2014,13 @@ function calculatePerSetSeconds(slide) {
  * Calculate the duration in seconds for an exercise slide.
  * Uses custom_duration_seconds if set, otherwise computes from reps/sets/hold.
  *
- * Milestone Q math:
+ * Wave 21 math (updated for trailing rest):
  *   exercise_total = sets × per_set
- *                  + max(0, sets - 1) × COALESCE(inter_set_rest_seconds, 0)
+ *                  + sets × COALESCE(inter_set_rest_seconds, 0)
+ *
+ * Every set is now followed by a rest — the trailing rest after the
+ * last set is the "you're done, breathe before the next exercise"
+ * cue. Was: `(sets - 1) × breather`; now: `sets × breather`.
  *
  * custom_duration_seconds stores the total across all sets (per-rep ×
  * reps × sets from the Studio UI), so we add the inter-set rest ON TOP
@@ -1974,7 +2034,7 @@ function calculateDuration(slide) {
 
   const sets = slide.sets || 3;
   const breather = getInterSetRestSeconds(slide);
-  const restTotal = (sets > 1) ? (sets - 1) * breather : 0;
+  const restTotal = sets * breather;
 
   if (slide.custom_duration_seconds) {
     return slide.custom_duration_seconds + restTotal;
@@ -2279,7 +2339,7 @@ function startTimer() {
   isTimerRunning = true;
   updatePauseOverlay();
   updateRestCountdownOverlay();
-  updateSetProgressBar();
+  updateRepStack();
   updateBreatherOverlay();
   updateTimelineBar();
 
@@ -2334,7 +2394,7 @@ function onTimerTick() {
   // Matrix active-pill fill needs a per-second nudge too.
   updateProgressMatrix();
   updateRestCountdownOverlay();
-  updateSetProgressBar();
+  updateRepStack();
   updateBreatherOverlay();
   updateTimelineBar();
   // (MM:SS) remaining rides in the active-slide title — needs a per-tick
@@ -2361,13 +2421,13 @@ function isRestSlide() {
  */
 function advanceSetPhase() {
   if (setPhase === 'set') {
-    // Set done. Is there a breather OR another set to come?
-    const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
-    if (isLastSet) {
-      // Last set ending coincides with remainingSeconds hitting 0;
-      // onTimerTick will take the auto-advance branch. Nothing to do.
-      return;
-    }
+    // Wave 21 — every set (INCLUDING the last) is now followed by a
+    // rest if the practitioner configured one. The trailing rest gives
+    // the client a "you're done, breathe" cue before the slide
+    // advances. Duration math (calculateDuration) was updated to add
+    // the trailing rest's seconds, so remainingSeconds won't drop to 0
+    // at the end of the last set anymore — it's the trailing rest's
+    // tick that drives the slide-complete transition.
     if (interSetRestForSlide > 0) {
       // Enter breather. Pause the video at its current frame (no reset).
       setPhase = 'rest';
@@ -2375,7 +2435,10 @@ function advanceSetPhase() {
       pauseActiveVideoForBreather();
     } else {
       // No breather — skip straight to the next set, keep the video
-      // playing without interruption.
+      // playing without interruption. (Last set + no breather is the
+      // legacy single-block path; handled by remainingSeconds=0.)
+      const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
+      if (isLastSet) return;
       currentSetIndex++;
       setPhase = 'set';
       setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
@@ -2384,6 +2447,11 @@ function advanceSetPhase() {
     }
   } else {
     // rest → next set. Bump set index, resume video.
+    // The trailing rest after the last set ends with the slide; the
+    // tick loop's remainingSeconds=0 branch advances the slide before
+    // we reach this code path for that case (no next set exists).
+    const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
+    if (isLastSet) return; // safety: trailing-rest end is owned by onTimerComplete
     currentSetIndex++;
     setPhase = 'set';
     setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
@@ -2391,7 +2459,7 @@ function advanceSetPhase() {
     resetRepCounterForSlide(currentIndex);
     resumeActiveVideoAfterBreather();
   }
-  updateSetProgressBar();
+  updateRepStack();
   updateBreatherOverlay();
 }
 
@@ -2939,113 +3007,156 @@ function updateRestCountdownOverlay() {
 }
 
 /**
- * Milestone Q — render the per-exercise segmented progress bar. One
- * segment per set (coral) + one segment per breather (sage) interleaved.
+ * Wave 21 — render the vertical rep-block stack on the LEFT edge of
+ * the video. Replaces the old horizontal segmented bar.
  *
- * Segment visual states:
- *   * complete — solid full fill
- *   * active   — partial fill driven by `setPhaseRemaining` vs the
- *                phase's total duration; only ONE segment is active at
- *                any moment
- *   * upcoming — empty outline
+ * Layout (bottom-up):
+ *   Set 1 → reps fill upward → trailing rest block
+ *   Set 2 → reps fill upward → trailing rest block
+ *   …
+ *   Set N → reps fill upward → trailing rest block (the "you're done,
+ *           breathe" cue before the slide advances; owned by
+ *           advanceSetPhase()).
  *
- * Always visible on a fresh exercise slide (i.e. before Start Workout)
- * so the client previews their structure up front. The earlier
- * `isWorkoutMode` gate that suppressed it pre-workout was a regression
- * — Carl signed off on showing the bar from first paint. Sets / breather
- * are read directly from the slide payload (NOT from the cached
- * `totalSetsForSlide` / `interSetRestForSlide` state) because those
- * cached values stay at their module defaults (1 / 0) until the workout
- * actually starts and `beginSetMachineForCurrent()` primes them.
+ * Skeleton rebuild — full innerHTML swap is cheap (tens of children
+ * max) and keeps state derivation simple. Section heights are weighted
+ * by `--rep-stack-section-grow` (rep count) so denser sets get more
+ * vertical space proportionally; rest blocks are fixed-height.
+ *
+ * Per-rep paint lives in paintActiveRepBlock() (driven by
+ * handleLoopBoundary). Rest fills are time-based via paintRestFill()
+ * called from the 1Hz onTimerTick().
  *
  * Hidden when:
  *   * rest slides (rest slide already gets #rest-countdown-overlay)
- *   * single-set exercises with no breather (nothing meaningful to show)
+ *   * photos
+ *   * single-set with no breather (nothing meaningful to show)
+ *   * legacy slides with reps null/0 (cleanest fallback per Carl —
+ *     no fake-block fabrication)
  */
-function updateSetProgressBar() {
-  if (!$setProgressBar) return;
+function updateRepStack() {
+  if (!$repStack || !$repStackColumn || !$repStackLabels) return;
   const slide = slides[currentIndex];
 
-  // Read from the slide payload — cached state is unreliable pre-workout.
   const slideSets = slide ? Math.max(1, slide.sets || 1) : 1;
   const slideBreather = slide ? getInterSetRestSeconds(slide) : 0;
+  const slideReps = slide && slide.reps && slide.reps > 0 ? slide.reps : 0;
 
   const eligible = !!slide
     && slide.media_type !== 'rest'
+    && slideReps > 0
     && (slideSets > 1 || slideBreather > 0);
-  $setProgressBar.hidden = !eligible;
+  $repStack.hidden = !eligible;
   if (!eligible) {
-    $setProgressBar.innerHTML = '';
+    $repStackColumn.innerHTML = '';
+    $repStackLabels.innerHTML = '';
+    $repStack.removeAttribute('data-stack-key');
     return;
   }
 
-  const perSet = calculatePerSetSeconds(slide);
-  const reps = slide.reps || 0;
-  const segments = [];
+  // Skeleton key — when unchanged, skip the innerHTML rebuild and just
+  // repaint fills. Rebuilding every tick would interrupt the 200ms
+  // ease-in fill animation on the active rep block.
+  const key = `${currentIndex}|${slideSets}|${slideReps}|${slideBreather}`;
+  if ($repStack.getAttribute('data-stack-key') === key) {
+    paintActiveRepBlock();
+    paintRestFill();
+    return;
+  }
+  $repStack.setAttribute('data-stack-key', key);
+
+  // Build sections — interleave set + rest. Wave 21 spec: every set is
+  // followed by a rest block, INCLUDING the last set ("you're done,
+  // breathe" cue). Skip the trailing rest only when breather is 0.
+  const sections = [];
   for (let i = 0; i < slideSets; i++) {
-    segments.push({ kind: 'set', index: i, total: perSet });
-    if (i < slideSets - 1 && slideBreather > 0) {
-      segments.push({ kind: 'rest', index: i, total: slideBreather });
+    sections.push({ kind: 'set', index: i, reps: slideReps });
+    if (slideBreather > 0) {
+      sections.push({ kind: 'rest', index: i, total: slideBreather });
     }
   }
 
-  // Determine which segment is active. Pre-workout (isWorkoutMode=false)
-  // we leave activeSegIdx=-1 so every segment renders as upcoming — a
-  // calm preview of the structure rather than a fake "in progress" look.
-  let activeSegIdx = -1;
-  if (isWorkoutMode) {
-    for (let s = 0; s < segments.length; s++) {
-      const seg = segments[s];
-      const matchSet = seg.kind === 'set' && setPhase === 'set' && seg.index === currentSetIndex;
-      const matchRest = seg.kind === 'rest' && setPhase === 'rest' && seg.index === currentSetIndex;
-      if (matchSet || matchRest) { activeSegIdx = s; break; }
+  // Column DOM — sections stack bottom-up via flex column-reverse.
+  // `--rep-stack-section-grow` weights each section by its rep count
+  // so dense sets get more vertical space; rest sections use a fixed
+  // height (set in CSS via flex-basis), grow=0 keeps them compact.
+  const colHtml = sections.map((sec) => {
+    if (sec.kind === 'set') {
+      const blocks = [];
+      for (let r = 0; r < sec.reps; r++) {
+        blocks.push(`<div class="rep-stack-block rep-stack-block--rep" data-rep-index="${r}">
+          <div class="rep-stack-block-fill"></div>
+        </div>`);
+      }
+      return `<div class="rep-stack-section rep-stack-section--set"
+                   data-set-index="${sec.index}"
+                   style="--rep-stack-section-grow: ${sec.reps};">
+                ${blocks.join('')}
+              </div>`;
     }
-  }
-
-  // Build / refresh the segment DOM. Rebuild in full — cheap (tens of
-  // children max) and keeps state simple.
-  const html = segments.map((seg, s) => {
-    let stateClass;
-    let fillPct = 0;
-    if (s < activeSegIdx) {
-      stateClass = 'set-progress-bar-segment--complete';
-      fillPct = 100;
-    } else if (s === activeSegIdx) {
-      stateClass = 'set-progress-bar-segment--active';
-      const remaining = Math.max(0, setPhaseRemaining);
-      const total = Math.max(1, seg.total);
-      fillPct = Math.max(0, Math.min(100, ((total - remaining) / total) * 100));
-    } else {
-      stateClass = 'set-progress-bar-segment--upcoming';
-    }
-    const kindClass = seg.kind === 'set'
-      ? 'set-progress-bar-segment--set'
-      : 'set-progress-bar-segment--rest';
-    // Wave 19.7 — active set segment gets a live `{rep} of {reps}` label
-    // driven by handleLoopBoundary's per-loop tick. Completed +
-    // upcoming segments stay at the static `{reps} reps` totals.
-    let label;
-    if (seg.kind === 'rest') {
-      label = `Rest ${seg.total}s`;
-    } else if (s === activeSegIdx) {
-      // Active set segment — live rep counter via handleLoopBoundary.
-      // Treat the in-progress first rep as rep 1 (not rep 0) on first paint;
-      // legacy slides with reps=null show the counter without a denominator.
-      const live = Math.max(1, (loopState.get(currentIndex) || {}).repsInSet || 0);
-      label = reps > 0
-        ? `Set ${seg.index + 1} · ${live} of ${reps}`
-        : `Set ${seg.index + 1} · Rep ${live}`;
-    } else {
-      label = reps > 0 ? `Set ${seg.index + 1} · ${reps} reps` : `Set ${seg.index + 1}`;
-    }
-    return `<div class="set-progress-bar-segment ${kindClass} ${stateClass}"
-                 role="presentation">
-              <div class="set-progress-bar-segment-fill"
-                   style="width: ${fillPct.toFixed(1)}%"></div>
-              <div class="set-progress-bar-segment-label">${escapeHTML(label)}</div>
+    // Rest section — single thinner block, fixed height.
+    return `<div class="rep-stack-section rep-stack-section--rest"
+                 data-rest-index="${sec.index}"
+                 style="flex: 0 0 auto;">
+              <div class="rep-stack-block rep-stack-block--rest" data-rest-index="${sec.index}">
+                <div class="rep-stack-block-fill"></div>
+              </div>
             </div>`;
   }).join('');
-  $setProgressBar.innerHTML = html;
+  $repStackColumn.innerHTML = colHtml;
+
+  // Labels gutter — same section count, mirroring the column's
+  // bottom-up order via column-reverse.
+  const labelHtml = sections.map((sec) => {
+    if (sec.kind === 'set') {
+      return `<div class="rep-stack-labels-section rep-stack-labels-section--set"
+                   style="flex: ${sec.reps} 1 0;">S${sec.index + 1}</div>`;
+    }
+    return `<div class="rep-stack-labels-section rep-stack-labels-section--rest"
+                 style="flex: 0 0 auto; height: var(--rep-stack-rest-height, 14px); margin-top: 2px;">R</div>`;
+  }).join('');
+  $repStackLabels.innerHTML = labelHtml;
+
+  // Apply current state — fills + active marker for the running phase.
+  paintActiveRepBlock();
+  paintRestFill();
+}
+
+/**
+ * Wave 21 — paint the rest-block fill bottom-up over its duration.
+ * Time-based (linear over `interSetRestForSlide` seconds). Driven by
+ * the 1Hz onTimerTick while setPhase === 'rest'. Marks every prior
+ * rest as filled so back-set positions are visually accurate.
+ */
+function paintRestFill() {
+  if (!$repStackColumn) return;
+  const slide = slides[currentIndex];
+  if (!slide || slide.media_type === 'rest') return;
+  const restBlocks = $repStackColumn.querySelectorAll('.rep-stack-block--rest');
+  if (!restBlocks.length) return;
+  const total = Math.max(1, interSetRestForSlide || getInterSetRestSeconds(slide));
+  restBlocks.forEach((block) => {
+    const restIdx = parseInt(block.getAttribute('data-rest-index'), 10);
+    const fill = block.querySelector('.rep-stack-block-fill');
+    if (Number.isNaN(restIdx) || !fill) return;
+    if (restIdx < currentSetIndex) {
+      // A prior set's rest — fully done.
+      block.classList.add('rep-stack-block--filled');
+      block.classList.remove('rep-stack-block--active');
+      fill.style.height = '100%';
+    } else if (restIdx === currentSetIndex && setPhase === 'rest' && isWorkoutMode) {
+      // Currently filling.
+      block.classList.add('rep-stack-block--active');
+      block.classList.remove('rep-stack-block--filled');
+      const remaining = Math.max(0, setPhaseRemaining);
+      const pct = Math.max(0, Math.min(100, ((total - remaining) / total) * 100));
+      fill.style.height = pct.toFixed(1) + '%';
+    } else {
+      block.classList.remove('rep-stack-block--filled');
+      block.classList.remove('rep-stack-block--active');
+      fill.style.height = '0%';
+    }
+  });
 }
 
 /**

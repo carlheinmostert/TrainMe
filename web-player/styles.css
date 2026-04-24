@@ -58,6 +58,9 @@
   --radius-lg: 16px;
   --radius-xl: 20px;
 
+  /* ── Wave 21 — vertical rep-block stack ── */
+  --rep-stack-rest-height: 14px;
+
   /* ── Focus ring (D-07: only surviving shadow token) ── */
   --c-focus-ring: 0 0 0 3px rgba(255, 107, 53, 0.30);
 
@@ -1295,146 +1298,181 @@ video.is-prep-paused {
   text-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
 }
 
-/* === Milestone Q — Post Rep Breather (inter-set rest) ===============
-   Two surfaces:
-     1. .set-progress-bar — segmented strip above the media showing
-        the set / breather structure for the active exercise. Coral
-        segments for sets, sage segments for breathers. Active segment
-        fills from left→right with the phase-local countdown.
-     2. .breather-overlay — sage countdown + restful glyph shown on
-        top of the paused video during the inter-set rest.
-   Both use brand tokens (--c-brand, --c-rest, --c-ink-*) so they
-   inherit any future palette adjustments. */
+/* === Wave 21 — Vertical rep-block stack ============================
+   Replaces the Wave 19.7 horizontal segmented bar. Pinned to the
+   LEFT edge of .card-viewport, vertically centered, ~80% video-
+   height tall. Bottom-up stacking metaphor:
+     Set 1 (bottom)
+       → reps fill upward
+       → trailing rest block
+     Set 2
+       → reps fill upward
+       → trailing rest block
+     …
+     Set N
+       → reps fill upward
+       → TRAILING rest block (the "you're done, breathe" cue before
+         the slide advances — owned by advanceSetPhase()).
 
-.set-progress-bar {
+   Two flex children:
+     .rep-stack-labels — left gutter, section labels (S1, R, S2, …)
+                         vertically centered against each section.
+     .rep-stack-column — the block column itself; one micro-block
+                         per rep + one thinner block per rest.
+
+   Rep blocks: empty = surface-raised + 1px coral-tint border,
+               filled = solid coral, 200ms ease-in fill. Active
+               (next-to-land) gets a 1Hz coral pulse on the outline.
+   Rest blocks: 70% the height of a rep block (eye reads "different
+                category" with no label). Empty = surface-raised +
+                sage-tint border. Filling = solid sage, time-based
+                bottom-up grow over the rest duration.
+
+   Hidden when: rest slide, photo, single-set with no breather, or
+   slide.reps null/0 (legacy). */
+
+.rep-stack {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
+  left: 8px;
+  top: 10%;
+  bottom: 10%;
   display: flex;
   flex-direction: row;
+  align-items: stretch;
   gap: 4px;
-  height: 20px;
+  width: 50px;
   z-index: 12;
   pointer-events: none;
 }
-.set-progress-bar[hidden] { display: none; }
+.rep-stack[hidden] { display: none; }
 
-.set-progress-bar-segment {
-  flex: 1 1 auto;
+.rep-stack-labels {
   position: relative;
-  height: 100%;
-  min-width: 18px;
-  border-radius: 4px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  width: 18px;
+  flex: 0 0 18px;
+  display: flex;
+  flex-direction: column-reverse; /* section 1 sits at the bottom */
 }
-.set-progress-bar-segment--rest {
-  /* Sage breather segments sit visually "between" sets — slightly
-     narrower feel via a thinner min-width and a muted base.
-     Translucent sage fill so upcoming segments are legible
-     pre-workout (Wave 19.5 follow-up — outline-only segments were
-     near-invisible on dark video). */
-  background: var(--c-rest-tint-bg);
-  flex-grow: 0.7;
-  min-width: 14px;
-  background: rgba(134, 239, 172, 0.10);
-  box-shadow: inset 0 0 0 1px var(--c-rest-tint-border);
-}
-.set-progress-bar-segment--set {
-  /* Translucent coral fill so upcoming set segments are legible
-     pre-workout (Wave 19.5 follow-up — outline-only segments were
-     near-invisible on dark video). */
-  background: var(--c-brand-tint-bg);
-  box-shadow: inset 0 0 0 1px var(--c-brand-tint-border);
-}
-
-/* Active segment — visible outline so the eye finds it fast. */
-.set-progress-bar-segment--active.set-progress-bar-segment--set {
-  box-shadow: inset 0 0 0 1.5px var(--c-brand),
-              0 0 12px rgba(255, 107, 53, 0.35);
-}
-.set-progress-bar-segment--active.set-progress-bar-segment--rest {
-  box-shadow: inset 0 0 0 1.5px var(--c-rest),
-              0 0 12px rgba(134, 239, 172, 0.35);
-}
-
-/* Wave 19.7 — Rep tick pulse. Fires on every loop-seam crossfade so
-   the eye gets a clear "rep landed" beat alongside the visual loop.
-   200ms scale + glow swell, then back to baseline. Class is added
-   imperatively in pulseActiveSetSegment(); CSS animation is one-shot. */
-.set-progress-bar-segment--active.is-rep-pulse {
-  animation: rep-tick-pulse 200ms ease-out;
-}
-@keyframes rep-tick-pulse {
-  0% {
-    transform: scale(1);
-    box-shadow: inset 0 0 0 1.5px var(--c-brand),
-                0 0 12px rgba(255, 107, 53, 0.35);
-  }
-  45% {
-    transform: scale(1.045);
-    box-shadow: inset 0 0 0 2px var(--c-brand),
-                0 0 22px rgba(255, 107, 53, 0.75);
-  }
-  100% {
-    transform: scale(1);
-    box-shadow: inset 0 0 0 1.5px var(--c-brand),
-                0 0 12px rgba(255, 107, 53, 0.35);
-  }
-}
-
-/* Complete segments — solid full fill via the fill child. */
-.set-progress-bar-segment-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 0%;
-  background: var(--c-brand);
-  transition: width 0.95s linear;
-  will-change: width;
-}
-.set-progress-bar-segment--rest .set-progress-bar-segment-fill {
-  background: var(--c-rest);
-}
-.set-progress-bar-segment--complete .set-progress-bar-segment-fill {
-  width: 100% !important;
-  transition: none;
-}
-.set-progress-bar-segment--upcoming .set-progress-bar-segment-fill {
-  width: 0% !important;
-  transition: none;
-}
-
-.set-progress-bar-segment-label {
-  position: absolute;
-  inset: 0;
+.rep-stack-labels-section {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-family: var(--f-body);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  color: var(--c-ink-primary);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: clip;
-  padding: 0 6px;
-  pointer-events: none;
-}
-.set-progress-bar-segment--rest .set-progress-bar-segment-label {
-  color: var(--c-rest);
+  justify-content: flex-end;
+  padding-right: 4px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
   letter-spacing: 0.3px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
-.set-progress-bar-segment--complete .set-progress-bar-segment-label {
-  color: rgba(240, 240, 245, 0.85);
+.rep-stack-labels-section--set { color: var(--c-brand); }
+.rep-stack-labels-section--rest { color: var(--c-rest); }
+.rep-stack-labels-section::after {
+  /* Hairline bracket connecting the label to its section's
+     vertical extent. Subtle — just a 1px right edge that runs
+     the full height of the section. */
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: currentColor;
+  opacity: 0.35;
 }
 
-/* Hide labels on narrow segments so a 4-set exercise doesn't clash. */
-@media (max-width: 420px) {
-  .set-progress-bar-segment-label { font-size: 9px; }
+.rep-stack-column {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column-reverse; /* set 1 + first rep at the bottom */
+  gap: 1px;
+}
+
+.rep-stack-section {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+  flex: var(--rep-stack-section-grow, 1) 1 0;
+  min-height: 0;
+}
+.rep-stack-section--rest {
+  /* Rest sections render as a single thinner block — already a
+     single child below; the section just provides the slot. */
+}
+
+.rep-stack-block {
+  position: relative;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 2px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--c-surface-raised);
+  box-shadow: inset 0 0 0 1px var(--c-brand-tint-border);
+}
+.rep-stack-block--rest {
+  /* Single block per rest section; visually shorter than a rep
+     block (~70%) so the eye reads "different category" without a
+     label. The shrink wrapper keeps the bottom-up growth fill
+     anchored to the visible block's bottom edge. */
+  background: var(--c-surface-raised);
+  box-shadow: inset 0 0 0 1px var(--c-rest-tint-border);
+  flex: 0 0 var(--rep-stack-rest-height, 14px);
+  min-height: 6px;
+  margin-top: 2px;
+}
+
+/* Filled rep block — solid coral, animated via the fill child so the
+   200ms ease-in lands smoothly on each loop seam. */
+.rep-stack-block-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0%;
+  background: var(--c-brand);
+  transition: height 200ms ease-in;
+  will-change: height;
+}
+.rep-stack-block--filled .rep-stack-block-fill {
+  height: 100%;
+}
+.rep-stack-block--rest .rep-stack-block-fill {
+  background: var(--c-rest);
+  /* Rest fill is time-based (linear over the rest duration); the
+     200ms ease-in default is overridden inline via element style. */
+  transition: height 0.95s linear;
+}
+
+/* Active rep block — the next one to land. Subtle 1Hz coral pulse on
+   the outline so the eye tracks "you're about to fill here". */
+.rep-stack-block--active {
+  animation: rep-stack-active-pulse 1s ease-in-out infinite;
+}
+@keyframes rep-stack-active-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px var(--c-brand-tint-border);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1.5px var(--c-brand),
+                0 0 6px rgba(255, 107, 53, 0.45);
+  }
+}
+
+/* Active rest block — sage variant of the same pulse so the rest
+   countdown reads as "currently filling" without text. */
+.rep-stack-block--rest.rep-stack-block--active {
+  animation: rep-stack-active-rest-pulse 1s ease-in-out infinite;
+}
+@keyframes rep-stack-active-rest-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px var(--c-rest-tint-border);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1.5px var(--c-rest),
+                0 0 6px rgba(134, 239, 172, 0.45);
+  }
 }
 
 /* === Breather overlay =============================================== */
