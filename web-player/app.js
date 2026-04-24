@@ -10,6 +10,16 @@
  */
 
 // ============================================================
+// Build marker (rendered discreetly in the footer for QA)
+// ============================================================
+//
+// MUST mirror the cache name suffix in `web-player/sw.js`. Both rev
+// together — bumping one without the other will leave the version
+// label stale on a freshly-cached client. Convention: drop the
+// `homefit-player-` prefix; keep the `vN-slug` tail.
+const PLAYER_VERSION = 'v42-vertical-chrome';
+
+// ============================================================
 // Native bridge (Wave 4 Phase 2)
 // ============================================================
 //
@@ -2957,6 +2967,12 @@ async function registerServiceWorker() {
 
 async function init() {
   registerServiceWorker();
+
+  // Discreet build marker in the footer — see PLAYER_VERSION at the
+  // top of this file. Stamped pre-fetch so it's visible even on plan
+  // load failure.
+  const $versionEl = document.getElementById('footer-version');
+  if ($versionEl) $versionEl.textContent = PLAYER_VERSION;
 
   const planId = getPlanIdFromURL();
 

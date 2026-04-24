@@ -715,15 +715,16 @@ body {
 }
 
 /* === Mute toggle ==================================================
-   Speaker-icon button, top-right of card-media. Sits to the LEFT of
-   the global #btn-settings + #btn-fullscreen (both appended to
-   .card-viewport). Post-Milestone P the chrome row is
-   [mute 108] [settings 60] [fullscreen 12]. Only rendered for videos
-   that ship with audio. */
+   Speaker-icon button. Carl 2026-04-24: chrome was a horizontal row
+   [mute 108] [settings 60] [fullscreen 12]; restacked into a tight
+   right-edge column so chrome is "out of the way when not maximised".
+   Now the right column is [fullscreen at top:12 / settings at top:60],
+   and mute moves to right:60 — same row as fullscreen, one button
+   width to its left. Only rendered for videos that ship with audio. */
 .card-media .mute-toggle {
   position: absolute;
   top: 12px;
-  right: 108px;
+  right: 60px;
   width: 40px;
   height: 40px;
   border: none;
@@ -796,15 +797,16 @@ body {
   outline-offset: 2px;
 }
 
-/* === Settings toggle (top-right, left of fullscreen) ==============
-   Per-device playback preferences (Milestone P — segmented background
-   effect opt-out). Mirrors .fullscreen-toggle geometry so the two buttons
-   form a matched pair, and sits 52px further in so it never overlaps the
-   mute affordance (which anchors at right:60px on audio videos). */
+/* === Settings toggle (top-right, BELOW fullscreen) ================
+   Per-device playback preferences (Milestone P + the Wave 19.5
+   "Show me" override). Carl 2026-04-24: stacked under fullscreen
+   instead of beside it so the right-edge chrome occupies a 40px
+   column instead of a 88px horizontal strip — keeps the video
+   uncluttered when not maximised. */
 .settings-toggle {
   position: absolute;
-  top: 12px;
-  right: 60px;
+  top: 60px;
+  right: 12px;
   width: 40px;
   height: 40px;
   border: none;
@@ -847,7 +849,10 @@ body {
 /* === Settings popover ============================================= */
 .settings-popover {
   position: absolute;
-  top: 60px;
+  /* Anchored just below the gear button. With the new vertical chrome
+     stack (Carl 2026-04-24) the gear sits at top:60 — popover offsets
+     by another button-height + gap (40 + 8 = 48) so they don't overlap. */
+  top: 108px;
   right: 12px;
   z-index: 30;
   min-width: 296px;
@@ -1527,6 +1532,19 @@ video.is-prep-paused {
   color: var(--c-ink-secondary);
 }
 
+/* Discreet build marker — visible but not loud. Mirrors the mobile
+   pattern (build SHA at 35% opacity in the HomefitLogo footer on Home).
+   Sits beneath the wordmark; mono font so QA can read it at a glance. */
+.footer-version {
+  margin-top: 2px;
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: 0.2px;
+  color: var(--c-ink-muted);
+  opacity: 0.55;
+  user-select: text;
+}
+
 /* === Workout Timer Mode ========================================== */
 
 .start-workout-btn {
@@ -1881,22 +1899,11 @@ body.is-fullscreen .matrix-circuit-row {
   grid-template-columns: var(--row-template-fs);
 }
 
-body.is-fullscreen .card-media .mute-toggle,
-body.is-fullscreen .settings-toggle,
-body.is-fullscreen .edge-nav,
-body.is-fullscreen .card-notes-overlay,
-body.is-fullscreen .media-pause-overlay {
-  opacity: 0.30;
-  transition: opacity 220ms var(--ease-standard);
-}
-
-body.is-fullscreen.chrome-visible .card-media .mute-toggle,
-body.is-fullscreen.chrome-visible .settings-toggle,
-body.is-fullscreen.chrome-visible .edge-nav:not(:disabled),
-body.is-fullscreen.chrome-visible .card-notes-overlay,
-body.is-fullscreen.chrome-visible .media-pause-overlay {
-  opacity: 1;
-}
+/* Ambient-fullscreen chrome dimming retired (Carl 2026-04-24).
+   The chrome buttons sit on a translucent dark background already —
+   fading them further to 30% made them feel like they were greyed-
+   out controls. They now stay at 100% opacity in all states; the
+   dark-pill background is enough to keep them subtle. */
 
 /* Popover stays 100% alpha while open — if the user opened it in
    ambient fullscreen, we don't want to fade their UI out from under them. */
