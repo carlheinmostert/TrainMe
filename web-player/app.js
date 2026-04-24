@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v46-circuit-photo-rules';
+const PLAYER_VERSION = 'v47-rep-hold';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -2400,13 +2400,34 @@ function hideTimerDisplay() {
 function onTimerTick() {
   if (!isTimerRunning) return;
 
-  remainingSeconds--;
-  // Milestone Q — phase-local timer ticks in lockstep with the overall
-  // remaining counter. When it hits zero we check whether another set
-  // / breather follows on THIS slide before falling through to the next
-  // slide.
-  if (!isRestSlide()) {
-    setPhaseRemaining--;
+  // Carl 2026-04-24: for VIDEO slides, the per-set timer can underestimate
+  // (calculatePerSetSeconds = reps × 3s baseline vs actual video loop ×
+  // reps which can be 4-5s/loop). When the timer wants to advance the
+  // set but the rep counter (driven by handleLoopBoundary on the loop
+  // seam) hasn't caught up, we'd skip from "Rep 7" to "all done, rest"
+  // — exactly the bug Carl reported. Hold the set phase open until
+  // reps land, AND freeze the overall remainingSeconds with it so the
+  // slide doesn't auto-advance mid-set.
+  const slide = slides[currentIndex];
+  const isVideoSlide = !!slide && slide.media_type === 'video';
+  const targetReps = slide && slide.reps && slide.reps > 0 ? slide.reps : null;
+  const repsState = loopState.get(currentIndex);
+  const repsInSet = (repsState && repsState.repsInSet) || 0;
+  const repHold = isVideoSlide
+    && setPhase === 'set'
+    && targetReps !== null
+    && repsInSet < targetReps
+    && setPhaseRemaining <= 0;
+
+  if (!repHold) {
+    remainingSeconds--;
+    // Milestone Q — phase-local timer ticks in lockstep with the overall
+    // remaining counter. When it hits zero we check whether another set
+    // / breather follows on THIS slide before falling through to the next
+    // slide.
+    if (!isRestSlide()) {
+      setPhaseRemaining--;
+    }
   }
 
   if (remainingSeconds <= 0) {
@@ -2424,7 +2445,7 @@ function onTimerTick() {
   // Milestone Q — phase boundary inside the active slide (set → rest or
   // rest → set). The overall `remainingSeconds` keeps ticking; only the
   // phase-local counter wraps.
-  if (!isRestSlide() && setPhaseRemaining <= 0) {
+  if (!isRestSlide() && setPhaseRemaining <= 0 && !repHold) {
     advanceSetPhase();
   }
 
