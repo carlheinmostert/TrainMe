@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 24;
+  static const _dbVersion = 25;
 
   Database? _db;
 
@@ -118,6 +118,8 @@ class LocalStorageService {
         segmented_raw_file_path TEXT,
         mask_file_path TEXT,
         inter_set_rest_seconds INTEGER,
+        start_offset_ms INTEGER,
+        end_offset_ms INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -506,6 +508,29 @@ class LocalStorageService {
       // any translation.
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN inter_set_rest_seconds INTEGER',
+      );
+    }
+    if (oldVersion < 25) {
+      // Per-exercise soft-trim window (Wave 20 / Milestone X).
+      //
+      // Semantics:
+      //   * Both NULL → no trim, full clip plays. Pre-feature behaviour
+      //     for every existing row.
+      //   * Both set → playback (mobile preview AND web player) clamps
+      //     `currentTime` to [start, end] and loops within that window.
+      //
+      // The same trim applies across all three treatments (Line / B&W /
+      // Original) since they share source timing. NO re-conversion — the
+      // underlying media file stays full-length; trim is purely a
+      // playback metadata pair.
+      //
+      // Supabase has matching columns in schema_milestone_x_soft_trim.sql;
+      // round-trip via the wire encoding on `replace_plan_exercises`.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN start_offset_ms INTEGER',
+      );
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN end_offset_ms INTEGER',
       );
     }
   }

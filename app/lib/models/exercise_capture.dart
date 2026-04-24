@@ -171,6 +171,30 @@ class ExerciseCapture {
   /// encoding on [TreatmentX.wireValue] / [treatmentFromWire].
   final Treatment? preferredTreatment;
 
+  /// Soft-trim in-point in milliseconds (Wave 20 / Milestone X).
+  ///
+  /// When set together with [endOffsetMs], the mobile preview AND the
+  /// web player clamp playback to `[startOffsetMs, endOffsetMs]` and
+  /// loop within that window. NO re-conversion: the underlying media
+  /// file stays full-length; trim is purely a playback metadata pair.
+  ///
+  /// The same trim applies across all three treatments (Line / B&W /
+  /// Original) since they share source timing. Switching treatment via
+  /// the vertical pill must NOT reset the trim.
+  ///
+  /// `null` (or [endOffsetMs] null) means "no trim, play the full
+  /// clip" — preserves legacy behaviour for every pre-Wave-20 row.
+  /// Application code enforces start < end and a 0.3s minimum window;
+  /// the DB only guards against negatives via CHECK.
+  ///
+  /// Persistence: local SQLite `exercises.start_offset_ms` (schema v25)
+  /// + Supabase `exercises.start_offset_ms` (Milestone X).
+  final int? startOffsetMs;
+
+  /// Soft-trim out-point in milliseconds (Wave 20 / Milestone X).
+  /// See [startOffsetMs] for the full semantics.
+  final int? endOffsetMs;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -201,6 +225,8 @@ class ExerciseCapture {
     this.grayscaleUrl,
     this.originalUrl,
     this.preferredTreatment,
+    this.startOffsetMs,
+    this.endOffsetMs,
   });
 
   /// Create a new capture with a generated UUID.
@@ -277,6 +303,8 @@ class ExerciseCapture {
       segmentedRawFilePath: map['segmented_raw_file_path'] as String?,
       maskFilePath: map['mask_file_path'] as String?,
       preferredTreatment: treatmentFromWire(map['preferred_treatment']),
+      startOffsetMs: map['start_offset_ms'] as int?,
+      endOffsetMs: map['end_offset_ms'] as int?,
     );
   }
 
@@ -309,6 +337,8 @@ class ExerciseCapture {
       'segmented_raw_file_path': segmentedRawFilePath,
       'mask_file_path': maskFilePath,
       'preferred_treatment': preferredTreatment?.wireValue,
+      'start_offset_ms': startOffsetMs,
+      'end_offset_ms': endOffsetMs,
     };
   }
 
@@ -360,6 +390,10 @@ class ExerciseCapture {
     bool clearOriginalUrl = false,
     Treatment? preferredTreatment,
     bool clearPreferredTreatment = false,
+    int? startOffsetMs,
+    bool clearStartOffsetMs = false,
+    int? endOffsetMs,
+    bool clearEndOffsetMs = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -410,6 +444,11 @@ class ExerciseCapture {
       preferredTreatment: clearPreferredTreatment
           ? null
           : (preferredTreatment ?? this.preferredTreatment),
+      startOffsetMs: clearStartOffsetMs
+          ? null
+          : (startOffsetMs ?? this.startOffsetMs),
+      endOffsetMs:
+          clearEndOffsetMs ? null : (endOffsetMs ?? this.endOffsetMs),
     );
   }
 

@@ -322,6 +322,12 @@ class LocalPlayerServer {
       'prep_seconds': e.prepSeconds,
       'inter_set_rest_seconds': e.interSetRestSeconds,
       'preferred_treatment': e.preferredTreatment?.wireValue,
+      // Soft-trim window (Wave 20 / Milestone X). Both null = no trim,
+      // full clip plays. Both set = the embedded web-player bundle
+      // clamps `<video>.currentTime` to [start, end] and loops within
+      // that window. Same trim applies across all three treatments.
+      'start_offset_ms': e.startOffsetMs,
+      'end_offset_ms': e.endOffsetMs,
       // Three-treatment keys. Same source file covers B&W and Original;
       // the web-player applies grayscale CSS filter to its own side.
       'line_drawing_url': lineUrl,

@@ -693,6 +693,14 @@ class UploadService {
                 // to_jsonb(e)); the player shows a segmented progress
                 // bar + sage countdown chip between sets when sets > 1.
                 'inter_set_rest_seconds': e.interSetRestSeconds,
+                // Soft-trim window (Wave 20 / Milestone X). Both null
+                // = no trim, full clip plays. When set, mobile preview
+                // + web player clamp playback to [start, end] and loop
+                // within that window; same trim applies across all
+                // three treatments. Surfaces on the web player via
+                // get_plan_full (emitted by to_jsonb(e)).
+                'start_offset_ms': e.startOffsetMs,
+                'end_offset_ms': e.endOffsetMs,
               })
           .toList();
 
