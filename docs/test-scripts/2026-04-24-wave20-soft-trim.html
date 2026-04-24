@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 20 soft trim</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist > li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist > li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist > li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row,
+  .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li {
+    position: relative; padding: 4px 0 4px 42px; margin: 0;
+    color: var(--text); font-size: 13px; line-height: 1.5;
+    background: transparent; border: none;
+  }
+  .steps li::before {
+    content: attr(data-sub);
+    position: absolute; left: 0; top: 4px; width: 34px;
+    text-align: right;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px; font-weight: 600; color: var(--text-mute);
+    letter-spacing: 0;
+  }
+  .checklist > li[data-status="pass"] .steps li,
+  .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-24 · Wave 20 · Soft trim</div>
+    <h1>Device QA — Wave 20 soft trim</h1>
+    <p class="lede" style="margin-top: 20px;">
+      <strong>Purpose:</strong> verify the new per-exercise soft-trim feature end-to-end across schema, mobile editor, mobile playback, web player, and persistence.
+      <br><br>
+      <strong>What landed:</strong> a practitioner-controlled in/out window per exercise. Stored as <code>start_offset_ms</code> + <code>end_offset_ms</code> on the exercise row. Playback (mobile preview AND web player) clamps to the window and loops within it. NO re-conversion — the underlying media file stays full-length. Same trim applies across all three treatments (Line / B&amp;W / Original) since they share source timing.
+      <br><br>
+      <strong>Surfaces touched:</strong> Supabase migration (<code>schema_milestone_x_soft_trim.sql</code>; <code>get_plan_full</code> auto-includes the new keys via <code>to_jsonb(e)</code>; <code>replace_plan_exercises</code> extended), mobile <code>ExerciseCapture</code> (schema v25), Studio <code>_MediaViewer</code> (new bottom trim panel + position-clamp listener), web-player bundle (delegated <code>loadedmetadata</code> + <code>timeupdate</code> handlers).
+      <br><br>
+      <strong>SW cache name:</strong> <code>homefit-player-v43-soft-trim</code> (was <code>v42-vertical-chrome</code>). First Safari visit after install should show the new name.
+      <br><br>
+      <strong>Punted:</strong> long-press 4× zoom on the trim panel handles (drag affordance alone in v1).
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Latest <code>./install-device.sh</code> (today). Build SHA on Home footer should match the Wave 20 commits.</li>
+        <li>Safari hard-reload on any plan URL so the service worker advances to <code>homefit-player-v43-soft-trim</code>.</li>
+        <li>A capture that's at least 5 s long so trimming is meaningful — fresh capture today is fine.</li>
+      </ul>
+    </div>
+
+    <h2>A · Schema migration round-trip</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Supabase columns + RPC body include the new fields.</span>
+        <ol class="steps">
+          <li data-sub="1.1">Confirm <code>start_offset_ms</code> + <code>end_offset_ms</code> exist on <code>public.exercises</code> (columns: integer, nullable). Already verified at apply-time on the linked project.</li>
+          <li data-sub="1.2">Capture a fresh video, set a trim window in Studio (any in/out you like), tap Publish.</li>
+          <li data-sub="1.3">In Supabase Studio: <code>SELECT id, start_offset_ms, end_offset_ms FROM exercises WHERE plan_id = '&lt;your-plan-id&gt;';</code> — expect both columns populated.</li>
+          <li data-sub="1.4">Open the plan URL in Safari (or in the practitioner preview WebView); Web Inspector → Network → <code>get_plan_full</code> response — expect <code>start_offset_ms</code> + <code>end_offset_ms</code> on each exercise dict.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>B · Mobile trim-editor UI</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Trim panel is visible only on video exercises ≥ 1s.</span>
+        <ol class="steps">
+          <li data-sub="2.1">In Studio, tap a VIDEO exercise's thumbnail → <code>_MediaViewer</code> opens fullscreen.</li>
+          <li data-sub="2.2">Expect: bottom-anchored trim panel (~96 px tall) above the safe area. Two coral handle pills + greyed bookend track + coral fill band + tick row + readout + (initially) NO reset link.</li>
+          <li data-sub="2.3">Open a PHOTO exercise viewer — expect: NO trim panel. Bottom chrome (mute / dots / play-pause) sits at the original positions.</li>
+          <li data-sub="2.4">Open a REST row from the deck (if any) — expect: viewer doesn't open at all (rest is no-op). Confirms the panel is hidden for rest semantics.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Drag both handles updates the window live.</span>
+        <ol class="steps">
+          <li data-sub="3.1">Drag the LEFT (start) handle to the right ~30% of the bar.</li>
+          <li data-sub="3.2">Expect: coral fill shrinks from the left; greyed bookend grows on the left; tick-row middle readout updates live (<code>m:ss–m:ss</code>).</li>
+          <li data-sub="3.3">Expect: a "Trimmed: m:ss · N reps loops in m:ss" readout under the bar updates live; "⤺ Reset to full video" link appears.</li>
+          <li data-sub="3.4">Drag the RIGHT (end) handle to the left ~70% of the bar.</li>
+          <li data-sub="3.5">Expect: coral fill shrinks from the right; right bookend grows; readouts update live.</li>
+          <li data-sub="3.6">Reset to full video link → tap → expect: both handles snap to the bar ends; the link vanishes.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Minimum 0.3 s window guard — handles cannot cross.</span>
+        <ol class="steps">
+          <li data-sub="4.1">Drag the LEFT handle as far right as it will go.</li>
+          <li data-sub="4.2">Expect: it stops 0.3 s short of the right handle's position; you should feel a light haptic pulse when it bumps the guard. The middle tick-row readout's gap stays at <code>0:00</code>-ish but never inverts.</li>
+          <li data-sub="4.3">Reverse: drag the RIGHT handle as far left as it will go — same behaviour against the left handle.</li>
+          <li data-sub="4.4">Reset to full video.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Tap inside coral range scrubs; tap in greyed bookend is no-op.</span>
+        <ol class="steps">
+          <li data-sub="5.1">Set a trim window of roughly the middle 50% of the bar.</li>
+          <li data-sub="5.2">Tap once inside the coral fill. Expect: video <code>currentTime</code> jumps to that position (the visible frame changes).</li>
+          <li data-sub="5.3">Tap once inside the LEFT greyed bookend. Expect: nothing happens — no scrub, no visible jump (those frames don't exist in the trimmed slice).</li>
+          <li data-sub="5.4">Same for the RIGHT bookend — no-op.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>C · Persistence + treatment switching</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Trim survives close + reopen of the viewer.</span>
+        <ol class="steps">
+          <li data-sub="6.1">Set a trim window (any in/out).</li>
+          <li data-sub="6.2">Tap the Close (X) button top-right.</li>
+          <li data-sub="6.3">Re-tap the same exercise's thumbnail to reopen the viewer.</li>
+          <li data-sub="6.4">Expect: same trim window — handles where you left them; same readouts; "⤺ Reset to full video" link is showing.</li>
+          <li data-sub="6.5">Force-quit + relaunch the app, reopen the viewer — expect the trim is still there (SQLite v25 persistence).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Switching treatment via the vertical pill does NOT reset trim.</span>
+        <ol class="steps">
+          <li data-sub="7.1">Set a trim window. Note the handle positions.</li>
+          <li data-sub="7.2">Cycle to B&amp;W via the left vertical pill (or vertical swipe). Expect: video swaps to the grayscale treatment; trim handles stay where they were; coral fill unchanged.</li>
+          <li data-sub="7.3">Cycle to Original — same: trim unchanged.</li>
+          <li data-sub="7.4">Cycle back to Line — same: trim unchanged.</li>
+          <li data-sub="7.5">Confirms the trim is per-exercise, not per-treatment.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>D · Mobile preview playback</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Mobile <code>_MediaViewer</code> playback respects the trim.</span>
+        <ol class="steps">
+          <li data-sub="8.1">Set a clear trim window — say roughly seconds 1–3 of a 5 s capture.</li>
+          <li data-sub="8.2">Watch the video play. Expect: it never shows frames before the start handle; loops back to the start handle when it crosses the end handle.</li>
+          <li data-sub="8.3">Reset to full video → expect playback resumes the FULL clip end-to-end (no clamp).</li>
+          <li data-sub="8.4">Set the start handle in the middle and the end handle at the right edge → reopen the viewer → expect first painted frame is at the start-handle position, not at 0:00.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>E · Web-player playback</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">Web player respects the trim end-to-end.</span>
+        <ol class="steps">
+          <li data-sub="9.1">Publish the session that has the trim window set.</li>
+          <li data-sub="9.2">Open the plan URL in Safari (hard-reload first so SW caches <code>v43-soft-trim</code>).</li>
+          <li data-sub="9.3">Expect: <code>&lt;video&gt;</code> auto-plays from the trim start; loops back to start when it crosses the trim end. Same for B&amp;W + Original treatments (per-exercise <code>preferred_treatment</code> drives which one renders).</li>
+          <li data-sub="9.4">Web Inspector → Network → confirm the <code>get_plan_full</code> response includes <code>start_offset_ms</code> + <code>end_offset_ms</code> on the trimmed exercise; null on untrimmed ones.</li>
+          <li data-sub="9.5">Expect: NO trim editor visible on the web player — editing is mobile-only. The web player only respects existing metadata.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>F · Backwards compatibility</h2>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">Legacy exercises (null offsets) play the full clip on both surfaces.</span>
+        <ol class="steps">
+          <li data-sub="10.1">Open a session that pre-dates Wave 20 (any older capture you haven't trimmed). Expect: trim panel is still visible (videos always get one once they're past 1 s) but no handles are pulled in — both at the bar ends; no "⤺ Reset" link.</li>
+          <li data-sub="10.2">Play the video → expect: full clip, end-to-end, native loop. Same on the web player after publish.</li>
+          <li data-sub="10.3">Confirms null offsets fall through to "no clamp" — pre-feature behaviour preserved.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 20 verifies the soft-trim feature end-to-end across 5 commits on this worktree branch (schema · model · trim editor · web player · test script). 10 items. Mobile editor wraps for 0.3 s minimum window with light haptic. Long-press 4× zoom on handles is punted — drag alone is acceptable v1.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-24-wave20-soft-trim.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave20-soft-trim', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
