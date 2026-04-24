@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v42-vertical-chrome';
+const PLAYER_VERSION = 'v43-loop-crossfade-rep-tick';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -187,6 +187,34 @@ let setPhase = 'set';
 let setPhaseRemaining = 0;
 // Breather seconds for the active slide (cached).
 let interSetRestForSlide = 0;
+
+// ------------------------------------------------------------------
+// Wave 19.7 — Dual-video crossfade + rep-tick on loop seam.
+//
+// Short clips loop visibly: iOS Safari has a 30-100ms hiccup at the
+// natural-end → seek-to-0 → resume seam. We hide the hiccup by playing
+// two stacked `<video>` elements with the same source and crossfading
+// between them ~250ms before the active one ends. The crossfade
+// plumbing IS the loop detector, so it also drives the per-slide rep
+// counter (Set 1 · {currentRepInSet} of {reps}) + a 200ms scale/glow
+// pulse on the active set segment.
+//
+// State shape:
+//   loopState[slideIndex] = {
+//     activeSlot: 'a' | 'b',
+//     prebuffered: boolean,        // inactive video already kicked off
+//     scheduled: boolean,          // rAF/timeout in flight; do not double-arm
+//     timupHandler, endedHandler,  // bound listeners for cleanup
+//     repsInSet: number,           // current rep within the active set
+//   }
+// Skipped entirely for: photos, rest slides, videos longer than
+// LOOP_CROSSFADE_MAX_DURATION (no perceptual seam at low loop frequency).
+// ------------------------------------------------------------------
+const LOOP_CROSSFADE_LEAD_MS = 250;     // preroll the inactive video this far before duration
+const LOOP_CROSSFADE_MIN_DURATION = 1.2; // < this → fall back to native loop (too short for crossfade)
+const LOOP_CROSSFADE_MAX_DURATION = 12;  // > this → seam is rare, skip the dual-video machinery
+const REP_TICK_PULSE_MS = 200;
+const loopState = new Map();
 
 // Prep-countdown state. Default runway is 5s (Wave 3 / Milestone P);
 // each exercise can override via `prep_seconds` on the get_plan_full
@@ -742,18 +770,52 @@ function buildMedia(exercise, index) {
         </svg>
       </button>
     ` : '';
+    // Dual-video crossfade (Wave 19.7). Two stacked <video> elements
+    // share the same source — the "active" one plays normally; ~250ms
+    // before it reaches `duration` we preroll the inactive one and swap
+    // visible-active via opacity. Eliminates the iOS Safari loop-seam
+    // hiccup. The native `loop` attribute stays as a fallback so the
+    // slide still cycles even if the prebuffer trigger misses
+    // (network-slow, duration < crossfade window). The loop-detector
+    // also drives the rep tick; see scheduleNextLoopBoundary() +
+    // handleLoopBoundary().
+    //
+    // `video-${index}` is kept on the primary element for backward
+    // compatibility with every getElementById call in app.js — the
+    // legacy "active video" lookups still resolve to the right slot.
+    // The secondary lives at `video-${index}-b` and is paused by
+    // default at frame 0.
+    const grayscaleClass = slideT === 'bw' ? 'is-grayscale' : '';
     return `
-      <video
-        id="video-${index}"
-        class="${slideT === 'bw' ? 'is-grayscale' : ''}"
-        src="${escapeHTML(resolvedUrl)}"
-        data-treatment="${slideT}"
-        playsinline
-        loop
-        ${mutedAttr}
-        preload="auto"
-        ${posterAttr}
-      ></video>
+      <div class="video-loop-pair" data-pair-index="${index}">
+        <video
+          id="video-${index}"
+          class="video-loop-slot ${grayscaleClass}"
+          src="${escapeHTML(resolvedUrl)}"
+          data-treatment="${slideT}"
+          data-active="true"
+          data-loop-slot="a"
+          playsinline
+          loop
+          ${mutedAttr}
+          preload="auto"
+          ${posterAttr}
+        ></video>
+        <video
+          id="video-${index}-b"
+          class="video-loop-slot ${grayscaleClass}"
+          src="${escapeHTML(resolvedUrl)}"
+          data-treatment="${slideT}"
+          data-active="false"
+          data-loop-slot="b"
+          playsinline
+          loop
+          muted
+          preload="auto"
+          ${posterAttr}
+          aria-hidden="true"
+        ></video>
+      </div>
       ${muteButton}
     `;
   }
@@ -1296,6 +1358,14 @@ function goTo(index) {
   // Pause any playing videos on current card
   pauseAllVideos();
 
+  // Wave 19.7 — tear down the crossfade machinery on the slide we're
+  // leaving so a stale `ended` event can't tick reps on the new slide,
+  // and reset rep counters on both old + new slides (mid-loop slide
+  // jump should always restart the new slide's count from zero).
+  teardownLoopForSlide(currentIndex);
+  resetRepCounterForSlide(currentIndex);
+  resetRepCounterForSlide(index);
+
   // Cancel any in-flight prep countdown; the new slide gets its own setup.
   clearPrepTimer();
 
@@ -1367,11 +1437,275 @@ function clearPrepTimer() {
 }
 
 function autoPlayCurrentVideo() {
-  const currentVideo = document.getElementById(`video-${currentIndex}`);
+  const currentVideo = getActiveVideoForSlide(currentIndex);
   if (!currentVideo) return;
   currentVideo.play().catch((err) => {
     console.warn('video autoplay blocked:', err);
   });
+  // Wave 19.7 — install the crossfade + rep-tick detector for this slide.
+  // No-op if it's already armed, a photo/rest slide, or shorter than the
+  // crossfade-min threshold (handler falls back to native loop in that
+  // case anyway).
+  installLoopDetectorForSlide(currentIndex);
+}
+
+// ============================================================
+// Wave 19.7 — Dual-video crossfade + rep tick
+// ============================================================
+
+/**
+ * The visually-active <video> for slide `idx`. Pair has slot=a (the
+ * legacy `video-${idx}` element) + slot=b (`video-${idx}-b`). Pre-Wave
+ * 19.7 every slot=a was THE video; the pair is rendered in a tight DOM
+ * wrapper so legacy `getElementById` calls still resolve to the primary
+ * element. This helper picks whichever slot is currently visible —
+ * which is also whichever one is playing.
+ */
+function getActiveVideoForSlide(idx) {
+  const a = document.getElementById(`video-${idx}`);
+  if (!a) return null;
+  const b = document.getElementById(`video-${idx}-b`);
+  if (!b) return a;
+  // data-active='true' on the visible slot. Default state is slot=a
+  // active (build-time wiring in buildMedia()).
+  if (a.getAttribute('data-active') === 'true') return a;
+  if (b.getAttribute('data-active') === 'true') return b;
+  return a;
+}
+
+function getInactiveVideoForSlide(idx) {
+  const active = getActiveVideoForSlide(idx);
+  if (!active) return null;
+  const a = document.getElementById(`video-${idx}`);
+  const b = document.getElementById(`video-${idx}-b`);
+  return active === a ? b : a;
+}
+
+/**
+ * Wire the loop detector + crossfade for a slide. Idempotent — safe to
+ * call on every slide change. Skipped for photos, rest slides,
+ * placeholder cards (no video element), or videos whose duration is
+ * outside the crossfade window (handled inside the listener once
+ * `loadedmetadata` fires).
+ *
+ * The detector listens to `timeupdate` on the active slot. ~250ms
+ * before duration we preroll the inactive slot (currentTime=0,
+ * play()). On `ended` we swap visible-active via CSS opacity (200ms
+ * transition), reset the now-inactive slot, and fire `handleLoopBoundary`
+ * which advances the rep counter + pulses the active set segment.
+ *
+ * `loop` stays on both elements so the visual cycle keeps going if our
+ * scheduling misses (network-slow second video, duration shorter than
+ * the crossfade window, etc). The `ended` event still fires under
+ * native loop on iOS Safari, so the rep tick survives the fallback —
+ * only the visual hiccup comes back.
+ */
+function installLoopDetectorForSlide(idx) {
+  const slide = slides[idx];
+  if (!slide || slide.media_type !== 'video') return;
+  const active = getActiveVideoForSlide(idx);
+  if (!active) return;
+
+  // Already armed for this slide? Detector is per-pair, not per-slot —
+  // when we swap slots we re-attach the listeners in handleLoopBoundary.
+  let state = loopState.get(idx);
+  if (state && state.armed) return;
+
+  state = state || { activeSlot: 'a', repsInSet: 0, armed: false };
+  state.activeSlot = active.getAttribute('data-loop-slot') || 'a';
+  state.armed = true;
+  state.prebuffered = false;
+  loopState.set(idx, state);
+
+  attachLoopListeners(idx, active);
+}
+
+function attachLoopListeners(idx, videoEl) {
+  if (!videoEl) return;
+
+  // `lastTime` lets timeupdate detect both:
+  //   * the prebuffer trigger (currentTime > duration - LOOP_CROSSFADE_LEAD_MS)
+  //   * the loop seam itself (currentTime < lastTime → just wrapped)
+  // We can't rely on the `ended` event because the native `loop`
+  // attribute suppresses it — the browser silently seeks back to 0
+  // and continues. timeupdate fires every ~250ms on iOS Safari, which
+  // is dense enough to catch both events reliably.
+  let lastTime = 0;
+
+  const onTimeUpdate = () => {
+    const dur = videoEl.duration;
+    if (!Number.isFinite(dur) || dur <= 0) return;
+    const inWindow = dur >= LOOP_CROSSFADE_MIN_DURATION
+                  && dur <= LOOP_CROSSFADE_MAX_DURATION;
+    const state = loopState.get(idx);
+    if (!state) { lastTime = videoEl.currentTime; return; }
+
+    const t = videoEl.currentTime;
+
+    // Loop-wrap detection: `loop` makes the browser seek back to 0
+    // without firing `ended`. A drop of more than (duration / 2) is
+    // unambiguously a wrap (rules out small skip-back jitter).
+    if (lastTime > 0 && t + 0.05 < lastTime && (lastTime - t) > dur / 2) {
+      lastTime = t;
+      handleLoopBoundary(idx);
+      return;
+    }
+
+    // Prebuffer trigger.
+    if (!state.prebuffered && inWindow && (dur - t) * 1000 <= LOOP_CROSSFADE_LEAD_MS) {
+      const inactive = getInactiveVideoForSlide(idx);
+      if (inactive) {
+        state.prebuffered = true;
+        try {
+          inactive.currentTime = 0;
+        } catch (_) { /* metadata may not be ready */ }
+        // Force-mute the prerolled slot so the ~250ms overlap window
+        // doesn't play double-audio. Audio handoff happens at the
+        // visible swap below (handleLoopBoundary copies oldActive.muted
+        // onto the new active).
+        inactive.muted = true;
+        inactive.play().catch((err) => {
+          // Network-slow second video — fall back to native loop for
+          // this cycle. The wrap-detect branch above will still fire
+          // the rep tick + reset prebuffered for next cycle.
+          console.warn('crossfade preroll failed; native loop fallback:', err);
+          state.prebuffered = false;
+        });
+      }
+    }
+
+    lastTime = t;
+  };
+
+  videoEl.addEventListener('timeupdate', onTimeUpdate);
+  // `ended` may still fire if the slide ever loses its `loop` attribute
+  // (defensive — keeps the rep tick alive on that path too).
+  const onEnded = () => handleLoopBoundary(idx);
+  videoEl.addEventListener('ended', onEnded);
+  videoEl._homefitLoopHandlers = { onTimeUpdate, onEnded };
+}
+
+function detachLoopListeners(videoEl) {
+  if (!videoEl || !videoEl._homefitLoopHandlers) return;
+  const { onTimeUpdate, onEnded } = videoEl._homefitLoopHandlers;
+  videoEl.removeEventListener('timeupdate', onTimeUpdate);
+  videoEl.removeEventListener('ended', onEnded);
+  videoEl._homefitLoopHandlers = null;
+}
+
+/**
+ * One loop just ended on slide `idx`. Two jobs:
+ *   1. Crossfade — flip data-active so the prebuffered inactive slot
+ *      becomes the visible active slot. Reset the now-inactive slot to
+ *      currentTime=0 + pause so it's ready for the next cycle.
+ *   2. Rep tick — bump repsInSet, redraw the set-progress-bar label,
+ *      pulse the active segment. When repsInSet === slide.reps, the
+ *      breather/next-set state machine takes over (driven by the 1Hz
+ *      tick loop, which is independent — so we just reset repsInSet
+ *      to 0 and let the existing setPhase machinery handle the pause).
+ */
+function handleLoopBoundary(idx) {
+  const slide = slides[idx];
+  if (!slide) return;
+  const state = loopState.get(idx);
+  if (!state) return;
+
+  // --- Crossfade -------------------------------------------------
+  const oldActive = getActiveVideoForSlide(idx);
+  const newActive = getInactiveVideoForSlide(idx);
+  if (newActive && oldActive && newActive !== oldActive) {
+    const dur = oldActive.duration || 0;
+    const inWindow = dur >= LOOP_CROSSFADE_MIN_DURATION
+                  && dur <= LOOP_CROSSFADE_MAX_DURATION;
+    if (state.prebuffered && inWindow) {
+      // Visible swap. CSS handles the 200ms opacity transition.
+      newActive.setAttribute('data-active', 'true');
+      oldActive.setAttribute('data-active', 'false');
+      // Audio handoff: inherit the legacy mute-pref logic. The new
+      // active slot adopts the muted state of the old one.
+      newActive.muted = oldActive.muted;
+      // The native `loop` attribute will have already restarted oldActive;
+      // pause + reset it so it sits idle for the next cycle.
+      try {
+        oldActive.pause();
+        oldActive.currentTime = 0;
+      } catch (_) { /* swallow */ }
+      // Re-arm listeners on the new active slot.
+      detachLoopListeners(oldActive);
+      attachLoopListeners(idx, newActive);
+      state.activeSlot = newActive.getAttribute('data-loop-slot') || state.activeSlot;
+    }
+  }
+  state.prebuffered = false;
+  loopState.set(idx, state);
+
+  // --- Rep tick --------------------------------------------------
+  // Only count reps for the active slide and only while the workout
+  // timer is actually running (a paused workout shouldn't tick reps;
+  // the video is paused too so this branch is mostly defensive).
+  if (idx !== currentIndex) return;
+  if (!isWorkoutMode || !isTimerRunning || isPrepPhase || setPhase !== 'set') return;
+
+  const targetReps = Math.max(1, slide.reps || 10);
+  state.repsInSet = (state.repsInSet || 0) + 1;
+  if (state.repsInSet >= targetReps) {
+    // Set complete from a rep-counting perspective. Reset the per-set
+    // counter; the set→rest transition itself is owned by the 1Hz
+    // tick + advanceSetPhase(), so we don't fire it here. Worst case
+    // they're a tick apart visually, which is below perceptual budget.
+    state.repsInSet = 0;
+  }
+  loopState.set(idx, state);
+
+  // Repaint the set-progress-bar label + flash the active segment.
+  updateSetProgressBar();
+  pulseActiveSetSegment();
+}
+
+/** Trigger the 200ms scale + glow pulse on the active set segment. */
+function pulseActiveSetSegment() {
+  if (!$setProgressBar) return;
+  const seg = $setProgressBar.querySelector('.set-progress-bar-segment--active');
+  if (!seg) return;
+  seg.classList.remove('is-rep-pulse');
+  // Force a reflow so the animation restarts on consecutive reps.
+  // eslint-disable-next-line no-unused-expressions
+  void seg.offsetWidth;
+  seg.classList.add('is-rep-pulse');
+  setTimeout(() => {
+    seg.classList.remove('is-rep-pulse');
+  }, REP_TICK_PULSE_MS);
+}
+
+/** Reset the rep-in-set counter for the active slide (slide jump, set boundary). */
+function resetRepCounterForSlide(idx) {
+  const state = loopState.get(idx);
+  if (!state) return;
+  state.repsInSet = 0;
+  loopState.set(idx, state);
+}
+
+/**
+ * Cleanup loop machinery for a slide we're navigating away from. Pause
+ * + zero both slots so we free the decoder; detach listeners so a
+ * stale `ended` event on a backgrounded slide can't tick reps on the
+ * new slide. State entry stays in the map so the rep counter survives
+ * a back-swipe — installLoopDetectorForSlide() will re-arm listeners.
+ */
+function teardownLoopForSlide(idx) {
+  const a = document.getElementById(`video-${idx}`);
+  const b = document.getElementById(`video-${idx}-b`);
+  [a, b].forEach((v) => {
+    if (!v) return;
+    detachLoopListeners(v);
+    try { v.pause(); } catch (_) { /* swallow */ }
+  });
+  const state = loopState.get(idx);
+  if (state) {
+    state.armed = false;
+    state.prebuffered = false;
+    loopState.set(idx, state);
+  }
 }
 
 function updateUI() {
@@ -1970,12 +2304,16 @@ function advanceSetPhase() {
       currentSetIndex++;
       setPhase = 'set';
       setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+      // Wave 19.7 — fresh set, fresh rep count even when there's no breather.
+      resetRepCounterForSlide(currentIndex);
     }
   } else {
     // rest → next set. Bump set index, resume video.
     currentSetIndex++;
     setPhase = 'set';
     setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+    // Wave 19.7 — fresh set, fresh rep count.
+    resetRepCounterForSlide(currentIndex);
     resumeActiveVideoAfterBreather();
   }
   updateSetProgressBar();
@@ -1990,15 +2328,17 @@ function advanceSetPhase() {
  * touching currentTime.
  */
 function pauseActiveVideoForBreather() {
-  const video = document.getElementById(`video-${currentIndex}`);
+  const video = getActiveVideoForSlide(currentIndex);
   if (video && !video.paused) {
     try { video.pause(); } catch (_) { /* best-effort */ }
   }
+  // Wave 19.7 — entering the breather closes the rep window for this set.
+  resetRepCounterForSlide(currentIndex);
 }
 
 function resumeActiveVideoAfterBreather() {
   if (!isTimerRunning) return;
-  const video = document.getElementById(`video-${currentIndex}`);
+  const video = getActiveVideoForSlide(currentIndex);
   if (video && video.paused) {
     video.play().catch((err) => {
       console.warn('video resume after breather failed:', err);
@@ -2036,7 +2376,7 @@ function pauseTimer() {
   isTimerRunning = false;
   clearWorkoutTimer();
   // Keep the video in sync so it doesn't keep playing while the timer is paused.
-  const currentVideo = document.getElementById(`video-${currentIndex}`);
+  const currentVideo = getActiveVideoForSlide(currentIndex);
   if (currentVideo && !currentVideo.paused) {
     currentVideo.pause();
   }
@@ -2063,7 +2403,7 @@ function resumeTimer() {
   // set phase. During a breather the video is meant to be paused on
   // the last visible frame; resuming the timer just continues counting
   // down the breather.
-  const currentVideo = document.getElementById(`video-${currentIndex}`);
+  const currentVideo = getActiveVideoForSlide(currentIndex);
   if (currentVideo && currentVideo.paused && setPhase !== 'rest') {
     currentVideo.play().catch((err) => {
       console.warn('video resume failed:', err);
@@ -2606,9 +2946,18 @@ function updateSetProgressBar() {
     const kindClass = seg.kind === 'set'
       ? 'set-progress-bar-segment--set'
       : 'set-progress-bar-segment--rest';
-    const label = seg.kind === 'set'
-      ? (reps > 0 ? `Set ${seg.index + 1} · ${reps} reps` : `Set ${seg.index + 1}`)
-      : `Rest ${seg.total}s`;
+    // Wave 19.7 — active set segment gets a live `{rep} of {reps}` label
+    // driven by handleLoopBoundary's per-loop tick. Completed +
+    // upcoming segments stay at the static `{reps} reps` totals.
+    let label;
+    if (seg.kind === 'rest') {
+      label = `Rest ${seg.total}s`;
+    } else if (s === activeSegIdx && reps > 0) {
+      const live = (loopState.get(currentIndex) || {}).repsInSet || 0;
+      label = `Set ${seg.index + 1} · ${live} of ${reps}`;
+    } else {
+      label = reps > 0 ? `Set ${seg.index + 1} · ${reps} reps` : `Set ${seg.index + 1}`;
+    }
     return `<div class="set-progress-bar-segment ${kindClass} ${stateClass}"
                  role="presentation">
               <div class="set-progress-bar-segment-fill"
@@ -2651,19 +3000,32 @@ function updateBreatherOverlay() {
  * digits. Called by startPrepPhase + finishPrepPhase.
  */
 function gateVideoForPrep(shouldGate) {
-  const currentVideo = document.getElementById(`video-${currentIndex}`);
-  if (!currentVideo) return;
-  if (shouldGate) {
-    try {
-      currentVideo.pause();
-      currentVideo.currentTime = 0;
-    } catch (_) {
-      // Ignore — some browsers throw on currentTime set while metadata loads.
+  // Both crossfade slots get gated together so neither leaks frames
+  // behind the prep countdown. Prep is the last moment we can safely
+  // zero the inactive slot — handleLoopBoundary won't do it until the
+  // first natural-end fires post-prep.
+  const a = document.getElementById(`video-${currentIndex}`);
+  const b = document.getElementById(`video-${currentIndex}-b`);
+  [a, b].forEach((v) => {
+    if (!v) return;
+    if (shouldGate) {
+      try {
+        v.pause();
+        v.currentTime = 0;
+      } catch (_) {
+        // Ignore — some browsers throw on currentTime set while metadata loads.
+      }
     }
-  } else {
-    currentVideo.play().catch((err) => {
-      console.warn('video resume after prep failed:', err);
-    });
+  });
+  if (!shouldGate) {
+    // Resume only the visible / active slot; the inactive one stays
+    // paused at frame 0 ready for the crossfade.
+    const active = getActiveVideoForSlide(currentIndex);
+    if (active) {
+      active.play().catch((err) => {
+        console.warn('video resume after prep failed:', err);
+      });
+    }
   }
 }
 

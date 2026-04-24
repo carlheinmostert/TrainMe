@@ -5,7 +5,11 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v42-vertical-chrome';
+// MUST mirror the PLAYER_VERSION const in `web-player/app.js`. Both rev
+// together — bumping one without the other will leave the version label
+// stale on a freshly-cached client. Convention: keep `homefit-player-`
+// prefix here; drop it in PLAYER_VERSION.
+const CACHE_NAME = 'homefit-player-v43-loop-crossfade-rep-tick';
 
 // App shell files — always cached
 const APP_SHELL = [

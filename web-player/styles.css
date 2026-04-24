@@ -714,6 +714,38 @@ body {
   display: block;
 }
 
+/* === Dual-video crossfade pair (Wave 19.7) =========================
+   Two stacked <video> elements share the same source. The "active"
+   one sits at opacity:1, the inactive at opacity:0; on a loop seam
+   we flip data-active and let the 200ms transition do the visible
+   crossfade. Both elements are absolutely positioned so they
+   overlap pixel-perfect. The wrapper inherits the parent
+   .card-media's flex sizing. */
+.video-loop-pair {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.video-loop-pair .video-loop-slot {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  will-change: opacity;
+}
+.video-loop-pair .video-loop-slot[data-active="true"] {
+  opacity: 1;
+  z-index: 2;
+}
+.video-loop-pair .video-loop-slot[data-active="false"] {
+  z-index: 1;
+}
+
 /* === Mute toggle ==================================================
    Speaker-icon button. Carl 2026-04-24: chrome was a horizontal row
    [mute 108] [settings 60] [fullscreen 12]; restacked into a tight
@@ -1326,6 +1358,31 @@ video.is-prep-paused {
 .set-progress-bar-segment--active.set-progress-bar-segment--rest {
   box-shadow: inset 0 0 0 1.5px var(--c-rest),
               0 0 12px rgba(134, 239, 172, 0.35);
+}
+
+/* Wave 19.7 — Rep tick pulse. Fires on every loop-seam crossfade so
+   the eye gets a clear "rep landed" beat alongside the visual loop.
+   200ms scale + glow swell, then back to baseline. Class is added
+   imperatively in pulseActiveSetSegment(); CSS animation is one-shot. */
+.set-progress-bar-segment--active.is-rep-pulse {
+  animation: rep-tick-pulse 200ms ease-out;
+}
+@keyframes rep-tick-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: inset 0 0 0 1.5px var(--c-brand),
+                0 0 12px rgba(255, 107, 53, 0.35);
+  }
+  45% {
+    transform: scale(1.045);
+    box-shadow: inset 0 0 0 2px var(--c-brand),
+                0 0 22px rgba(255, 107, 53, 0.75);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: inset 0 0 0 1.5px var(--c-brand),
+                0 0 12px rgba(255, 107, 53, 0.35);
+  }
 }
 
 /* Complete segments — solid full fill via the fill child. */
