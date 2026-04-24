@@ -165,7 +165,70 @@
            one-line "what this does" helper beneath the switch. -->
       <div id="settings-popover" class="settings-popover" role="dialog" aria-labelledby="settings-popover-title" hidden>
         <div class="settings-popover-title" id="settings-popover-title">Playback</div>
-        <label class="settings-row" for="toggle-segmented-effect">
+
+        <!-- Client-controlled "Show me" override (Wave 19.6, 2026-04-24).
+             Default = "Practitioner's choice" (auto) — each slide plays the
+             treatment the practitioner picked in Studio. Picking Drawn /
+             B&W / Colour forces every video slide to that treatment,
+             ignoring per-exercise practitioner picks. Photo + rest slides
+             are unaffected. Unconsented options are visible-but-disabled
+             with a lock glyph + tooltip; Carl's UX rule is "never hide". -->
+        <div class="settings-row settings-row--stacked">
+          <span class="settings-row-label">Show me</span>
+          <div
+            id="treatment-override"
+            class="treatment-override"
+            role="radiogroup"
+            aria-label="Treatment override"
+          >
+            <button
+              type="button"
+              class="treatment-segment is-active"
+              role="radio"
+              aria-checked="true"
+              data-treatment="auto"
+            >
+              <span class="treatment-segment-label">Practitioner's<br>choice</span>
+            </button>
+            <button
+              type="button"
+              class="treatment-segment"
+              role="radio"
+              aria-checked="false"
+              data-treatment="line"
+            >
+              <span class="treatment-segment-label">Drawn</span>
+            </button>
+            <button
+              type="button"
+              class="treatment-segment"
+              role="radio"
+              aria-checked="false"
+              data-treatment="bw"
+            >
+              <span class="treatment-segment-label">B&amp;W</span>
+              <svg class="treatment-segment-lock" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3.5" y="7" width="9" height="6" rx="1.2"/>
+                <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="treatment-segment"
+              role="radio"
+              aria-checked="false"
+              data-treatment="original"
+            >
+              <span class="treatment-segment-label">Colour</span>
+              <svg class="treatment-segment-lock" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3.5" y="7" width="9" height="6" rx="1.2"/>
+                <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <label class="settings-row" for="toggle-segmented-effect" id="enhanced-background-row">
           <span class="settings-row-main">
             <span class="settings-row-label">Enhanced background</span>
             <span class="settings-row-hint" id="toggle-segmented-effect-hint">Body in focus — background dimmed</span>

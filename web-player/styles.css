@@ -850,7 +850,7 @@ body {
   top: 60px;
   right: 12px;
   z-index: 30;
-  min-width: 260px;
+  min-width: 296px;
   max-width: calc(100vw - 24px);
   background: rgba(26, 29, 39, 0.96);
   border: 1px solid var(--c-surface-border);
@@ -953,6 +953,104 @@ body {
 .settings-switch-input:focus-visible ~ .settings-switch-track {
   outline: 2px solid var(--c-brand);
   outline-offset: 2px;
+}
+
+/* Disabled switch (Wave 19.6) — used when current effective treatment is
+   'line' so the Enhanced Background dimmer has nothing to act on. The
+   <input> stays in the DOM (so its checked state survives a re-enable),
+   but pointer events drop and the visual goes 40% alpha + grayscaled. The
+   tooltip lives on the row's `title=` attribute for hover/long-press. */
+.settings-row.is-disabled {
+  cursor: not-allowed;
+}
+.settings-row.is-disabled .settings-row-label,
+.settings-row.is-disabled .settings-row-hint {
+  opacity: 0.45;
+}
+.settings-row.is-disabled .settings-switch {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+  pointer-events: none;
+}
+
+/* === "Show me" segmented control (Wave 19.6) ====================== */
+/* Stacked row variant — label sits above its control instead of side-by-side.
+   Used by the segmented Show-me control because the 4 segments need the full
+   popover width. */
+.settings-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+  cursor: default;
+}
+
+.treatment-override {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 3px;
+}
+
+.treatment-segment {
+  position: relative;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 4px;
+  min-height: 44px;
+  color: var(--c-ink-secondary);
+  font-family: var(--f-body);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.15;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms var(--ease-standard), color 140ms var(--ease-standard);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.treatment-segment:hover:not(.is-disabled):not(.is-active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--c-ink-primary);
+}
+.treatment-segment.is-active {
+  background: var(--c-brand);
+  color: #FFFFFF;
+}
+.treatment-segment:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+.treatment-segment.is-disabled {
+  cursor: not-allowed;
+  color: rgba(255, 255, 255, 0.32);
+}
+.treatment-segment.is-disabled:hover {
+  background: transparent;
+}
+.treatment-segment-label {
+  display: inline-block;
+}
+.treatment-segment-lock {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 11px;
+  height: 11px;
+  display: none;
+  color: rgba(255, 255, 255, 0.5);
+}
+.treatment-segment.is-disabled .treatment-segment-lock {
+  display: block;
 }
 
 /* === Edge chevron nav (overlaid on video) ========================= */

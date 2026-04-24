@@ -129,9 +129,20 @@ function treatmentFromWire(wire) {
  * practitioner's sticky choice.
  */
 function slideTreatment(exercise) {
-  const candidate = treatmentFromWire(exercise && exercise.preferred_treatment);
   const hasGray = !!(exercise && (exercise.grayscale_segmented_url || exercise.grayscale_url));
   const hasOrig = !!(exercise && (exercise.original_segmented_url || exercise.original_url));
+  // Wave 19.6 — client-controlled override beats the practitioner's pick
+  // when the client has explicitly chosen a treatment in the gear popover.
+  // 'auto' (default) defers to the per-exercise practitioner preference.
+  // For a forced treatment we still defensively fall back to 'line' if the
+  // URL isn't available (the segment is disabled in that case, but a stale
+  // localStorage value from a different plan could land us here).
+  if (clientTreatmentOverride !== 'auto') {
+    if (clientTreatmentOverride === 'line') return 'line';
+    if (clientTreatmentOverride === 'bw') return hasGray ? 'bw' : 'line';
+    if (clientTreatmentOverride === 'original') return hasOrig ? 'original' : 'line';
+  }
+  const candidate = treatmentFromWire(exercise && exercise.preferred_treatment);
   if (candidate === 'bw' && !hasGray) return 'line';
   if (candidate === 'original' && !hasOrig) return 'line';
   return candidate;
@@ -228,6 +239,49 @@ function writeSegmentedEffectPreference(enabled) {
   } catch (_) {
     // Best-effort; if storage is blocked the in-memory flag still drives
     // this session's playback — we just lose persistence across reloads.
+  }
+}
+
+// ----------------------------------------------------------------
+// Client-controlled "Show me" treatment override (Wave 19.6).
+//
+// In `auto` mode (default) the player honours the practitioner's
+// per-exercise `preferred_treatment` (the legacy slideTreatment()
+// behaviour). In `line` / `bw` / `original` mode every video slide is
+// forced to that treatment, ignoring per-exercise picks. Photo + rest
+// slides are unaffected.
+//
+// Stored per-plan (different plans may have different consent posture,
+// so a global preference would surface "this plan doesn't have B&W"
+// confusion when switching between clients on a shared device). The
+// resolved planId is appended to the namespace at boot.
+//
+// Wire-storage values: 'auto' | 'line' | 'bw' | 'original'.
+// ----------------------------------------------------------------
+const TREATMENT_OVERRIDE_STORAGE_PREFIX = 'homefit.playback.treatment::';
+const VALID_OVERRIDES = ['auto', 'line', 'bw', 'original'];
+
+let clientTreatmentOverride = 'auto';
+
+function treatmentOverrideStorageKey(planId) {
+  return TREATMENT_OVERRIDE_STORAGE_PREFIX + (planId || 'unknown');
+}
+
+function readClientTreatmentOverride(planId) {
+  try {
+    const raw = window.localStorage.getItem(treatmentOverrideStorageKey(planId));
+    if (raw && VALID_OVERRIDES.indexOf(raw) !== -1) return raw;
+    return 'auto';
+  } catch (_) {
+    return 'auto';
+  }
+}
+
+function writeClientTreatmentOverride(planId, value) {
+  try {
+    window.localStorage.setItem(treatmentOverrideStorageKey(planId), value);
+  } catch (_) {
+    // Storage blocked — in-memory flag still drives this session.
   }
 }
 
@@ -1243,6 +1297,11 @@ function goTo(index) {
   // the new active slide and hide them on the old one.
   updatePauseOverlay();
   updatePrepOverlay();
+  // Wave 19.6 — Enhanced Background switch enabled-state depends on the
+  // CURRENT slide's effective treatment when in `auto` mode. Re-evaluate
+  // on every slide change so a swipe from a forced-line slide to a colour
+  // slide flips the switch back to enabled.
+  updateEnhancedBackgroundEnabled();
 
   // Auto-play the current slide's video (muted, looped). Safari's autoplay
   // policy may block this if there hasn't been a user gesture yet — swallow
@@ -2109,6 +2168,26 @@ const $btnSettings = document.getElementById('btn-settings');
 const $settingsPopover = document.getElementById('settings-popover');
 const $toggleSegmentedEffect = document.getElementById('toggle-segmented-effect');
 const $toggleSegmentedEffectHint = document.getElementById('toggle-segmented-effect-hint');
+const $treatmentOverride = document.getElementById('treatment-override');
+const $enhancedBackgroundRow = document.getElementById('enhanced-background-row');
+
+// Plan-level consent rollup. `get_plan_full` only emits grayscale_url /
+// original_url on exercises the client has consented to that treatment for —
+// consent is plan-wide, so a single slide carrying a URL means "this plan
+// has consent". Computed once after fetchPlan() lands.
+let planHasGrayscaleConsent = false;
+let planHasOriginalConsent = false;
+
+function recomputePlanConsent() {
+  planHasGrayscaleConsent = false;
+  planHasOriginalConsent = false;
+  if (!plan || !Array.isArray(plan.exercises)) return;
+  for (const ex of plan.exercises) {
+    if (ex && (ex.grayscale_url || ex.grayscale_segmented_url)) planHasGrayscaleConsent = true;
+    if (ex && (ex.original_url || ex.original_segmented_url)) planHasOriginalConsent = true;
+    if (planHasGrayscaleConsent && planHasOriginalConsent) break;
+  }
+}
 
 /** Sync the hint copy to the current toggle state. */
 function updateSegmentedEffectHint() {
@@ -2184,6 +2263,12 @@ function rebindVideoSources() {
     const slideT = slideTreatment(slide);
     const nextUrl = resolveTreatmentUrl(slide, slideT);
     if (!nextUrl) return;
+    // Treatment may have flipped (line ↔ bw ↔ original) under the client
+    // override. Keep the data-attribute + grayscale CSS class in sync with
+    // the live treatment so a forced-B&W slide actually goes greyscale even
+    // when the underlying URL didn't change.
+    videoEl.setAttribute('data-treatment', slideT);
+    videoEl.classList.toggle('is-grayscale', slideT === 'bw');
     // getAttribute is the raw attribute text; videoEl.src is the
     // resolved absolute URL (prefixed with the origin). Compare via
     // the attribute for a stable check.
@@ -2221,6 +2306,89 @@ function rebindVideoSources() {
       videoEl.addEventListener('loadedmetadata', restore, { once: true });
     }
   });
+}
+
+// ----------------------------------------------------------------
+// "Show me" segmented control (Wave 19.6)
+// ----------------------------------------------------------------
+
+/**
+ * Repaint the segmented control — active state, disabled state for
+ * unconsented options, ARIA. Always reflects `clientTreatmentOverride`
+ * + `planHasGrayscaleConsent` + `planHasOriginalConsent`.
+ */
+function paintTreatmentOverride() {
+  if (!$treatmentOverride) return;
+  const segments = $treatmentOverride.querySelectorAll('.treatment-segment');
+  segments.forEach((seg) => {
+    const t = seg.getAttribute('data-treatment');
+    let disabled = false;
+    if (t === 'bw' && !planHasGrayscaleConsent) disabled = true;
+    if (t === 'original' && !planHasOriginalConsent) disabled = true;
+    seg.classList.toggle('is-disabled', disabled);
+    seg.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+    if (disabled) {
+      seg.setAttribute('title', "Your practitioner hasn't enabled this format");
+    } else {
+      seg.removeAttribute('title');
+    }
+    const isActive = !disabled && clientTreatmentOverride === t;
+    seg.classList.toggle('is-active', isActive);
+    seg.setAttribute('aria-checked', isActive ? 'true' : 'false');
+    seg.setAttribute('tabindex', isActive ? '0' : '-1');
+  });
+}
+
+/**
+ * Apply a new override value: persist, rebind every video source, and
+ * re-evaluate the Enhanced Background switch's enabled state (the new
+ * override may flip the current effective treatment to/from line).
+ */
+function applyClientTreatmentOverride(next) {
+  if (!next || VALID_OVERRIDES.indexOf(next) === -1) return;
+  if (next === clientTreatmentOverride) return;
+  clientTreatmentOverride = next;
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  writeClientTreatmentOverride(planId, clientTreatmentOverride);
+  paintTreatmentOverride();
+  rebindVideoSources();
+  updateEnhancedBackgroundEnabled();
+}
+
+/**
+ * The Enhanced Background switch dims the video background. There's
+ * nothing to dim on a line-drawing slide, so the switch is disabled
+ * (visible-but-greyed) whenever the *current effective* treatment is
+ * 'line'. In `auto` mode the effective treatment is per-slide, so this
+ * runs on every slide change. With a forced override the disabled-ness
+ * is constant until the override flips.
+ */
+function updateEnhancedBackgroundEnabled() {
+  if (!$enhancedBackgroundRow || !$toggleSegmentedEffect) return;
+  const slide = slides[currentIndex];
+  // Only video slides have a treatment to consider — for rest / photo
+  // slides we leave the switch enabled (its preference still drives
+  // future video slides).
+  let effective = 'line';
+  if (slide && slide.media_type === 'video') {
+    effective = slideTreatment(slide);
+  } else if (clientTreatmentOverride !== 'auto') {
+    effective = clientTreatmentOverride;
+  } else {
+    // Fall back to scanning the active slide; if it's not a video we
+    // assume the switch should remain enabled.
+    effective = 'bw';
+  }
+  const disabled = effective === 'line';
+  $enhancedBackgroundRow.classList.toggle('is-disabled', disabled);
+  if (disabled) {
+    $enhancedBackgroundRow.setAttribute('title', 'Background dimming applies to colour playback only');
+  } else {
+    $enhancedBackgroundRow.removeAttribute('title');
+  }
+  // Native `disabled` on the input prevents stray taps even if the
+  // pointer-events:none CSS is bypassed (e.g. keyboard tab).
+  $toggleSegmentedEffect.disabled = disabled;
 }
 
 /**
@@ -2805,6 +2973,21 @@ async function init() {
     // Unroll circuits into flat slides array
     slides = unrollExercises(plan);
 
+    // Wave 19.6 — load the persisted "Show me" override for THIS plan and
+    // compute the plan-wide consent rollup BEFORE the first render so
+    // slideTreatment() has correct state when buildCard() resolves URLs.
+    recomputePlanConsent();
+    clientTreatmentOverride = readClientTreatmentOverride(plan && plan.id);
+    // Defensive: a stale localStorage value pointing at a now-unconsented
+    // treatment falls back to 'auto' (and persists the correction).
+    if (clientTreatmentOverride === 'bw' && !planHasGrayscaleConsent) {
+      clientTreatmentOverride = 'auto';
+      writeClientTreatmentOverride(plan && plan.id, 'auto');
+    } else if (clientTreatmentOverride === 'original' && !planHasOriginalConsent) {
+      clientTreatmentOverride = 'auto';
+      writeClientTreatmentOverride(plan && plan.id, 'auto');
+    }
+
     // Render
     renderPlan();
     renderFooterLogo();
@@ -2877,6 +3060,9 @@ async function init() {
         // applySegmentedEffectChange's early-exit when the state didn't
         // actually flip, so the duplicate fire is harmless.
         const handleSegmentedToggle = () => {
+          // Disabled state guard: when the active treatment is line there's
+          // nothing to dim, so no-op even if the gesture leaks through.
+          if ($toggleSegmentedEffect.disabled) return;
           applySegmentedEffectChange(!!$toggleSegmentedEffect.checked);
         };
         $toggleSegmentedEffect.addEventListener('change', handleSegmentedToggle);
@@ -2884,6 +3070,24 @@ async function init() {
           // Defer one tick — Safari fires `click` before the implicit
           // checkbox toggle has updated `.checked` on some code paths.
           setTimeout(handleSegmentedToggle, 0);
+        });
+      }
+
+      // Wave 19.6 — "Show me" segmented override. Click on a segment
+      // applies it (or no-ops if disabled). Paint once now so the
+      // initial popover open reflects the persisted state + consent.
+      if ($treatmentOverride) {
+        paintTreatmentOverride();
+        updateEnhancedBackgroundEnabled();
+        $treatmentOverride.addEventListener('click', (e) => {
+          const seg = e.target && e.target.closest ? e.target.closest('.treatment-segment') : null;
+          if (!seg) return;
+          if (seg.classList.contains('is-disabled')) {
+            // Stays in the popover; tooltip carries the explanation.
+            return;
+          }
+          const next = seg.getAttribute('data-treatment');
+          applyClientTreatmentOverride(next);
         });
       }
       // Outside-click closes the popover. Capture=true so we see the
