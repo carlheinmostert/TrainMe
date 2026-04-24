@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 24 video reps per loop</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist > li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist > li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist > li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row,
+  .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li {
+    position: relative; padding: 4px 0 4px 42px; margin: 0;
+    color: var(--text); font-size: 13px; line-height: 1.5;
+    background: transparent; border: none;
+  }
+  .steps li::before {
+    content: attr(data-sub);
+    position: absolute; left: 0; top: 4px; width: 34px;
+    text-align: right;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px; font-weight: 600; color: var(--text-mute);
+    letter-spacing: 0;
+  }
+  .checklist > li[data-status="pass"] .steps li,
+  .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-24 · Wave 24 · Video reps per loop</div>
+    <h1>Device QA — Wave 24 video reps per loop</h1>
+    <p class="lede" style="margin-top: 20px;">
+      <strong>Purpose:</strong> verify that the practitioner can record a video of N repetitions (default 3, was implicitly 1) and the player times the slide correctly. The manual <code>DURATION PER REP</code> editor is gone — per-rep time is now ALWAYS derived from <code>video_duration ÷ video_reps_per_loop</code>; per-set time = <code>target_reps × per_rep</code>. Single source of truth.
+      <br><br>
+      <strong>What landed:</strong> Supabase column <code>exercises.video_reps_per_loop INT NULL</code> (CHECK &gt; 0) + <code>replace_plan_exercises</code> RPC pass-through. Mobile <code>ExerciseCapture.videoRepsPerLoop</code> field, persistence default 3 on fresh video captures (photos + rest skip). Capture screen has a new muted <code>"Aim for ~3 reps per video"</code> line beneath the existing coral <code>"Hold for video"</code> hint. Studio PACING accordion gains <code>REPS IN VIDEO</code> at the TOP (above PREP) on video exercises only; <code>DURATION PER REP</code> + the From-video / Manual toggle pair are GONE from the UI. Web-player <code>calculatePerSetSeconds</code> rewritten to derive from <code>video_duration_ms / video_reps_per_loop</code>. SW cache + <code>PLAYER_VERSION</code> bumped <code>v52-stack-nav → v53-video-reps</code>.
+      <br><br>
+      <strong>Backwards compatibility:</strong> rows with <code>video_reps_per_loop = NULL</code> are treated as 1 rep per loop on both surfaces — every pre-Wave-24 plan plays exactly as it did before. Legacy plans with a stored <code>custom_duration_seconds</code> override (e.g. position 0 video on Lauren plan <code>8f64489f-f712-4c1c-87b3-f958819cd2ae</code>) still honour the override on read; the editor is just gone.
+      <br><br>
+      <strong>SW cache name:</strong> <code>homefit-player-v53-video-reps</code> (was <code>v52-stack-nav</code>). First Safari visit after install should show the new name.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Latest <code>./install-device.sh</code> (today). Build SHA on Home footer should match the Wave 24 commits.</li>
+        <li>Safari hard-reload on any plan URL so the service worker advances to <code>homefit-player-v53-video-reps</code>.</li>
+        <li>Have a fresh client to publish a brand-new plan against (so <code>video_reps_per_loop</code> writes through the new code path, not as null).</li>
+      </ul>
+    </div>
+
+    <h2>A · Schema round-trip</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Supabase column exists with the CHECK constraint and round-trips through <code>get_plan_full</code>.</span>
+        <ol class="steps">
+          <li data-sub="1.1">Supabase Studio → SQL Editor: <code>SELECT column_name, data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='exercises' AND column_name='video_reps_per_loop';</code></li>
+          <li data-sub="1.2">Expect 1 row: <code>video_reps_per_loop | integer</code>.</li>
+          <li data-sub="1.3">Pick any plan id and run <code>SELECT jsonb_pretty(public.get_plan_full('&lt;plan-uuid&gt;'::uuid) -&gt; 'exercises' -&gt; 0);</code> — confirm the dict has a <code>video_reps_per_loop</code> key (NULL on a pre-Wave-24 row, integer once republished from the new build).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>B · Persistence default — fresh video capture seeds 3</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">A brand-new video capture writes <code>videoRepsPerLoop = 3</code> to SQLite + Supabase.</span>
+        <ol class="steps">
+          <li data-sub="2.1">Open a fresh client. New session. Camera mode → long-press shutter for ~3-5 seconds (record a real short video).</li>
+          <li data-sub="2.2">Wait for line-drawing conversion to complete in Studio.</li>
+          <li data-sub="2.3">Open the exercise card → expand PACING accordion. The first row reads <code>REPS IN VIDEO</code> with the value <code>3</code> in muted text (default — no coral dot).</li>
+          <li data-sub="2.4">Publish. Wait for the success snackbar.</li>
+          <li data-sub="2.5">Supabase Studio: <code>SELECT id, position, video_reps_per_loop, video_duration_ms FROM public.exercises WHERE plan_id = '&lt;plan-uuid&gt;' ORDER BY position;</code>. Expect <code>video_reps_per_loop = 3</code> on the new video row.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>C · PACING accordion — new field present, custom-duration editor gone</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text"><code>REPS IN VIDEO</code> is the FIRST row in the PACING accordion (above PREP). No <code>DURATION PER REP</code> row anywhere. No <code>From video / Manual</code> toggle anywhere.</span>
+        <ol class="steps">
+          <li data-sub="3.1">Studio with the freshly-captured video exercise. Expand PACING.</li>
+          <li data-sub="3.2">Expect rows in this order: <strong>REPS IN VIDEO</strong>, <strong>PREP</strong>, <strong>POST REP BREATHER</strong>. That's it for video — three rows.</li>
+          <li data-sub="3.3">Confirm there is NO row labelled <code>DURATION PER REP</code> and NO segmented pair labelled <code>From video</code> / <code>Manual</code>.</li>
+          <li data-sub="3.4">Tap the dashed <code>3</code> next to <code>REPS IN VIDEO</code> → inline numeric editor opens with <code>&lt; Cancel  [_3_]  Done &gt;</code>. Same affordance pattern as PREP.</li>
+          <li data-sub="3.5">Type <code>5</code>, tap Done. Row updates to <code>5</code> in BOLD WHITE (customised), the PACING collapsed summary now reads e.g. <code>5 reps/video</code> when the accordion closes.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>D · Capture screen guidance</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">A muted line <code>"Aim for ~3 reps per video"</code> sits beneath the coral <code>"Hold for video"</code> hint on first launch of camera mode.</span>
+        <ol class="steps">
+          <li data-sub="4.1">Force-quit the app. Re-launch fresh.</li>
+          <li data-sub="4.2">Open any client → New session → swipe to camera mode (or land on it directly if it's the only session screen).</li>
+          <li data-sub="4.3">Look just above the shutter button. Expect TWO stacked lines:<br>&nbsp;&nbsp;• Line 1 (coral): <code>Hold for video</code><br>&nbsp;&nbsp;• Line 2 (muted grey): <code>Aim for ~3 reps per video</code></li>
+          <li data-sub="4.4">Both lines fade away together after ~3 seconds OR when you long-press the shutter — whichever happens first. Per-process: only seen once per app session (kill + relaunch resets).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>E · Per-set math — new derivation</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Per-set time agrees with <code>(video_duration / video_reps_per_loop) × target_reps</code> on the published plan in Safari.</span>
+        <ol class="steps">
+          <li data-sub="5.1">Take note of the published exercise's <code>video_duration_ms</code> in Supabase (e.g. <code>6000</code>) and the values you set: <code>video_reps_per_loop = 3</code>, <code>reps = 10</code>.</li>
+          <li data-sub="5.2">Expected per-set: <code>(6000 / 1000) / 3 × 10 = 20s</code>.</li>
+          <li data-sub="5.3">Open the plan URL in Safari. Tap Start Workout, then watch the timer chip on the active slide for that exercise. The set-phase countdown should start at ~20s (or whatever your math says) and tick down to 0 before the breather phase begins.</li>
+          <li data-sub="5.4">If the timer chip starts at the WRONG number, suspect either (a) <code>video_reps_per_loop</code> is null on this row (legacy fallback to 1 rep / loop) or (b) the SW cache hasn't advanced (hard-reload Cmd+Shift+R).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>F · Setting <code>video_reps_per_loop = 5</code> changes per-set time on republish</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Editing the field, republishing, then hard-reloading the plan URL produces a different timer chip duration.</span>
+        <ol class="steps">
+          <li data-sub="6.1">Same exercise from Test 5. PACING → tap <code>3</code> → type <code>5</code> → Done.</li>
+          <li data-sub="6.2">Publish (non-structural edit, no credit burn).</li>
+          <li data-sub="6.3">Safari → hard-reload (Cmd+Shift+R). Tap Start Workout → watch the same exercise.</li>
+          <li data-sub="6.4">New expected per-set: <code>(6000 / 1000) / 5 × 10 = 12s</code>. Confirm timer chip starts in that range.</li>
+          <li data-sub="6.5">Web Inspector → Network → <code>get_plan_full</code> Response → confirm the exercise's <code>video_reps_per_loop</code> is <code>5</code>.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>G · Legacy rows — null video_reps_per_loop plays unchanged</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">A pre-Wave-24 plan still plays at its original timing — null is treated as 1 rep / loop on both surfaces.</span>
+        <ol class="steps">
+          <li data-sub="7.1">Reference plan: Lauren <code>8f64489f-f712-4c1c-87b3-f958819cd2ae</code> (position 0 video has <code>custom_duration_seconds = 50</code> per the brief). Open it in Safari WITHOUT republishing.</li>
+          <li data-sub="7.2">Confirm the per-set timer for position 0 still matches the legacy 50s the plan was published with — the new code path falls back to <code>custom_duration_seconds</code> when video_reps_per_loop is null AND the legacy override is non-null.</li>
+          <li data-sub="7.3">Pick any other pre-Wave-24 plan with NO custom_duration_seconds override on its video rows. Confirm those slides time at <code>video_duration × reps</code> (the historical 1-rep-per-loop math, unchanged).</li>
+          <li data-sub="7.4">Web Inspector → Network → <code>get_plan_full</code> → confirm the exercises have <code>video_reps_per_loop: null</code> in the response.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>H · Photos do NOT show <code>REPS IN VIDEO</code></h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Photo exercises don't render the new field; their <code>video_reps_per_loop</code> stays null.</span>
+        <ol class="steps">
+          <li data-sub="8.1">In a session, capture a photo (short-press shutter).</li>
+          <li data-sub="8.2">Studio → expand the photo card's PACING accordion.</li>
+          <li data-sub="8.3">Expect rows: <strong>PREP</strong>, <strong>POST REP BREATHER</strong>. NO <code>REPS IN VIDEO</code> row — there's no video to count reps in.</li>
+          <li data-sub="8.4">Publish. Supabase Studio → confirm the photo row has <code>video_reps_per_loop IS NULL</code>.</li>
+          <li data-sub="8.5">In Safari, the photo slide times at <code>reps × SECONDS_PER_REP (3s baseline)</code> per the existing photo behaviour. Wave 24 didn't change that branch.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 24 verifies the practitioner-records-N-reps-per-video model end-to-end across 5 commits on this worktree branch (Supabase migration + RPC pass-through · ExerciseCapture model + persistence default · Studio PACING + capture-screen guidance · web-player math + cache bump · this test script). 8 items. The retired <code>DURATION PER REP</code> editor is gone from every code path the practitioner sees; the <code>customDurationSeconds</code> column lives on for backwards-compatible reads of pre-Wave-24 plans (so legacy overrides keep playing at their stored timing).
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-24-wave24-video-reps.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave24-video-reps', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
