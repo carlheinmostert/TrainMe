@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
@@ -2067,11 +2068,13 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// segmented variant was derived from. Defaults true to mirror the
   /// web player.
   ///
-  /// This commit lands the source-resolver wiring only; the practitioner-
-  /// facing toggle pill + SharedPreferences persistence ride in the
-  /// follow-up commit.
-  // ignore: prefer_final_fields
+  /// Persisted per-device under [_enhancedBackgroundPrefsKey] in
+  /// SharedPreferences — single global preference, not per-exercise —
+  /// hydrated in [initState] so the viewer opens on the practitioner's
+  /// last choice.
   bool _enhancedBackground = true;
+  static const String _enhancedBackgroundPrefsKey =
+      'homefit.preview.enhanced_background';
 
   /// Wave 20 — debounce for the trim-panel SQLite write. The drag
   /// callback fires every gesture tick; we coalesce to one write per
@@ -2116,6 +2119,71 @@ class _MediaViewerState extends State<_MediaViewer> {
     // Seed from the current exercise's includeAudio (muted = !includeAudio).
     _isMuted = !_current.includeAudio;
     _initVideoForCurrent();
+    // Wave 25 — hydrate the Enhanced Background toggle from SharedPreferences
+    // off the main frame so initState stays sync. Once we know the persisted
+    // value, rebind the active video IF the resolved source path actually
+    // changes (segmented vs untouched archive). No flicker on the common
+    // case where the persisted value matches the default (true).
+    _hydrateEnhancedBackgroundPreference();
+  }
+
+  /// Wave 25 — read the Enhanced Background toggle from SharedPreferences.
+  /// Async-safe: bails on `!mounted`. When the persisted value differs
+  /// from the in-memory default we rebind the active video so playback
+  /// switches sources without the practitioner having to tap the pill.
+  Future<void> _hydrateEnhancedBackgroundPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getBool(_enhancedBackgroundPrefsKey);
+      if (stored == null || !mounted) return;
+      if (stored == _enhancedBackground) return;
+      setState(() => _enhancedBackground = stored);
+      // Only rebind if currently rendering a treatment that consults the
+      // toggle — Line is unaffected, so don't churn the controller.
+      if (_treatment != Treatment.line && _isVideo(_current)) {
+        _initVideoForCurrent();
+      }
+    } catch (e) {
+      debugPrint('MediaViewer: enhanced-bg pref hydrate failed — $e');
+    }
+  }
+
+  /// Whether the Enhanced Background toggle is meaningful for the current
+  /// exercise + treatment. Line drawings have no background to dim, so
+  /// the pill greys out + ignores taps when [_treatment] is
+  /// [Treatment.line]. Photos / rest rows hide the pill entirely (the
+  /// build() guard piggy-backs on `_isVideo`).
+  bool get _enhancedBackgroundEnabled => _treatment != Treatment.line;
+
+  /// Wave 25 — toggle the Enhanced Background pill. Writes to
+  /// SharedPreferences (fire-and-forget) and rebinds the active video
+  /// so the new source loads. Called only when the pill is enabled —
+  /// the build-time guard prevents taps when [_treatment] is
+  /// [Treatment.line].
+  void _onEnhancedBackgroundToggle() {
+    if (!_enhancedBackgroundEnabled) return;
+    HapticFeedback.selectionClick();
+    setState(() => _enhancedBackground = !_enhancedBackground);
+    // Persist — fire-and-forget; the user has already seen the optimistic
+    // pill state change, no need to await.
+    unawaited(
+      () async {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool(
+            _enhancedBackgroundPrefsKey,
+            _enhancedBackground,
+          );
+        } catch (e) {
+          debugPrint('MediaViewer: enhanced-bg pref save failed — $e');
+        }
+      }(),
+    );
+    // Rebind so the new source loads. _initVideoForCurrent rebuilds the
+    // controller from scratch — same pattern the treatment switch uses.
+    if (_isVideo(_current)) {
+      _initVideoForCurrent();
+    }
   }
 
   /// Resolve the treatment to render for [e]: stored preference if set
@@ -2564,6 +2632,10 @@ class _MediaViewerState extends State<_MediaViewer> {
           // nothing to switch between. Consent now lives at the client
           // level on ClientSessionsScreen (Wave 3), so the inline
           // toggle that used to sit below this pill is gone.
+          //
+          // Wave 25 — second pill stacked below: Enhanced Background
+          // toggle (R-10 twin of the web player's gear-popover switch).
+          // Same column, same book-spine rotated geometry.
           if (_isVideo(_current))
             Positioned(
               left: 12,
@@ -2572,21 +2644,33 @@ class _MediaViewerState extends State<_MediaViewer> {
               child: SafeArea(
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: TreatmentSegmentedControl(
-                    orientation: Axis.vertical,
-                    active: _treatment,
-                    grayscaleAvailable: hasArchive,
-                    originalAvailable: hasArchive,
-                    onChanged: _onTreatmentChanged,
-                    onLockTap: _onLockedSegmentTap,
-                    lockedMessages: hasArchive
-                        ? null
-                        : const {
-                            Treatment.grayscale:
-                                'Older capture — re-record to enable.',
-                            Treatment.original:
-                                'Older capture — re-record to enable.',
-                          },
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TreatmentSegmentedControl(
+                        orientation: Axis.vertical,
+                        active: _treatment,
+                        grayscaleAvailable: hasArchive,
+                        originalAvailable: hasArchive,
+                        onChanged: _onTreatmentChanged,
+                        onLockTap: _onLockedSegmentTap,
+                        lockedMessages: hasArchive
+                            ? null
+                            : const {
+                                Treatment.grayscale:
+                                    'Older capture — re-record to enable.',
+                                Treatment.original:
+                                    'Older capture — re-record to enable.',
+                              },
+                      ),
+                      const SizedBox(height: 8),
+                      _EnhancedBackgroundTogglePill(
+                        enabled: _enhancedBackgroundEnabled,
+                        active: _enhancedBackground,
+                        onTap: _onEnhancedBackgroundToggle,
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -2794,6 +2878,107 @@ class _MediaViewerState extends State<_MediaViewer> {
       key: ValueKey('media-viewer-${_treatment.name}'),
       child: videoView,
     );
+  }
+}
+
+/// Wave 25 — Enhanced Background toggle pill for the Studio
+/// `_MediaViewer`. Stacks under the [TreatmentSegmentedControl] in the
+/// left-edge column. Same book-spine rotated geometry as the treatment
+/// pill so the two read as a paired column of controls.
+///
+/// Mirrors the web player's gear-popover "Enhanced background" switch
+/// (R-10 parity, Milestone P+G). When ON, B&W + Original treatments
+/// play the segmented raw file (Vision body-pop + dimmed background).
+/// When OFF, they play the untouched archive.
+///
+/// States:
+///   • Enabled + ON  → coral fill, white text (mirrors active treatment
+///     segment).
+///   • Enabled + OFF → surfaceRaised fill, dim text (mirrors inactive
+///     treatment segment) inside the same hairline-bordered pill.
+///   • Disabled (treatment == Line) → ~40% opacity, no tap response,
+///     tooltip explains why.
+class _EnhancedBackgroundTogglePill extends StatelessWidget {
+  final bool enabled;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _EnhancedBackgroundTogglePill({
+    required this.enabled,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final labelColor = active
+        ? Colors.white
+        : (enabled
+            ? AppColors.textOnDark
+            : AppColors.textSecondaryOnDark.withValues(alpha: 0.6));
+    final labelStyle = TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 11,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.2,
+      color: labelColor,
+    );
+
+    final pill = Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(9999),
+        border: Border.all(color: AppColors.surfaceBorder),
+      ),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        margin: const EdgeInsets.all(3),
+        width: 28,
+        // Tall enough to hold "Enhanced background" rotated bottom-to-top
+        // with comfortable padding. Two-word label needs more room than
+        // the single-word treatment segments (~72px each).
+        height: 132,
+        padding: EdgeInsets.zero,
+        decoration: BoxDecoration(
+          color: active ? AppColors.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(9999),
+        ),
+        alignment: Alignment.center,
+        // Book-spine label: quarterTurns=3 rotates 270° clockwise (= 90°
+        // counter-clockwise) so the baseline reads bottom-to-top — matches
+        // the conventional book-spine direction on iOS/macOS and the
+        // adjacent treatment pill.
+        child: RotatedBox(
+          quarterTurns: 3,
+          child: Text(
+            'Enhanced background',
+            style: labelStyle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
+    );
+
+    final tooltipMessage = enabled
+        ? (active
+            ? 'Enhanced background ON — body pops, background dimmed.'
+            : 'Enhanced background OFF — playing the untouched colour file.')
+        : 'Background dimming applies to colour playback only.';
+
+    final wrapped = Tooltip(
+      message: tooltipMessage,
+      triggerMode: TooltipTriggerMode.tap,
+      child: GestureDetector(
+        onTap: enabled ? onTap : null,
+        behavior: HitTestBehavior.opaque,
+        child: pill,
+      ),
+    );
+
+    if (enabled) return wrapped;
+    return Opacity(opacity: 0.4, child: wrapped);
   }
 }
 
