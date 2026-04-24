@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 21 vertical rep-block stack</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist > li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist > li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist > li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row,
+  .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li {
+    position: relative; padding: 4px 0 4px 42px; margin: 0;
+    color: var(--text); font-size: 13px; line-height: 1.5;
+    background: transparent; border: none;
+  }
+  .steps li::before {
+    content: attr(data-sub);
+    position: absolute; left: 0; top: 4px; width: 34px;
+    text-align: right;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px; font-weight: 600; color: var(--text-mute);
+    letter-spacing: 0;
+  }
+  .checklist > li[data-status="pass"] .steps li,
+  .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-24 · Wave 21 · Vertical rep-block stack</div>
+    <h1>Device QA — Wave 21 vertical rep-block stack</h1>
+    <p class="lede" style="margin-top: 20px;">
+      <strong>Purpose:</strong> verify the new vertical rep-block stack on the LEFT edge of the video, the trailing rest after the LAST set, and the updated total-duration math (every set followed by a rest).
+      <br><br>
+      <strong>What landed:</strong> the horizontal segmented progress bar at the top of the video viewport is gone. In its place, a vertical column on the LEFT shows one micro-block per rep + one thinner block per rest, stacked bottom-up: Set 1 (bottom) reps fill upward, then a rest block, then Set 2, etc. Section labels (<code>S1</code>, <code>R</code>, <code>S2</code>, <code>R</code>, …) sit in a left gutter outside the column. Rep fill is discrete (one rep per video loop seam, 200ms ease-in) — no time-based drift. Rest fill is time-based, sage, bottom-up over the rest duration. The active block (next-to-land) carries a 1Hz pulse on its outline.
+      <br><br>
+      <strong>State-machine update:</strong> <code>advanceSetPhase</code> no longer short-circuits on the last set — every set is now followed by a rest. <code>calculateDuration</code> updated: total = <code>sets × perSet + sets × breather</code> (was <code>(sets − 1) × breather</code>). A sets=3 / breather=15 / per-set=10 exercise totals <strong>75s</strong> now (was 60s).
+      <br><br>
+      <strong>Hidden when:</strong> rest slide, photo, single-set + no breather, or legacy slide with <code>reps</code> null/0 (cleanest fallback per Carl — no fake-block fabrication).
+      <br><br>
+      <strong>SW cache name:</strong> <code>homefit-player-v45-vertical-rep-stack</code> (was <code>v44-soft-trim</code>). <code>PLAYER_VERSION</code> bumped in lockstep — both must match.
+      <br><br>
+      <strong>Punted:</strong> nothing. The stack is fully wired across mobile preview (WebView wrapper) + Safari since both surfaces share the same <code>web-player/</code> bundle.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Latest <code>./install-device.sh</code> (today). Build SHA on Home footer should match the Wave 21 commits.</li>
+        <li>Safari hard-reload on any plan URL so the service worker advances to <code>homefit-player-v45-vertical-rep-stack</code>. Footer build marker should read <code>v45-vertical-rep-stack</code>.</li>
+        <li>A published plan with at least one exercise that has <strong>sets ≥ 2 + reps ≥ 3 + breather ≥ 5s</strong> so the stack has visible structure to verify.</li>
+      </ul>
+    </div>
+
+    <h2>A · Stack visibility</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Stack renders only on eligible video exercises.</span>
+        <ol class="steps">
+          <li data-sub="1.1">Open a published plan in Safari. Land on a video exercise with sets ≥ 2 + reps ≥ 3 + breather ≥ 5s.</li>
+          <li data-sub="1.2">Expect: vertical column visible on the LEFT edge of the video, vertically centered, ~80% of video height. Section labels (<code>S1</code> coral, <code>R</code> sage, <code>S2</code> coral, <code>R</code> sage, …) in a thin gutter to the left of the column, bottom-up.</li>
+          <li data-sub="1.3">Swipe to a PHOTO exercise — expect: stack hidden entirely. No empty column, no labels.</li>
+          <li data-sub="1.4">Swipe to a REST slide — expect: stack hidden. Existing big coral rest countdown overlay is the only chrome.</li>
+          <li data-sub="1.5">Swipe to a single-set exercise with breather=0 (if any) — expect: stack hidden (nothing meaningful to show).</li>
+          <li data-sub="1.6">Open a legacy session (pre-Wave-19 capture, <code>reps</code> may be null) — expect: stack hidden on those slides. The 1Hz tick still drives the slide, just without the visual stack.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>B · Stacking direction</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Bottom-up stacking — Set 1 at the bottom, Set N + trailing rest at the top.</span>
+        <ol class="steps">
+          <li data-sub="2.1">On an exercise with sets=3, reps=5, breather=15s, count the column from BOTTOM to top.</li>
+          <li data-sub="2.2">Expect order: 5 rep blocks (Set 1) → thinner rest block → 5 rep blocks (Set 2) → thinner rest block → 5 rep blocks (Set 3) → thinner rest block (the trailing rest after the LAST set).</li>
+          <li data-sub="2.3">Expect labels match the column ordering: <code>S1</code> aligned with the bottom 5 reps, <code>R</code> with the next thinner block, <code>S2</code> with the middle 5 reps, etc. Topmost label is the trailing <code>R</code>.</li>
+          <li data-sub="2.4">Rest blocks visibly thinner (~70% the height of a rep block) — eye should read "different category" without needing a label inside the block.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>C · Rep-block fill on loop seam</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Each video loop seam fills exactly one rep block with solid coral.</span>
+        <ol class="steps">
+          <li data-sub="3.1">Tap Start Workout. Skip the prep countdown. Watch Set 1.</li>
+          <li data-sub="3.2">Expect: as each video loop completes (you'll see the existing crossfade), the bottom-most empty rep block fills with solid coral via a 200ms ease-in. Rep 1 lands first, then Rep 2 above it, etc.</li>
+          <li data-sub="3.3">Expect: the NEXT empty block above the just-filled one carries a subtle 1Hz coral pulse on its outline — that's the "next to land" indicator.</li>
+          <li data-sub="3.4">When the last rep of Set 1 lands, all 5 blocks are solid coral. The trailing rest block above is NOT filled yet — it starts filling next (sage, time-based).</li>
+          <li data-sub="3.5">No visible "racing-ahead" — the fill should land exactly when the loop seam fires, never before.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>D · Trailing rest after last set</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Last set ends → trailing rest runs full duration → THEN slide advances.</span>
+        <ol class="steps">
+          <li data-sub="4.1">On a sets=2 / breather=10s / reps=3 exercise, watch through to the end.</li>
+          <li data-sub="4.2">Expect: Set 1's reps fill, Set 1's rest fills (sage, ~10s), Set 2's reps fill.</li>
+          <li data-sub="4.3">After Set 2's last rep lands, expect the trailing rest block (top of the column) to start filling with sage, bottom-up. Existing breather overlay (big sage countdown number on the video) appears as usual.</li>
+          <li data-sub="4.4">Wait the full breather duration. Expect: only AFTER the trailing rest finishes does the slide auto-advance to the next exercise (or end the workout if it's the last slide).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>E · Duration math</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Slide total + projected workout finish reflect the new <code>sets × breather</code> rule.</span>
+        <ol class="steps">
+          <li data-sub="5.1">Build a test exercise with sets=3, breather=15s, reps=5, per-rep=2s (so per-set = 10s). Total expected = 3 × 10 + 3 × 15 = 75s. (Was 60s pre-Wave 21.)</li>
+          <li data-sub="5.2">On the workout-timeline strip above the matrix, before tapping Start Workout, the centred remaining-total should read <code>1:15</code> (75s) for that single-slide plan.</li>
+          <li data-sub="5.3">Add a second 60s slide. Expect total = 75 + 60 = 135s = <code>2:15</code>.</li>
+          <li data-sub="5.4">Tap Start Workout. The wall-clock projected finish (right edge of the timeline strip) should align with now() + 2:15.</li>
+          <li data-sub="5.5">Per-pill widths in the matrix (in fullscreen) re-balance proportionally — the 75s pill should be visibly wider than the 60s pill (1.25× ratio).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>F · Solid colours, no faded translucents</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Every block reads as solid against the dark video background.</span>
+        <ol class="steps">
+          <li data-sub="6.1">Look at an exercise where the column is fully visible and you can see both empty and filled blocks.</li>
+          <li data-sub="6.2">Empty rep blocks should be a solid <code>--c-surface-raised</code> dark grey with a 1px coral-tint outline — visible, not translucent.</li>
+          <li data-sub="6.3">Filled rep blocks should be solid coral (<code>#FF6B35</code>) — no opacity haze.</li>
+          <li data-sub="6.4">Rest blocks: empty = solid dark grey + sage outline; filling = solid sage growing bottom-up.</li>
+          <li data-sub="6.5">Section labels: <code>S1</code>/<code>S2</code>/… in solid coral, <code>R</code>s in solid sage. 9px mono. Visible against the video, not faded.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>G · Edge cases</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Skip via chevron resets the stack for the new slide; pause/resume preserves state.</span>
+        <ol class="steps">
+          <li data-sub="7.1">Mid-workout, with several reps already filled in the active set, tap the right chevron to skip to the next exercise.</li>
+          <li data-sub="7.2">Expect: new slide's stack renders fresh (Set 1 empty + active block pulsing on the bottom-most rep). No stale fills from the previous slide leaking through.</li>
+          <li data-sub="7.3">Tap the video to PAUSE. Expect: the stack freezes — no fills change, the active-block pulse continues. Tap again to RESUME — fills pick up from where they were.</li>
+          <li data-sub="7.4">Tap left chevron to go back. Expect: the previous slide's stack resets fresh (no carry-over of the half-completed state from the first visit).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>H · Fullscreen / ambient</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Stack renders normally in fullscreen — no special dim treatment.</span>
+        <ol class="steps">
+          <li data-sub="8.1">Tap Start Workout (auto-fullscreens) on an exercise with the stack visible.</li>
+          <li data-sub="8.2">Expect: the stack still renders on the LEFT edge of the (now fullscreen) video, same colours and behaviour as windowed mode. No special opacity dim — Carl 2026-04-24 retired the ambient chrome dim.</li>
+          <li data-sub="8.3">Tap the video once to reveal chrome (3s window). Stack should be unaffected by the chrome reveal — it's part of the workout scoreboard, always visible.</li>
+          <li data-sub="8.4">Exit fullscreen via the toggle. Stack remains visible at the same position relative to the video.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 21 verifies the vertical rep-block stack + trailing rest after last set + duration math overhaul. 8 items. Single web-player commit (4 files: <code>index.html</code>, <code>styles.css</code>, <code>app.js</code>, <code>sw.js</code>). SW cache + <code>PLAYER_VERSION</code> bumped in lockstep <code>v44-soft-trim → v45-vertical-rep-stack</code>. R-10 parity enforced by the unified-player bundle (no Flutter code touched). Old <code>.set-progress-bar</code> rendering removed wholesale; no dead code left.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-24-wave21-vertical-stack.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave21-vertical-stack', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
