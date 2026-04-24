@@ -701,6 +701,14 @@ class UploadService {
                 // get_plan_full (emitted by to_jsonb(e)).
                 'start_offset_ms': e.startOffsetMs,
                 'end_offset_ms': e.endOffsetMs,
+                // Wave 24 — number of reps captured in the source
+                // video. NULL = legacy / pre-migration row (player
+                // treats as 1 rep per loop). Fresh captures seed to 3
+                // via withPersistenceDefaults(). Per-rep / per-set
+                // time on both mobile preview and the web player
+                // derive from this value (replacing the manual
+                // custom_duration_seconds override in the UI).
+                'video_reps_per_loop': e.videoRepsPerLoop,
               })
           .toList();
 

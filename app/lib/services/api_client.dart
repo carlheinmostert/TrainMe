@@ -586,7 +586,8 @@ class ApiClient {
   /// media_type, reps, sets, hold_seconds, notes, circuit_id,
   /// include_audio, custom_duration_seconds, preferred_treatment,
   /// prep_seconds, inter_set_rest_seconds, start_offset_ms,
-  /// end_offset_ms). Unknown keys are ignored by the RPC.
+  /// end_offset_ms, video_reps_per_loop). Unknown keys are ignored by
+  /// the RPC.
   ///
   /// Pass an empty [rows] list to clear every exercise for the plan.
   Future<void> replacePlanExercises({

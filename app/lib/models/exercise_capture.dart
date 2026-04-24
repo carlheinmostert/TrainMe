@@ -195,6 +195,31 @@ class ExerciseCapture {
   /// See [startOffsetMs] for the full semantics.
   final int? endOffsetMs;
 
+  /// Number of repetitions captured in the source video (Wave 24).
+  ///
+  /// Semantics:
+  ///   * `null` → legacy / pre-migration row. Mobile preview + web
+  ///     player both treat as 1 rep per loop (preserves pre-Wave-24
+  ///     playback math; older plans never wrote this column).
+  ///   * `> 0` → practitioner-set or persistence-default count of reps
+  ///     captured in the video. Fresh captures seed to 3 via
+  ///     [withPersistenceDefaults].
+  ///
+  /// Per-rep + per-set time derive from this value:
+  ///
+  ///   per_rep_seconds = (videoDurationMs / 1000) / videoRepsPerLoop
+  ///   per_set_seconds = (reps ?? 10) × per_rep_seconds
+  ///
+  /// Wave 24 retired the manual [customDurationSeconds] override from
+  /// the UI; the DB column stays for backwards-compatible reads of
+  /// older plans. Photos + rest periods don't carry this field — they
+  /// have no video to count reps in.
+  ///
+  /// Persistence: local SQLite `exercises.video_reps_per_loop`
+  /// (schema v26) + Supabase `exercises.video_reps_per_loop`
+  /// (schema_wave24_video_reps_per_loop.sql).
+  final int? videoRepsPerLoop;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -227,6 +252,7 @@ class ExerciseCapture {
     this.preferredTreatment,
     this.startOffsetMs,
     this.endOffsetMs,
+    this.videoRepsPerLoop,
   });
 
   /// Create a new capture with a generated UUID.
@@ -305,6 +331,7 @@ class ExerciseCapture {
       preferredTreatment: treatmentFromWire(map['preferred_treatment']),
       startOffsetMs: map['start_offset_ms'] as int?,
       endOffsetMs: map['end_offset_ms'] as int?,
+      videoRepsPerLoop: map['video_reps_per_loop'] as int?,
     );
   }
 
@@ -339,6 +366,7 @@ class ExerciseCapture {
       'preferred_treatment': preferredTreatment?.wireValue,
       'start_offset_ms': startOffsetMs,
       'end_offset_ms': endOffsetMs,
+      'video_reps_per_loop': videoRepsPerLoop,
     };
   }
 
@@ -394,6 +422,8 @@ class ExerciseCapture {
     bool clearStartOffsetMs = false,
     int? endOffsetMs,
     bool clearEndOffsetMs = false,
+    int? videoRepsPerLoop,
+    bool clearVideoRepsPerLoop = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -449,6 +479,9 @@ class ExerciseCapture {
           : (startOffsetMs ?? this.startOffsetMs),
       endOffsetMs:
           clearEndOffsetMs ? null : (endOffsetMs ?? this.endOffsetMs),
+      videoRepsPerLoop: clearVideoRepsPerLoop
+          ? null
+          : (videoRepsPerLoop ?? this.videoRepsPerLoop),
     );
   }
 
@@ -473,6 +506,14 @@ class ExerciseCapture {
   /// the seed. Existing rows with a non-null value are never
   /// overwritten, matching the null-fill discipline below.
   ///
+  /// Wave 24 extension (2026-04-24): stamp `videoRepsPerLoop = 3` on
+  /// fresh VIDEO captures (and isometric / hold captures, per Carl's
+  /// "how many hold cycles is in this video?" framing). Photos + rest
+  /// periods skip the seed — they have no video to count reps in.
+  /// Existing rows stay null (no backfill); the player's null-fallback
+  /// branch treats null as 1 rep / loop and preserves pre-Wave-24
+  /// playback math.
+  ///
   /// Exceptions:
   ///   * Rest periods (`mediaType == rest`) have no reps / sets
   ///     semantics — returned unchanged.
@@ -491,28 +532,41 @@ class ExerciseCapture {
     final nextSets = sets ?? 3;
     final nextInterSetRest = interSetRestSeconds ??
         (isIsometric ? null : 15);
+    // Wave 24 — fresh video / hold captures default to 3 reps in the
+    // source clip. Photos + legacy non-video rows stay null and the
+    // player treats null as 1 rep per loop.
+    final nextVideoRepsPerLoop = videoRepsPerLoop ??
+        (mediaType == MediaType.video ? 3 : null);
     if (nextReps == reps &&
         nextSets == sets &&
-        nextInterSetRest == interSetRestSeconds) {
+        nextInterSetRest == interSetRestSeconds &&
+        nextVideoRepsPerLoop == videoRepsPerLoop) {
       return this;
     }
     return copyWith(
       reps: nextReps,
       sets: nextSets,
       interSetRestSeconds: nextInterSetRest,
+      videoRepsPerLoop: nextVideoRepsPerLoop,
     );
   }
 
   /// Estimated duration in seconds for this exercise (all sets).
   /// Rest periods simply return their holdSeconds.
   ///
-  /// For video exercises, "one rep" is the actual video duration (the video
-  /// IS the demonstration of one iteration). For photos, it falls back to
-  /// the config-level [AppConfig.secondsPerRep] constant.
+  /// Wave 24 derivation (mirror of `web-player/app.js :: calculatePerSetSeconds`):
   ///
-  /// Milestone Q — inter-set rest is now per-exercise. The stored
+  ///   per_rep_seconds = (videoDurationMs / 1000) / (videoRepsPerLoop ?? 1)
+  ///   per_set_seconds = (reps ?? 10) × per_rep_seconds + (holdSeconds ?? 0)
+  ///
+  /// Legacy rows with `videoRepsPerLoop == null` fall back to 1 rep per
+  /// loop, preserving pre-Wave-24 playback math. Photos + holds with no
+  /// video duration fall back to [AppConfig.secondsPerRep] (the legacy
+  /// 3s baseline); Wave 24 didn't change that branch.
+  ///
+  /// Milestone Q — inter-set rest is per-exercise. The stored
   /// [interSetRestSeconds] replaces the legacy [AppConfig.restBetweenSets]
-  /// baseline in the math:
+  /// baseline:
   ///
   ///   exercise_total = sets × per_set
   ///                  + max(0, sets - 1) × (interSetRestSeconds ?? 0)
@@ -526,7 +580,7 @@ class ExerciseCapture {
     final perRep = (mediaType == MediaType.video &&
             videoDurationMs != null &&
             videoDurationMs! > 0)
-        ? (videoDurationMs! / 1000).round()
+        ? ((videoDurationMs! / 1000) / (videoRepsPerLoop ?? 1)).round()
         : AppConfig.secondsPerRep;
     final repsTime = (reps ?? 10) * perRep;
     final holdTime = holdSeconds ?? 0;
@@ -537,8 +591,13 @@ class ExerciseCapture {
     return (perSetTime * totalSets) + restTime;
   }
 
-  /// The duration to use everywhere — custom override if set, otherwise
-  /// the auto-calculated estimate.
+  /// The duration to use everywhere — Wave 24 routes the new derivation
+  /// through [estimatedDurationSeconds] and only falls back to the legacy
+  /// [customDurationSeconds] override when the new field is also set on
+  /// the same row (legacy rows captured pre-Wave-24, where the manual
+  /// per-rep field was the only way to override the timing). Fresh
+  /// captures never write `customDurationSeconds`, so the new path is
+  /// the default.
   int get effectiveDurationSeconds =>
       customDurationSeconds ?? estimatedDurationSeconds;
 

@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 25;
+  static const _dbVersion = 26;
 
   Database? _db;
 
@@ -120,6 +120,7 @@ class LocalStorageService {
         inter_set_rest_seconds INTEGER,
         start_offset_ms INTEGER,
         end_offset_ms INTEGER,
+        video_reps_per_loop INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -533,6 +534,28 @@ class LocalStorageService {
         'ALTER TABLE exercises ADD COLUMN end_offset_ms INTEGER',
       );
     }
+    if (oldVersion < 26) {
+      // Wave 24 — number of repetitions captured in the source video.
+      //
+      // Semantics:
+      //   * NULL → legacy / pre-migration row. Player treats as 1 rep
+      //     per loop (preserves pre-Wave-24 playback math).
+      //   * INT > 0 → practitioner-set or persistence-default count.
+      //     Fresh mobile captures seed 3 via
+      //     ExerciseCapture.withPersistenceDefaults().
+      //
+      // Drives per-rep / per-set time on both mobile preview and the
+      // web player:
+      //   per_rep = video_duration_ms/1000 / video_reps_per_loop
+      //   per_set = target_reps × per_rep
+      //
+      // Replaces the manual `custom_duration_seconds` override in the
+      // UI; the DB column lives on for backwards-compatible reads.
+      // Supabase mirror: schema_wave24_video_reps_per_loop.sql.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN video_reps_per_loop INTEGER',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -910,6 +933,10 @@ class LocalStorageService {
     if (prev.preferredTreatment != next.preferredTreatment) return true;
     if ((prev.notes ?? '') != (next.notes ?? '')) return true;
     if (prev.circuitId != next.circuitId) return true;
+    // Wave 24 — changing the number of reps captured in the source
+    // video is a semantic content edit; it shifts the per-rep / per-set
+    // playback math on both surfaces.
+    if (prev.videoRepsPerLoop != next.videoRepsPerLoop) return true;
     return false;
   }
 

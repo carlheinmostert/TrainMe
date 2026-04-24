@@ -141,6 +141,13 @@
       // treatments since they share source timing.
       start_offset_ms: e.start_offset_ms ?? null,
       end_offset_ms: e.end_offset_ms ?? null,
+      // Wave 24 — number of reps captured in the source video. NULL =
+      // legacy / pre-migration row (player treats as 1 rep per loop,
+      // preserving pre-Wave-24 playback math). Drives the per-rep /
+      // per-set time derivation in calculatePerSetSeconds /
+      // calculateDuration; replaces the manual custom_duration_seconds
+      // override in the practitioner UI.
+      video_reps_per_loop: e.video_reps_per_loop ?? null,
     }));
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     return { ...payload, exercises };
@@ -203,6 +210,13 @@
       // treatments since they share source timing.
       start_offset_ms: e.start_offset_ms ?? null,
       end_offset_ms: e.end_offset_ms ?? null,
+      // Wave 24 — number of reps captured in the source video. NULL =
+      // legacy / pre-migration row (player treats as 1 rep per loop,
+      // preserving pre-Wave-24 playback math). Drives the per-rep /
+      // per-set time derivation in calculatePerSetSeconds /
+      // calculateDuration; replaces the manual custom_duration_seconds
+      // override in the practitioner UI.
+      video_reps_per_loop: e.video_reps_per_loop ?? null,
     }));
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
