@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v53-stack-nav-pointer-events';
+const PLAYER_VERSION = 'v54-video-reps';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -2054,39 +2054,82 @@ function effectiveSetsForSlide(slide) {
 }
 
 /**
- * Milestone Q — per-set duration (reps × per-rep + hold). Exposed as
- * a helper so the set/rest state machine can derive set boundaries
- * consistently with the total duration.
+ * Per-set duration in seconds. Exposed as a helper so the set/rest
+ * state machine can derive set boundaries consistently with the total
+ * exercise duration.
+ *
+ * Wave 24 derivation (single source of truth, replaces the manual
+ * `custom_duration_seconds` override that the practitioner UI used to
+ * expose):
+ *
+ *   video_reps = slide.video_reps_per_loop ?? 1   // null = legacy 1-rep
+ *   target_reps = slide.reps || 10
+ *   video_dur_s = (slide.video_duration_ms || 0) / 1000
+ *
+ *   if (video_dur_s > 0 && video_reps > 0):
+ *     per_rep = video_dur_s / video_reps
+ *     per_set = target_reps × per_rep + (slide.hold_seconds || 0)
+ *   else if (slide.custom_duration_seconds):
+ *     // legacy fallback only — pre-Wave-24 plans persisted a manual
+ *     // override before the field was retired from the UI. We honour
+ *     // it on read so old plans keep playing at their old timing.
+ *     per_set = total / sets   (clamped to 1)
+ *   else:
+ *     // photos + ancient legacy with no video probe + no override
+ *     per_set = target_reps × SECONDS_PER_REP + hold
+ *
+ * The fractional-loop case (target_reps not a multiple of video_reps,
+ * e.g. 10 target / 3 in video → per_rep = 1/3 of video) is handled
+ * naturally: per_set covers the wall-clock budget the slide should
+ * play for; the video element loops itself across the runway and the
+ * slide advances when the wall-clock budget elapses. No mid-loop
+ * fractional pause logic — Carl's "duration is truth" rule from
+ * earlier today still applies.
+ *
+ * Mirror in mobile: `ExerciseCapture.estimatedDurationSeconds` in
+ * app/lib/models/exercise_capture.dart uses the same derivation.
  */
 function calculatePerSetSeconds(slide) {
+  const targetReps = slide.reps || 10;
+  const holdPerSet = slide.hold_seconds || 0;
+  const videoDurMs = slide.video_duration_ms || 0;
+  const videoReps = slide.video_reps_per_loop || 1;
+
+  if (videoDurMs > 0 && videoReps > 0) {
+    const perRep = (videoDurMs / 1000) / videoReps;
+    return Math.max(1, Math.round((targetReps * perRep) + holdPerSet));
+  }
+
+  // Legacy fallback path — pre-Wave-24 plans that captured a manual
+  // override before the UI was retired. Same arithmetic as before.
   if (slide.custom_duration_seconds) {
-    // Manual total / sets; rounded down to the nearest integer second.
-    // Circuits are always 1 set per slide — see effectiveSetsForSlide.
     const sets = effectiveSetsForSlide(slide);
     if (sets <= 1) return slide.custom_duration_seconds;
     return Math.max(1, Math.floor(slide.custom_duration_seconds / sets));
   }
-  const reps = slide.reps || 10;
-  const holdPerSet = slide.hold_seconds || 0;
-  return (reps * SECONDS_PER_REP) + holdPerSet;
+
+  return (targetReps * SECONDS_PER_REP) + holdPerSet;
 }
 
 /**
- * Calculate the duration in seconds for an exercise slide.
- * Uses custom_duration_seconds if set, otherwise computes from reps/sets/hold.
+ * Calculate the total duration in seconds for an exercise slide.
  *
- * Wave 21 math (updated for trailing rest):
+ * Wave 21 math (trailing rest):
  *   exercise_total = sets × per_set
  *                  + sets × COALESCE(inter_set_rest_seconds, 0)
  *
- * Every set is now followed by a rest — the trailing rest after the
- * last set is the "you're done, breathe before the next exercise"
- * cue. Was: `(sets - 1) × breather`; now: `sets × breather`.
+ * Every set is followed by a rest — the trailing rest after the last
+ * set is the "you're done, breathe before the next exercise" cue.
  *
- * custom_duration_seconds stores the total across all sets (per-rep ×
- * reps × sets from the Studio UI), so we add the inter-set rest ON TOP
- * of it — the practitioner's "per-rep" choice doesn't include breather
- * time.
+ * Wave 24 — `per_set` is the new derivation in
+ * [calculatePerSetSeconds] (videoDuration / videoRepsPerLoop). The
+ * legacy `custom_duration_seconds` branch lives on inside
+ * `calculatePerSetSeconds` for pre-Wave-24 plans, so this top-level
+ * function no longer special-cases it: it always goes through
+ * per_set × sets + restTotal. Same total either way for legacy plans
+ * (custom_duration_seconds historically stored the per-set TOTAL
+ * across reps; the inner branch divides by sets to get per_set, which
+ * we then multiply back here — algebra holds).
  */
 function calculateDuration(slide) {
   if (slide.media_type === 'rest') {
@@ -2097,10 +2140,6 @@ function calculateDuration(slide) {
   const sets = effectiveSetsForSlide(slide);
   const breather = getInterSetRestSeconds(slide);
   const restTotal = sets * breather;
-
-  if (slide.custom_duration_seconds) {
-    return slide.custom_duration_seconds + restTotal;
-  }
 
   const perSet = calculatePerSetSeconds(slide);
   return (perSet * sets) + restTotal;
