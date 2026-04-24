@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 26 end-of-day canonical</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 12px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-04-24 · Wave 26 · End-of-day canonical</div>
+    <h1>Device QA — Wave 26 end-of-day canonical</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> single canonical script for the full state of the player + mobile preview as of EOD 2026-04-24. Supersedes Waves 22, 23, 24, 25 (all moved to Past). Covers everything Carl approved through the day's iteration: photos three-treatment, video reps per loop, vertical rep stack with all polish, "Body focus" toggle parity (web + mobile), trim handles with live-frame scrub.
+      <br><br>
+      <strong>Live now:</strong> SW cache <code>homefit-player-v57-body-focus-label</code>. Footer chip on every plan reads <code>v57-body-focus-label</code> or higher. Latest install-device today landed all Flutter changes through commit <code>fc101ae</code>.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Latest install-device from EOD 2026-04-24 (build SHA on Home footer reflects today).</li>
+        <li>Hard-reload any plan URL on the iPhone in Safari so SW advances to <code>v57-body-focus-label</code>.</li>
+        <li>A fully-consented client (Lauren works — grayscale + original both granted).</li>
+        <li>A fresh capture made TODAY (so capture defaults + video_reps_per_loop=3 are in the cloud).</li>
+        <li>For circuit-specific items: a 2-exercise circuit with at least 3 rounds.</li>
+      </ul>
+    </div>
+
+    <h2>A · Capture &amp; data</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Fresh capture persists sets=3 / reps=10 / breather=15 / video_reps_per_loop=3 to the cloud.</span>
+        <ol class="steps">
+          <li data-sub="1.1">Capture a fresh video exercise. Don't touch any field.</li>
+          <li data-sub="1.2">Studio PACING accordion shows REPS=10, SETS=3, POST REP BREATHER=15s, REPS IN VIDEO=3 — all populated, all top-of-accordion.</li>
+          <li data-sub="1.3">Publish. Verify via <code>supabase db query --linked "SELECT sets, reps, inter_set_rest_seconds, video_reps_per_loop FROM exercises WHERE plan_id='&lt;plan&gt;' ORDER BY position"</code> that all four are non-null on the new row.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Capture screen has the muted "Aim for ~3 reps per video" hint.</span>
+        <ol class="steps">
+          <li data-sub="2.1">Open Camera mode. Existing coral hint "Hold for video" / "long-press to record" is still visible.</li>
+          <li data-sub="2.2">A second muted line below it reads <strong>"Aim for ~3 reps per video"</strong> — same auto-fade window as the first line.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>B · Studio · per-exercise preview (_MediaViewer)</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">PACING accordion has REPS IN VIDEO at the TOP; legacy DURATION PER REP row is GONE.</span>
+        <ol class="steps">
+          <li data-sub="3.1">Open a fresh video exercise card → PACING accordion.</li>
+          <li data-sub="3.2">First row reads "REPS IN VIDEO: 3" — editable inline (tap to change).</li>
+          <li data-sub="3.3">No "DURATION PER REP" row anywhere. No "From video / Manual" toggle.</li>
+          <li data-sub="3.4">Photo cards: REPS IN VIDEO row is hidden (photos have no video).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Body focus pill: horizontal, bottom-left, above mute pill.</span>
+        <ol class="steps">
+          <li data-sub="4.1">Tap a video exercise's thumbnail → <code>_MediaViewer</code> opens.</li>
+          <li data-sub="4.2">Bottom-left has TWO stacked horizontal pills: top = "Body focus" (with blur icon), bottom = mute pill ("Audio on" / "Muted").</li>
+          <li data-sub="4.3">Body focus active (default): coral fill, white text, blur-on icon.</li>
+          <li data-sub="4.4">Tap to toggle: outlined + coral text + blur-off icon. Video re-binds (same currentTime, swaps source between segmented and raw).</li>
+          <li data-sub="4.5">Set treatment to Drawn (vertical pill on left) — Body focus pill greys to ~40% opacity, untappable.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Trim handles pause + live-frame scrub + resume.</span>
+        <ol class="steps">
+          <li data-sub="5.1">Open a video exercise &gt; 1s in <code>_MediaViewer</code>. Trim panel visible at bottom.</li>
+          <li data-sub="5.2">With video playing, press a handle: video pauses immediately.</li>
+          <li data-sub="5.3">Drag the handle: video shows the actual frame at the dragged position (live scrub).</li>
+          <li data-sub="5.4">Release: video resumes from the dragged position.</li>
+          <li data-sub="5.5">If video was paused before drag-down, it stays paused on release.</li>
+          <li data-sub="5.6">Same on both start AND end handles.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>C · Web player chrome</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Vertical chrome stack on right edge — no ambient dim, footer carries build marker.</span>
+        <ol class="steps">
+          <li data-sub="6.1">Open any plan in Safari. Top-right has fullscreen + settings gear stacked vertically; mute pill sits to the LEFT of fullscreen.</li>
+          <li data-sub="6.2">Tap fullscreen — chrome stays at full opacity (no 30% ambient dim).</li>
+          <li data-sub="6.3">Footer chip reads <strong><code>v57-body-focus-label</code></strong> (or whatever the latest cache name is).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>D · "Show me" + Body focus (web gear popover)</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Gear popover surfaces "Show me" segmented + "Body focus" switch (renamed from "Enhanced background").</span>
+        <ol class="steps">
+          <li data-sub="7.1">Tap gear. Popover heading reads <strong>"Show me"</strong>; 4-position control: <code>Practitioner's choice · Drawn · B&amp;W · Colour</code>.</li>
+          <li data-sub="7.2">Below the divider: <strong>"Body focus"</strong> switch (was "Enhanced background"). Hint reads "Body in focus — background dimmed".</li>
+          <li data-sub="7.3">Default: Practitioner's choice ON; Body focus ON.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Show me override flips treatment globally + persists per-plan + locks unconsented.</span>
+        <ol class="steps">
+          <li data-sub="8.1">Flip to Colour → every video plays untouched colour.</li>
+          <li data-sub="8.2">Flip to B&amp;W → CSS grayscale filter on top of the colour source.</li>
+          <li data-sub="8.3">Flip to Drawn → line drawing. Body focus switch greys out (no background to dim).</li>
+          <li data-sub="8.4">Close + reopen the plan: Show me override persists. Open a different plan: starts at Practitioner's choice (per-plan key).</li>
+          <li data-sub="8.5">Open a single-consent plan (caitlyns, Kosie): B&amp;W + Colour locked with greyed appearance.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>E · Vertical rep stack (left edge)</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">Stack visibility, layout, and labels.</span>
+        <ol class="steps">
+          <li data-sub="9.1">Multi-rep slide: stack visible on left edge, ~80% of video height, bottom-up.</li>
+          <li data-sub="9.2">For sets=3 / reps=10 / breather=15: 30 coral rep blocks + 3 sage rest blocks (incl. trailing) — all SAME size.</li>
+          <li data-sub="9.3">Labels OUTSIDE column to the LEFT: <code>S1, R, S2, R, S3, R</code> (top to bottom). Coral for sets, sage for rests. Thin connector brackets.</li>
+          <li data-sub="9.4">Hide rules: rest slide → hidden. sets=1 + reps=1 → hidden. Legacy reps=null → hidden.</li>
+          <li data-sub="9.5">Photos with reps &gt; 1: stack visible (Carl's "photos still have reps" rule).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">Active block doubles as per-rep progress bar; landing is smooth.</span>
+        <ol class="steps">
+          <li data-sub="10.1">Start workout on a multi-rep slide. Active block has 1Hz coral pulse on its outline.</li>
+          <li data-sub="10.2">Active block's coral fill flows 0% → 100% over the rep window (linear).</li>
+          <li data-sub="10.3">When a rep "lands", block becomes solid coral; the next block becomes active starting fresh at 0%.</li>
+          <li data-sub="10.4">Last rep of a set lands JUST BEFORE setPhase flips to rest — no skip from "Rep 9" to "all done".</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Trailing rest after last set + top-down wave drain on slide change.</span>
+        <ol class="steps">
+          <li data-sub="11.1">After the last set's last rep lands, sage trailing rest fills bottom-up over the breather seconds.</li>
+          <li data-sub="11.2">Slide advances ONLY after the trailing rest finishes.</li>
+          <li data-sub="11.3">At slide change: filled blocks visibly drain TOP-TO-BOTTOM in a wave (~600ms total). Top block first, bottom last. Not all-at-once.</li>
+          <li data-sub="11.4">No 2-second "stale full" lag at the start of the next slide.</li>
+          <li data-sub="11.5">Breather sage countdown chip clears cleanly when next slide's prep begins (no two-timers overlap).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+        <span class="num">12.</span>
+        <span class="text">Circuit slides treat each member-round as 1 set; duration math honest; stack reaches top exactly when set ends.</span>
+        <ol class="steps">
+          <li data-sub="12.1">Open a 2-member circuit with 3 rounds. Each circuit slide has slide.sets=3 in the data.</li>
+          <li data-sub="12.2">Each circuit slide's stack has ONLY 1 set group (10 reps + 1 trailing rest), NOT 3 set groups.</li>
+          <li data-sub="12.3">Per-set time computed from <code>video_duration ÷ video_reps_per_loop × target_reps</code> (or legacy <code>custom_duration_seconds</code> path for old captures).</li>
+          <li data-sub="12.4">Stack last block becomes solid filled at the EXACT moment the set phase transitions to rest.</li>
+          <li data-sub="12.5">Edit "REPS IN VIDEO" from 3 → 5 in Studio; republish; per-set time recomputes proportionally on next playback.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
+        <span class="num">13.</span>
+        <span class="text">Stack is navigable + chevron-prev shifts past stack so both stay tappable.</span>
+        <ol class="steps">
+          <li data-sub="13.1">Tap any rep block in the active slide's stack: workout timer jumps to that rep position, video resumes from corresponding frame.</li>
+          <li data-sub="13.2">Tap a rest block: jumps to its breather (video pauses on-frame, sage countdown begins).</li>
+          <li data-sub="13.3">Tap doesn't bubble to video pause/play (no pause toggle on rep-stack tap).</li>
+          <li data-sub="13.4">Prev chevron sits PAST the rep stack column (left ~64px) when stack visible; returns to left:6 when stack hidden (photos / rest / single-rep).</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>F · Photos three-treatment (Wave 22)</h2>
+    <ul class="checklist">
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+        <span class="num">14.</span>
+        <span class="text">Fresh photo capture publishes 3 URLs; defaults to color; Show me hot-swaps.</span>
+        <ol class="steps">
+          <li data-sub="14.1">Capture a photo on a fully-consented client. Publish.</li>
+          <li data-sub="14.2"><code>get_plan_full</code> for that plan returns line_drawing_url + grayscale_url + original_url all populated for the photo row.</li>
+          <li data-sub="14.3">Open in Safari: photo shows in actual COLOR by default (not the line-drawing baked-in like legacy photos).</li>
+          <li data-sub="14.4">Show me → Drawn: photo swaps src to the line-drawing JPG.</li>
+          <li data-sub="14.5">Show me → B&amp;W: same source as Colour but with CSS <code>filter: grayscale(1)</code> applied (verify via Web Inspector — img tag has <code>is-grayscale</code> class).</li>
+          <li data-sub="14.6">Show me → Colour: untouched original, no filter.</li>
+          <li data-sub="14.7">Legacy photo (Lauren plan position 3): single source, no three-treatment data; degrades gracefully.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>G · Video playback fundamentals</h2>
+    <ul class="checklist">
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+        <span class="num">15.</span>
+        <span class="text">Dual-video crossfade hides the loop seam; no visible stutter.</span>
+        <ol class="steps">
+          <li data-sub="15.1">Watch a short video (4-5s) loop several times during a set.</li>
+          <li data-sub="15.2">No visible jolt at the loop seam — 200ms opacity crossfade between two stacked &lt;video&gt; elements.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
+        <span class="num">16.</span>
+        <span class="text">Soft trim respected on both web + mobile preview.</span>
+        <ol class="steps">
+          <li data-sub="16.1">Trim a video exercise in <code>_MediaViewer</code> (drag handles, see live frame, release).</li>
+          <li data-sub="16.2">Publish. Open in Safari: video starts at trim in-point, loops within trim window.</li>
+          <li data-sub="16.3">Switch treatments via Show me: same trim window applies across Drawn / B&amp;W / Colour.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Wave 26 EOD canonical — covers everything live as of 2026-04-24 close. Supersedes Waves 22, 23, 24, 25 (all moved to Past). 16 items, 6 sections. Latest cache: <code>v57-body-focus-label</code>. Latest install-device commit: <code>fc101ae</code>.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-04-24-wave26-end-of-day-canonical.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+      fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() {}).finally(apply);
+      function apply() {
+        document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'wave26-end-of-day-canonical', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() {});
+      }
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next); setPlaceholder(next);
+          if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next); setPlaceholder(next);
+          if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+          save();
+        });
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() { state[num] = {status: status, note: noteInput.value || ''}; save(); }, 350);
+        });
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>
