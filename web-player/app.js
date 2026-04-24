@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v45-vertical-rep-stack';
+const PLAYER_VERSION = 'v46-circuit-photo-rules';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -1696,7 +1696,23 @@ function paintActiveRepBlock() {
   // honour repsInSet. For future sets, leave empty.
   const setSections = $repStackColumn.querySelectorAll('.rep-stack-section--set');
   const state = loopState.get(currentIndex) || {};
-  const repsInSet = state.repsInSet || 0;
+
+  // Carl 2026-04-24: photos don't trigger handleLoopBoundary (no video
+  // loop seam), so `state.repsInSet` never advances on its own. Derive
+  // it from elapsed wall-clock proportion of the active set phase
+  // instead — the practitioner sees blocks land at the same cadence
+  // a 1-second-per-rep mental count would, scaled to the per-set
+  // duration. Videos keep using state.repsInSet (driven by the seam).
+  let repsInSet = state.repsInSet || 0;
+  const isPhoto = slide.media_type === 'photo';
+  if (isPhoto && isWorkoutMode && setPhase === 'set') {
+    const totalReps = slide.reps || 0;
+    const perSet = calculatePerSetSeconds(slide);
+    if (totalReps > 0 && perSet > 0) {
+      const elapsedInSet = Math.max(0, perSet - setPhaseRemaining);
+      repsInSet = Math.min(totalReps, Math.floor((elapsedInSet / perSet) * totalReps));
+    }
+  }
 
   setSections.forEach((section) => {
     const setIdx = parseInt(section.getAttribute('data-set-index'), 10);
@@ -1994,6 +2010,24 @@ function getInterSetRestSeconds(slide) {
 }
 
 /**
+ * Wave 21 follow-up (Carl 2026-04-24): for slides that are part of a
+ * circuit, the per-slide structure is "do {reps} reps of THIS exercise
+ * once, then advance to the next circuit member." There is no concept
+ * of multiple sets within a single circuit slide — the circuit cycles
+ * (3 rounds, etc.) are already unrolled by `unrollExercises()` into
+ * separate slides. So a slide tagged with `circuitRound` is always a
+ * 1-set slide regardless of what the practitioner set on `slide.sets`.
+ *
+ * Standalone (non-circuit) slides honour the practitioner's `sets`
+ * field, defaulting to 1 when null/0.
+ */
+function effectiveSetsForSlide(slide) {
+  if (!slide) return 1;
+  if (slide.circuitRound) return 1;
+  return Math.max(1, slide.sets || 1);
+}
+
+/**
  * Milestone Q — per-set duration (reps × per-rep + hold). Exposed as
  * a helper so the set/rest state machine can derive set boundaries
  * consistently with the total duration.
@@ -2001,7 +2035,8 @@ function getInterSetRestSeconds(slide) {
 function calculatePerSetSeconds(slide) {
   if (slide.custom_duration_seconds) {
     // Manual total / sets; rounded down to the nearest integer second.
-    const sets = slide.sets || 1;
+    // Circuits are always 1 set per slide — see effectiveSetsForSlide.
+    const sets = effectiveSetsForSlide(slide);
     if (sets <= 1) return slide.custom_duration_seconds;
     return Math.max(1, Math.floor(slide.custom_duration_seconds / sets));
   }
@@ -2032,7 +2067,8 @@ function calculateDuration(slide) {
     return slide.hold_seconds || slide.custom_duration_seconds || 30;
   }
 
-  const sets = slide.sets || 3;
+  // Circuits are always 1 set per slide — see effectiveSetsForSlide.
+  const sets = effectiveSetsForSlide(slide);
   const breather = getInterSetRestSeconds(slide);
   const restTotal = sets * breather;
 
@@ -2262,7 +2298,8 @@ function beginSetMachineForCurrent() {
     return;
   }
   currentSetIndex = 0;
-  totalSetsForSlide = Math.max(1, slide.sets || 1);
+  // Circuits are always 1 set per slide — see effectiveSetsForSlide.
+  totalSetsForSlide = effectiveSetsForSlide(slide);
   setPhase = 'set';
   setPhaseRemaining = calculatePerSetSeconds(slide);
   interSetRestForSlide = getInterSetRestSeconds(slide);
@@ -3038,14 +3075,22 @@ function updateRepStack() {
   if (!$repStack || !$repStackColumn || !$repStackLabels) return;
   const slide = slides[currentIndex];
 
-  const slideSets = slide ? Math.max(1, slide.sets || 1) : 1;
+  // Carl 2026-04-24:
+  //   * Circuits are 1 set/slide — multiple sets only exist for standalone
+  //     exercises. The unroll already gives each circuit member its own
+  //     slide per round; treating them as 3-set inside ALSO would
+  //     triple-count.
+  //   * Photos still have reps + sets and benefit from the stack — only
+  //     hide when there's literally nothing to count (sets==1 + reps==1).
+  //   * Rest slides have their own countdown overlay; never render here.
+  const slideSets = effectiveSetsForSlide(slide);
   const slideBreather = slide ? getInterSetRestSeconds(slide) : 0;
   const slideReps = slide && slide.reps && slide.reps > 0 ? slide.reps : 0;
 
   const eligible = !!slide
     && slide.media_type !== 'rest'
     && slideReps > 0
-    && (slideSets > 1 || slideBreather > 0);
+    && !(slideSets === 1 && slideReps === 1);
   $repStack.hidden = !eligible;
   if (!eligible) {
     $repStackColumn.innerHTML = '';
