@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v52-stack-nav';
+const PLAYER_VERSION = 'v53-stack-nav-pointer-events';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -3740,6 +3740,11 @@ async function init() {
     $repStackColumn.addEventListener('click', (evt) => {
       const block = evt.target.closest('.rep-stack-block');
       if (!block) return;
+      // Carl 2026-04-24 — stop the click from bubbling to the video's
+      // pause/play handler. Without this, tapping a rep block both jumps
+      // the timer AND toggles playback, which feels broken.
+      evt.stopPropagation();
+      evt.preventDefault();
       const isRep = block.classList.contains('rep-stack-block--rep');
       const isRest = block.classList.contains('rep-stack-block--rest');
       if (isRep) {

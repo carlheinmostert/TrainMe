@@ -1347,7 +1347,14 @@ video.is-prep-paused {
   gap: 4px;
   width: 50px;
   z-index: 12;
+  /* Carl 2026-04-24: blocks need to receive taps for navigable stack
+     (v52). The container itself stays pass-through so the gaps between
+     blocks don't intercept video pause/play taps; .rep-stack-block
+     re-enables pointer-events on the actual targets. */
   pointer-events: none;
+}
+.rep-stack-block {
+  pointer-events: auto;
 }
 .rep-stack[hidden] { display: none; }
 
