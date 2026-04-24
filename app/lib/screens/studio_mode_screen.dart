@@ -2059,6 +2059,11 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// viewer-close-before-refresh.
   bool _isMuted = false;
 
+  /// Wave 20 — debounce for the trim-panel SQLite write. The drag
+  /// callback fires every gesture tick; we coalesce to one write per
+  /// 200 ms so the disk doesn't take a beating during a long drag.
+  Timer? _trimSaveTimer;
+
   ExerciseCapture get _current => _exercises[_currentIndex];
 
   bool _isVideo(ExerciseCapture e) =>
@@ -2163,9 +2168,15 @@ class _MediaViewerState extends State<_MediaViewer> {
       // switches — a new controller inherits the current mute state so
       // the speaker-icon glyph and the actual audio stay in lockstep.
       controller.setVolume(_isMuted ? 0.0 : 1.0);
+      // Wave 20 — soft-trim seek-to-start. When the active exercise
+      // has a `startOffsetMs`, jump there before play() so the loop
+      // begins inside the trim window. The position-clamp listener
+      // below holds the loop end at `endOffsetMs` on every tick.
+      _seekToTrimStart(controller);
       // Attach a listener so the play/pause button icon stays in sync
       // with the controller even when the transition didn't go through
       // `_togglePlayPause` (e.g. programmatic pause on end-of-media).
+      // The same listener clamps `position` to the soft-trim window.
       void listener() => _onVideoStateChanged(controller, token);
       controller.addListener(listener);
       _videoListener = listener;
@@ -2181,13 +2192,56 @@ class _MediaViewerState extends State<_MediaViewer> {
 
   /// Called via the video controller's listener. Triggers a rebuild
   /// whenever the playing state flips so the button icon + fade state
-  /// stay in sync with the actual controller.
+  /// stay in sync with the actual controller. Also enforces the
+  /// Wave 20 soft-trim window: clamps `position` to
+  /// `[startOffsetMs, endOffsetMs]` and wraps the loop at the end.
   void _onVideoStateChanged(VideoPlayerController controller, int token) {
     if (!mounted || token != _initToken) return;
+    _enforceTrimWindow(controller);
     final isPlaying = controller.value.isPlaying;
     if (isPlaying == _lastKnownIsPlaying) return;
     _lastKnownIsPlaying = isPlaying;
     _showControlsThenMaybeIdleFade();
+  }
+
+  /// Soft-trim clamp. Idempotent — called from the controller listener
+  /// every time `position` advances. When the active exercise has both
+  /// offsets set, wraps the loop so playback never escapes the window:
+  ///
+  ///   * position >= endOffsetMs → seek back to startOffsetMs
+  ///     (preserves play state).
+  ///   * position < startOffsetMs → seek forward to startOffsetMs
+  ///     (covers the rare case where a stale frame leaks in before the
+  ///     init seek lands).
+  ///
+  /// Treats null offsets as "no clamp" so legacy rows (and untrimmed
+  /// captures) play through normally.
+  void _enforceTrimWindow(VideoPlayerController controller) {
+    final exercise = _current;
+    final startMs = exercise.startOffsetMs;
+    final endMs = exercise.endOffsetMs;
+    if (startMs == null || endMs == null) return;
+    if (endMs <= startMs) return; // pathological — fall through to no clamp.
+    final positionMs = controller.value.position.inMilliseconds;
+    if (positionMs >= endMs) {
+      // Wrap to start. Keep the loop seamless — don't pause/play, just
+      // reseat the head. seekTo here is async; subsequent ticks ignore
+      // the duplicate-seek case via the >= check.
+      controller.seekTo(Duration(milliseconds: startMs));
+    } else if (positionMs < startMs) {
+      controller.seekTo(Duration(milliseconds: startMs));
+    }
+  }
+
+  /// Initial seek into the trim window when a new controller comes up.
+  /// Called after `initialize()` resolves but before `play()` so the
+  /// first painted frame is already inside the window.
+  void _seekToTrimStart(VideoPlayerController controller) {
+    final startMs = _current.startOffsetMs;
+    final endMs = _current.endOffsetMs;
+    if (startMs == null || endMs == null) return;
+    if (endMs <= startMs) return;
+    controller.seekTo(Duration(milliseconds: startMs));
   }
 
   /// Bring the button to full opacity, then (only if playing) arm a
@@ -2211,6 +2265,7 @@ class _MediaViewerState extends State<_MediaViewer> {
   @override
   void dispose() {
     _controlsIdleTimer?.cancel();
+    _trimSaveTimer?.cancel();
     final controller = _videoController;
     final listener = _videoListener;
     if (controller != null && listener != null) {
@@ -2219,6 +2274,65 @@ class _MediaViewerState extends State<_MediaViewer> {
     controller?.dispose();
     _pageController.dispose();
     super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Wave 20 — soft-trim editor wiring
+  // ---------------------------------------------------------------------------
+
+  /// Whether the trim panel should render for the current page. Hidden
+  /// for: photos, rest rows, video duration < 1s. The host build()
+  /// guards every callsite with this so the bottom chrome falls back
+  /// to its original positions when the panel is absent.
+  bool get _trimPanelVisible {
+    if (!_isVideo(_current)) return false;
+    if (!_videoInitialized) return false;
+    final c = _videoController;
+    if (c == null) return false;
+    final durMs = c.value.duration.inMilliseconds;
+    return durMs >= 1000;
+  }
+
+  /// Single shared offset added to every bottom chrome element when the
+  /// trim panel is present. Per the brief: panel height + 8 px gap.
+  double get _bottomChromeTrimLift =>
+      _trimPanelVisible ? (_TrimPanel.panelHeight + 8) : 0;
+
+  /// Optimistic update of the in-memory trim values + debounced disk
+  /// write. Mirrors the pattern used for `_persistPreferredTreatment` /
+  /// `_toggleMute`: bubble up to the parent for UI coherence, save to
+  /// SQLite on a short delay so a long drag doesn't hammer the disk.
+  void _persistTrim(int? startMs, int? endMs) {
+    final exercise = _current;
+    final updated = exercise.copyWith(
+      startOffsetMs: startMs,
+      endOffsetMs: endMs,
+      clearStartOffsetMs: startMs == null,
+      clearEndOffsetMs: endMs == null,
+    );
+    setState(() {
+      _exercises[_currentIndex] = updated;
+    });
+    final cb = widget.onExerciseUpdate;
+    if (cb != null) cb(updated);
+    _trimSaveTimer?.cancel();
+    _trimSaveTimer = Timer(const Duration(milliseconds: 200), () {
+      unawaited(
+        SyncService.instance.storage.saveExercise(updated).catchError((e, _) {
+          debugPrint('MediaViewer: saveExercise(soft_trim) failed: $e');
+        }),
+      );
+    });
+  }
+
+  void _resetTrim() {
+    _persistTrim(null, null);
+  }
+
+  void _onTrimScrub(int positionMs) {
+    final c = _videoController;
+    if (c == null || !_videoInitialized) return;
+    c.seekTo(Duration(milliseconds: positionMs));
   }
 
   void _onPageChanged(int index) {
@@ -2513,6 +2627,8 @@ class _MediaViewerState extends State<_MediaViewer> {
           // When paused it stays at 100%; when playing it fades to 0
           // after a 2s idle so it doesn't overlay demo-to-client view.
           // Sits above the bottom dot-indicator row to avoid overlap.
+          // Wave 20 — lifted by `_bottomChromeTrimLift` when the trim
+          // panel is present so the panel doesn't overlap the button.
           if (_isVideo(_current) && _videoInitialized)
             Positioned(
               right: 20,
@@ -2520,7 +2636,8 @@ class _MediaViewerState extends State<_MediaViewer> {
                   ((widget.exercises.length > 1 &&
                           widget.exercises.length <= 10)
                       ? 48
-                      : 20),
+                      : 20) +
+                  _bottomChromeTrimLift,
               child: _PlayPauseOverlayButton(
                 isPlaying: _videoController?.value.isPlaying ?? false,
                 visible: _controlsVisible,
@@ -2535,7 +2652,9 @@ class _MediaViewerState extends State<_MediaViewer> {
             Positioned(
               left: 0,
               right: 0,
-              bottom: MediaQuery.of(context).padding.bottom + 16,
+              bottom: MediaQuery.of(context).padding.bottom +
+                  16 +
+                  _bottomChromeTrimLift,
               child: IgnorePointer(
                 child: _MediaViewerDotIndicator(
                   total: widget.exercises.length,
@@ -2553,10 +2672,31 @@ class _MediaViewerState extends State<_MediaViewer> {
           if (_isVideo(_current) && _videoInitialized)
             Positioned(
               left: 20,
-              bottom: MediaQuery.of(context).padding.bottom + 12,
+              bottom: MediaQuery.of(context).padding.bottom +
+                  12 +
+                  _bottomChromeTrimLift,
               child: _MutePill(
                 isMuted: _isMuted,
                 onTap: _toggleMute,
+              ),
+            ),
+          // Wave 20 — soft-trim editor. Always 100% opacity so the
+          // practitioner can edit at any time. Hidden for photos /
+          // rest rows / sub-1s videos via [_trimPanelVisible].
+          if (_trimPanelVisible)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: MediaQuery.of(context).padding.bottom + 8,
+              child: _TrimPanel(
+                durationMs: _videoController!.value.duration.inMilliseconds,
+                startOffsetMs: _current.startOffsetMs,
+                endOffsetMs: _current.endOffsetMs,
+                reps: _current.reps,
+                onTrimChanged: (s, e) => _persistTrim(s, e),
+                onScrub: _onTrimScrub,
+                onGuardHit: () => HapticFeedback.lightImpact(),
+                onReset: _resetTrim,
               ),
             ),
           Positioned(
@@ -2791,6 +2931,375 @@ class _VideoPagePlaceholder extends StatelessWidget {
         Icons.play_circle_outline,
         size: 72,
         color: Colors.white24,
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// Wave 20 — Soft-trim editor for the [_MediaViewer].
+// ============================================================================
+
+/// Bottom-anchored trim panel shown beneath the video on the [_MediaViewer]
+/// when the active exercise is a video at least 1 second long. Two coral
+/// drag-handles set the in/out window; coral fill between them shows the
+/// trimmed slice; greyed bookends show the discarded frames. Live readout
+/// underneath. "Reset to full video" link reveals when either offset is
+/// non-null.
+///
+/// Pure widget — owns NO state. The host (`_MediaViewerState`) holds the
+/// canonical trim values and rebuilds this widget whenever they change.
+/// Drag callbacks fire continuously; the host is expected to debounce its
+/// SQLite write, not us.
+///
+/// Drag rules enforced HERE (kept tight so the host doesn't have to
+/// duplicate the math):
+///   * minimum 0.3s window between handles — bumping the guard fires a
+///     light-haptic via the [onGuardHit] callback.
+///   * handles cannot cross.
+///   * tap inside the coral range emits a [onScrub] with the resolved
+///     ms position; tap inside the greyed bookends is a no-op.
+///
+/// Long-press 4× zoom is NOT shipped in v1 — punted to a follow-up. The
+/// drag affordance alone is acceptable per the brief.
+class _TrimPanel extends StatefulWidget {
+  /// Total length of the underlying media in ms. Comes straight off the
+  /// `VideoPlayerController.value.duration`. Caller must guarantee >= 1000.
+  final int durationMs;
+
+  /// Active in-point in ms. Null = "no trim — start at 0". The widget
+  /// always paints with concrete values, falling back to 0 when null.
+  final int? startOffsetMs;
+
+  /// Active out-point in ms. Null = "no trim — end at duration".
+  final int? endOffsetMs;
+
+  /// Reps count for the live readout's loop math. Null / 0 collapses
+  /// the math to "—".
+  final int? reps;
+
+  /// Fired continuously while the user drags either handle. Caller is
+  /// responsible for persisting (debounced).
+  final void Function(int startMs, int endMs) onTrimChanged;
+
+  /// Fired on a tap inside the coral range. Caller seeks the active
+  /// video controller. No-op for taps in the greyed bookends.
+  final void Function(int positionMs) onScrub;
+
+  /// Fired when a drag bumps the 0.3s minimum-window guard, so the host
+  /// can fire a light haptic. Throttled by the widget — not every tick.
+  final VoidCallback onGuardHit;
+
+  /// Fired when the practitioner taps "Reset to full video". Caller
+  /// should clear both offsets via copyWith(clearStartOffsetMs: true,
+  /// clearEndOffsetMs: true).
+  final VoidCallback onReset;
+
+  const _TrimPanel({
+    required this.durationMs,
+    required this.startOffsetMs,
+    required this.endOffsetMs,
+    required this.reps,
+    required this.onTrimChanged,
+    required this.onScrub,
+    required this.onGuardHit,
+    required this.onReset,
+  });
+
+  /// Layout constant — total panel height including its internal padding.
+  /// The host uses this to lift the bottom chrome (mute pill / page dots
+  /// / play-pause overlay) by `panelHeight + 8` so they don't overlap.
+  static const double panelHeight = 96;
+
+  @override
+  State<_TrimPanel> createState() => _TrimPanelState();
+}
+
+class _TrimPanelState extends State<_TrimPanel> {
+  // Cache the bar width on each layout pass so onPan* can convert
+  // pixels → ms without touching the BuildContext.
+  double _barWidth = 0;
+
+  // Throttle haptic guard hits — at 60Hz drag we'd fire dozens per
+  // second otherwise.
+  DateTime _lastGuardHapticAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  static const int _minWindowMs = 300; // 0.3s minimum window per the brief.
+
+  int get _effectiveStartMs => widget.startOffsetMs ?? 0;
+  int get _effectiveEndMs => widget.endOffsetMs ?? widget.durationMs;
+  bool get _hasTrim => widget.startOffsetMs != null || widget.endOffsetMs != null;
+
+  void _maybeFireGuard() {
+    final now = DateTime.now();
+    if (now.difference(_lastGuardHapticAt).inMilliseconds < 250) return;
+    _lastGuardHapticAt = now;
+    widget.onGuardHit();
+  }
+
+  void _updateHandle(_TrimHandle handle, double dx) {
+    if (_barWidth <= 0) return;
+    final dMs = (dx / _barWidth * widget.durationMs).round();
+    var startMs = _effectiveStartMs;
+    var endMs = _effectiveEndMs;
+    if (handle == _TrimHandle.start) {
+      startMs = (startMs + dMs).clamp(0, widget.durationMs - _minWindowMs);
+      // Don't cross the end handle.
+      if (startMs > endMs - _minWindowMs) {
+        startMs = endMs - _minWindowMs;
+        _maybeFireGuard();
+      }
+    } else {
+      endMs = (endMs + dMs).clamp(_minWindowMs, widget.durationMs);
+      if (endMs < startMs + _minWindowMs) {
+        endMs = startMs + _minWindowMs;
+        _maybeFireGuard();
+      }
+    }
+    if (startMs == _effectiveStartMs && endMs == _effectiveEndMs) return;
+    widget.onTrimChanged(startMs, endMs);
+  }
+
+  void _onTapBar(TapUpDetails details) {
+    if (_barWidth <= 0) return;
+    final dx = details.localPosition.dx.clamp(0.0, _barWidth);
+    final tapMs = (dx / _barWidth * widget.durationMs).round();
+    // Only seek into the coral window — taps in the greyed bookends are
+    // a no-op (those frames don't exist in the trimmed slice).
+    if (tapMs < _effectiveStartMs || tapMs > _effectiveEndMs) return;
+    widget.onScrub(tapMs);
+  }
+
+  String _fmt(int ms) {
+    final totalSec = (ms / 1000).round();
+    final m = totalSec ~/ 60;
+    final s = totalSec % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  String _trimmedReadout() {
+    final trimmedMs = _effectiveEndMs - _effectiveStartMs;
+    final trimmedFmt = _fmt(trimmedMs);
+    final r = widget.reps;
+    if (r == null || r <= 0) {
+      return 'Trimmed: $trimmedFmt · — reps loops';
+    }
+    final loopMs = trimmedMs * r;
+    return 'Trimmed: $trimmedFmt · $r reps loops in ${_fmt(loopMs)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: _TrimPanel.panelHeight,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Scrubber bar — fixed height to keep the layout deterministic.
+          SizedBox(
+            height: 40,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                _barWidth = constraints.maxWidth;
+                final startFrac = (_effectiveStartMs / widget.durationMs)
+                    .clamp(0.0, 1.0);
+                final endFrac = (_effectiveEndMs / widget.durationMs)
+                    .clamp(0.0, 1.0);
+                final startX = startFrac * _barWidth;
+                final endX = endFrac * _barWidth;
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTapUp: _onTapBar,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      // Bookend track (greyed bg).
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 16,
+                        height: 8,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ),
+                      // Coral fill between handles.
+                      Positioned(
+                        left: startX,
+                        width: (endX - startX).clamp(0.0, _barWidth),
+                        top: 16,
+                        height: 8,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: AppColors.brandTintBg,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: AppColors.primary.withValues(alpha: 0.7),
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Start handle.
+                      Positioned(
+                        left: startX - 14,
+                        top: 0,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onPanStart: (_) {
+                            HapticFeedback.selectionClick();
+                          },
+                          onPanUpdate: (d) => _updateHandle(
+                            _TrimHandle.start,
+                            d.delta.dx,
+                          ),
+                          child: const _TrimHandlePill(),
+                        ),
+                      ),
+                      // End handle.
+                      Positioned(
+                        left: endX - 14,
+                        top: 0,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onPanStart: (_) {
+                            HapticFeedback.selectionClick();
+                          },
+                          onPanUpdate: (d) => _updateHandle(
+                            _TrimHandle.end,
+                            d.delta.dx,
+                          ),
+                          child: const _TrimHandlePill(),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 4),
+          // Tick row + live readout.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '0:00',
+                style: TextStyle(
+                  fontFamily: 'JetBrainsMono',
+                  fontSize: 9,
+                  color: Colors.white.withValues(alpha: 0.45),
+                ),
+              ),
+              Text(
+                '${_fmt(_effectiveStartMs)}–${_fmt(_effectiveEndMs)}',
+                style: const TextStyle(
+                  fontFamily: 'JetBrainsMono',
+                  fontSize: 9,
+                  color: AppColors.primary,
+                ),
+              ),
+              Text(
+                _fmt(widget.durationMs),
+                style: TextStyle(
+                  fontFamily: 'JetBrainsMono',
+                  fontSize: 9,
+                  color: Colors.white.withValues(alpha: 0.45),
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  _trimmedReadout(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              if (_hasTrim)
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onReset();
+                  },
+                  behavior: HitTestBehavior.opaque,
+                  child: const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Text(
+                      '⤺ Reset to full video',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _TrimHandle { start, end }
+
+/// Coral pill drag-handle for the trim panel. 28×40 keeps the touch
+/// target generous (Apple HIG minimum is 44×44 but the panel is dense;
+/// the panel-level GestureDetector hit area is closer to 40×40 with the
+/// surrounding margin, plus the bar's own onTapUp gives a fallback).
+class _TrimHandlePill extends StatelessWidget {
+  const _TrimHandlePill();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 28,
+      height: 40,
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.85),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: const Center(
+        child: SizedBox(
+          width: 2,
+          height: 16,
+          child: DecoratedBox(
+            decoration: BoxDecoration(color: Colors.white),
+          ),
+        ),
       ),
     );
   }
