@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v51-photos-three-treatment';
+const PLAYER_VERSION = 'v52-stack-nav';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -2304,6 +2304,14 @@ function enterWorkoutPhaseForCurrent() {
   // the next 1Hz tick. Repainting here closes that visible gap.
   updateRepStack();
 
+  // Same race for the breather sage countdown chip — `updateUI()` saw
+  // stale `setPhase === 'rest'` carried over from the previous slide's
+  // trailing breather, which left the chip visible during the new
+  // slide's prep countdown ("different timers on screen", Carl 2026-04-24).
+  // Repaint after the state machine has flipped phase back to 'set'.
+  updateBreatherOverlay();
+  updateRestCountdownOverlay();
+
   if (slide.media_type === 'rest') {
     // Rest — no prep, auto-start countdown. The bottom-right timer chip
     // is the single source of truth for the rest countdown.
@@ -3654,6 +3662,67 @@ async function registerServiceWorker() {
 // Initialisation
 // ============================================================
 
+/**
+ * Carl 2026-04-24 — clicking a rep or rest block in the vertical stack
+ * jumps the workout timer to that point. Same metaphor as clicking a
+ * matrix pill at the top to jump to that slide.
+ *
+ *   * Click rep block at index R (0-based) within set S → currentSetIndex=S,
+ *     setPhase='set', setPhaseRemaining = perSet × (1 - R/totalReps).
+ *     Slide-level remainingSeconds re-derived from the new position.
+ *   * Click rest block for set S → currentSetIndex=S, setPhase='rest',
+ *     setPhaseRemaining = full breather seconds. Video paused on frame.
+ *
+ * Active only during workout mode + timer running. Ignored during prep.
+ */
+function jumpToRepStackPosition(kind, setIdx, blockIdx) {
+  if (!isWorkoutMode || !isTimerRunning || isPrepPhase) return;
+  const slide = slides[currentIndex];
+  if (!slide) return;
+  const totalReps = slide.reps || 0;
+  const perSet = calculatePerSetSeconds(slide);
+  const breather = getInterSetRestSeconds(slide);
+  if (totalReps <= 0 || perSet <= 0) return;
+
+  // Each "cycle" of the slide is per-set + breather. We rebuild
+  // remainingSeconds from the target position downward so the slide
+  // total stays consistent with calculateDuration().
+  const cycleSecs = perSet + breather;
+  let elapsedTotal = 0;
+  let phaseRem = 0;
+
+  if (kind === 'set') {
+    // blockIdx = data-rep-index, 0-based; clicking rep block N means
+    // N reps already landed, ready to start rep N+1.
+    const elapsedInSet = (blockIdx / totalReps) * perSet;
+    elapsedTotal = setIdx * cycleSecs + elapsedInSet;
+    phaseRem = Math.max(0, perSet - elapsedInSet);
+    setPhase = 'set';
+    currentSetIndex = setIdx;
+    setPhaseRemaining = phaseRem;
+    resumeActiveVideoAfterBreather();
+  } else if (kind === 'rest') {
+    // blockIdx = data-rest-index; restart the breather from the top.
+    elapsedTotal = (setIdx + 1) * perSet + setIdx * breather;
+    phaseRem = breather;
+    setPhase = 'rest';
+    currentSetIndex = setIdx;
+    setPhaseRemaining = phaseRem;
+    pauseActiveVideoForBreather();
+  } else {
+    return;
+  }
+
+  remainingSeconds = Math.max(0, totalSeconds - elapsedTotal);
+
+  updateRepStack();
+  updateBreatherOverlay();
+  updateRestCountdownOverlay();
+  updateProgressMatrix();
+  updateTimelineBar();
+  updateActiveSlideHeader();
+}
+
 async function init() {
   registerServiceWorker();
 
@@ -3662,6 +3731,31 @@ async function init() {
   // load failure.
   const $versionEl = document.getElementById('footer-version');
   if ($versionEl) $versionEl.textContent = PLAYER_VERSION;
+
+  // Carl 2026-04-24 — delegated click handler for the vertical rep
+  // stack so any rep / rest block becomes a tap target that jumps the
+  // workout timer to that position. Bound once at init; survives
+  // structure rebuilds because the listener is on the stable parent.
+  if ($repStackColumn) {
+    $repStackColumn.addEventListener('click', (evt) => {
+      const block = evt.target.closest('.rep-stack-block');
+      if (!block) return;
+      const isRep = block.classList.contains('rep-stack-block--rep');
+      const isRest = block.classList.contains('rep-stack-block--rest');
+      if (isRep) {
+        const section = block.closest('.rep-stack-section--set');
+        if (!section) return;
+        const setIdx = parseInt(section.getAttribute('data-set-index'), 10);
+        const repIdx = parseInt(block.getAttribute('data-rep-index'), 10);
+        if (Number.isNaN(setIdx) || Number.isNaN(repIdx)) return;
+        jumpToRepStackPosition('set', setIdx, repIdx);
+      } else if (isRest) {
+        const restIdx = parseInt(block.getAttribute('data-rest-index'), 10);
+        if (Number.isNaN(restIdx)) return;
+        jumpToRepStackPosition('rest', restIdx, 0);
+      }
+    });
+  }
 
   const planId = getPlanIdFromURL();
 
