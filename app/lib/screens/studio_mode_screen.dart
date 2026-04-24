@@ -2059,6 +2059,20 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// viewer-close-before-refresh.
   bool _isMuted = false;
 
+  /// Wave 25 — Enhanced Background flag (R-10 twin of the web player's
+  /// gear-popover switch). When true, B&W + Original treatments play
+  /// the segmented raw file (Vision body-pop + dimmed background, same
+  /// mask the line drawing uses). When false, they play the untouched
+  /// archive — the practitioner sees exactly the colour file the
+  /// segmented variant was derived from. Defaults true to mirror the
+  /// web player.
+  ///
+  /// This commit lands the source-resolver wiring only; the practitioner-
+  /// facing toggle pill + SharedPreferences persistence ride in the
+  /// follow-up commit.
+  // ignore: prefer_final_fields
+  bool _enhancedBackground = true;
+
   /// Wave 20 — debounce for the trim-panel SQLite write. The drag
   /// callback fires every gesture tick; we coalesce to one write per
   /// 200 ms so the disk doesn't take a beating during a long drag.
@@ -2122,16 +2136,30 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// Source file the active treatment should play.
   ///
   ///   • [Treatment.line] → the on-device line drawing converted file
-  ///     (stored locally, always present once conversion is done).
+  ///     (stored locally, always present once conversion is done). The
+  ///     Enhanced Background flag is irrelevant — line drawings have
+  ///     no background tone to dim.
   ///   • [Treatment.grayscale] / [Treatment.original] → the raw archive
-  ///     mp4 (same file for both — the grayscale rendering is a
-  ///     widget-level [ColorFiltered], no second source needed).
+  ///     mp4 (the grayscale rendering is a widget-level [ColorFiltered]
+  ///     on top, no second source needed).
+  ///
+  /// Wave 25 — segmented playback parity with the web player. When
+  /// [_enhancedBackground] is true (default) AND a segmented raw file
+  /// exists locally, prefer the segmented variant (same Vision body
+  /// mask the line drawing uses, body-pop + dimmed background). When
+  /// false or when the segmented file is missing (legacy captures
+  /// pre-v22, conversion failed), fall through to the untouched
+  /// archive so practitioner playback never goes black.
   String? _sourcePathForTreatment(ExerciseCapture e, Treatment t) {
     switch (t) {
       case Treatment.line:
         return e.displayFilePath;
       case Treatment.grayscale:
       case Treatment.original:
+        if (_enhancedBackground) {
+          final seg = e.absoluteSegmentedRawFilePath;
+          if (seg != null && File(seg).existsSync()) return seg;
+        }
         return e.absoluteArchiveFilePath;
     }
   }
