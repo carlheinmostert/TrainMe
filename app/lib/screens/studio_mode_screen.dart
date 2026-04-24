@@ -2780,27 +2780,34 @@ class _MediaViewerState extends State<_MediaViewer> {
               bottom: MediaQuery.of(context).padding.bottom +
                   12 +
                   _bottomChromeTrimLift,
-              child: _MutePill(
-                isMuted: _isMuted,
+              child: _TogglePill(
+                iconWhenActive: Icons.volume_off_rounded,
+                iconWhenInactive: Icons.volume_up_rounded,
+                labelWhenActive: 'Muted',
+                labelWhenInactive: 'Audio on',
+                active: _isMuted,
                 onTap: _toggleMute,
               ),
             ),
-          // Carl 2026-04-24: Enhanced Background pill stacked just above
-          // the mute pill at bottom-left. Was a vertical book-spine pill
-          // in the left-edge column under the treatment control;
-          // re-orientating to horizontal here both removes the
-          // accidental vertical-swipe metaphor AND co-locates it with
-          // the other playback chrome (mute) — practitioner reads them
-          // as a paired pair.
+          // Body focus pill stacked above the mute pill in the
+          // bottom-left chrome cluster. Mirrors the web player gear
+          // popover's Enhanced background switch (R-10).
           if (_isVideo(_current) && _videoInitialized)
             Positioned(
               left: 20,
               bottom: MediaQuery.of(context).padding.bottom +
                   12 + 36 + 8 + _bottomChromeTrimLift,
-              child: _EnhancedBackgroundTogglePill(
-                enabled: _enhancedBackgroundEnabled,
+              child: _TogglePill(
+                iconWhenActive: Icons.blur_on_rounded,
+                iconWhenInactive: Icons.blur_off_rounded,
+                labelWhenActive: 'Body focus',
+                labelWhenInactive: 'Body focus',
                 active: _enhancedBackground,
+                enabled: _enhancedBackgroundEnabled,
                 onTap: _onEnhancedBackgroundToggle,
+                tooltipWhenActive: 'Body focus ON — background dimmed for clarity.',
+                tooltipWhenInactive: 'Body focus OFF — playing the untouched colour file.',
+                tooltipWhenDisabled: 'Body focus applies to colour playback only.',
               ),
             ),
           // Wave 20 — soft-trim editor. Always 100% opacity so the
@@ -2840,13 +2847,7 @@ class _MediaViewerState extends State<_MediaViewer> {
                   }
                   _trimDragWasPlaying = false;
                 },
-                onHandleSeek: (positionMs) {
-                  final c = _videoController;
-                  if (c == null || !c.value.isInitialized) return;
-                  final durMs = c.value.duration.inMilliseconds;
-                  final clamped = positionMs.clamp(0, durMs);
-                  c.seekTo(Duration(milliseconds: clamped));
-                },
+                onHandleSeek: _onTrimScrub,
               ),
             ),
           Positioned(
@@ -2919,49 +2920,40 @@ class _MediaViewerState extends State<_MediaViewer> {
   }
 }
 
-/// Wave 25 — Enhanced Background toggle pill for the Studio
-/// `_MediaViewer`. Stacks under the [TreatmentSegmentedControl] in the
-/// left-edge column. Same book-spine rotated geometry as the treatment
-/// pill so the two read as a paired column of controls.
-///
-/// Mirrors the web player's gear-popover "Enhanced background" switch
-/// (R-10 parity, Milestone P+G). When ON, B&W + Original treatments
-/// play the segmented raw file (Vision body-pop + dimmed background).
-/// When OFF, they play the untouched archive.
-///
-/// States:
-///   • Enabled + ON  → coral fill, white text (mirrors active treatment
-///     segment).
-///   • Enabled + OFF → surfaceRaised fill, dim text (mirrors inactive
-///     treatment segment) inside the same hairline-bordered pill.
-///   • Disabled (treatment == Line) → ~40% opacity, no tap response,
-///     tooltip explains why.
-/// Carl 2026-04-24 — repositioned from a vertical book-spine pill (under
-/// the treatment column) to a HORIZONTAL pill stacked above the mute pill
-/// at bottom-left. Vertical orientation suggested swipe semantics that
-/// don't apply (it's a tap toggle), and grouping it with mute makes the
-/// "playback chrome" cluster feel consistent. Mirrors `_MutePill`'s
-/// shape — pill, 1.5px coral border, coral fill when ON, transparent
-/// when OFF, icon + short label.
-class _EnhancedBackgroundTogglePill extends StatelessWidget {
-  final bool enabled;
+/// Shared horizontal pill toggle used by both the mute pill and the
+/// Body focus pill in [_MediaViewer]'s bottom-left chrome cluster.
+/// Coral 1.5px border, coral fill + white text when [active], outlined
+/// + coral text when inactive. Optional [enabled]=false fades the pill
+/// to 40% and disables tap; optional tooltips fire on long-press.
+class _TogglePill extends StatelessWidget {
+  final IconData iconWhenActive;
+  final IconData iconWhenInactive;
+  final String labelWhenActive;
+  final String labelWhenInactive;
   final bool active;
+  final bool enabled;
   final VoidCallback onTap;
+  final String? tooltipWhenActive;
+  final String? tooltipWhenInactive;
+  final String? tooltipWhenDisabled;
 
-  const _EnhancedBackgroundTogglePill({
-    required this.enabled,
+  const _TogglePill({
+    required this.iconWhenActive,
+    required this.iconWhenInactive,
+    required this.labelWhenActive,
+    required this.labelWhenInactive,
     required this.active,
     required this.onTap,
+    this.enabled = true,
+    this.tooltipWhenActive,
+    this.tooltipWhenInactive,
+    this.tooltipWhenDisabled,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Single short label — visual fill state carries the on/off signal,
-    // matching the web player's "Body in focus — background dimmed"
-    // hint copy without overflowing the pill.
-    const label = 'Body focus';
-    final iconData =
-        active ? Icons.blur_on_rounded : Icons.blur_off_rounded;
+    final iconData = active ? iconWhenActive : iconWhenInactive;
+    final label = active ? labelWhenActive : labelWhenInactive;
     final fillColor = active ? AppColors.primary : Colors.transparent;
     final textColor = active ? Colors.white : AppColors.primary;
 
@@ -2975,10 +2967,7 @@ class _EnhancedBackgroundTogglePill extends StatelessWidget {
           decoration: BoxDecoration(
             color: fillColor,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: AppColors.primary,
-              width: 1.5,
-            ),
+            border: Border.all(color: AppColors.primary, width: 1.5),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -3000,20 +2989,13 @@ class _EnhancedBackgroundTogglePill extends StatelessWidget {
       ),
     );
 
-    final tooltipMessage = enabled
-        ? (active
-            ? 'Body focus ON — background dimmed for clarity.'
-            : 'Body focus OFF — playing the untouched colour file.')
-        : 'Body focus applies to colour playback only.';
-
-    final wrapped = Tooltip(
-      message: tooltipMessage,
-      triggerMode: TooltipTriggerMode.tap,
-      child: pill,
-    );
-
-    if (enabled) return wrapped;
-    return Opacity(opacity: 0.4, child: wrapped);
+    final msg = !enabled
+        ? tooltipWhenDisabled
+        : (active ? tooltipWhenActive : tooltipWhenInactive);
+    final wrapped = msg != null
+        ? Tooltip(message: msg, triggerMode: TooltipTriggerMode.tap, child: pill)
+        : pill;
+    return enabled ? wrapped : Opacity(opacity: 0.4, child: wrapped);
   }
 }
 
@@ -3108,60 +3090,6 @@ class _MediaViewerDotIndicator extends StatelessWidget {
           ),
         );
       }),
-    );
-  }
-}
-
-/// Wave 18 — persistent mute pill for [_MediaViewer]. Coral fill when
-/// muted (volume off), coral outline when audio is on. The glyph +
-/// label both change so the state reads at a glance without squinting
-/// at a speaker icon.
-class _MutePill extends StatelessWidget {
-  final bool isMuted;
-  final VoidCallback onTap;
-
-  const _MutePill({required this.isMuted, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final iconData =
-        isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded;
-    final label = isMuted ? 'Muted' : 'Audio on';
-    final fillColor = isMuted ? AppColors.primary : Colors.transparent;
-    final textColor = isMuted ? Colors.white : AppColors.primary;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
-            color: fillColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: AppColors.primary,
-              width: 1.5,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(iconData, color: textColor, size: 16),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: textColor,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -3289,11 +3217,14 @@ class _TrimPanelState extends State<_TrimPanel> {
   // pixels → ms without touching the BuildContext.
   double _barWidth = 0;
 
-  // Throttle haptic guard hits — at 60Hz drag we'd fire dozens per
-  // second otherwise.
+  // Throttle haptic guard hits + live-frame seek calls — at 60Hz drag
+  // we'd fire dozens per second otherwise. Seeks at &gt;30Hz on iOS
+  // Safari can stutter; haptics at &gt;4Hz feel mushy.
   DateTime _lastGuardHapticAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastHandleSeekAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   static const int _minWindowMs = 300; // 0.3s minimum window per the brief.
+  static const int _seekThrottleMs = 33; // ~30Hz cap on live seek.
 
   int get _effectiveStartMs => widget.startOffsetMs ?? 0;
   int get _effectiveEndMs => widget.endOffsetMs ?? widget.durationMs;
@@ -3304,6 +3235,17 @@ class _TrimPanelState extends State<_TrimPanel> {
     if (now.difference(_lastGuardHapticAt).inMilliseconds < 250) return;
     _lastGuardHapticAt = now;
     widget.onGuardHit();
+  }
+
+  /// Trailing-edge seek + drag-end. The throttle in `_updateHandle`
+  /// can skip the very last gesture tick; firing one final seek here
+  /// guarantees the video lands on the position the user actually
+  /// released at (zero drift on resume).
+  void _onHandleReleased(_TrimHandle handle) {
+    widget.onHandleSeek?.call(
+      handle == _TrimHandle.start ? _effectiveStartMs : _effectiveEndMs,
+    );
+    widget.onDragEnd?.call();
   }
 
   void _updateHandle(_TrimHandle handle, double dx) {
@@ -3327,10 +3269,17 @@ class _TrimPanelState extends State<_TrimPanel> {
     }
     if (startMs == _effectiveStartMs && endMs == _effectiveEndMs) return;
     widget.onTrimChanged(startMs, endMs);
-    // Carl 2026-04-24: live-frame scrub. Seek the controller to the
-    // ms position of whichever handle the user is currently dragging
-    // so the video shows the frame they're trimming TO.
-    widget.onHandleSeek?.call(handle == _TrimHandle.start ? startMs : endMs);
+    // Live-frame scrub — show the frame the user is dragging TO.
+    // Throttled because iOS Safari seekTo on H.264 can stutter
+    // when called every gesture tick.
+    final cb = widget.onHandleSeek;
+    if (cb != null) {
+      final now = DateTime.now();
+      if (now.difference(_lastHandleSeekAt).inMilliseconds >= _seekThrottleMs) {
+        _lastHandleSeekAt = now;
+        cb(handle == _TrimHandle.start ? startMs : endMs);
+      }
+    }
   }
 
   void _onTapBar(TapUpDetails details) {
@@ -3436,8 +3385,8 @@ class _TrimPanelState extends State<_TrimPanel> {
                             _TrimHandle.start,
                             d.delta.dx,
                           ),
-                          onPanEnd: (_) => widget.onDragEnd?.call(),
-                          onPanCancel: () => widget.onDragEnd?.call(),
+                          onPanEnd: (_) => _onHandleReleased(_TrimHandle.start),
+                          onPanCancel: () => _onHandleReleased(_TrimHandle.start),
                           child: const _TrimHandlePill(),
                         ),
                       ),
@@ -3455,8 +3404,8 @@ class _TrimPanelState extends State<_TrimPanel> {
                             _TrimHandle.end,
                             d.delta.dx,
                           ),
-                          onPanEnd: (_) => widget.onDragEnd?.call(),
-                          onPanCancel: () => widget.onDragEnd?.call(),
+                          onPanEnd: (_) => _onHandleReleased(_TrimHandle.end),
+                          onPanCancel: () => _onHandleReleased(_TrimHandle.end),
                           child: const _TrimHandlePill(),
                         ),
                       ),

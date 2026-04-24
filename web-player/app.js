@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v57-body-focus-label';
+const PLAYER_VERSION = 'v58-simplify-pass';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -205,7 +205,6 @@ let interSetRestForSlide = 0;
 //     prebuffered: boolean,        // inactive video already kicked off
 //     scheduled: boolean,          // rAF/timeout in flight; do not double-arm
 //     timupHandler, endedHandler,  // bound listeners for cleanup
-//     repsInSet: number,           // current rep within the active set
 //   }
 // Skipped entirely for: photos, rest slides, videos longer than
 // LOOP_CROSSFADE_MAX_DURATION (no perceptual seam at low loop frequency).
@@ -215,6 +214,7 @@ const LOOP_CROSSFADE_MIN_DURATION = 1.2; // < this → fall back to native loop 
 const LOOP_CROSSFADE_MAX_DURATION = 12;  // > this → seam is rare, skip the dual-video machinery
 const REP_TICK_PULSE_MS = 200;
 const loopState = new Map();
+let drainTimer = null;
 
 // Prep-countdown state. Default runway is 5s (Wave 3 / Milestone P);
 // each exercise can override via `prep_seconds` on the get_plan_full
@@ -1391,11 +1391,8 @@ function goTo(index) {
 
   // Wave 19.7 — tear down the crossfade machinery on the slide we're
   // leaving so a stale `ended` event can't tick reps on the new slide,
-  // and reset rep counters on both old + new slides (mid-loop slide
-  // jump should always restart the new slide's count from zero).
+  // (rep counter is time-derived now — no per-slide state to reset.)
   teardownLoopForSlide(currentIndex);
-  resetRepCounterForSlide(currentIndex);
-  resetRepCounterForSlide(index);
 
   // Cancel any in-flight prep countdown; the new slide gets its own setup.
   clearPrepTimer();
@@ -1542,7 +1539,7 @@ function installLoopDetectorForSlide(idx) {
   let state = loopState.get(idx);
   if (state && state.armed) return;
 
-  state = state || { activeSlot: 'a', repsInSet: 0, armed: false };
+  state = state || { activeSlot: 'a', armed: false };
   state.activeSlot = active.getAttribute('data-loop-slot') || 'a';
   state.armed = true;
   state.prebuffered = false;
@@ -1625,15 +1622,11 @@ function detachLoopListeners(videoEl) {
 }
 
 /**
- * One loop just ended on slide `idx`. Two jobs:
- *   1. Crossfade — flip data-active so the prebuffered inactive slot
- *      becomes the visible active slot. Reset the now-inactive slot to
- *      currentTime=0 + pause so it's ready for the next cycle.
- *   2. Rep tick — bump repsInSet, paint the just-landed rep block in
- *      the vertical stack. When repsInSet === slide.reps, the
- *      breather/next-set state machine takes over (driven by the 1Hz
- *      tick loop, which is independent — so we just reset repsInSet
- *      to 0 and let the existing setPhase machinery handle the pause).
+ * One loop just ended on slide `idx`. Crossfade only — flip data-active
+ * so the prebuffered inactive slot becomes the visible active slot,
+ * reset the now-inactive slot to currentTime=0 + pause so it's ready
+ * for the next cycle. Rep counter is time-derived in the painter; the
+ * loop seam doesn't touch it.
  */
 function handleLoopBoundary(idx) {
   const slide = slides[idx];
@@ -1692,34 +1685,11 @@ function paintActiveRepBlock() {
   const slide = slides[currentIndex];
   if (!slide || slide.media_type === 'rest') return;
 
-  // Walk every set in the column. For sets BEFORE currentSetIndex,
-  // mark every rep filled (we're past them). For the active set,
-  // derive repsInSet from elapsed time. For future sets, leave empty.
-  const setSections = $repStackColumn.querySelectorAll('.rep-stack-section--set');
-
-  // Carl 2026-04-24: ONE source of truth — the duration. The rep stack
-  // fill is purely a function of elapsed proportion of the per-set phase
-  // (not the video loop count). The video loops at its own natural rate
-  // underneath; the crossfade hides the seam visually but the counter
-  // doesn't depend on it. Whether per-set is 10s (manual short) or 30s
-  // (default) or 40s (long video), the stack ALWAYS reaches the top
-  // exactly when the set phase ends. Same logic for photos and videos.
+  // Duration is the source of truth — rep stack fill derives from
+  // elapsed proportion of the set phase, not video loop count. Same
+  // logic for photos and videos; active block doubles as a per-rep
+  // progress bar via `activeFillPct`.
   let repsInSet = 0;
-  if (isWorkoutMode && setPhase === 'set') {
-    const totalReps = slide.reps || 0;
-    const perSet = calculatePerSetSeconds(slide);
-    if (totalReps > 0 && perSet > 0) {
-      const elapsedInSet = Math.max(0, perSet - setPhaseRemaining);
-      repsInSet = Math.min(totalReps, Math.floor((elapsedInSet / perSet) * totalReps));
-    }
-  }
-
-  // Carl 2026-04-24: the active rep block doubles as a 1-rep progress
-  // bar — its fill grows from 0% to 100% over the rep's window. So a
-  // 50s/10rep set has 5s per rep; the active block fills smoothly over
-  // those 5s, then "lands" as filled and the next block becomes active
-  // starting fresh at 0%. Computed per active set in the set branch
-  // below.
   let activeFillPct = 0;
   if (isWorkoutMode && setPhase === 'set') {
     const totalReps = slide.reps || 0;
@@ -1727,11 +1697,13 @@ function paintActiveRepBlock() {
     if (totalReps > 0 && perSet > 0) {
       const elapsedInSet = Math.max(0, perSet - setPhaseRemaining);
       const perRep = perSet / totalReps;
+      repsInSet = Math.min(totalReps, Math.floor(elapsedInSet / perRep));
       const intraRep = elapsedInSet - (repsInSet * perRep);
       activeFillPct = Math.max(0, Math.min(100, (intraRep / perRep) * 100));
     }
   }
 
+  const setSections = $repStackColumn.querySelectorAll('.rep-stack-section--set');
   setSections.forEach((section) => {
     const setIdx = parseInt(section.getAttribute('data-set-index'), 10);
     if (Number.isNaN(setIdx)) return;
@@ -1739,19 +1711,13 @@ function paintActiveRepBlock() {
     let landedRep;
     let activeRep = -1;
     if (setIdx < currentSetIndex) {
-      // Past set — every rep filled.
       landedRep = blocks.length;
     } else if (setIdx === currentSetIndex && setPhase === 'set' && isWorkoutMode) {
-      // Active set, currently in set phase — repsInSet is the count of
-      // reps already landed; the next block is the active one.
       landedRep = repsInSet;
       activeRep = repsInSet + 1;
     } else if (setIdx === currentSetIndex && setPhase === 'rest' && isWorkoutMode) {
-      // Active set just finished and we're in the trailing rest —
-      // every rep of THIS set is filled.
       landedRep = blocks.length;
     } else {
-      // Future set / pre-workout — empty.
       landedRep = 0;
     }
     for (let i = 0; i < blocks.length; i++) {
@@ -1761,14 +1727,12 @@ function paintActiveRepBlock() {
       if (repNum <= landedRep) {
         b.classList.add('rep-stack-block--filled');
         b.classList.remove('rep-stack-block--active');
-        if (fill) fill.style.height = ''; // CSS .filled rule handles 100%
+        if (fill) fill.style.height = '';
       } else if (repNum === activeRep) {
         b.classList.add('rep-stack-block--active');
         b.classList.remove('rep-stack-block--filled');
-        // Active block doubles as a sub-rep progress bar. Inline height
-        // overrides the CSS default; the .rep-stack-block--active
-        // transition is tuned linear-1s in CSS so the fill flows
-        // continuously between 1Hz repaints instead of stepping.
+        // Inline height overrides the CSS default; the active block's
+        // linear-1s transition flows smoothly between 1Hz repaints.
         if (fill) fill.style.height = `${activeFillPct.toFixed(1)}%`;
       } else {
         b.classList.remove('rep-stack-block--filled');
@@ -1780,13 +1744,6 @@ function paintActiveRepBlock() {
 }
 
 /** Reset the rep-in-set counter for the active slide (slide jump, set boundary). */
-function resetRepCounterForSlide(idx) {
-  const state = loopState.get(idx);
-  if (!state) return;
-  state.repsInSet = 0;
-  loopState.set(idx, state);
-}
-
 /**
  * Cleanup loop machinery for a slide we're navigating away from. Pause
  * + zero both slots so we free the decoder; detach listeners so a
@@ -2569,21 +2526,15 @@ function advanceSetPhase() {
       currentSetIndex++;
       setPhase = 'set';
       setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
-      // Wave 19.7 — fresh set, fresh rep count even when there's no breather.
-      resetRepCounterForSlide(currentIndex);
     }
   } else {
-    // rest → next set. Bump set index, resume video.
-    // The trailing rest after the last set ends with the slide; the
-    // tick loop's remainingSeconds=0 branch advances the slide before
-    // we reach this code path for that case (no next set exists).
+    // rest → next set. Bump set index, resume video. Trailing rest
+    // after the last set ends with the slide via onTimerComplete.
     const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
-    if (isLastSet) return; // safety: trailing-rest end is owned by onTimerComplete
+    if (isLastSet) return;
     currentSetIndex++;
     setPhase = 'set';
     setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
-    // Wave 19.7 — fresh set, fresh rep count.
-    resetRepCounterForSlide(currentIndex);
     resumeActiveVideoAfterBreather();
   }
   updateRepStack();
@@ -2602,8 +2553,6 @@ function pauseActiveVideoForBreather() {
   if (video && !video.paused) {
     try { video.pause(); } catch (_) { /* best-effort */ }
   }
-  // Wave 19.7 — entering the breather closes the rep window for this set.
-  resetRepCounterForSlide(currentIndex);
 }
 
 function resumeActiveVideoAfterBreather() {
@@ -3229,24 +3178,20 @@ function updateRepStack() {
     return;
   }
 
-  // Carl 2026-04-24: at slide change, drain the previous slide's
-  // filled blocks TOP-TO-BOTTOM in a wave (not all at once). Top-most
-  // block drains first; bottom-most drains last. ~600ms total. The
-  // visual reads as "this slide finished, the count peels off the
-  // top down" — more uniform / less jolty than a simultaneous shrink.
+  // At slide change, drain the previous slide's filled blocks
+  // top-to-bottom in a wave (not all at once). Bottom-up flex layout
+  // means DOM index 0 is the bottom; for visual top-first drain we
+  // assign the longest delay to index 0.
   const oldIdx = oldKey ? parseInt(oldKey.split('|')[0], 10) : null;
   const isSlideChange = oldKey !== null && oldIdx !== currentIndex;
-  const DRAIN_BLOCK_MS = 200;       // single-block transition duration
-  const DRAIN_TOTAL_MS = 600;       // total wave duration
+  const DRAIN_BLOCK_MS = 200;
+  const DRAIN_TOTAL_MS = 600;
   if (isSlideChange && !$repStack.dataset.draining) {
     $repStack.dataset.draining = 'true';
     const fills = Array.from(
       $repStackColumn.querySelectorAll('.rep-stack-block-fill')
     );
     const total = fills.length;
-    // Bottom-up flex layout: DOM order [bottom block, ..., top block].
-    // For top-down visual drain, last DOM index gets delay=0; first
-    // DOM index gets the longest delay.
     const stagger = total > 1
       ? Math.max(0, Math.floor((DRAIN_TOTAL_MS - DRAIN_BLOCK_MS) / (total - 1)))
       : 0;
@@ -3255,14 +3200,17 @@ function updateRepStack() {
       f.style.transition = `height ${DRAIN_BLOCK_MS}ms ease-out ${delay}ms`;
     });
     $repStackColumn.classList.add('is-draining');
-    setTimeout(() => {
+    // Track the timer so a second slide-change mid-drain can cancel
+    // the stale callback before it touches the new structure.
+    if (drainTimer) clearTimeout(drainTimer);
+    drainTimer = setTimeout(() => {
+      drainTimer = null;
       delete $repStack.dataset.draining;
       $repStackColumn.classList.remove('is-draining');
-      // Clear inline transition so the new slide's blocks start clean.
       fills.forEach((f) => { f.style.transition = ''; });
       $repStack.removeAttribute('data-stack-key');
       updateRepStack();
-    }, DRAIN_TOTAL_MS + 20);
+    }, DRAIN_TOTAL_MS);
     return;
   }
   if ($repStack.dataset.draining) return;
@@ -3725,64 +3673,60 @@ async function registerServiceWorker() {
 // ============================================================
 
 /**
- * Carl 2026-04-24 — clicking a rep or rest block in the vertical stack
- * jumps the workout timer to that point. Same metaphor as clicking a
- * matrix pill at the top to jump to that slide.
- *
- *   * Click rep block at index R (0-based) within set S → currentSetIndex=S,
- *     setPhase='set', setPhaseRemaining = perSet × (1 - R/totalReps).
- *     Slide-level remainingSeconds re-derived from the new position.
- *   * Click rest block for set S → currentSetIndex=S, setPhase='rest',
- *     setPhaseRemaining = full breather seconds. Video paused on frame.
- *
- * Active only during workout mode + timer running. Ignored during prep.
+ * Tap a rep / rest block in the vertical stack to jump the workout
+ * timer to that point. Mirror of clicking a matrix pill at the top.
+ * Active only during workout mode + timer running.
  */
-function jumpToRepStackPosition(kind, setIdx, blockIdx) {
-  if (!isWorkoutMode || !isTimerRunning || isPrepPhase) return;
+function _canJumpRepStack() {
+  if (!isWorkoutMode || !isTimerRunning || isPrepPhase) return false;
   const slide = slides[currentIndex];
-  if (!slide) return;
+  if (!slide) return false;
   const totalReps = slide.reps || 0;
   const perSet = calculatePerSetSeconds(slide);
-  const breather = getInterSetRestSeconds(slide);
-  if (totalReps <= 0 || perSet <= 0) return;
+  return totalReps > 0 && perSet > 0;
+}
 
-  // Each "cycle" of the slide is per-set + breather. We rebuild
-  // remainingSeconds from the target position downward so the slide
-  // total stays consistent with calculateDuration().
-  const cycleSecs = perSet + breather;
-  let elapsedTotal = 0;
-  let phaseRem = 0;
-
-  if (kind === 'set') {
-    // blockIdx = data-rep-index, 0-based; clicking rep block N means
-    // N reps already landed, ready to start rep N+1.
-    const elapsedInSet = (blockIdx / totalReps) * perSet;
-    elapsedTotal = setIdx * cycleSecs + elapsedInSet;
-    phaseRem = Math.max(0, perSet - elapsedInSet);
-    setPhase = 'set';
-    currentSetIndex = setIdx;
-    setPhaseRemaining = phaseRem;
-    resumeActiveVideoAfterBreather();
-  } else if (kind === 'rest') {
-    // blockIdx = data-rest-index; restart the breather from the top.
-    elapsedTotal = (setIdx + 1) * perSet + setIdx * breather;
-    phaseRem = breather;
-    setPhase = 'rest';
-    currentSetIndex = setIdx;
-    setPhaseRemaining = phaseRem;
-    pauseActiveVideoForBreather();
-  } else {
-    return;
-  }
-
-  remainingSeconds = Math.max(0, totalSeconds - elapsedTotal);
-
+function _repaintAfterJump() {
   updateRepStack();
   updateBreatherOverlay();
   updateRestCountdownOverlay();
   updateProgressMatrix();
   updateTimelineBar();
   updateActiveSlideHeader();
+}
+
+/** Jump to rep `repIdx` (0-based) of set `setIdx`. */
+function jumpToRep(setIdx, repIdx) {
+  if (!_canJumpRepStack()) return;
+  const slide = slides[currentIndex];
+  const totalReps = slide.reps || 0;
+  const perSet = calculatePerSetSeconds(slide);
+  const breather = getInterSetRestSeconds(slide);
+  const cycleSecs = perSet + breather;
+  const elapsedInSet = (repIdx / totalReps) * perSet;
+  currentSetIndex = setIdx;
+  setPhase = 'set';
+  setPhaseRemaining = Math.max(0, perSet - elapsedInSet);
+  remainingSeconds = Math.max(0, totalSeconds - (setIdx * cycleSecs + elapsedInSet));
+  resumeActiveVideoAfterBreather();
+  _repaintAfterJump();
+}
+
+/** Jump to the breather following set `setIdx`. */
+function jumpToRest(setIdx) {
+  if (!_canJumpRepStack()) return;
+  const slide = slides[currentIndex];
+  const perSet = calculatePerSetSeconds(slide);
+  const breather = getInterSetRestSeconds(slide);
+  currentSetIndex = setIdx;
+  setPhase = 'rest';
+  setPhaseRemaining = breather;
+  remainingSeconds = Math.max(
+    0,
+    totalSeconds - ((setIdx + 1) * perSet + setIdx * breather),
+  );
+  pauseActiveVideoForBreather();
+  _repaintAfterJump();
 }
 
 async function init() {
@@ -3794,32 +3738,25 @@ async function init() {
   const $versionEl = document.getElementById('footer-version');
   if ($versionEl) $versionEl.textContent = PLAYER_VERSION;
 
-  // Carl 2026-04-24 — delegated click handler for the vertical rep
-  // stack so any rep / rest block becomes a tap target that jumps the
-  // workout timer to that position. Bound once at init; survives
-  // structure rebuilds because the listener is on the stable parent.
+  // Delegated tap handler for the navigable rep stack. stopPropagation
+  // prevents the tap from also toggling video pause/play.
   if ($repStackColumn) {
     $repStackColumn.addEventListener('click', (evt) => {
       const block = evt.target.closest('.rep-stack-block');
       if (!block) return;
-      // Carl 2026-04-24 — stop the click from bubbling to the video's
-      // pause/play handler. Without this, tapping a rep block both jumps
-      // the timer AND toggles playback, which feels broken.
       evt.stopPropagation();
       evt.preventDefault();
-      const isRep = block.classList.contains('rep-stack-block--rep');
-      const isRest = block.classList.contains('rep-stack-block--rest');
-      if (isRep) {
+      if (block.classList.contains('rep-stack-block--rep')) {
         const section = block.closest('.rep-stack-section--set');
         if (!section) return;
         const setIdx = parseInt(section.getAttribute('data-set-index'), 10);
         const repIdx = parseInt(block.getAttribute('data-rep-index'), 10);
         if (Number.isNaN(setIdx) || Number.isNaN(repIdx)) return;
-        jumpToRepStackPosition('set', setIdx, repIdx);
-      } else if (isRest) {
+        jumpToRep(setIdx, repIdx);
+      } else if (block.classList.contains('rep-stack-block--rest')) {
         const restIdx = parseInt(block.getAttribute('data-rest-index'), 10);
         if (Number.isNaN(restIdx)) return;
-        jumpToRepStackPosition('rest', restIdx, 0);
+        jumpToRest(restIdx);
       }
     });
   }
@@ -3838,6 +3775,10 @@ async function init() {
 
     // Unroll circuits into flat slides array
     slides = unrollExercises(plan);
+    // Reset per-slide loop bookkeeping — stale entries from a prior
+    // plan would leak otherwise (no in-session plan switch today, but
+    // future-proof + cheap).
+    loopState.clear();
 
     // Wave 19.6 — load the persisted "Show me" override for THIS plan and
     // compute the plan-wide consent rollup BEFORE the first render so
