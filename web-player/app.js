@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v48-duration-is-truth';
+const PLAYER_VERSION = 'v49-paint-handoffs';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -2250,6 +2250,13 @@ function enterWorkoutPhaseForCurrent() {
   // tick loop can swap phases without re-reading the slide.
   beginSetMachineForCurrent();
 
+  // Carl 2026-04-24 — repaint the rep stack now that the new slide's
+  // setPhase / currentSetIndex / setPhaseRemaining are fresh. updateUI()
+  // ran the structure rebuild before us with stale 'rest' state from the
+  // previous slide, which would render every block filled for ~2s until
+  // the next 1Hz tick. Repainting here closes that visible gap.
+  updateRepStack();
+
   if (slide.media_type === 'rest') {
     // Rest — no prep, auto-start countdown. The bottom-right timer chip
     // is the single source of truth for the rest countdown.
@@ -2400,17 +2407,27 @@ function onTimerTick() {
     return;
   }
 
+  // Carl 2026-04-24 — paint the rep stack BEFORE the phase boundary
+  // check so the final frame of the set phase actually shows
+  // `repsInSet === totalReps` (rep 10 landing) before advanceSetPhase()
+  // flips us to 'rest'. Without this, the painter only ever saw the
+  // 'rest' branch at this tick and rep 10 was perceived as "skipped".
+  updateRepStack();
+
   // Milestone Q — phase boundary inside the active slide (set → rest or
   // rest → set). The overall `remainingSeconds` keeps ticking; only the
   // phase-local counter wraps.
   if (!isRestSlide() && setPhaseRemaining <= 0) {
     advanceSetPhase();
+    // Repaint after advance so the rest branch shows immediately on the
+    // SAME tick that rep 10 finished landing. (advanceSetPhase already
+    // calls updateRepStack at its tail, but be explicit for clarity.)
+    updateRepStack();
   }
 
   // Matrix active-pill fill needs a per-second nudge too.
   updateProgressMatrix();
   updateRestCountdownOverlay();
-  updateRepStack();
   updateBreatherOverlay();
   updateTimelineBar();
   // (MM:SS) remaining rides in the active-slide title — needs a per-tick
