@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v50-stack-polish';
+const PLAYER_VERSION = 'v51-photos-three-treatment';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -285,9 +285,10 @@ function writeSegmentedEffectPreference(enabled) {
 //
 // In `auto` mode (default) the player honours the practitioner's
 // per-exercise `preferred_treatment` (the legacy slideTreatment()
-// behaviour). In `line` / `bw` / `original` mode every video slide is
-// forced to that treatment, ignoring per-exercise picks. Photo + rest
-// slides are unaffected.
+// behaviour). In `line` / `bw` / `original` mode every video AND photo
+// slide is forced to that treatment, ignoring per-exercise picks
+// (Wave 22 — photos joined the three-treatment system). Rest slides
+// are unaffected.
 //
 // Stored per-plan (different plans may have different consent posture,
 // so a global preference would surface "this plan doesn't have B&W"
@@ -830,9 +831,29 @@ function buildMedia(exercise, index) {
     `;
   }
 
-  // Photo / image
-  const posterAttr = exercise.thumbnail_url ? exercise.thumbnail_url : resolvedUrl;
-  return `<img src="${escapeHTML(posterAttr)}" alt="${escapeHTML(exercise.name || 'Exercise')}" loading="lazy">`;
+  // Photo / image (Wave 22 — three-treatment parity with videos).
+  //
+  // `slideT` resolved above honours practitioner sticky `preferred_treatment`
+  // AND the client-controlled "Show me" override. `resolvedUrl` is:
+  //   line     → the line-drawing JPG (public `media` bucket — always)
+  //   bw       → the raw colour JPG (signed, consent-gated). The src is
+  //              the SAME object as `original`; we apply CSS
+  //              `filter: grayscale(1) contrast(1.05)` via .is-grayscale
+  //              instead of shipping a second file. Mirrors the
+  //              video.is-grayscale rule.
+  //   original → the raw colour JPG (signed, consent-gated).
+  //
+  // Treatment swaps hot-swap the <img> src on the next render — no
+  // crossfade needed (single frame, no motion artefact). Legacy photos
+  // with no separate raw stay on line drawing because slideTreatment()
+  // falls back to 'line' when grayscale_url + original_url are both
+  // null.
+  //
+  // Use `data-treatment` for the same hook the video render emits, so
+  // future per-element preview/inspect tooling treats both surfaces
+  // uniformly.
+  const grayscaleClass = slideT === 'bw' ? 'is-grayscale' : '';
+  return `<img src="${escapeHTML(resolvedUrl)}" alt="${escapeHTML(exercise.name || 'Exercise')}" class="${grayscaleClass}" data-treatment="${slideT}" loading="lazy">`;
 }
 
 /**
@@ -2857,6 +2878,29 @@ function rebindVideoSources() {
       };
       videoEl.addEventListener('loadedmetadata', restore, { once: true });
     }
+  });
+
+  // Wave 22 — photo slides need the same treatment-flip handling. The
+  // <img> render emits no IDs, so we filter to the cards (one direct
+  // child .card-media > img) and skip thumbnails / decorative imagery
+  // elsewhere in the player chrome. Hot-swap is trivial: change src +
+  // toggle the `.is-grayscale` class. Single frame, no playback state
+  // to preserve.
+  const photoImgs = $cardTrack.querySelectorAll('.card-media > img');
+  photoImgs.forEach((imgEl) => {
+    const card = imgEl.closest('.exercise-card');
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const slide = slides[idx];
+    if (!slide || slide.media_type !== 'photo') return;
+    const slideT = slideTreatment(slide);
+    const nextUrl = resolveTreatmentUrl(slide, slideT);
+    if (!nextUrl) return;
+    imgEl.setAttribute('data-treatment', slideT);
+    imgEl.classList.toggle('is-grayscale', slideT === 'bw');
+    const currentAttr = imgEl.getAttribute('src');
+    if (currentAttr !== nextUrl) imgEl.setAttribute('src', nextUrl);
   });
 }
 

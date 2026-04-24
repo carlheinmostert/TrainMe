@@ -1212,8 +1212,13 @@ body {
 
 /* === B&W treatment — CSS grayscale filter =========================
    The practitioner may prefer the B&W treatment; backend serves the
-   original video at grayscale_url and we filter client-side. */
-video.is-grayscale {
+   original video / photo at grayscale_url and we filter client-side.
+   Wave 22 extended the rule to <img> so photos get the same
+   single-source three-treatment behaviour as videos (the raw colour
+   JPG is loaded once; B&W and Colour share the same src and only
+   the .is-grayscale class differs). */
+video.is-grayscale,
+img.is-grayscale {
   filter: grayscale(1) contrast(1.05);
 }
 
