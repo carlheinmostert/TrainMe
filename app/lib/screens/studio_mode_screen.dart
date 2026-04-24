@@ -2840,6 +2840,13 @@ class _MediaViewerState extends State<_MediaViewer> {
                   }
                   _trimDragWasPlaying = false;
                 },
+                onHandleSeek: (positionMs) {
+                  final c = _videoController;
+                  if (c == null || !c.value.isInitialized) return;
+                  final durMs = c.value.duration.inMilliseconds;
+                  final clamped = positionMs.clamp(0, durMs);
+                  c.seekTo(Duration(milliseconds: clamped));
+                },
               ),
             ),
           Positioned(
@@ -3247,6 +3254,13 @@ class _TrimPanel extends StatefulWidget {
   /// to remember that state).
   final VoidCallback? onDragEnd;
 
+  /// Fired CONTINUOUSLY during a handle drag with the current ms
+  /// position of the dragged handle. Caller seeks the active video
+  /// controller to that frame so the practitioner sees a live preview
+  /// of where they're trimming TO. Carl 2026-04-24: was a paused
+  /// snapshot of wherever the video happened to be when drag started.
+  final void Function(int positionMs)? onHandleSeek;
+
   const _TrimPanel({
     required this.durationMs,
     required this.startOffsetMs,
@@ -3258,6 +3272,7 @@ class _TrimPanel extends StatefulWidget {
     required this.onReset,
     this.onDragStart,
     this.onDragEnd,
+    this.onHandleSeek,
   });
 
   /// Layout constant — total panel height including its internal padding.
@@ -3312,6 +3327,10 @@ class _TrimPanelState extends State<_TrimPanel> {
     }
     if (startMs == _effectiveStartMs && endMs == _effectiveEndMs) return;
     widget.onTrimChanged(startMs, endMs);
+    // Carl 2026-04-24: live-frame scrub. Seek the controller to the
+    // ms position of whichever handle the user is currently dragging
+    // so the video shows the frame they're trimming TO.
+    widget.onHandleSeek?.call(handle == _TrimHandle.start ? startMs : endMs);
   }
 
   void _onTapBar(TapUpDetails details) {
