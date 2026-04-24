@@ -27,6 +27,13 @@ class StudioDefaults {
   static const int holdSeconds = 0;
   static const int restSeconds = AppConfig.defaultRestDuration;
 
+  /// Wave 24 — number of repetitions captured in the source video. Mirror
+  /// of `ExerciseCapture.withPersistenceDefaults()` which seeds 3 on every
+  /// fresh video / isometric capture. The PACING accordion's REPS IN VIDEO
+  /// row falls back to this when `exercise.videoRepsPerLoop` is null
+  /// (legacy / pre-Wave-24 row).
+  static const int videoRepsPerLoop = 3;
+
   /// Prep-countdown runway in seconds (Wave 3 / Milestone P). The mobile
   /// preview + web player both default to this when `exercise.prepSeconds`
   /// is null. Practitioners can override per exercise via the "Prep
@@ -60,6 +67,10 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
   }
   if ((exercise.notes ?? '').isNotEmpty) return true;
   if (exercise.includeAudio) return true;
+  // Wave 24 — UI no longer exposes customDurationSeconds, but a legacy
+  // row carrying a manual override should still light the customised
+  // dot so the practitioner sees it differs from the surrounding
+  // defaults. Removing the row from the editor doesn't erase the data.
   if (exercise.customDurationSeconds != null) return true;
   if (exercise.prepSeconds != null) return true;
   // Milestone Q — inter-set rest counts as customised when the stored
@@ -67,6 +78,14 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
   // non-customised (legacy rows / pre-migration captures).
   if (exercise.interSetRestSeconds != null &&
       exercise.interSetRestSeconds != StudioDefaults.interSetRestSeconds) {
+    return true;
+  }
+  // Wave 24 — same convention as inter-set rest. Null = legacy /
+  // photo / rest (not customised); a value matching the default 3
+  // = freshly seeded (not customised); any other value = practitioner
+  // has set a non-default rep count.
+  if (exercise.videoRepsPerLoop != null &&
+      exercise.videoRepsPerLoop != StudioDefaults.videoRepsPerLoop) {
     return true;
   }
   return false;
@@ -442,11 +461,15 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     return false;
   }
 
-  /// PACING is "non-default" when prep override OR custom-duration is
-  /// set.
+  /// PACING is "non-default" when prep override, REPS IN VIDEO override,
+  /// inter-set rest override is set, or a legacy customDurationSeconds
+  /// remains on a pre-Wave-24 row.
   bool get _pacingHasNonDefaults {
     final ex = widget.exercise;
     if (ex.prepSeconds != null) return true;
+    // Wave 24 — UI no longer exposes the manual per-rep field, but a
+    // legacy override on a pre-migration row should still light the
+    // coral dot. The data lives on; the editor is gone.
     if (ex.customDurationSeconds != null) return true;
     // Milestone Q — inter-set rest counts as "non-default" only when it
     // differs from the persistence default (15s). A freshly-seeded 15s
@@ -454,6 +477,13 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     // (0 = disabled, any other positive integer) does.
     if (ex.interSetRestSeconds != null &&
         ex.interSetRestSeconds != StudioDefaults.interSetRestSeconds) {
+      return true;
+    }
+    // Wave 24 — same convention as inter-set rest. Null = legacy /
+    // photo / rest; default 3 = freshly seeded; any other value =
+    // practitioner override worth flagging.
+    if (ex.videoRepsPerLoop != null &&
+        ex.videoRepsPerLoop != StudioDefaults.videoRepsPerLoop) {
       return true;
     }
     return false;
@@ -493,14 +523,27 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
   }
 
   /// PACING collapsed summary — `defaults` or comma-separated list.
-  /// Wave 18.5 — renamed "custom" copy away from the misleading label
-  /// since a value derived from video length is no longer stored as
-  /// `customDurationSeconds`. A populated `customDurationSeconds` now
-  /// uniquely means "practitioner set a manual per-rep value".
+  ///
+  /// Wave 24 — the manual per-rep editor is gone from the UI; the
+  /// summary still surfaces a legacy `customDurationSeconds` override
+  /// on pre-Wave-24 rows so the practitioner sees that the row is
+  /// still being driven by the old manual value (visible signal that
+  /// re-publishing will continue to honour it). REPS IN VIDEO joins
+  /// the summary when it deviates from the seed of 3.
   String _pacingSummary() {
     final parts = <String>[];
     final ex = widget.exercise;
     if (ex.prepSeconds != null) parts.add('${ex.prepSeconds}s prep');
+    // Wave 24 — REPS IN VIDEO surfaces in the collapsed summary only
+    // when it deviates from the persistence default of 3 (matches
+    // `_pacingHasNonDefaults`). A freshly-seeded 3 stays invisible.
+    final videoReps = ex.videoRepsPerLoop;
+    if (videoReps != null && videoReps != StudioDefaults.videoRepsPerLoop) {
+      parts.add('$videoReps reps/video');
+    }
+    // Legacy manual per-rep override (pre-Wave-24 rows). Kept for
+    // visibility — fresh captures never write this field, but the
+    // summary should still show it on rows that carry one.
     if (ex.customDurationSeconds != null) {
       final perRep = _perRepFromCustom();
       parts.add('${perRep}s per rep');
@@ -543,8 +586,10 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
     final isVideo = widget.exercise.mediaType == MediaType.video;
     final hasArchive = widget.exercise.archiveFilePath != null &&
         widget.exercise.archiveFilePath!.isNotEmpty;
-    final hasVideoLength =
-        isVideo && (widget.exercise.videoDurationMs ?? 0) > 0;
+    // Wave 24 — `hasVideoLength` was used by the retired
+    // `_DurationPerRepRow`. The new `_VideoRepsPerLoopRow` doesn't
+    // need a probed video duration to render (it's a count, not a
+    // time), so the variable is gone with the row.
 
     final playbackOpen = _openGroup == _AccordionGroup.playback;
     final doseOpen = _openGroup == _AccordionGroup.dose;
@@ -716,6 +761,31 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
         if (pacingOpen)
           _ExpandedBody(
             children: [
+              // Wave 24 — REPS IN VIDEO sits at the TOP of the PACING
+              // accordion so the practitioner reads it as foundational:
+              // "this video contains N reps; the rest of the math
+              // derives from that". Hidden for photos and rest rows
+              // (no video to count). Default 3 (seeded by
+              // ExerciseCapture.withPersistenceDefaults() on fresh
+              // captures); legacy NULL rows fall back to the same
+              // default in the editor but still play as 1 rep / loop on
+              // both surfaces (preserving pre-Wave-24 timing).
+              if (widget.exercise.mediaType == MediaType.video)
+                _VideoRepsPerLoopRow(
+                  currentValue: widget.exercise.videoRepsPerLoop,
+                  globalDefault: StudioDefaults.videoRepsPerLoop,
+                  onCommit: (override) {
+                    if (override == null) {
+                      widget.onUpdate(
+                        widget.exercise.copyWith(clearVideoRepsPerLoop: true),
+                      );
+                    } else {
+                      widget.onUpdate(
+                        widget.exercise.copyWith(videoRepsPerLoop: override),
+                      );
+                    }
+                  },
+                ),
               _PrepSecondsRow(
                 currentValue: widget.exercise.prepSeconds,
                 globalDefault: StudioDefaults.prepSeconds,
@@ -752,50 +822,13 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
                   }
                 },
               ),
-              // Wave 18.7 — DURATION PER REP redesigned to mirror PREP:
-              // label + dashed-underline value on one row, From video /
-              // Manual toggle pair on the next row (video only). Editing
-              // the value auto-flips source to Manual. Photos + video-
-              // without-probe hide the toggle entirely.
-              //
-              // Storage semantics unchanged from Wave 18.5: customDuration
-              // Seconds stores TOTAL (per-rep × reps); null means "From
-              // video" (video) or unseeded (photo, which self-seeds on
-              // first render).
-              _DurationPerRepRow(
-                hasVideoLength: hasVideoLength,
-                videoLengthSeconds: hasVideoLength
-                    ? (widget.exercise.videoDurationMs! / 1000).round()
-                    : 0,
-                customDurationSeconds: widget.exercise.customDurationSeconds,
-                reps: _reps,
-                stickyPerRepSeed: widget.stickyCustomDurationPerRep,
-                onSelectFromVideo: () {
-                  widget.onUpdate(
-                    widget.exercise.copyWith(clearCustomDuration: true),
-                  );
-                },
-                onSelectManual: () {
-                  // Seed at sticky-per-rep × reps (fallback 5s × reps)
-                  // unless a stored customDurationSeconds is already
-                  // present (treat that as the prior Manual value even if
-                  // we just flipped between segments). Writing the total
-                  // immediately ensures the displayed per-rep matches
-                  // runtime duration math — no stale ghost values.
-                  final existing = widget.exercise.customDurationSeconds;
-                  final seedPerRep =
-                      widget.stickyCustomDurationPerRep ?? 5;
-                  final nextTotal = existing ?? (seedPerRep * _reps);
-                  widget.onUpdate(widget.exercise.copyWith(
-                    customDurationSeconds: nextTotal,
-                  ));
-                },
-                onCommitManualPerRep: (newPerRep) {
-                  widget.onUpdate(widget.exercise.copyWith(
-                    customDurationSeconds: newPerRep * _reps,
-                  ));
-                },
-              ),
+              // Wave 24 — DURATION PER REP retired from the UI. The
+              // persisted column lives on for backwards-compatible
+              // reads of pre-Wave-24 rows; per-rep / per-set time on
+              // both mobile preview and the web player now derives
+              // from `videoDurationMs / videoRepsPerLoop`. See
+              // ExerciseCapture.estimatedDurationSeconds + the matching
+              // calculatePerSetSeconds() in web-player/app.js.
             ],
           ),
 
@@ -1147,168 +1180,94 @@ class _ControlRow extends StatelessWidget {
   }
 }
 
-/// "DURATION PER REP" row inside PACING. Wave 18.7 redesign — mirrors
-/// the PREP layout so both pacing controls read identically:
+// Wave 24 — `_DurationPerRepRow` + `_SourceTogglePair` were retired
+// from the UI on this commit. The persisted column lives on for
+// backwards-compatible reads of pre-Wave-24 plans (so an older row
+// with a manual override still plays at the override duration), but
+// the editor and the From-video / Manual toggle pair are gone. Per-rep
+// time is now derived from `videoDurationMs / videoRepsPerLoop` —
+// see `_VideoRepsPerLoopRow` below + the matching
+// `calculatePerSetSeconds` in `web-player/app.js`.
+
+/// "REPS IN VIDEO" inline-editable integer field for the Studio
+/// exercise card's PACING accordion (Wave 24). Asks the practitioner
+/// how many repetitions are in the source video; per-rep time on both
+/// surfaces derives as
 ///
-///   DURATION PER REP
-///   3s                                       [value with dashed underline]
-///   [ From video ]  [ Manual ]               [source toggle — video only]
+///   per_rep = (videoDurationMs / 1000) / videoRepsPerLoop
+///   per_set = (reps ?? 10) × per_rep
 ///
-/// Behaviour:
-///   * The value (e.g. `3s`) is the primary control. Tap → inline
-///     `< Cancel   [_7_]   Done >` editor (via [InlineNumericEditor]).
-///     Committing writes per-rep × reps into `customDurationSeconds`
-///     AND auto-flips the source toggle to `Manual`.
-///   * On video-with-probed-duration, a source-toggle pair sits below
-///     the value. `From video` clears `customDurationSeconds` and the
-///     displayed value reflects `videoLengthSeconds`. `Manual` seeds
-///     `customDurationSeconds` (5 × reps, or `custom_duration_per_rep`
-///     sticky default × reps) and makes the value editable.
-///   * Photos + videos without probed duration hide the toggle
-///     entirely — there's only one source, so a mode indicator would
-///     be meaningless. Just the label + editable value.
+/// Three-state semantics (mirrors the Supabase column):
+///   * NULL → legacy / pre-Wave-24 row. Treated as 1 rep per loop on
+///     both mobile preview and the web player so older plans keep
+///     playing exactly as they did before.
+///   * 3 → freshly-seeded default value (via
+///     [ExerciseCapture.withPersistenceDefaults]). Stored, not bold.
+///   * Any other positive integer → practitioner-set rep count. Bold.
 ///
-/// Storage semantics are unchanged from Wave 18.5 — `customDurationSeconds`
-/// stores the TOTAL (per-rep × reps). This widget reads it divided by
-/// reps for display and writes back per-rep × reps on commit.
-///
-/// Sticky seed — when Manual is first seeded on a fresh exercise
-/// (customDurationSeconds == null, user taps Manual OR user taps the
-/// value on a photo), this widget asks the parent for the client's
-/// sticky `custom_duration_per_rep` default (if any), falling back to
-/// 5s. The value is written through `onCommitManualPerRep` so the
-/// displayed value matches runtime duration math immediately.
-class _DurationPerRepRow extends StatefulWidget {
-  /// True when the exercise is a video with a probed videoDurationMs.
-  /// Drives whether the source-toggle pair renders at all.
-  final bool hasVideoLength;
+/// Commit rules:
+///   * Empty / negative / zero / non-numeric → restore previous, no
+///     write (a video must contain at least 1 rep).
+///   * Value == default (3) → clear the override so the dot doesn't
+///     light for a coincidence match (the persistence default already
+///     stamped 3, so storing 3-again is a no-op).
+///   * Other positive integer → persist as the override.
+class _VideoRepsPerLoopRow extends StatefulWidget {
+  final int? currentValue;
+  final int globalDefault;
+  final ValueChanged<int?> onCommit;
 
-  /// Video length in whole seconds (0 when hasVideoLength is false).
-  /// Used as the displayed per-rep value when From video is active.
-  final int videoLengthSeconds;
-
-  /// Stored total — null means From video (for video) or unseeded
-  /// (for photo, at which point initState seeds it).
-  final int? customDurationSeconds;
-
-  /// Current reps count. Used to convert per-rep ↔ total.
-  final int reps;
-
-  /// Tap `From video` → parent clears customDurationSeconds.
-  final VoidCallback onSelectFromVideo;
-
-  /// Tap `Manual` on a null customDurationSeconds → parent seeds with
-  /// seedPerRep × reps (parent resolves sticky default or 5s and calls
-  /// [onCommitManualPerRep]).
-  final VoidCallback onSelectManual;
-
-  /// Commit a new per-rep value. Parent writes `newPerRep × reps` into
-  /// customDurationSeconds and (optionally) updates the sticky
-  /// `custom_duration_per_rep` default.
-  final ValueChanged<int> onCommitManualPerRep;
-
-  /// Optional sticky per-rep seed — the parent looks up the client's
-  /// `custom_duration_per_rep` default and passes it through. Null
-  /// means "no sticky default; fall back to 5s".
-  final int? stickyPerRepSeed;
-
-  const _DurationPerRepRow({
-    required this.hasVideoLength,
-    required this.videoLengthSeconds,
-    required this.customDurationSeconds,
-    required this.reps,
-    required this.onSelectFromVideo,
-    required this.onSelectManual,
-    required this.onCommitManualPerRep,
-    this.stickyPerRepSeed,
+  const _VideoRepsPerLoopRow({
+    required this.currentValue,
+    required this.globalDefault,
+    required this.onCommit,
   });
 
   @override
-  State<_DurationPerRepRow> createState() => _DurationPerRepRowState();
+  State<_VideoRepsPerLoopRow> createState() => _VideoRepsPerLoopRowState();
 }
 
-class _DurationPerRepRowState extends State<_DurationPerRepRow> {
+class _VideoRepsPerLoopRowState extends State<_VideoRepsPerLoopRow> {
   late final TextEditingController _controller;
   final FocusNode _focusNode = FocusNode();
-  bool _isEditing = false;
-
-  /// True when Manual mode is active. Equivalent to
-  /// `customDurationSeconds != null` on video; always true on photo /
-  /// no-probe (since there's only one source).
-  bool get _isManual =>
-      !widget.hasVideoLength || widget.customDurationSeconds != null;
-
-  /// Per-rep seconds driving the displayed value.
-  ///
-  /// On Manual: `customDurationSeconds / reps`, or the fallback seed
-  /// if customDurationSeconds is null (photo pre-seed race).
-  /// On From video: `videoLengthSeconds`.
-  int get _displayedPerRep {
-    if (widget.hasVideoLength && widget.customDurationSeconds == null) {
-      // From video mode — value mirrors the probed length.
-      return widget.videoLengthSeconds.clamp(1, 999);
-    }
-    final total = widget.customDurationSeconds;
-    if (total == null) {
-      return (widget.stickyPerRepSeed ?? 5).clamp(1, 999);
-    }
-    if (widget.reps <= 0) return total;
-    return (total / widget.reps).round().clamp(1, 999);
-  }
-
-  int get _seedPerRep => (widget.stickyPerRepSeed ?? 5).clamp(1, 999);
+  bool _editing = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: '$_displayedPerRep');
+    _controller = TextEditingController(
+      text: widget.currentValue?.toString() ?? '',
+    );
     _focusNode.addListener(_onFocusChange);
-    // Photo + video-without-probe: no toggle, only one source.
-    // Seed customDurationSeconds on first render so the displayed value
-    // matches what the runtime uses. On video-WITH-probe, "From video"
-    // is a legitimate null state — we only seed when the practitioner
-    // taps Manual OR taps the value to edit.
-    if (!widget.hasVideoLength && widget.customDurationSeconds == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        widget.onCommitManualPerRep(_seedPerRep);
-      });
-    }
   }
 
   @override
-  void didUpdateWidget(covariant _DurationPerRepRow old) {
-    super.didUpdateWidget(old);
-    // Refresh the text field if the external state shifted (parent
-    // wrote through, or user flipped the toggle). Don't stomp on an
-    // active edit.
-    if (!_isEditing &&
-        (old.customDurationSeconds != widget.customDurationSeconds ||
-            old.videoLengthSeconds != widget.videoLengthSeconds ||
-            old.reps != widget.reps)) {
-      _controller.text = '$_displayedPerRep';
+  void didUpdateWidget(covariant _VideoRepsPerLoopRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_editing && oldWidget.currentValue != widget.currentValue) {
+      _controller.text = widget.currentValue?.toString() ?? '';
     }
   }
 
   @override
   void dispose() {
+    _controller.dispose();
     _focusNode.removeListener(_onFocusChange);
     _focusNode.dispose();
-    _controller.dispose();
     super.dispose();
   }
 
   void _onFocusChange() {
-    // Wave 18.7 — focus-blur no longer auto-commits. The iOS number pad
-    // doesn't cleanly surrender focus on tap-outside, and blur-commit
-    // would clobber an intentional Cancel. Cancel + Done are the only
-    // close paths.
+    if (!_focusNode.hasFocus && _editing) {
+      _commit();
+    }
   }
 
   void _startEditing() {
     HapticFeedback.selectionClick();
-    _controller.text = '$_displayedPerRep';
-    setState(() => _isEditing = true);
+    _controller.text =
+        (widget.currentValue ?? widget.globalDefault).toString();
+    setState(() => _editing = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
       _controller.selection = TextSelection(
@@ -1319,62 +1278,61 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
   }
 
   void _commit() {
-    final raw = _controller.text.trim();
-    final parsed = int.tryParse(raw);
-    if (parsed != null && parsed > 0) {
-      // Commit the new per-rep value. If we were in From video mode,
-      // this auto-flips the toggle to Manual because the parent now
-      // sees a non-null customDurationSeconds. Spec: editing the value
-      // implies Manual.
-      widget.onCommitManualPerRep(parsed);
+    final text = _controller.text.trim();
+    int? next;
+    if (text.isEmpty) {
+      // Empty → restore previous; null on this column means "legacy
+      // 1-rep loop" which is rarely what the practitioner intends.
+      next = widget.currentValue;
     } else {
-      // Invalid / empty — restore display, no write.
-      _controller.text = '$_displayedPerRep';
+      final parsed = int.tryParse(text);
+      if (parsed == null || parsed <= 0) {
+        next = widget.currentValue;
+      } else if (parsed == widget.globalDefault) {
+        next = null;
+      } else {
+        next = parsed;
+      }
     }
-    setState(() => _isEditing = false);
+    if (next != widget.currentValue) {
+      widget.onCommit(next);
+    }
+    setState(() => _editing = false);
   }
 
   void _cancel() {
     HapticFeedback.selectionClick();
-    _controller.text = '$_displayedPerRep';
-    setState(() => _isEditing = false);
+    setState(() => _editing = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    // Mirror PREP layout:
-    //   DURATION PER REP                       (inner label, left)
-    //   3s                                     (value, dashed underline)
-    //   [ From video ]  [ Manual ]             (source toggle, video only)
-    //
-    // Wave 18.9 — editor now stacks full-width below the label when
-    // editing, instead of sharing a row. DURATION PER REP's 175pt label
-    // left no room for the editor even with `Expanded`. Stacking
-    // applies to both PREP and DURATION PER REP for visual consistency.
+    final hasOverride = widget.currentValue != null;
+    final displayValue = hasOverride
+        ? widget.currentValue!
+        : widget.globalDefault;
+    final isCustomised =
+        hasOverride && widget.currentValue != widget.globalDefault;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Inline row: label + right-aligned value (when not editing)
-          // OR just the label (when editing — the editor stretches
-          // full-width below).
           Row(
             children: [
               const Text(
-                'DURATION PER REP',
+                'REPS IN VIDEO',
                 style: TextStyle(
                   fontFamily: 'Inter',
-                  // Wave 18.9 — 13pt → 12pt to widen the gap vs the
-                  // 18pt section header.
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.5,
                   color: AppColors.textSecondaryOnDark,
                 ),
               ),
-              if (!_isEditing) ...[
+              if (!_editing) ...[
                 const Spacer(),
                 GestureDetector(
                   onTap: _startEditing,
@@ -1385,15 +1343,16 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 2),
                       child: Text(
-                        '${_displayedPerRep}s',
-                        style: const TextStyle(
+                        '$displayValue',
+                        style: TextStyle(
                           fontFamily: 'JetBrainsMono',
-                          fontFamilyFallback: ['Menlo', 'Courier'],
-                          // Wave 18.9 — 13pt → 12pt to widen the gap
-                          // vs the 18pt section header.
+                          fontFamilyFallback: const ['Menlo', 'Courier'],
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.textOnDark,
+                          color: isCustomised
+                              ? AppColors.textOnDark
+                              : AppColors.textSecondaryOnDark
+                                  .withValues(alpha: 0.7),
                         ),
                       ),
                     ),
@@ -1402,10 +1361,8 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
               ],
             ],
           ),
-          if (_isEditing) ...[
+          if (_editing) ...[
             const SizedBox(height: 6),
-            // Full-width editor — the enclosing Column stretches it
-            // via crossAxisAlignment, so no Expanded wrapper needed.
             InlineNumericEditor(
               controller: _controller,
               focusNode: _focusNode,
@@ -1414,105 +1371,7 @@ class _DurationPerRepRowState extends State<_DurationPerRepRow> {
               onCommit: _commit,
             ),
           ],
-          // Toggle pair only when we have a probed video length —
-          // otherwise the single source makes the toggle meaningless.
-          if (widget.hasVideoLength) ...[
-            const SizedBox(height: 6),
-            _SourceTogglePair(
-              isFromVideo: !_isManual,
-              onSelectFromVideo: () {
-                if (!_isManual) return; // already selected
-                HapticFeedback.selectionClick();
-                widget.onSelectFromVideo();
-              },
-              onSelectManual: () {
-                if (_isManual) return; // already selected
-                HapticFeedback.selectionClick();
-                widget.onSelectManual();
-              },
-            ),
-          ],
         ],
-      ),
-    );
-  }
-}
-
-/// Two-segment source toggle — From video | Manual. Matches the visual
-/// family of the treatment segmented control (coral fill for selected,
-/// surfaceRaised for unselected). Used by [_DurationPerRepRow] only
-/// when the exercise has a probed video length.
-///
-/// Wave 18.7 — moved out of the inline segmented control and into a
-/// standalone row beneath the value. The value is now the primary
-/// control; the toggle is a secondary affordance for switching source.
-class _SourceTogglePair extends StatelessWidget {
-  final bool isFromVideo;
-  final VoidCallback onSelectFromVideo;
-  final VoidCallback onSelectManual;
-
-  const _SourceTogglePair({
-    required this.isFromVideo,
-    required this.onSelectFromVideo,
-    required this.onSelectManual,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _segment(
-          label: 'From video',
-          selected: isFromVideo,
-          onTap: onSelectFromVideo,
-        ),
-        const SizedBox(width: 6),
-        _segment(
-          label: 'Manual',
-          selected: !isFromVideo,
-          onTap: onSelectManual,
-        ),
-      ],
-    );
-  }
-
-  Widget _segment({
-    required String label,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: IntrinsicWidth(
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          height: 24,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? AppColors.primary : AppColors.surfaceRaised,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected
-                  ? AppColors.primary
-                  : AppColors.surfaceBorder,
-              width: 1,
-            ),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              height: 1.0,
-              color: selected ? Colors.white : AppColors.textOnDark,
-            ),
-          ),
-        ),
       ),
     );
   }

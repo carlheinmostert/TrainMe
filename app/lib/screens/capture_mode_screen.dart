@@ -1191,28 +1191,58 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           // Coral on dark, small-text per the Wave 8 brief.
           // AnimatedSwitcher gives a quiet fade-out instead of a hard
           // disappear when the hint retires.
+          //
+          // Wave 24: a second muted line of guidance sits beneath the
+          // coral hint — "Aim for ~3 reps per video". Same once-per-
+          // process visibility window so it retires alongside the
+          // long-press hint. Reinforces the new
+          // ExerciseCapture.videoRepsPerLoop default of 3 so the
+          // practitioner's instinct + the persistence default agree.
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 220),
             child: (_showLongPressHint && !_isRecording)
                 ? const Padding(
                     key: ValueKey('hold-for-video-hint'),
                     padding: EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      'Hold for video',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.4,
-                        color: AppColors.primary,
-                        shadows: [
-                          Shadow(
-                            color: Colors.black54,
-                            blurRadius: 4,
-                            offset: Offset(0, 1),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Hold for video',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.4,
+                            color: AppColors.primary,
+                            shadows: [
+                              Shadow(
+                                color: Colors.black54,
+                                blurRadius: 4,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Aim for ~3 reps per video',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.3,
+                            color: AppColors.textSecondaryOnDark,
+                            shadows: [
+                              Shadow(
+                                color: Colors.black54,
+                                blurRadius: 4,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   )
                 : const SizedBox(

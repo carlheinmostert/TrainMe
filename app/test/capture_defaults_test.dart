@@ -107,9 +107,32 @@ void main() {
     });
 
     test('returns the same instance when no changes are needed', () {
-      final ex = seed(reps: 10, sets: 3);
+      // All four backfilled fields must already match the defaults the
+      // helper would otherwise stamp:
+      //   reps=10, sets=3, interSetRestSeconds=15 (Milestone Q),
+      //   videoRepsPerLoop=3 (Wave 24, video only).
+      final ex = seed(reps: 10, sets: 3).copyWith(
+        interSetRestSeconds: 15,
+        videoRepsPerLoop: 3,
+      );
       final out = ex.withPersistenceDefaults();
       expect(identical(ex, out), isTrue);
+    });
+
+    test('fresh video capture seeds videoRepsPerLoop=3', () {
+      final out = seed().withPersistenceDefaults();
+      expect(out.videoRepsPerLoop, 3);
+    });
+
+    test('photo capture does NOT seed videoRepsPerLoop', () {
+      final out = seed(mediaType: MediaType.photo).withPersistenceDefaults();
+      expect(out.videoRepsPerLoop, isNull);
+    });
+
+    test('explicit videoRepsPerLoop survives backfill', () {
+      final ex = seed().copyWith(videoRepsPerLoop: 5);
+      final out = ex.withPersistenceDefaults();
+      expect(out.videoRepsPerLoop, 5);
     });
   });
 
