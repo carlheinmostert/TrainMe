@@ -1135,12 +1135,11 @@ body {
 .edge-nav--next { right: 6px; }
 
 /* Carl 2026-04-24: when the vertical rep stack is rendered on the left
-   edge, the prev chevron sat dead-centre over it (chevron z-index 15 >
-   stack 12, so chevron caught the taps). Shift the chevron just past
-   the stack column so both stay tappable. When the stack is hidden
-   (photos / rest / single-rep / legacy), the chevron returns to its
-   native left:6 edge position. iOS Safari 15.4+ supports :has(). */
-.card-viewport:has(.rep-stack:not([hidden])) .edge-nav--prev {
+   edge, the prev chevron sat dead-centre over it. Shift the chevron
+   just past the stack column so both stay tappable. JS adds the
+   `has-rep-stack` class on `.card-viewport` whenever the stack is
+   visible (more reliable than :has() across iOS Safari versions). */
+.card-viewport.has-rep-stack .edge-nav--prev {
   left: 64px;
 }
 

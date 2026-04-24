@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v55-chevron-shift';
+const PLAYER_VERSION = 'v56-chevron-class-and-wave-drain';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -3205,6 +3205,12 @@ function updateRepStack() {
     && slideReps > 0
     && !(slideSets === 1 && slideReps === 1);
   $repStack.hidden = !eligible;
+  // Carl 2026-04-24: toggle a class on the card-viewport so CSS can
+  // shift the prev chevron out of the stack's tap zone. JS-driven
+  // (instead of `:has()`) for cross-version Safari reliability.
+  if ($cardViewport) {
+    $cardViewport.classList.toggle('has-rep-stack', eligible);
+  }
   if (!eligible) {
     $repStackColumn.innerHTML = '';
     $repStackLabels.innerHTML = '';
@@ -3223,23 +3229,40 @@ function updateRepStack() {
     return;
   }
 
-  // Carl 2026-04-24: when the slide CHANGES (different currentIndex
-  // in the key), animate the previous slide's fills down to 0 before
-  // wiping the structure. CSS .is-draining handles the 350ms shrink;
-  // we re-enter after the animation finishes to do the actual rebuild
-  // with the new slide's blocks. The dataset.draining flag prevents
-  // the 1Hz tick from re-triggering the drain mid-animation.
+  // Carl 2026-04-24: at slide change, drain the previous slide's
+  // filled blocks TOP-TO-BOTTOM in a wave (not all at once). Top-most
+  // block drains first; bottom-most drains last. ~600ms total. The
+  // visual reads as "this slide finished, the count peels off the
+  // top down" — more uniform / less jolty than a simultaneous shrink.
   const oldIdx = oldKey ? parseInt(oldKey.split('|')[0], 10) : null;
   const isSlideChange = oldKey !== null && oldIdx !== currentIndex;
+  const DRAIN_BLOCK_MS = 200;       // single-block transition duration
+  const DRAIN_TOTAL_MS = 600;       // total wave duration
   if (isSlideChange && !$repStack.dataset.draining) {
     $repStack.dataset.draining = 'true';
+    const fills = Array.from(
+      $repStackColumn.querySelectorAll('.rep-stack-block-fill')
+    );
+    const total = fills.length;
+    // Bottom-up flex layout: DOM order [bottom block, ..., top block].
+    // For top-down visual drain, last DOM index gets delay=0; first
+    // DOM index gets the longest delay.
+    const stagger = total > 1
+      ? Math.max(0, Math.floor((DRAIN_TOTAL_MS - DRAIN_BLOCK_MS) / (total - 1)))
+      : 0;
+    fills.forEach((f, i) => {
+      const delay = (total - 1 - i) * stagger;
+      f.style.transition = `height ${DRAIN_BLOCK_MS}ms ease-out ${delay}ms`;
+    });
     $repStackColumn.classList.add('is-draining');
     setTimeout(() => {
       delete $repStack.dataset.draining;
       $repStackColumn.classList.remove('is-draining');
+      // Clear inline transition so the new slide's blocks start clean.
+      fills.forEach((f) => { f.style.transition = ''; });
       $repStack.removeAttribute('data-stack-key');
       updateRepStack();
-    }, 350);
+    }, DRAIN_TOTAL_MS + 20);
     return;
   }
   if ($repStack.dataset.draining) return;
