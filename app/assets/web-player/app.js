@@ -10,6 +10,16 @@
  */
 
 // ============================================================
+// Build marker (rendered discreetly in the footer for QA)
+// ============================================================
+//
+// MUST mirror the cache name suffix in `web-player/sw.js`. Both rev
+// together — bumping one without the other will leave the version
+// label stale on a freshly-cached client. Convention: drop the
+// `homefit-player-` prefix; keep the `vN-slug` tail.
+const PLAYER_VERSION = 'v65-maximise-pill';
+
+// ============================================================
 // Native bridge (Wave 4 Phase 2)
 // ============================================================
 //
@@ -129,9 +139,20 @@ function treatmentFromWire(wire) {
  * practitioner's sticky choice.
  */
 function slideTreatment(exercise) {
-  const candidate = treatmentFromWire(exercise && exercise.preferred_treatment);
   const hasGray = !!(exercise && (exercise.grayscale_segmented_url || exercise.grayscale_url));
   const hasOrig = !!(exercise && (exercise.original_segmented_url || exercise.original_url));
+  // Wave 19.6 — client-controlled override beats the practitioner's pick
+  // when the client has explicitly chosen a treatment in the gear popover.
+  // 'auto' (default) defers to the per-exercise practitioner preference.
+  // For a forced treatment we still defensively fall back to 'line' if the
+  // URL isn't available (the segment is disabled in that case, but a stale
+  // localStorage value from a different plan could land us here).
+  if (clientTreatmentOverride !== 'auto') {
+    if (clientTreatmentOverride === 'line') return 'line';
+    if (clientTreatmentOverride === 'bw') return hasGray ? 'bw' : 'line';
+    if (clientTreatmentOverride === 'original') return hasOrig ? 'original' : 'line';
+  }
+  const candidate = treatmentFromWire(exercise && exercise.preferred_treatment);
   if (candidate === 'bw' && !hasGray) return 'line';
   if (candidate === 'original' && !hasOrig) return 'line';
   return candidate;
@@ -166,6 +187,57 @@ let setPhase = 'set';
 let setPhaseRemaining = 0;
 // Breather seconds for the active slide (cached).
 let interSetRestForSlide = 0;
+
+// ------------------------------------------------------------------
+// Wave 19.7 — Dual-video crossfade + rep-tick on loop seam.
+//
+// Short clips loop visibly: iOS Safari has a 30-100ms hiccup at the
+// natural-end → seek-to-0 → resume seam. We hide the hiccup by playing
+// two stacked `<video>` elements with the same source and crossfading
+// between them ~250ms before the active one ends. The crossfade
+// plumbing IS the loop detector, so it also drives the per-slide rep
+// counter (Set 1 · {currentRepInSet} of {reps}) + a 200ms scale/glow
+// pulse on the active set segment.
+//
+// State shape:
+//   loopState[slideIndex] = {
+//     activeSlot: 'a' | 'b',
+//     prebuffered: boolean,        // inactive video already kicked off
+//     scheduled: boolean,          // rAF/timeout in flight; do not double-arm
+//     timupHandler, endedHandler,  // bound listeners for cleanup
+//   }
+// Skipped entirely for: photos, rest slides, videos longer than
+// LOOP_CROSSFADE_MAX_DURATION (no perceptual seam at low loop frequency).
+// ------------------------------------------------------------------
+// Per-plan crossfade tuning (Wave 27). Defaults match historical
+// behaviour; overrides ride on `plan.crossfade_lead_ms` /
+// `plan.crossfade_fade_ms` from get_plan_full and clamp to the
+// safe ranges below. NULL → use the default.
+const DEFAULT_LOOP_CROSSFADE_LEAD_MS = 250;
+const DEFAULT_LOOP_CROSSFADE_FADE_MS = 200;
+const LOOP_CROSSFADE_LEAD_RANGE = [100, 800];
+const LOOP_CROSSFADE_FADE_RANGE = [50, 600];
+const LOOP_CROSSFADE_MIN_DURATION = 1.2; // < this → fall back to native loop (too short for crossfade)
+const LOOP_CROSSFADE_MAX_DURATION = 12;  // > this → seam is rare, skip the dual-video machinery
+
+function getLoopCrossfadeLeadMs() {
+  const v = plan && plan.crossfade_lead_ms;
+  if (v == null) return DEFAULT_LOOP_CROSSFADE_LEAD_MS;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DEFAULT_LOOP_CROSSFADE_LEAD_MS;
+  return Math.max(LOOP_CROSSFADE_LEAD_RANGE[0], Math.min(LOOP_CROSSFADE_LEAD_RANGE[1], n));
+}
+
+function getLoopCrossfadeFadeMs() {
+  const v = plan && plan.crossfade_fade_ms;
+  if (v == null) return DEFAULT_LOOP_CROSSFADE_FADE_MS;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DEFAULT_LOOP_CROSSFADE_FADE_MS;
+  return Math.max(LOOP_CROSSFADE_FADE_RANGE[0], Math.min(LOOP_CROSSFADE_FADE_RANGE[1], n));
+}
+const REP_TICK_PULSE_MS = 200;
+const loopState = new Map();
+let drainTimer = null;
 
 // Prep-countdown state. Default runway is 5s (Wave 3 / Milestone P);
 // each exercise can override via `prep_seconds` on the get_plan_full
@@ -231,6 +303,50 @@ function writeSegmentedEffectPreference(enabled) {
   }
 }
 
+// ----------------------------------------------------------------
+// Client-controlled "Show me" treatment override (Wave 19.6).
+//
+// In `auto` mode (default) the player honours the practitioner's
+// per-exercise `preferred_treatment` (the legacy slideTreatment()
+// behaviour). In `line` / `bw` / `original` mode every video AND photo
+// slide is forced to that treatment, ignoring per-exercise picks
+// (Wave 22 — photos joined the three-treatment system). Rest slides
+// are unaffected.
+//
+// Stored per-plan (different plans may have different consent posture,
+// so a global preference would surface "this plan doesn't have B&W"
+// confusion when switching between clients on a shared device). The
+// resolved planId is appended to the namespace at boot.
+//
+// Wire-storage values: 'auto' | 'line' | 'bw' | 'original'.
+// ----------------------------------------------------------------
+const TREATMENT_OVERRIDE_STORAGE_PREFIX = 'homefit.playback.treatment::';
+const VALID_OVERRIDES = ['auto', 'line', 'bw', 'original'];
+
+let clientTreatmentOverride = 'auto';
+
+function treatmentOverrideStorageKey(planId) {
+  return TREATMENT_OVERRIDE_STORAGE_PREFIX + (planId || 'unknown');
+}
+
+function readClientTreatmentOverride(planId) {
+  try {
+    const raw = window.localStorage.getItem(treatmentOverrideStorageKey(planId));
+    if (raw && VALID_OVERRIDES.indexOf(raw) !== -1) return raw;
+    return 'auto';
+  } catch (_) {
+    return 'auto';
+  }
+}
+
+function writeClientTreatmentOverride(planId, value) {
+  try {
+    window.localStorage.setItem(treatmentOverrideStorageKey(planId), value);
+  } catch (_) {
+    // Storage blocked — in-memory flag still drives this session.
+  }
+}
+
 // Timing constants (from config.dart)
 const SECONDS_PER_REP = 3;
 const REST_BETWEEN_SETS = 30;
@@ -269,21 +385,39 @@ const $matrixChevron = document.getElementById('progress-matrix-chevron');
 
 // Video-as-hero overlay refs
 const $btnFullscreen = document.getElementById('btn-fullscreen');
+const $btnLandscapeMaximise = document.getElementById('btn-landscape-maximise');
+const $btnPlayPause = document.getElementById('btn-playpause');
+const $btnPlayPauseIconPlay = $btnPlayPause
+  ? $btnPlayPause.querySelector('.pp-icon-play')
+  : null;
+const $btnPlayPauseIconPause = $btnPlayPause
+  ? $btnPlayPause.querySelector('.pp-icon-pause')
+  : null;
 const $restCountdownOverlay = document.getElementById('rest-countdown-overlay');
 const $restCountdownNumber = document.getElementById('rest-countdown-number');
 const $cardNotes = document.getElementById('card-notes');
 const $cardNotesText = document.getElementById('card-notes-text');
 
-// Milestone Q — inter-set rest overlays.
-//   * #set-progress-bar sits above the media on every exercise slide
-//     that has sets > 1 OR a breather > 0. It's a horizontal strip of
-//     segments: coral for set phases, sage for breather phases. The
-//     active segment fills smoothly with its phase-local countdown;
-//     completed segments are solid, upcoming segments are outlined.
-//   * #breather-overlay sits on top of the paused video and shows a
-//     big sage countdown number + a restful-person glyph during the
-//     inter-set breather. Hidden outside breathers.
-const $setProgressBar = document.getElementById('set-progress-bar');
+// Wave 21 — vertical rep-block stack (replaces the Wave 19.7 horizontal
+// .set-progress-bar). Pinned to the LEFT edge of .card-viewport,
+// vertically centered. One micro-block per rep + one thinner block per
+// inter-set rest, stacked bottom-up. Section labels (S1, R, S2, …) sit
+// in a left gutter outside the column.
+//
+// Rendering ownership:
+//   * Skeleton (sections + blocks) is rebuilt via updateRepStack()
+//     whenever the active slide / set count / breather changes.
+//   * Per-rep fills are painted via paintActiveRepBlock() driven by
+//     handleLoopBoundary() — discrete bumps, no time drift (the prior
+//     time-based fill raced ahead of the rep label by ~rep 4 of 10).
+//   * Rest fills are time-based: paintRestFill() runs on the 1Hz
+//     onTimerTick() while setPhase === 'rest'.
+//
+// #breather-overlay still sits on top of the paused video and shows a
+// big sage countdown + restful-person glyph during the inter-set rest.
+const $repStack = document.getElementById('rep-stack');
+const $repStackColumn = document.getElementById('rep-stack-column');
+const $repStackLabels = document.getElementById('rep-stack-labels');
 const $breatherOverlay = document.getElementById('breather-overlay');
 const $breatherNumber = document.getElementById('breather-number');
 
@@ -409,6 +543,13 @@ function renderPlan() {
   $clientName.textContent = plan.client_name;
   $planTitle.textContent = plan.title;
 
+  // Push the per-plan crossfade fade-duration into a CSS var so the
+  // .video-loop-slot transition picks it up. Cascades from :root.
+  document.documentElement.style.setProperty(
+    '--loop-crossfade-fade-ms',
+    `${getLoopCrossfadeFadeMs()}ms`,
+  );
+
   // Build the progress-pill matrix (replaces legacy single linear bar).
   buildProgressMatrix();
 
@@ -428,12 +569,9 @@ function renderPlan() {
   updateCardNotes();
 
   updateUI();
-  // Wave 19.3 fix: the pause overlay is baked with play-icon-default in
-  // buildMediaPauseOverlay(), but the initial glyph state should reflect
-  // "video is playing" (= PAUSE glyph) on first paint. updateUI() does not
-  // touch the overlay so we flip it explicitly here — otherwise the first
-  // time the user sees fullscreen they get a dimmed ▶ instead of ||.
-  updatePauseOverlay();
+  // updateUI() doesn't touch the play/pause toggle, so prime it here so
+  // its hidden state + glyph reflect workout-mode on first paint.
+  updatePlayPauseToggle();
 }
 
 function buildCard(slide, index) {
@@ -444,13 +582,21 @@ function buildCard(slide, index) {
 
   const mediaHTML = buildMedia(slide, index);
   const mediaType = slide.media_type === 'video' ? 'video' : 'photo';
+  // Wave 28 — landscape support. Each exercise carries its post-rotation
+  // effective aspect ratio (NULL on legacy plans). Stash it on the card
+  // as a CSS var so portrait/landscape media queries can size the slot
+  // before the video metadata fires. NULL → no inline style → CSS
+  // defaults win exactly as before.
+  const ar = Number(slide.aspect_ratio);
+  const arAttr = Number.isFinite(ar) && ar > 0
+    ? ` style="--exercise-aspect-ratio: ${ar};"`
+    : '';
 
   return `
-    <div class="exercise-card" data-index="${index}" data-media-type="${mediaType}">
+    <div class="exercise-card" data-index="${index}" data-media-type="${mediaType}"${arAttr}>
       <div class="card-inner">
         <div class="card-media" data-media-index="${index}">
           ${mediaHTML}
-          ${buildMediaPauseOverlay()}
           ${buildPrepOverlay()}
         </div>
       </div>
@@ -458,10 +604,24 @@ function buildCard(slide, index) {
   `;
 }
 
+/**
+ * Wave 28 — landscape support. Practitioner's manual playback rotation
+ * for each exercise, expressed in quarter-turns. Maps NULL / garbage
+ * to 0 so legacy plans render identically to today. The CSS transform
+ * lives on a wrapper element (.video-loop-pair for videos,
+ * .media-rotation-wrap for photos), never directly on the <video> /
+ * <img> — that keeps the dual-video crossfade opacity transitions on
+ * a clean stacking context.
+ */
+function getExerciseRotationDeg(slide) {
+  const q = Number(slide && slide.rotation_quarters) || 0;
+  return ((q % 4) + 4) % 4 * 90;
+}
+
 function buildRestCard(slide, index) {
   // Rest card: icon + "Rest" title + "Next up: X" subtitle. Name + grammar
   // live in the top-stack active-slide-header (not inside the card). Tap
-  // to pause/resume is via the same .media-pause-overlay as exercise slides.
+  // to pause/resume is via the .card-media area (handleMediaTap).
   const nextSlide = index < slides.length - 1 ? slides[index + 1] : null;
   const nextUpName = nextSlide ? (nextSlide.name || 'Next exercise') : null;
 
@@ -481,35 +641,8 @@ function buildRestCard(slide, index) {
             <div class="rest-title">Rest</div>
             ${nextUpName ? `<div class="rest-next-up">Next up: ${escapeHTML(nextUpName)}</div>` : ''}
           </div>
-          ${buildMediaPauseOverlay()}
           ${buildPrepOverlay()}
         </div>
-      </div>
-    </div>
-  `;
-}
-
-/**
- * Item 8: centered dark-circle overlay with coral play icon. Shown only when
- * the workout is paused on the active slide. Touch-transparent — the parent
- * .card-media captures the tap and dispatches via handleMediaTap(). The
- * overlay is injected into every card but only toggled visible on the
- * currently active, paused slide.
- */
-function buildMediaPauseOverlay() {
-  // Wave 19.3: default the visible glyph to PAUSE because the video begins
-  // playing on first paint (preview autoplay). updatePauseOverlay() then
-  // swaps to PLAY only during the explicit mid-workout paused state.
-  return `
-    <div class="media-pause-overlay">
-      <div class="pause-disc">
-        <svg class="pause-icon pause-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
-          <polygon points="6 3 20 12 6 21 6 3"/>
-        </svg>
-        <svg class="pause-icon pause-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <rect x="6" y="4" width="4" height="16" rx="1"/>
-          <rect x="14" y="4" width="4" height="16" rx="1"/>
-        </svg>
       </div>
     </div>
   `;
@@ -678,25 +811,90 @@ function buildMedia(exercise, index) {
         </svg>
       </button>
     ` : '';
+    // Dual-video crossfade (Wave 19.7). Two stacked <video> elements
+    // share the same source — the "active" one plays normally; ~250ms
+    // before it reaches `duration` we preroll the inactive one and swap
+    // visible-active via opacity. Eliminates the iOS Safari loop-seam
+    // hiccup. The native `loop` attribute stays as a fallback so the
+    // slide still cycles even if the prebuffer trigger misses
+    // (network-slow, duration < crossfade window). The loop-detector
+    // also drives the rep tick; see scheduleNextLoopBoundary() +
+    // handleLoopBoundary().
+    //
+    // `video-${index}` is kept on the primary element for backward
+    // compatibility with every getElementById call in app.js — the
+    // legacy "active video" lookups still resolve to the right slot.
+    // The secondary lives at `video-${index}-b` and is paused by
+    // default at frame 0.
+    const grayscaleClass = slideT === 'bw' ? 'is-grayscale' : '';
+    // Wave 28 — practitioner's manual playback rotation lives on the
+    // pair wrapper so it composes cleanly with the per-video opacity
+    // crossfade. 0deg → no transform style → identical CSS to legacy.
+    const rotDeg = getExerciseRotationDeg(exercise);
+    const rotStyle = rotDeg ? ` style="transform: rotate(${rotDeg}deg);"` : '';
     return `
-      <video
-        id="video-${index}"
-        class="${slideT === 'bw' ? 'is-grayscale' : ''}"
-        src="${escapeHTML(resolvedUrl)}"
-        data-treatment="${slideT}"
-        playsinline
-        loop
-        ${mutedAttr}
-        preload="auto"
-        ${posterAttr}
-      ></video>
+      <div class="video-loop-pair" data-pair-index="${index}" data-rotation-deg="${rotDeg}"${rotStyle}>
+        <video
+          id="video-${index}"
+          class="video-loop-slot ${grayscaleClass}"
+          src="${escapeHTML(resolvedUrl)}"
+          data-treatment="${slideT}"
+          data-active="true"
+          data-loop-slot="a"
+          playsinline
+          loop
+          ${mutedAttr}
+          preload="auto"
+          ${posterAttr}
+        ></video>
+        <video
+          id="video-${index}-b"
+          class="video-loop-slot ${grayscaleClass}"
+          src="${escapeHTML(resolvedUrl)}"
+          data-treatment="${slideT}"
+          data-active="false"
+          data-loop-slot="b"
+          playsinline
+          loop
+          muted
+          preload="auto"
+          ${posterAttr}
+          aria-hidden="true"
+        ></video>
+      </div>
       ${muteButton}
     `;
   }
 
-  // Photo / image
-  const posterAttr = exercise.thumbnail_url ? exercise.thumbnail_url : resolvedUrl;
-  return `<img src="${escapeHTML(posterAttr)}" alt="${escapeHTML(exercise.name || 'Exercise')}" loading="lazy">`;
+  // Photo / image (Wave 22 — three-treatment parity with videos).
+  //
+  // `slideT` resolved above honours practitioner sticky `preferred_treatment`
+  // AND the client-controlled "Show me" override. `resolvedUrl` is:
+  //   line     → the line-drawing JPG (public `media` bucket — always)
+  //   bw       → the raw colour JPG (signed, consent-gated). The src is
+  //              the SAME object as `original`; we apply CSS
+  //              `filter: grayscale(1) contrast(1.05)` via .is-grayscale
+  //              instead of shipping a second file. Mirrors the
+  //              video.is-grayscale rule.
+  //   original → the raw colour JPG (signed, consent-gated).
+  //
+  // Treatment swaps hot-swap the <img> src on the next render — no
+  // crossfade needed (single frame, no motion artefact). Legacy photos
+  // with no separate raw stay on line drawing because slideTreatment()
+  // falls back to 'line' when grayscale_url + original_url are both
+  // null.
+  //
+  // Use `data-treatment` for the same hook the video render emits, so
+  // future per-element preview/inspect tooling treats both surfaces
+  // uniformly.
+  const grayscaleClass = slideT === 'bw' ? 'is-grayscale' : '';
+  // Wave 28 — wrap photos in a thin rotation container so the same
+  // wrapper-anchored rotation pattern that videos use works for images
+  // too. Wrapper is a no-op for legacy plans (rotation 0 → no inline
+  // style); CSS rules in styles.css give the wrapper inherent fill.
+  const rotDeg = getExerciseRotationDeg(exercise);
+  const rotStyle = rotDeg ? ` style="transform: rotate(${rotDeg}deg);"` : '';
+  return `<div class="media-rotation-wrap" data-rotation-deg="${rotDeg}"${rotStyle}><img src="${escapeHTML(resolvedUrl)}" alt="${escapeHTML(exercise.name || 'Exercise')}" class="${grayscaleClass}" data-treatment="${slideT}" loading="lazy"></div>`;
 }
 
 /**
@@ -1232,6 +1430,11 @@ function goTo(index) {
   // Pause any playing videos on current card
   pauseAllVideos();
 
+  // Wave 19.7 — tear down the crossfade machinery on the slide we're
+  // leaving so a stale `ended` event can't tick reps on the new slide,
+  // (rep counter is time-derived now — no per-slide state to reset.)
+  teardownLoopForSlide(currentIndex);
+
   // Cancel any in-flight prep countdown; the new slide gets its own setup.
   clearPrepTimer();
 
@@ -1241,8 +1444,13 @@ function goTo(index) {
   updateTimelineBar();
   // Slide state changed — re-evaluate the pause/prep overlay visibility on
   // the new active slide and hide them on the old one.
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updatePrepOverlay();
+  // Wave 19.6 — Enhanced Background switch enabled-state depends on the
+  // CURRENT slide's effective treatment when in `auto` mode. Re-evaluate
+  // on every slide change so a swipe from a forced-line slide to a colour
+  // slide flips the switch back to enabled.
+  updateEnhancedBackgroundEnabled();
 
   // Auto-play the current slide's video (muted, looped). Safari's autoplay
   // policy may block this if there hasn't been a user gesture yet — swallow
@@ -1298,11 +1506,319 @@ function clearPrepTimer() {
 }
 
 function autoPlayCurrentVideo() {
-  const currentVideo = document.getElementById(`video-${currentIndex}`);
+  const currentVideo = getActiveVideoForSlide(currentIndex);
   if (!currentVideo) return;
   currentVideo.play().catch((err) => {
     console.warn('video autoplay blocked:', err);
   });
+  // Wave 19.7 — install the crossfade + rep-tick detector for this slide.
+  // No-op if it's already armed, a photo/rest slide, or shorter than the
+  // crossfade-min threshold (handler falls back to native loop in that
+  // case anyway).
+  installLoopDetectorForSlide(currentIndex);
+}
+
+// ============================================================
+// Wave 19.7 — Dual-video crossfade + rep tick
+// ============================================================
+
+/**
+ * The visually-active <video> for slide `idx`. Pair has slot=a (the
+ * legacy `video-${idx}` element) + slot=b (`video-${idx}-b`). Pre-Wave
+ * 19.7 every slot=a was THE video; the pair is rendered in a tight DOM
+ * wrapper so legacy `getElementById` calls still resolve to the primary
+ * element. This helper picks whichever slot is currently visible —
+ * which is also whichever one is playing.
+ */
+function getActiveVideoForSlide(idx) {
+  const a = document.getElementById(`video-${idx}`);
+  if (!a) return null;
+  const b = document.getElementById(`video-${idx}-b`);
+  if (!b) return a;
+  // data-active='true' on the visible slot. Default state is slot=a
+  // active (build-time wiring in buildMedia()).
+  if (a.getAttribute('data-active') === 'true') return a;
+  if (b.getAttribute('data-active') === 'true') return b;
+  return a;
+}
+
+function getInactiveVideoForSlide(idx) {
+  const active = getActiveVideoForSlide(idx);
+  if (!active) return null;
+  const a = document.getElementById(`video-${idx}`);
+  const b = document.getElementById(`video-${idx}-b`);
+  return active === a ? b : a;
+}
+
+/**
+ * Wire the loop detector + crossfade for a slide. Idempotent — safe to
+ * call on every slide change. Skipped for photos, rest slides,
+ * placeholder cards (no video element), or videos whose duration is
+ * outside the crossfade window (handled inside the listener once
+ * `loadedmetadata` fires).
+ *
+ * The detector listens to `timeupdate` on the active slot. ~250ms
+ * before duration we preroll the inactive slot (currentTime=0,
+ * play()). On `ended` we swap visible-active via CSS opacity (200ms
+ * transition), reset the now-inactive slot, and fire `handleLoopBoundary`
+ * which advances the rep counter + pulses the active set segment.
+ *
+ * `loop` stays on both elements so the visual cycle keeps going if our
+ * scheduling misses (network-slow second video, duration shorter than
+ * the crossfade window, etc). The `ended` event still fires under
+ * native loop on iOS Safari, so the rep tick survives the fallback —
+ * only the visual hiccup comes back.
+ */
+function installLoopDetectorForSlide(idx) {
+  const slide = slides[idx];
+  if (!slide || slide.media_type !== 'video') return;
+  const active = getActiveVideoForSlide(idx);
+  if (!active) return;
+
+  // Already armed for this slide? Detector is per-pair, not per-slot —
+  // when we swap slots we re-attach the listeners in handleLoopBoundary.
+  let state = loopState.get(idx);
+  if (state && state.armed) return;
+
+  state = state || { activeSlot: 'a', armed: false };
+  state.activeSlot = active.getAttribute('data-loop-slot') || 'a';
+  state.armed = true;
+  state.prebuffered = false;
+  loopState.set(idx, state);
+
+  attachLoopListeners(idx, active);
+}
+
+function attachLoopListeners(idx, videoEl) {
+  if (!videoEl) return;
+
+  // `lastTime` lets timeupdate detect both:
+  //   * the prebuffer trigger (currentTime > effectiveEnd - leadMs)
+  //   * the loop seam itself (currentTime < lastTime → just wrapped)
+  // We can't rely on the `ended` event because the native `loop`
+  // attribute suppresses it — the browser silently seeks back to 0
+  // and continues. timeupdate fires every ~250ms on iOS Safari, which
+  // is dense enough to catch both events reliably.
+  let lastTime = 0;
+
+  const onTimeUpdate = () => {
+    const dur = videoEl.duration;
+    if (!Number.isFinite(dur) || dur <= 0) return;
+    // Trim window collapses the effective loop end. Without this the
+    // crossfade triggers off natural duration, which the trim-wrap
+    // beats to the punch — preroll never fires inside a trimmed clip.
+    const slide = slides[idx];
+    const startSec = (slide && Number.isFinite(slide.start_offset_ms) && slide.start_offset_ms > 0)
+      ? slide.start_offset_ms / 1000 : 0;
+    const endSec = (slide && Number.isFinite(slide.end_offset_ms) && slide.end_offset_ms > 0)
+      ? Math.min(slide.end_offset_ms / 1000, dur) : dur;
+    const windowSec = Math.max(0, endSec - startSec);
+    const inWindow = windowSec >= LOOP_CROSSFADE_MIN_DURATION
+                  && windowSec <= LOOP_CROSSFADE_MAX_DURATION;
+    const state = loopState.get(idx);
+    if (!state) { lastTime = videoEl.currentTime; return; }
+
+    const t = videoEl.currentTime;
+
+    // Wrap detect: trim or natural-loop both seek backwards. Threshold
+    // is half the trim window so a tiny skip-back doesn't false-fire.
+    if (lastTime > 0 && t + 0.05 < lastTime && (lastTime - t) > windowSec / 2) {
+      lastTime = t;
+      handleLoopBoundary(idx);
+      return;
+    }
+
+    // Prebuffer trigger — measured against the trim end, not natural duration.
+    if (!state.prebuffered && inWindow && (endSec - t) * 1000 <= getLoopCrossfadeLeadMs()) {
+      const inactive = getInactiveVideoForSlide(idx);
+      if (inactive) {
+        state.prebuffered = true;
+        try {
+          inactive.currentTime = startSec;
+        } catch (_) { /* metadata may not be ready */ }
+        // Force-mute the prerolled slot so the ~250ms overlap window
+        // doesn't play double-audio. Audio handoff happens at the
+        // visible swap below (handleLoopBoundary copies oldActive.muted
+        // onto the new active).
+        inactive.muted = true;
+        inactive.play().catch((err) => {
+          // Network-slow second video — fall back to native loop for
+          // this cycle. The wrap-detect branch above will still fire
+          // the rep tick + reset prebuffered for next cycle.
+          console.warn('crossfade preroll failed; native loop fallback:', err);
+          state.prebuffered = false;
+        });
+      }
+    }
+
+    lastTime = t;
+  };
+
+  videoEl.addEventListener('timeupdate', onTimeUpdate);
+  // `ended` may still fire if the slide ever loses its `loop` attribute
+  // (defensive — keeps the rep tick alive on that path too).
+  const onEnded = () => handleLoopBoundary(idx);
+  videoEl.addEventListener('ended', onEnded);
+  videoEl._homefitLoopHandlers = { onTimeUpdate, onEnded };
+}
+
+function detachLoopListeners(videoEl) {
+  if (!videoEl || !videoEl._homefitLoopHandlers) return;
+  const { onTimeUpdate, onEnded } = videoEl._homefitLoopHandlers;
+  videoEl.removeEventListener('timeupdate', onTimeUpdate);
+  videoEl.removeEventListener('ended', onEnded);
+  videoEl._homefitLoopHandlers = null;
+}
+
+/**
+ * One loop just ended on slide `idx`. Crossfade only — flip data-active
+ * so the prebuffered inactive slot becomes the visible active slot,
+ * reset the now-inactive slot to currentTime=0 + pause so it's ready
+ * for the next cycle. Rep counter is time-derived in the painter; the
+ * loop seam doesn't touch it.
+ */
+function handleLoopBoundary(idx) {
+  const slide = slides[idx];
+  if (!slide) return;
+  const state = loopState.get(idx);
+  if (!state) return;
+
+  // --- Crossfade -------------------------------------------------
+  const oldActive = getActiveVideoForSlide(idx);
+  const newActive = getInactiveVideoForSlide(idx);
+  if (newActive && oldActive && newActive !== oldActive) {
+    const dur = oldActive.duration || 0;
+    const startSec = (Number.isFinite(slide.start_offset_ms) && slide.start_offset_ms > 0)
+      ? slide.start_offset_ms / 1000 : 0;
+    const endSec = (Number.isFinite(slide.end_offset_ms) && slide.end_offset_ms > 0)
+      ? Math.min(slide.end_offset_ms / 1000, dur) : dur;
+    const windowSec = Math.max(0, endSec - startSec);
+    const inWindow = windowSec >= LOOP_CROSSFADE_MIN_DURATION
+                  && windowSec <= LOOP_CROSSFADE_MAX_DURATION;
+    if (state.prebuffered && inWindow) {
+      // Visible swap. CSS handles the opacity transition.
+      newActive.setAttribute('data-active', 'true');
+      oldActive.setAttribute('data-active', 'false');
+      // Audio handoff: the new active slot inherits the muted state
+      // of the old one.
+      newActive.muted = oldActive.muted;
+      // Park the just-superseded slot at trim-start so the next preroll
+      // is one seek away.
+      try {
+        oldActive.pause();
+        oldActive.currentTime = startSec;
+      } catch (_) { /* swallow */ }
+      // Re-arm listeners on the new active slot.
+      detachLoopListeners(oldActive);
+      attachLoopListeners(idx, newActive);
+      state.activeSlot = newActive.getAttribute('data-loop-slot') || state.activeSlot;
+    }
+  }
+  state.prebuffered = false;
+  loopState.set(idx, state);
+
+  // Carl 2026-04-24 — the rep counter is now derived from elapsed time
+  // (the duration is the source of truth, not the loop seam). The loop
+  // seam still drives the crossfade above, but no longer touches the
+  // rep counter. The painter computes repsInSet from the timer on every
+  // 1Hz tick. Keeping handleLoopBoundary scoped to crossfade duties only.
+}
+
+/**
+ * Wave 21 — fill the next rep block in the active set with solid
+ * coral. Driven by handleLoopBoundary's per-loop-seam tick (i.e. one
+ * rep per video loop). Discrete jump (200ms ease-in via the fill
+ * child's CSS transition); no partial fills, no time drift.
+ *
+ * The "next-to-land" block carries `--active`; once we mark this rep
+ * filled we promote the following block to active so the 1Hz pulse
+ * tracks "where the next rep will land".
+ */
+function paintActiveRepBlock() {
+  if (!$repStackColumn) return;
+  const slide = slides[currentIndex];
+  if (!slide || slide.media_type === 'rest') return;
+
+  // Duration is the source of truth — rep stack fill derives from
+  // elapsed proportion of the set phase, not video loop count. Same
+  // logic for photos and videos; active block doubles as a per-rep
+  // progress bar via `activeFillPct`.
+  let repsInSet = 0;
+  let activeFillPct = 0;
+  if (isWorkoutMode && setPhase === 'set') {
+    const totalReps = slide.reps || 0;
+    const perSet = calculatePerSetSeconds(slide);
+    if (totalReps > 0 && perSet > 0) {
+      const elapsedInSet = Math.max(0, perSet - setPhaseRemaining);
+      const perRep = perSet / totalReps;
+      repsInSet = Math.min(totalReps, Math.floor(elapsedInSet / perRep));
+      const intraRep = elapsedInSet - (repsInSet * perRep);
+      activeFillPct = Math.max(0, Math.min(100, (intraRep / perRep) * 100));
+    }
+  }
+
+  const setSections = $repStackColumn.querySelectorAll('.rep-stack-section--set');
+  setSections.forEach((section) => {
+    const setIdx = parseInt(section.getAttribute('data-set-index'), 10);
+    if (Number.isNaN(setIdx)) return;
+    const blocks = section.querySelectorAll('.rep-stack-block--rep');
+    let landedRep;
+    let activeRep = -1;
+    if (setIdx < currentSetIndex) {
+      landedRep = blocks.length;
+    } else if (setIdx === currentSetIndex && setPhase === 'set' && isWorkoutMode) {
+      landedRep = repsInSet;
+      activeRep = repsInSet + 1;
+    } else if (setIdx === currentSetIndex && setPhase === 'rest' && isWorkoutMode) {
+      landedRep = blocks.length;
+    } else {
+      landedRep = 0;
+    }
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      const repNum = i + 1; // bottom-up
+      const fill = b.querySelector('.rep-stack-block-fill');
+      if (repNum <= landedRep) {
+        b.classList.add('rep-stack-block--filled');
+        b.classList.remove('rep-stack-block--active');
+        if (fill) fill.style.height = '';
+      } else if (repNum === activeRep) {
+        b.classList.add('rep-stack-block--active');
+        b.classList.remove('rep-stack-block--filled');
+        // Inline height overrides the CSS default; the active block's
+        // linear-1s transition flows smoothly between 1Hz repaints.
+        if (fill) fill.style.height = `${activeFillPct.toFixed(1)}%`;
+      } else {
+        b.classList.remove('rep-stack-block--filled');
+        b.classList.remove('rep-stack-block--active');
+        if (fill) fill.style.height = '';
+      }
+    }
+  });
+}
+
+/** Reset the rep-in-set counter for the active slide (slide jump, set boundary). */
+/**
+ * Cleanup loop machinery for a slide we're navigating away from. Pause
+ * + zero both slots so we free the decoder; detach listeners so a
+ * stale `ended` event on a backgrounded slide can't tick reps on the
+ * new slide. State entry stays in the map so the rep counter survives
+ * a back-swipe — installLoopDetectorForSlide() will re-arm listeners.
+ */
+function teardownLoopForSlide(idx) {
+  const a = document.getElementById(`video-${idx}`);
+  const b = document.getElementById(`video-${idx}-b`);
+  [a, b].forEach((v) => {
+    if (!v) return;
+    detachLoopListeners(v);
+    try { v.pause(); } catch (_) { /* swallow */ }
+  });
+  const state = loopState.get(idx);
+  if (state) {
+    state.armed = false;
+    state.prebuffered = false;
+    loopState.set(idx, state);
+  }
 }
 
 function updateUI() {
@@ -1325,7 +1841,7 @@ function updateUI() {
   updateRestCountdownOverlay();
 
   // Milestone Q — set/breather overlays track the active slide too.
-  updateSetProgressBar();
+  updateRepStack();
   updateBreatherOverlay();
 
   // Nav buttons
@@ -1341,6 +1857,77 @@ function pauseAllVideos() {
   document.querySelectorAll('video').forEach(v => {
     v.pause();
   });
+}
+
+// ----------------------------------------------------------------
+// Wave 20 — soft-trim playback clamp
+// ----------------------------------------------------------------
+//
+// Per-exercise practitioner-controlled in/out window stored on
+// `slide.start_offset_ms` + `slide.end_offset_ms` (ms). Both null =
+// no trim, full clip plays. Both set = clamp `currentTime` to the
+// window and wrap the loop back to start when we cross the out-point.
+//
+// Hooked via delegated `loadedmetadata` + `timeupdate` listeners on
+// `$cardViewport` (see init()). The same trim applies across all
+// three treatments since they share source timing.
+
+/**
+ * Resolve `<video id="video-N">` → the slide payload that drives it,
+ * so we can read its trim window. Returns null when the element isn't
+ * ours / index out of range.
+ */
+function resolveSlideForVideoElement(video) {
+  if (!video || !video.id || video.id.indexOf('video-') !== 0) return null;
+  const idx = parseInt(video.id.slice('video-'.length), 10);
+  if (Number.isNaN(idx)) return null;
+  if (!slides || idx < 0 || idx >= slides.length) return null;
+  return slides[idx];
+}
+
+/**
+ * `loadedmetadata` handler — runs once per video src after the browser
+ * knows the duration. When the slide has a trim window, seek into it
+ * before the first painted frame so the loop begins inside the window.
+ */
+function onVideoLoadedMetadata(evt) {
+  const video = evt && evt.target;
+  if (!video || video.tagName !== 'VIDEO') return;
+  const slide = resolveSlideForVideoElement(video);
+  if (!slide) return;
+  const startMs = slide.start_offset_ms;
+  const endMs = slide.end_offset_ms;
+  if (startMs == null || endMs == null) return;
+  if (endMs <= startMs) return;
+  try {
+    video.currentTime = startMs / 1000;
+  } catch (_) {
+    // Some browsers throw if currentTime is set too early; ignore — the
+    // first timeupdate clamp will catch up.
+  }
+}
+
+/**
+ * `timeupdate` handler — wraps the loop at the out-point. Fires roughly
+ * every 250 ms in modern browsers (browser-driven, not setInterval), so
+ * the seam is tight enough for a clean loop. Idempotent: a duplicate
+ * seek when already at start is harmless.
+ */
+function onVideoTimeUpdate(evt) {
+  const video = evt && evt.target;
+  if (!video || video.tagName !== 'VIDEO') return;
+  const slide = resolveSlideForVideoElement(video);
+  if (!slide) return;
+  const startMs = slide.start_offset_ms;
+  const endMs = slide.end_offset_ms;
+  if (startMs == null || endMs == null) return;
+  if (endMs <= startMs) return;
+  const tMs = video.currentTime * 1000;
+  if (tMs >= endMs || tMs < startMs) {
+    try {
+      video.currentTime = startMs / 1000;
+    } catch (_) { /* swallow — next tick retries */ }
+  }
 }
 
 // ============================================================
@@ -1438,7 +2025,7 @@ function onKeyDown(e) {
     } else if (remainingSeconds > 0) {
       resumeTimer();
     }
-    updatePauseOverlay();
+    updatePlayPauseToggle();
   }
 }
 
@@ -1460,47 +2047,110 @@ function getInterSetRestSeconds(slide) {
 }
 
 /**
- * Milestone Q — per-set duration (reps × per-rep + hold). Exposed as
- * a helper so the set/rest state machine can derive set boundaries
- * consistently with the total duration.
+ * Wave 21 follow-up (Carl 2026-04-24): for slides that are part of a
+ * circuit, the per-slide structure is "do {reps} reps of THIS exercise
+ * once, then advance to the next circuit member." There is no concept
+ * of multiple sets within a single circuit slide — the circuit cycles
+ * (3 rounds, etc.) are already unrolled by `unrollExercises()` into
+ * separate slides. So a slide tagged with `circuitRound` is always a
+ * 1-set slide regardless of what the practitioner set on `slide.sets`.
+ *
+ * Standalone (non-circuit) slides honour the practitioner's `sets`
+ * field, defaulting to 1 when null/0.
  */
-function calculatePerSetSeconds(slide) {
-  if (slide.custom_duration_seconds) {
-    // Manual total / sets; rounded down to the nearest integer second.
-    const sets = slide.sets || 1;
-    if (sets <= 1) return slide.custom_duration_seconds;
-    return Math.max(1, Math.floor(slide.custom_duration_seconds / sets));
-  }
-  const reps = slide.reps || 10;
-  const holdPerSet = slide.hold_seconds || 0;
-  return (reps * SECONDS_PER_REP) + holdPerSet;
+function effectiveSetsForSlide(slide) {
+  if (!slide) return 1;
+  if (slide.circuitRound) return 1;
+  return Math.max(1, slide.sets || 1);
 }
 
 /**
- * Calculate the duration in seconds for an exercise slide.
- * Uses custom_duration_seconds if set, otherwise computes from reps/sets/hold.
+ * Per-set duration in seconds. Exposed as a helper so the set/rest
+ * state machine can derive set boundaries consistently with the total
+ * exercise duration.
  *
- * Milestone Q math:
+ * Wave 24 derivation (single source of truth, replaces the manual
+ * `custom_duration_seconds` override that the practitioner UI used to
+ * expose):
+ *
+ *   video_reps = slide.video_reps_per_loop ?? 1   // null = legacy 1-rep
+ *   target_reps = slide.reps || 10
+ *   video_dur_s = (slide.video_duration_ms || 0) / 1000
+ *
+ *   if (video_dur_s > 0 && video_reps > 0):
+ *     per_rep = video_dur_s / video_reps
+ *     per_set = target_reps × per_rep + (slide.hold_seconds || 0)
+ *   else if (slide.custom_duration_seconds):
+ *     // legacy fallback only — pre-Wave-24 plans persisted a manual
+ *     // override before the field was retired from the UI. We honour
+ *     // it on read so old plans keep playing at their old timing.
+ *     per_set = total / sets   (clamped to 1)
+ *   else:
+ *     // photos + ancient legacy with no video probe + no override
+ *     per_set = target_reps × SECONDS_PER_REP + hold
+ *
+ * The fractional-loop case (target_reps not a multiple of video_reps,
+ * e.g. 10 target / 3 in video → per_rep = 1/3 of video) is handled
+ * naturally: per_set covers the wall-clock budget the slide should
+ * play for; the video element loops itself across the runway and the
+ * slide advances when the wall-clock budget elapses. No mid-loop
+ * fractional pause logic — Carl's "duration is truth" rule from
+ * earlier today still applies.
+ *
+ * Mirror in mobile: `ExerciseCapture.estimatedDurationSeconds` in
+ * app/lib/models/exercise_capture.dart uses the same derivation.
+ */
+function calculatePerSetSeconds(slide) {
+  const targetReps = slide.reps || 10;
+  const holdPerSet = slide.hold_seconds || 0;
+  const videoDurMs = slide.video_duration_ms || 0;
+  const videoReps = slide.video_reps_per_loop || 1;
+
+  if (videoDurMs > 0 && videoReps > 0) {
+    const perRep = (videoDurMs / 1000) / videoReps;
+    return Math.max(1, Math.round((targetReps * perRep) + holdPerSet));
+  }
+
+  // Legacy fallback path — pre-Wave-24 plans that captured a manual
+  // override before the UI was retired. Same arithmetic as before.
+  if (slide.custom_duration_seconds) {
+    const sets = effectiveSetsForSlide(slide);
+    if (sets <= 1) return slide.custom_duration_seconds;
+    return Math.max(1, Math.floor(slide.custom_duration_seconds / sets));
+  }
+
+  return (targetReps * SECONDS_PER_REP) + holdPerSet;
+}
+
+/**
+ * Calculate the total duration in seconds for an exercise slide.
+ *
+ * Wave 21 math (trailing rest):
  *   exercise_total = sets × per_set
- *                  + max(0, sets - 1) × COALESCE(inter_set_rest_seconds, 0)
+ *                  + sets × COALESCE(inter_set_rest_seconds, 0)
  *
- * custom_duration_seconds stores the total across all sets (per-rep ×
- * reps × sets from the Studio UI), so we add the inter-set rest ON TOP
- * of it — the practitioner's "per-rep" choice doesn't include breather
- * time.
+ * Every set is followed by a rest — the trailing rest after the last
+ * set is the "you're done, breathe before the next exercise" cue.
+ *
+ * Wave 24 — `per_set` is the new derivation in
+ * [calculatePerSetSeconds] (videoDuration / videoRepsPerLoop). The
+ * legacy `custom_duration_seconds` branch lives on inside
+ * `calculatePerSetSeconds` for pre-Wave-24 plans, so this top-level
+ * function no longer special-cases it: it always goes through
+ * per_set × sets + restTotal. Same total either way for legacy plans
+ * (custom_duration_seconds historically stored the per-set TOTAL
+ * across reps; the inner branch divides by sets to get per_set, which
+ * we then multiply back here — algebra holds).
  */
 function calculateDuration(slide) {
   if (slide.media_type === 'rest') {
     return slide.hold_seconds || slide.custom_duration_seconds || 30;
   }
 
-  const sets = slide.sets || 3;
+  // Circuits are always 1 set per slide — see effectiveSetsForSlide.
+  const sets = effectiveSetsForSlide(slide);
   const breather = getInterSetRestSeconds(slide);
-  const restTotal = (sets > 1) ? (sets - 1) * breather : 0;
-
-  if (slide.custom_duration_seconds) {
-    return slide.custom_duration_seconds + restTotal;
-  }
+  const restTotal = sets * breather;
 
   const perSet = calculatePerSetSeconds(slide);
   return (perSet * sets) + restTotal;
@@ -1654,6 +2304,8 @@ function startWorkout() {
   isWorkoutMode = true;
   workoutCompleteFlag = false;
   workoutStartTime = Date.now();
+  document.body.classList.add('is-workout-mode');
+  updateLandscapeMaximisePillVisibility();
 
   // Hide the start button
   $startWorkoutBtn.hidden = true;
@@ -1697,6 +2349,21 @@ function enterWorkoutPhaseForCurrent() {
   // tick loop can swap phases without re-reading the slide.
   beginSetMachineForCurrent();
 
+  // Carl 2026-04-24 — repaint the rep stack now that the new slide's
+  // setPhase / currentSetIndex / setPhaseRemaining are fresh. updateUI()
+  // ran the structure rebuild before us with stale 'rest' state from the
+  // previous slide, which would render every block filled for ~2s until
+  // the next 1Hz tick. Repainting here closes that visible gap.
+  updateRepStack();
+
+  // Same race for the breather sage countdown chip — `updateUI()` saw
+  // stale `setPhase === 'rest'` carried over from the previous slide's
+  // trailing breather, which left the chip visible during the new
+  // slide's prep countdown ("different timers on screen", Carl 2026-04-24).
+  // Repaint after the state machine has flipped phase back to 'set'.
+  updateBreatherOverlay();
+  updateRestCountdownOverlay();
+
   if (slide.media_type === 'rest') {
     // Rest — no prep, auto-start countdown. The bottom-right timer chip
     // is the single source of truth for the rest countdown.
@@ -1724,7 +2391,8 @@ function beginSetMachineForCurrent() {
     return;
   }
   currentSetIndex = 0;
-  totalSetsForSlide = Math.max(1, slide.sets || 1);
+  // Circuits are always 1 set per slide — see effectiveSetsForSlide.
+  totalSetsForSlide = effectiveSetsForSlide(slide);
   setPhase = 'set';
   setPhaseRemaining = calculatePerSetSeconds(slide);
   interSetRestForSlide = getInterSetRestSeconds(slide);
@@ -1751,7 +2419,7 @@ function startPrepPhase() {
 
   updatePrepOverlay();
   schedulePrepFade();
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updateRestCountdownOverlay();
   // ETA now reflects prep seconds + new slide's full duration + upcoming.
   updateTimelineBar();
@@ -1799,9 +2467,9 @@ function startTimer() {
   clearPrepTimer();
 
   isTimerRunning = true;
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updateRestCountdownOverlay();
-  updateSetProgressBar();
+  updateRepStack();
   updateBreatherOverlay();
   updateTimelineBar();
 
@@ -1846,17 +2514,27 @@ function onTimerTick() {
     return;
   }
 
+  // Carl 2026-04-24 — paint the rep stack BEFORE the phase boundary
+  // check so the final frame of the set phase actually shows
+  // `repsInSet === totalReps` (rep 10 landing) before advanceSetPhase()
+  // flips us to 'rest'. Without this, the painter only ever saw the
+  // 'rest' branch at this tick and rep 10 was perceived as "skipped".
+  updateRepStack();
+
   // Milestone Q — phase boundary inside the active slide (set → rest or
   // rest → set). The overall `remainingSeconds` keeps ticking; only the
   // phase-local counter wraps.
   if (!isRestSlide() && setPhaseRemaining <= 0) {
     advanceSetPhase();
+    // Repaint after advance so the rest branch shows immediately on the
+    // SAME tick that rep 10 finished landing. (advanceSetPhase already
+    // calls updateRepStack at its tail, but be explicit for clarity.)
+    updateRepStack();
   }
 
   // Matrix active-pill fill needs a per-second nudge too.
   updateProgressMatrix();
   updateRestCountdownOverlay();
-  updateSetProgressBar();
   updateBreatherOverlay();
   updateTimelineBar();
   // (MM:SS) remaining rides in the active-slide title — needs a per-tick
@@ -1883,13 +2561,13 @@ function isRestSlide() {
  */
 function advanceSetPhase() {
   if (setPhase === 'set') {
-    // Set done. Is there a breather OR another set to come?
-    const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
-    if (isLastSet) {
-      // Last set ending coincides with remainingSeconds hitting 0;
-      // onTimerTick will take the auto-advance branch. Nothing to do.
-      return;
-    }
+    // Wave 21 — every set (INCLUDING the last) is now followed by a
+    // rest if the practitioner configured one. The trailing rest gives
+    // the client a "you're done, breathe" cue before the slide
+    // advances. Duration math (calculateDuration) was updated to add
+    // the trailing rest's seconds, so remainingSeconds won't drop to 0
+    // at the end of the last set anymore — it's the trailing rest's
+    // tick that drives the slide-complete transition.
     if (interSetRestForSlide > 0) {
       // Enter breather. Pause the video at its current frame (no reset).
       setPhase = 'rest';
@@ -1897,19 +2575,25 @@ function advanceSetPhase() {
       pauseActiveVideoForBreather();
     } else {
       // No breather — skip straight to the next set, keep the video
-      // playing without interruption.
+      // playing without interruption. (Last set + no breather is the
+      // legacy single-block path; handled by remainingSeconds=0.)
+      const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
+      if (isLastSet) return;
       currentSetIndex++;
       setPhase = 'set';
       setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
     }
   } else {
-    // rest → next set. Bump set index, resume video.
+    // rest → next set. Bump set index, resume video. Trailing rest
+    // after the last set ends with the slide via onTimerComplete.
+    const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
+    if (isLastSet) return;
     currentSetIndex++;
     setPhase = 'set';
     setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
     resumeActiveVideoAfterBreather();
   }
-  updateSetProgressBar();
+  updateRepStack();
   updateBreatherOverlay();
 }
 
@@ -1921,7 +2605,7 @@ function advanceSetPhase() {
  * touching currentTime.
  */
 function pauseActiveVideoForBreather() {
-  const video = document.getElementById(`video-${currentIndex}`);
+  const video = getActiveVideoForSlide(currentIndex);
   if (video && !video.paused) {
     try { video.pause(); } catch (_) { /* best-effort */ }
   }
@@ -1929,7 +2613,7 @@ function pauseActiveVideoForBreather() {
 
 function resumeActiveVideoAfterBreather() {
   if (!isTimerRunning) return;
-  const video = document.getElementById(`video-${currentIndex}`);
+  const video = getActiveVideoForSlide(currentIndex);
   if (video && video.paused) {
     video.play().catch((err) => {
       console.warn('video resume after breather failed:', err);
@@ -1939,7 +2623,7 @@ function resumeActiveVideoAfterBreather() {
 
 // updateTimerDisplay + setTimerModeIcon removed — the dedicated chip is
 // gone (item 7). Prep digits are driven by updatePrepOverlay(); pause state
-// is driven by updatePauseOverlay(); countdown numbers read from the ETA row.
+// is driven by updatePlayPauseToggle(); countdown numbers read from the ETA row.
 
 /**
  * Timer hit zero -- advance to next slide. goTo() re-enters the workout
@@ -1967,20 +2651,16 @@ function pauseTimer() {
   isTimerRunning = false;
   clearWorkoutTimer();
   // Keep the video in sync so it doesn't keep playing while the timer is paused.
-  const currentVideo = document.getElementById(`video-${currentIndex}`);
+  const currentVideo = getActiveVideoForSlide(currentIndex);
   if (currentVideo && !currentVideo.paused) {
     currentVideo.pause();
   }
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updateRestCountdownOverlay();
   updateBreatherOverlay();
   // ETA clock keeps running in the background — remaining stays static,
   // finish-time drifts forward. Nudge once to reflect immediately.
   updateTimelineBar();
-  // Transition already visually loud (overlay snaps to full alpha on pause)
-  // but keep the flash-class for symmetry with the resume path so rapid
-  // pause/resume doesn't leave a stale animation.
-  flashPauseOverlay();
 }
 
 /**
@@ -1994,19 +2674,16 @@ function resumeTimer() {
   // set phase. During a breather the video is meant to be paused on
   // the last visible frame; resuming the timer just continues counting
   // down the breather.
-  const currentVideo = document.getElementById(`video-${currentIndex}`);
+  const currentVideo = getActiveVideoForSlide(currentIndex);
   if (currentVideo && currentVideo.paused && setPhase !== 'rest') {
     currentVideo.play().catch((err) => {
       console.warn('video resume failed:', err);
     });
   }
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updateRestCountdownOverlay();
   updateBreatherOverlay();
   updateTimelineBar();
-  // Flash the pause icon at full alpha for ~900ms so the tap's outcome is
-  // legible on top of the running video.
-  flashPauseOverlay();
 }
 
 /**
@@ -2048,7 +2725,7 @@ function handleMediaTap(e) {
   } else if (remainingSeconds > 0) {
     resumeTimer();
   }
-  updatePauseOverlay();
+  updatePlayPauseToggle();
 }
 
 /**
@@ -2109,6 +2786,26 @@ const $btnSettings = document.getElementById('btn-settings');
 const $settingsPopover = document.getElementById('settings-popover');
 const $toggleSegmentedEffect = document.getElementById('toggle-segmented-effect');
 const $toggleSegmentedEffectHint = document.getElementById('toggle-segmented-effect-hint');
+const $treatmentOverride = document.getElementById('treatment-override');
+const $enhancedBackgroundRow = document.getElementById('enhanced-background-row');
+
+// Plan-level consent rollup. `get_plan_full` only emits grayscale_url /
+// original_url on exercises the client has consented to that treatment for —
+// consent is plan-wide, so a single slide carrying a URL means "this plan
+// has consent". Computed once after fetchPlan() lands.
+let planHasGrayscaleConsent = false;
+let planHasOriginalConsent = false;
+
+function recomputePlanConsent() {
+  planHasGrayscaleConsent = false;
+  planHasOriginalConsent = false;
+  if (!plan || !Array.isArray(plan.exercises)) return;
+  for (const ex of plan.exercises) {
+    if (ex && (ex.grayscale_url || ex.grayscale_segmented_url)) planHasGrayscaleConsent = true;
+    if (ex && (ex.original_url || ex.original_segmented_url)) planHasOriginalConsent = true;
+    if (planHasGrayscaleConsent && planHasOriginalConsent) break;
+  }
+}
 
 /** Sync the hint copy to the current toggle state. */
 function updateSegmentedEffectHint() {
@@ -2184,6 +2881,12 @@ function rebindVideoSources() {
     const slideT = slideTreatment(slide);
     const nextUrl = resolveTreatmentUrl(slide, slideT);
     if (!nextUrl) return;
+    // Treatment may have flipped (line ↔ bw ↔ original) under the client
+    // override. Keep the data-attribute + grayscale CSS class in sync with
+    // the live treatment so a forced-B&W slide actually goes greyscale even
+    // when the underlying URL didn't change.
+    videoEl.setAttribute('data-treatment', slideT);
+    videoEl.classList.toggle('is-grayscale', slideT === 'bw');
     // getAttribute is the raw attribute text; videoEl.src is the
     // resolved absolute URL (prefixed with the origin). Compare via
     // the attribute for a stable check.
@@ -2221,69 +2924,146 @@ function rebindVideoSources() {
       videoEl.addEventListener('loadedmetadata', restore, { once: true });
     }
   });
+
+  // Wave 22 — photo slides need the same treatment-flip handling. The
+  // <img> render emits no IDs, so we filter to the cards (one direct
+  // child .card-media > img) and skip thumbnails / decorative imagery
+  // elsewhere in the player chrome. Hot-swap is trivial: change src +
+  // toggle the `.is-grayscale` class. Single frame, no playback state
+  // to preserve.
+  const photoImgs = $cardTrack.querySelectorAll('.card-media > img');
+  photoImgs.forEach((imgEl) => {
+    const card = imgEl.closest('.exercise-card');
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const slide = slides[idx];
+    if (!slide || slide.media_type !== 'photo') return;
+    const slideT = slideTreatment(slide);
+    const nextUrl = resolveTreatmentUrl(slide, slideT);
+    if (!nextUrl) return;
+    imgEl.setAttribute('data-treatment', slideT);
+    imgEl.classList.toggle('is-grayscale', slideT === 'bw');
+    const currentAttr = imgEl.getAttribute('src');
+    if (currentAttr !== nextUrl) imgEl.setAttribute('src', nextUrl);
+  });
 }
 
+// ----------------------------------------------------------------
+// "Show me" segmented control (Wave 19.6)
+// ----------------------------------------------------------------
+
 /**
- * Wave 19.2: pause overlay is now a flash-on-toggle confirmation, not a
- * persistent dim affordance. The previous 0.35-opacity pause icon during
- * running was invisible against most video content.
- *
- * State model:
- *   Running  → overlay invisible; `flashPauseOverlay()` surfaces it briefly
- *              (full alpha → fade) on every play↔pause toggle to confirm
- *              the gesture landed.
- *   Paused   → overlay stays visible at full alpha (the play icon is the
- *              CTA to resume).
- *   Prep / offscreen slide → overlay hidden unconditionally.
+ * Repaint the segmented control — active state, disabled state for
+ * unconsented options, ARIA. Always reflects `clientTreatmentOverride`
+ * + `planHasGrayscaleConsent` + `planHasOriginalConsent`.
  */
-function updatePauseOverlay() {
-  if (!$cardTrack) return;
-  const overlays = $cardTrack.querySelectorAll('.media-pause-overlay');
-  const workoutLive = isWorkoutMode && !isPrepPhase && remainingSeconds > 0;
-  // Wave 19.3: glyph semantics = "what would tap do / what is playing now".
-  // Everywhere the video is effectively playing (pre-workout preview, prep,
-  // active timer) we show the PAUSE icon. Only the explicit paused-mid-
-  // workout state shows the PLAY icon. Fixes the fullscreen dimmed-button
-  // showing a play glyph while the video was clearly playing.
-  const showPlayIcon = isWorkoutMode && !isPrepPhase && !isTimerRunning;
-  overlays.forEach((overlay) => {
-    const card = overlay.closest('.exercise-card');
-    const idx = card ? Number(card.getAttribute('data-index')) : -1;
-    const isActive = workoutLive && idx === currentIndex;
-    // Persistent visibility ONLY when paused on the active slide. Running
-    // state leans on flashPauseOverlay() for transient feedback.
-    overlay.classList.toggle('is-visible', isActive && !isTimerRunning);
-    const playIcon = overlay.querySelector('.pause-icon-play');
-    const pauseIcon = overlay.querySelector('.pause-icon-pause');
-    if (playIcon) playIcon.hidden = !showPlayIcon;
-    if (pauseIcon) pauseIcon.hidden = showPlayIcon;
+function paintTreatmentOverride() {
+  if (!$treatmentOverride) return;
+  const segments = $treatmentOverride.querySelectorAll('.treatment-segment');
+  segments.forEach((seg) => {
+    const t = seg.getAttribute('data-treatment');
+    let disabled = false;
+    if (t === 'bw' && !planHasGrayscaleConsent) disabled = true;
+    if (t === 'original' && !planHasOriginalConsent) disabled = true;
+    seg.classList.toggle('is-disabled', disabled);
+    seg.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+    if (disabled) {
+      seg.setAttribute('title', "Your practitioner hasn't enabled this format");
+    } else {
+      seg.removeAttribute('title');
+    }
+    const isActive = !disabled && clientTreatmentOverride === t;
+    seg.classList.toggle('is-active', isActive);
+    seg.setAttribute('aria-checked', isActive ? 'true' : 'false');
+    seg.setAttribute('tabindex', isActive ? '0' : '-1');
   });
 }
 
 /**
- * Briefly surface the pause overlay at full alpha to confirm a toggle.
- * CSS animation (.media-pause-overlay.is-flashing) holds at 1 alpha then
- * fades — we just toggle the class and clear any in-flight timer so
- * rapid taps don't leak stacked animations.
+ * Apply a new override value: persist, rebind every video source, and
+ * re-evaluate the Enhanced Background switch's enabled state (the new
+ * override may flip the current effective treatment to/from line).
  */
-function flashPauseOverlay() {
-  if (!$cardTrack) return;
-  const card = $cardTrack.querySelector(`.exercise-card[data-index="${currentIndex}"]`);
-  if (!card) return;
-  const overlay = card.querySelector('.media-pause-overlay');
-  if (!overlay) return;
-  const playIcon = overlay.querySelector('.pause-icon-play');
-  const pauseIcon = overlay.querySelector('.pause-icon-pause');
-  // Match the glyph semantics used by updatePauseOverlay (Wave 19.3):
-  // PLAY glyph only during an explicit mid-workout pause; PAUSE glyph any
-  // time the video is playing (pre-start preview, prep, or running).
-  const showPlayIcon = isWorkoutMode && !isPrepPhase && !isTimerRunning;
-  if (playIcon) playIcon.hidden = !showPlayIcon;
-  if (pauseIcon) pauseIcon.hidden = showPlayIcon;
-  // Restart the animation — remove, force reflow, re-add.
-  overlay.classList.remove('is-flashing');
-  void overlay.offsetWidth;
-  overlay.classList.add('is-flashing');
+function applyClientTreatmentOverride(next) {
+  if (!next || VALID_OVERRIDES.indexOf(next) === -1) return;
+  if (next === clientTreatmentOverride) return;
+  clientTreatmentOverride = next;
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  writeClientTreatmentOverride(planId, clientTreatmentOverride);
+  paintTreatmentOverride();
+  rebindVideoSources();
+  updateEnhancedBackgroundEnabled();
+}
+
+/**
+ * The Enhanced Background switch dims the video background. There's
+ * nothing to dim on a line-drawing slide, so the switch is disabled
+ * (visible-but-greyed) whenever the *current effective* treatment is
+ * 'line'. In `auto` mode the effective treatment is per-slide, so this
+ * runs on every slide change. With a forced override the disabled-ness
+ * is constant until the override flips.
+ */
+function updateEnhancedBackgroundEnabled() {
+  if (!$enhancedBackgroundRow || !$toggleSegmentedEffect) return;
+  const slide = slides[currentIndex];
+  // Only video slides have a treatment to consider — for rest / photo
+  // slides we leave the switch enabled (its preference still drives
+  // future video slides).
+  let effective = 'line';
+  if (slide && slide.media_type === 'video') {
+    effective = slideTreatment(slide);
+  } else if (clientTreatmentOverride !== 'auto') {
+    effective = clientTreatmentOverride;
+  } else {
+    // Fall back to scanning the active slide; if it's not a video we
+    // assume the switch should remain enabled.
+    effective = 'bw';
+  }
+  const disabled = effective === 'line';
+  $enhancedBackgroundRow.classList.toggle('is-disabled', disabled);
+  if (disabled) {
+    $enhancedBackgroundRow.setAttribute('title', 'Background dimming applies to colour playback only');
+  } else {
+    $enhancedBackgroundRow.removeAttribute('title');
+  }
+  // Native `disabled` on the input prevents stray taps even if the
+  // pointer-events:none CSS is bypassed (e.g. keyboard tab).
+  $toggleSegmentedEffect.disabled = disabled;
+}
+
+/**
+ * Drive the right-edge play/pause toggle (#btn-playpause). Glyph
+ * semantics = "what is playing right now":
+ *   Workout running / prep / preview → PAUSE icon (tap pauses).
+ *   Workout paused mid-set           → PLAY icon (tap resumes).
+ * The button is hidden outside workout mode — the centered tap-to-pause
+ * still handles preview-state interactions on the media area itself.
+ */
+function updatePlayPauseToggle() {
+  if (!$btnPlayPause) return;
+  // Hide outside workout mode; the start-workout button is the only
+  // playback affordance pre-workout.
+  if (isWorkoutMode) $btnPlayPause.removeAttribute('hidden');
+  else { $btnPlayPause.setAttribute('hidden', ''); return; }
+  const showPlayIcon = !isPrepPhase && !isTimerRunning;
+  // setAttribute/removeAttribute rather than `.hidden = bool` —
+  // SVGElement's hidden IDL reflection is inconsistent across browsers,
+  // so the content attribute (which the `[hidden]` selector matches)
+  // can end up out of sync.
+  toggleHiddenAttr($btnPlayPauseIconPlay, !showPlayIcon);
+  toggleHiddenAttr($btnPlayPauseIconPause, showPlayIcon);
+  $btnPlayPause.setAttribute('aria-pressed', showPlayIcon ? 'true' : 'false');
+  $btnPlayPause.setAttribute(
+    'aria-label',
+    showPlayIcon ? 'Resume workout' : 'Pause workout'
+  );
+}
+
+function toggleHiddenAttr(el, hide) {
+  if (!el) return;
+  if (hide) el.setAttribute('hidden', '');
+  else el.removeAttribute('hidden');
 }
 
 /**
@@ -2346,83 +3126,211 @@ function updateRestCountdownOverlay() {
 }
 
 /**
- * Milestone Q — render the per-exercise segmented progress bar. One
- * segment per set (coral) + one segment per breather (sage) interleaved.
+ * Wave 21 — render the vertical rep-block stack on the LEFT edge of
+ * the video. Replaces the old horizontal segmented bar.
  *
- * Segment visual states:
- *   * complete — solid full fill
- *   * active   — partial fill driven by `setPhaseRemaining` vs the
- *                phase's total duration; only ONE segment is active at
- *                any moment
- *   * upcoming — empty outline
+ * Layout (bottom-up):
+ *   Set 1 → reps fill upward → trailing rest block
+ *   Set 2 → reps fill upward → trailing rest block
+ *   …
+ *   Set N → reps fill upward → trailing rest block (the "you're done,
+ *           breathe" cue before the slide advances; owned by
+ *           advanceSetPhase()).
+ *
+ * Skeleton rebuild — full innerHTML swap is cheap (tens of children
+ * max) and keeps state derivation simple. Section heights are weighted
+ * by `--rep-stack-section-grow` (rep count) so denser sets get more
+ * vertical space proportionally; rest blocks are fixed-height.
+ *
+ * Per-rep paint lives in paintActiveRepBlock() (driven by
+ * handleLoopBoundary). Rest fills are time-based via paintRestFill()
+ * called from the 1Hz onTimerTick().
  *
  * Hidden when:
- *   * pre-workout (outside workout mode) — keeps the pre-start preview clean
  *   * rest slides (rest slide already gets #rest-countdown-overlay)
- *   * single-set exercises with no breather (nothing meaningful to show)
+ *   * photos
+ *   * single-set with no breather (nothing meaningful to show)
+ *   * legacy slides with reps null/0 (cleanest fallback per Carl —
+ *     no fake-block fabrication)
  */
-function updateSetProgressBar() {
-  if (!$setProgressBar) return;
+function updateRepStack() {
+  if (!$repStack || !$repStackColumn || !$repStackLabels) return;
   const slide = slides[currentIndex];
+
+  // Carl 2026-04-24:
+  //   * Circuits are 1 set/slide — multiple sets only exist for standalone
+  //     exercises. The unroll already gives each circuit member its own
+  //     slide per round; treating them as 3-set inside ALSO would
+  //     triple-count.
+  //   * Photos still have reps + sets and benefit from the stack — only
+  //     hide when there's literally nothing to count (sets==1 + reps==1).
+  //   * Rest slides have their own countdown overlay; never render here.
+  const slideSets = effectiveSetsForSlide(slide);
+  const slideBreather = slide ? getInterSetRestSeconds(slide) : 0;
+  const slideReps = slide && slide.reps && slide.reps > 0 ? slide.reps : 0;
+
   const eligible = !!slide
     && slide.media_type !== 'rest'
-    && isWorkoutMode
-    && (totalSetsForSlide > 1 || interSetRestForSlide > 0);
-  $setProgressBar.hidden = !eligible;
+    && slideReps > 0
+    && !(slideSets === 1 && slideReps === 1);
+  $repStack.hidden = !eligible;
+  // Carl 2026-04-24: toggle a class on the card-viewport so CSS can
+  // shift the prev chevron out of the stack's tap zone. JS-driven
+  // (instead of `:has()`) for cross-version Safari reliability.
+  if ($cardViewport) {
+    $cardViewport.classList.toggle('has-rep-stack', eligible);
+  }
   if (!eligible) {
-    $setProgressBar.innerHTML = '';
+    $repStackColumn.innerHTML = '';
+    $repStackLabels.innerHTML = '';
+    $repStack.removeAttribute('data-stack-key');
     return;
   }
 
-  const perSet = calculatePerSetSeconds(slide);
-  const reps = slide.reps || 0;
-  const segments = [];
-  for (let i = 0; i < totalSetsForSlide; i++) {
-    segments.push({ kind: 'set', index: i, total: perSet });
-    if (i < totalSetsForSlide - 1 && interSetRestForSlide > 0) {
-      segments.push({ kind: 'rest', index: i, total: interSetRestForSlide });
+  // Skeleton key — when unchanged, skip the innerHTML rebuild and just
+  // repaint fills. Rebuilding every tick would interrupt the 200ms
+  // ease-in fill animation on the active rep block.
+  const key = `${currentIndex}|${slideSets}|${slideReps}|${slideBreather}`;
+  const oldKey = $repStack.getAttribute('data-stack-key');
+  if (oldKey === key) {
+    paintActiveRepBlock();
+    paintRestFill();
+    return;
+  }
+
+  // At slide change, drain the previous slide's filled blocks
+  // top-to-bottom in a wave (not all at once). Bottom-up flex layout
+  // means DOM index 0 is the bottom; for visual top-first drain we
+  // assign the longest delay to index 0.
+  const oldIdx = oldKey ? parseInt(oldKey.split('|')[0], 10) : null;
+  const isSlideChange = oldKey !== null && oldIdx !== currentIndex;
+  const DRAIN_BLOCK_MS = 200;
+  const DRAIN_TOTAL_MS = 600;
+  if (isSlideChange && !$repStack.dataset.draining) {
+    $repStack.dataset.draining = 'true';
+    const fills = Array.from(
+      $repStackColumn.querySelectorAll('.rep-stack-block-fill')
+    );
+    const total = fills.length;
+    const stagger = total > 1
+      ? Math.max(0, Math.floor((DRAIN_TOTAL_MS - DRAIN_BLOCK_MS) / (total - 1)))
+      : 0;
+    fills.forEach((f, i) => {
+      const delay = (total - 1 - i) * stagger;
+      f.style.transition = `height ${DRAIN_BLOCK_MS}ms ease-out ${delay}ms`;
+    });
+    $repStackColumn.classList.add('is-draining');
+    // Track the timer so a second slide-change mid-drain can cancel
+    // the stale callback before it touches the new structure.
+    if (drainTimer) clearTimeout(drainTimer);
+    drainTimer = setTimeout(() => {
+      drainTimer = null;
+      delete $repStack.dataset.draining;
+      $repStackColumn.classList.remove('is-draining');
+      fills.forEach((f) => { f.style.transition = ''; });
+      $repStack.removeAttribute('data-stack-key');
+      updateRepStack();
+    }, DRAIN_TOTAL_MS);
+    return;
+  }
+  if ($repStack.dataset.draining) return;
+  $repStack.setAttribute('data-stack-key', key);
+
+  // Build sections — interleave set + rest. Wave 21 spec: every set is
+  // followed by a rest block, INCLUDING the last set ("you're done,
+  // breathe" cue). Skip the trailing rest only when breather is 0.
+  const sections = [];
+  for (let i = 0; i < slideSets; i++) {
+    sections.push({ kind: 'set', index: i, reps: slideReps });
+    if (slideBreather > 0) {
+      sections.push({ kind: 'rest', index: i, total: slideBreather });
     }
   }
 
-  // Determine which segment is active.
-  let activeSegIdx = -1;
-  for (let s = 0; s < segments.length; s++) {
-    const seg = segments[s];
-    const matchSet = seg.kind === 'set' && setPhase === 'set' && seg.index === currentSetIndex;
-    const matchRest = seg.kind === 'rest' && setPhase === 'rest' && seg.index === currentSetIndex;
-    if (matchSet || matchRest) { activeSegIdx = s; break; }
-  }
-
-  // Build / refresh the segment DOM. Rebuild in full — cheap (tens of
-  // children max) and keeps state simple.
-  const html = segments.map((seg, s) => {
-    let stateClass;
-    let fillPct = 0;
-    if (s < activeSegIdx) {
-      stateClass = 'set-progress-bar-segment--complete';
-      fillPct = 100;
-    } else if (s === activeSegIdx) {
-      stateClass = 'set-progress-bar-segment--active';
-      const remaining = Math.max(0, setPhaseRemaining);
-      const total = Math.max(1, seg.total);
-      fillPct = Math.max(0, Math.min(100, ((total - remaining) / total) * 100));
-    } else {
-      stateClass = 'set-progress-bar-segment--upcoming';
+  // Column DOM — sections stack bottom-up via flex column-reverse.
+  // `--rep-stack-section-grow` weights each section by its rep count
+  // so dense sets get more vertical space; rest sections use a fixed
+  // height (set in CSS via flex-basis), grow=0 keeps them compact.
+  const colHtml = sections.map((sec) => {
+    if (sec.kind === 'set') {
+      const blocks = [];
+      for (let r = 0; r < sec.reps; r++) {
+        blocks.push(`<div class="rep-stack-block rep-stack-block--rep" data-rep-index="${r}">
+          <div class="rep-stack-block-fill"></div>
+        </div>`);
+      }
+      return `<div class="rep-stack-section rep-stack-section--set"
+                   data-set-index="${sec.index}"
+                   style="--rep-stack-section-grow: ${sec.reps};">
+                ${blocks.join('')}
+              </div>`;
     }
-    const kindClass = seg.kind === 'set'
-      ? 'set-progress-bar-segment--set'
-      : 'set-progress-bar-segment--rest';
-    const label = seg.kind === 'set'
-      ? (reps > 0 ? `Set ${seg.index + 1} · ${reps} reps` : `Set ${seg.index + 1}`)
-      : 'Breather';
-    return `<div class="set-progress-bar-segment ${kindClass} ${stateClass}"
-                 role="presentation">
-              <div class="set-progress-bar-segment-fill"
-                   style="width: ${fillPct.toFixed(1)}%"></div>
-              <div class="set-progress-bar-segment-label">${escapeHTML(label)}</div>
+    // Rest section — single sage block, same physical size as ONE
+    // rep block (Carl 2026-04-24). Section grows by 1 (matching one
+    // rep within its set) so a 10-rep set renders as 11 equally
+    // sized blocks. Colour carries the category signal, not size.
+    return `<div class="rep-stack-section rep-stack-section--rest"
+                 data-rest-index="${sec.index}"
+                 style="flex: 1 1 0;">
+              <div class="rep-stack-block rep-stack-block--rest" data-rest-index="${sec.index}">
+                <div class="rep-stack-block-fill"></div>
+              </div>
             </div>`;
   }).join('');
-  $setProgressBar.innerHTML = html;
+  $repStackColumn.innerHTML = colHtml;
+
+  // Labels gutter — same section count, mirroring the column's
+  // bottom-up order via column-reverse.
+  const labelHtml = sections.map((sec) => {
+    if (sec.kind === 'set') {
+      return `<div class="rep-stack-labels-section rep-stack-labels-section--set"
+                   style="flex: ${sec.reps} 1 0;">S${sec.index + 1}</div>`;
+    }
+    return `<div class="rep-stack-labels-section rep-stack-labels-section--rest"
+                 style="flex: 1 1 0; margin-top: 2px;">R</div>`;
+  }).join('');
+  $repStackLabels.innerHTML = labelHtml;
+
+  // Apply current state — fills + active marker for the running phase.
+  paintActiveRepBlock();
+  paintRestFill();
+}
+
+/**
+ * Wave 21 — paint the rest-block fill bottom-up over its duration.
+ * Time-based (linear over `interSetRestForSlide` seconds). Driven by
+ * the 1Hz onTimerTick while setPhase === 'rest'. Marks every prior
+ * rest as filled so back-set positions are visually accurate.
+ */
+function paintRestFill() {
+  if (!$repStackColumn) return;
+  const slide = slides[currentIndex];
+  if (!slide || slide.media_type === 'rest') return;
+  const restBlocks = $repStackColumn.querySelectorAll('.rep-stack-block--rest');
+  if (!restBlocks.length) return;
+  const total = Math.max(1, interSetRestForSlide || getInterSetRestSeconds(slide));
+  restBlocks.forEach((block) => {
+    const restIdx = parseInt(block.getAttribute('data-rest-index'), 10);
+    const fill = block.querySelector('.rep-stack-block-fill');
+    if (Number.isNaN(restIdx) || !fill) return;
+    if (restIdx < currentSetIndex) {
+      // A prior set's rest — fully done.
+      block.classList.add('rep-stack-block--filled');
+      block.classList.remove('rep-stack-block--active');
+      fill.style.height = '100%';
+    } else if (restIdx === currentSetIndex && setPhase === 'rest' && isWorkoutMode) {
+      // Currently filling.
+      block.classList.add('rep-stack-block--active');
+      block.classList.remove('rep-stack-block--filled');
+      const remaining = Math.max(0, setPhaseRemaining);
+      const pct = Math.max(0, Math.min(100, ((total - remaining) / total) * 100));
+      fill.style.height = pct.toFixed(1) + '%';
+    } else {
+      block.classList.remove('rep-stack-block--filled');
+      block.classList.remove('rep-stack-block--active');
+      fill.style.height = '0%';
+    }
+  });
 }
 
 /**
@@ -2457,19 +3365,32 @@ function updateBreatherOverlay() {
  * digits. Called by startPrepPhase + finishPrepPhase.
  */
 function gateVideoForPrep(shouldGate) {
-  const currentVideo = document.getElementById(`video-${currentIndex}`);
-  if (!currentVideo) return;
-  if (shouldGate) {
-    try {
-      currentVideo.pause();
-      currentVideo.currentTime = 0;
-    } catch (_) {
-      // Ignore — some browsers throw on currentTime set while metadata loads.
+  // Both crossfade slots get gated together so neither leaks frames
+  // behind the prep countdown. Prep is the last moment we can safely
+  // zero the inactive slot — handleLoopBoundary won't do it until the
+  // first natural-end fires post-prep.
+  const a = document.getElementById(`video-${currentIndex}`);
+  const b = document.getElementById(`video-${currentIndex}-b`);
+  [a, b].forEach((v) => {
+    if (!v) return;
+    if (shouldGate) {
+      try {
+        v.pause();
+        v.currentTime = 0;
+      } catch (_) {
+        // Ignore — some browsers throw on currentTime set while metadata loads.
+      }
     }
-  } else {
-    currentVideo.play().catch((err) => {
-      console.warn('video resume after prep failed:', err);
-    });
+  });
+  if (!shouldGate) {
+    // Resume only the visible / active slot; the inactive one stays
+    // paused at frame 0 ready for the crossfade.
+    const active = getActiveVideoForSlide(currentIndex);
+    if (active) {
+      active.play().catch((err) => {
+        console.warn('video resume after prep failed:', err);
+      });
+    }
   }
 }
 
@@ -2488,13 +3409,42 @@ function requestFullscreen() {
   const el = document.documentElement;
   const req = el.requestFullscreen || el.webkitRequestFullscreen;
   if (req) {
-    try { req.call(el); } catch (_) { /* swallow */ }
+    let result;
+    try { result = req.call(el); } catch (_) { result = null; }
+    // iOS Safari 16.4+ supports Element.requestFullscreen on arbitrary
+    // elements. Older Safari throws or returns undefined; webkit-prefixed
+    // returned undefined synchronously. Use the Promise to fall back to
+    // faux when the real API rejects (older iOS, restricted contexts).
+    if (result && typeof result.then === 'function') {
+      result.catch(() => engageFauxFullscreen());
+      return;
+    }
+    // No-Promise path: defer one frame and check whether the API engaged.
+    setTimeout(() => {
+      if (!document.fullscreenElement &&
+          !document.webkitFullscreenElement &&
+          !fauxFullscreenActive) {
+        engageFauxFullscreen();
+      }
+    }, 200);
     return;
   }
-  // iPhone Safari fallback — no Fullscreen API. Flip the body class
-  // ourselves, lock scroll, and re-run the change handler so aria state +
-  // icon swap match the real-API path. The fullscreenchange event is
-  // browser-only; faux mode never fires it, hence the explicit call.
+  engageFauxFullscreen();
+}
+
+/**
+ * Landscape pre-workout Maximise pill is gated by body classes
+ * `is-workout-mode` and `is-fullscreen` via CSS. This helper exists so
+ * call sites that mutate either flag refresh both classes in one place.
+ * Visibility itself is CSS-driven — no JS toggle needed beyond the
+ * body class state.
+ */
+function updateLandscapeMaximisePillVisibility() {
+  document.body.classList.toggle('is-workout-mode', isWorkoutMode);
+}
+
+function engageFauxFullscreen() {
+  if (fauxFullscreenActive) return;
   fauxFullscreenActive = true;
   fauxFullscreenPrevHtmlOverflow = document.documentElement.style.overflow || '';
   fauxFullscreenPrevBodyOverflow = document.body.style.overflow || '';
@@ -2586,7 +3536,7 @@ function finishWorkout() {
   isTimerRunning = false;
   isPrepPhase = false;
 
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updatePrepOverlay();
   updateRestCountdownOverlay();
 
@@ -2617,6 +3567,8 @@ function exitWorkout() {
   isWorkoutMode = false;
   isTimerRunning = false;
   isPrepPhase = false;
+  document.body.classList.remove('is-workout-mode');
+  updateLandscapeMaximisePillVisibility();
 
   clearWorkoutTimer();
   clearPrepTimer();
@@ -2625,7 +3577,7 @@ function exitWorkout() {
 
   $workoutComplete.hidden = true;
   if ($workoutComplete) $workoutComplete.classList.remove('is-live');
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updatePrepOverlay();
   updateRestCountdownOverlay();
 
@@ -2771,8 +3723,94 @@ async function registerServiceWorker() {
 // Initialisation
 // ============================================================
 
+/**
+ * Tap a rep / rest block in the vertical stack to jump the workout
+ * timer to that point. Mirror of clicking a matrix pill at the top.
+ * Active only during workout mode + timer running.
+ */
+function _canJumpRepStack() {
+  if (!isWorkoutMode || !isTimerRunning || isPrepPhase) return false;
+  const slide = slides[currentIndex];
+  if (!slide) return false;
+  const totalReps = slide.reps || 0;
+  const perSet = calculatePerSetSeconds(slide);
+  return totalReps > 0 && perSet > 0;
+}
+
+function _repaintAfterJump() {
+  updateRepStack();
+  updateBreatherOverlay();
+  updateRestCountdownOverlay();
+  updateProgressMatrix();
+  updateTimelineBar();
+  updateActiveSlideHeader();
+}
+
+/** Jump to rep `repIdx` (0-based) of set `setIdx`. */
+function jumpToRep(setIdx, repIdx) {
+  if (!_canJumpRepStack()) return;
+  const slide = slides[currentIndex];
+  const totalReps = slide.reps || 0;
+  const perSet = calculatePerSetSeconds(slide);
+  const breather = getInterSetRestSeconds(slide);
+  const cycleSecs = perSet + breather;
+  const elapsedInSet = (repIdx / totalReps) * perSet;
+  currentSetIndex = setIdx;
+  setPhase = 'set';
+  setPhaseRemaining = Math.max(0, perSet - elapsedInSet);
+  remainingSeconds = Math.max(0, totalSeconds - (setIdx * cycleSecs + elapsedInSet));
+  resumeActiveVideoAfterBreather();
+  _repaintAfterJump();
+}
+
+/** Jump to the breather following set `setIdx`. */
+function jumpToRest(setIdx) {
+  if (!_canJumpRepStack()) return;
+  const slide = slides[currentIndex];
+  const perSet = calculatePerSetSeconds(slide);
+  const breather = getInterSetRestSeconds(slide);
+  currentSetIndex = setIdx;
+  setPhase = 'rest';
+  setPhaseRemaining = breather;
+  remainingSeconds = Math.max(
+    0,
+    totalSeconds - ((setIdx + 1) * perSet + setIdx * breather),
+  );
+  pauseActiveVideoForBreather();
+  _repaintAfterJump();
+}
+
 async function init() {
   registerServiceWorker();
+
+  // Discreet build marker in the footer — see PLAYER_VERSION at the
+  // top of this file. Stamped pre-fetch so it's visible even on plan
+  // load failure.
+  const $versionEl = document.getElementById('footer-version');
+  if ($versionEl) $versionEl.textContent = PLAYER_VERSION;
+
+  // Delegated tap handler for the navigable rep stack. stopPropagation
+  // prevents the tap from also toggling video pause/play.
+  if ($repStackColumn) {
+    $repStackColumn.addEventListener('click', (evt) => {
+      const block = evt.target.closest('.rep-stack-block');
+      if (!block) return;
+      evt.stopPropagation();
+      evt.preventDefault();
+      if (block.classList.contains('rep-stack-block--rep')) {
+        const section = block.closest('.rep-stack-section--set');
+        if (!section) return;
+        const setIdx = parseInt(section.getAttribute('data-set-index'), 10);
+        const repIdx = parseInt(block.getAttribute('data-rep-index'), 10);
+        if (Number.isNaN(setIdx) || Number.isNaN(repIdx)) return;
+        jumpToRep(setIdx, repIdx);
+      } else if (block.classList.contains('rep-stack-block--rest')) {
+        const restIdx = parseInt(block.getAttribute('data-rest-index'), 10);
+        if (Number.isNaN(restIdx)) return;
+        jumpToRest(restIdx);
+      }
+    });
+  }
 
   const planId = getPlanIdFromURL();
 
@@ -2788,6 +3826,25 @@ async function init() {
 
     // Unroll circuits into flat slides array
     slides = unrollExercises(plan);
+    // Reset per-slide loop bookkeeping — stale entries from a prior
+    // plan would leak otherwise (no in-session plan switch today, but
+    // future-proof + cheap).
+    loopState.clear();
+
+    // Wave 19.6 — load the persisted "Show me" override for THIS plan and
+    // compute the plan-wide consent rollup BEFORE the first render so
+    // slideTreatment() has correct state when buildCard() resolves URLs.
+    recomputePlanConsent();
+    clientTreatmentOverride = readClientTreatmentOverride(plan && plan.id);
+    // Defensive: a stale localStorage value pointing at a now-unconsented
+    // treatment falls back to 'auto' (and persists the correction).
+    if (clientTreatmentOverride === 'bw' && !planHasGrayscaleConsent) {
+      clientTreatmentOverride = 'auto';
+      writeClientTreatmentOverride(plan && plan.id, 'auto');
+    } else if (clientTreatmentOverride === 'original' && !planHasOriginalConsent) {
+      clientTreatmentOverride = 'auto';
+      writeClientTreatmentOverride(plan && plan.id, 'auto');
+    }
 
     // Render
     renderPlan();
@@ -2803,6 +3860,15 @@ async function init() {
     // Bind events
     $btnNext.addEventListener('click', goNext);
     $btnPrev.addEventListener('click', goPrev);
+
+    // Wave 20 — soft-trim playback clamp. Delegated listeners on the
+    // viewport so newly-rendered <video> elements don't need their own
+    // wire-up. `loadedmetadata` seeks into the trim window before the
+    // first painted frame; `timeupdate` wraps the loop at the out-point.
+    // The crossfade detector in `attachLoopListeners` reads the same
+    // trim window so preroll fires at the trimmed end, not natural end.
+    $cardViewport.addEventListener('loadedmetadata', onVideoLoadedMetadata, true);
+    $cardViewport.addEventListener('timeupdate', onVideoTimeUpdate, true);
     $cardViewport.addEventListener('touchstart', onTouchStart, { passive: true });
     $cardViewport.addEventListener('touchmove', onTouchMove, { passive: true });
     $cardViewport.addEventListener('touchend', onTouchEnd);
@@ -2824,6 +3890,35 @@ async function init() {
     // Fullscreen toggle — body.is-fullscreen drives ambient mode CSS.
     if ($btnFullscreen) {
       $btnFullscreen.addEventListener('click', toggleFullscreen);
+    }
+
+    // Landscape pre-workout Maximise pill — taps are a user gesture so
+    // requestFullscreen succeeds on iOS Safari 16.4+; older Safari falls
+    // back to faux fullscreen via the Promise-rejection path.
+    if ($btnLandscapeMaximise) {
+      $btnLandscapeMaximise.addEventListener('click', () => {
+        if (!isFullscreenActive()) requestFullscreen();
+      });
+    }
+    // Visibility is CSS-driven (body class + landscape media query),
+    // but seed the body class once at startup for the initial paint.
+    updateLandscapeMaximisePillVisibility();
+
+    // Play/pause toggle — same dispatch as the centered tap-to-pause.
+    // Hidden outside workout mode; click is a no-op there as a defence.
+    if ($btnPlayPause) {
+      $btnPlayPause.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!isWorkoutMode) return;
+        if (isPrepPhase) {
+          finishPrepPhase();
+        } else if (isTimerRunning) {
+          pauseTimer();
+        } else if (remainingSeconds > 0) {
+          resumeTimer();
+        }
+        updatePlayPauseToggle();
+      });
     }
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('webkitfullscreenchange', onFullscreenChange);
@@ -2848,8 +3943,47 @@ async function init() {
         e.stopPropagation();
       });
       if ($toggleSegmentedEffect) {
-        $toggleSegmentedEffect.addEventListener('change', () => {
+        // The toggle dispatches its visual flip via CSS `:checked`, which
+        // makes the switch FEEL responsive even when the JS handler never
+        // runs. The Wave 19.4 device QA caught a path where iOS Safari
+        // routed the tap through the surrounding label without ever
+        // firing `change` on the input, so the bind below leaned only on
+        // `change` and the rebind never happened — visually the switch
+        // moved, but the dimmed-background source stayed glued. Wiring
+        // both `change` AND `click` (deferred to the next tick so
+        // `.checked` has already settled to its post-toggle value)
+        // closes that gap. Idempotency is handled by
+        // applySegmentedEffectChange's early-exit when the state didn't
+        // actually flip, so the duplicate fire is harmless.
+        const handleSegmentedToggle = () => {
+          // Disabled state guard: when the active treatment is line there's
+          // nothing to dim, so no-op even if the gesture leaks through.
+          if ($toggleSegmentedEffect.disabled) return;
           applySegmentedEffectChange(!!$toggleSegmentedEffect.checked);
+        };
+        $toggleSegmentedEffect.addEventListener('change', handleSegmentedToggle);
+        $toggleSegmentedEffect.addEventListener('click', () => {
+          // Defer one tick — Safari fires `click` before the implicit
+          // checkbox toggle has updated `.checked` on some code paths.
+          setTimeout(handleSegmentedToggle, 0);
+        });
+      }
+
+      // Wave 19.6 — "Show me" segmented override. Click on a segment
+      // applies it (or no-ops if disabled). Paint once now so the
+      // initial popover open reflects the persisted state + consent.
+      if ($treatmentOverride) {
+        paintTreatmentOverride();
+        updateEnhancedBackgroundEnabled();
+        $treatmentOverride.addEventListener('click', (e) => {
+          const seg = e.target && e.target.closest ? e.target.closest('.treatment-segment') : null;
+          if (!seg) return;
+          if (seg.classList.contains('is-disabled')) {
+            // Stays in the popover; tooltip carries the explanation.
+            return;
+          }
+          const next = seg.getAttribute('data-treatment');
+          applyClientTreatmentOverride(next);
         });
       }
       // Outside-click closes the popover. Capture=true so we see the
@@ -2892,16 +4026,28 @@ async function init() {
         if (Number.isFinite(idx) && idx !== currentIndex) jumpToSlide(idx);
       });
       // Re-choose size tier on viewport resize — rebuild is cheap.
+      // Wave 28: debounce ~150ms so a rapid portrait↔landscape rotation
+      // (which fires resize multiple times as iOS Safari settles the new
+      // visual viewport) doesn't thrash buildProgressMatrix(). The
+      // post-debounce pass recomputes the size tier, rebuilds the matrix
+      // if the tier changed, and restores the active-pill state without
+      // a scroll animation (the matrix flex-fits, so there's no scroll
+      // offset to preserve — we just want correct layout immediately).
+      let matrixResizeTimer = null;
       window.addEventListener('resize', () => {
-        const prev = matrixSizeTier;
-        const blocks = buildMatrixBlocks();
-        const nextTier = chooseMatrixSizeTier(countMatrixColumns(blocks), window.innerWidth);
-        if (nextTier !== prev) {
-          buildProgressMatrix();
-          updateProgressMatrix();
-        } else {
-          updateProgressMatrix();
-        }
+        if (matrixResizeTimer) clearTimeout(matrixResizeTimer);
+        matrixResizeTimer = setTimeout(() => {
+          matrixResizeTimer = null;
+          const prev = matrixSizeTier;
+          const blocks = buildMatrixBlocks();
+          const nextTier = chooseMatrixSizeTier(countMatrixColumns(blocks), window.innerWidth);
+          if (nextTier !== prev) {
+            buildProgressMatrix();
+            updateProgressMatrix();
+          } else {
+            updateProgressMatrix();
+          }
+        }, 150);
       });
     }
 

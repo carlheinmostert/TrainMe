@@ -129,8 +129,20 @@
         </svg>
       </button>
 
-      <!-- Fullscreen toggle (top-right; mute sits beside it, rendered
-           per-slide inside the active card). -->
+      <!-- Play/pause toggle (top-right; YouTube-style icon swap). Hidden
+           outside workout mode; the icon mirrors current playback state. -->
+      <button id="btn-playpause" class="playpause-toggle" aria-label="Pause workout" aria-pressed="false" hidden>
+        <svg class="pp-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
+          <polygon points="6 3 20 12 6 21 6 3"/>
+        </svg>
+        <svg class="pp-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <rect x="6" y="4" width="4" height="16" rx="1"/>
+          <rect x="14" y="4" width="4" height="16" rx="1"/>
+        </svg>
+      </button>
+
+      <!-- Fullscreen toggle (sits below play/pause in the right-edge
+           chrome stack; mute claims the same row as play/pause). -->
       <button id="btn-fullscreen" class="fullscreen-toggle" aria-label="Enter fullscreen" aria-pressed="false">
         <svg class="fs-icon-enter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <polyline points="4 9 4 4 9 4"/>
@@ -165,9 +177,72 @@
            one-line "what this does" helper beneath the switch. -->
       <div id="settings-popover" class="settings-popover" role="dialog" aria-labelledby="settings-popover-title" hidden>
         <div class="settings-popover-title" id="settings-popover-title">Playback</div>
-        <label class="settings-row" for="toggle-segmented-effect">
+
+        <!-- Client-controlled "Show me" override (Wave 19.6, 2026-04-24).
+             Default = "Practitioner's choice" (auto) — each slide plays the
+             treatment the practitioner picked in Studio. Picking Drawn /
+             B&W / Colour forces every video slide to that treatment,
+             ignoring per-exercise practitioner picks. Photo + rest slides
+             are unaffected. Unconsented options are visible-but-disabled
+             with a lock glyph + tooltip; Carl's UX rule is "never hide". -->
+        <div class="settings-row settings-row--stacked">
+          <span class="settings-row-label">Show me</span>
+          <div
+            id="treatment-override"
+            class="treatment-override"
+            role="radiogroup"
+            aria-label="Treatment override"
+          >
+            <button
+              type="button"
+              class="treatment-segment is-active"
+              role="radio"
+              aria-checked="true"
+              data-treatment="auto"
+            >
+              <span class="treatment-segment-label">Practitioner's<br>choice</span>
+            </button>
+            <button
+              type="button"
+              class="treatment-segment"
+              role="radio"
+              aria-checked="false"
+              data-treatment="line"
+            >
+              <span class="treatment-segment-label">Drawn</span>
+            </button>
+            <button
+              type="button"
+              class="treatment-segment"
+              role="radio"
+              aria-checked="false"
+              data-treatment="bw"
+            >
+              <span class="treatment-segment-label">B&amp;W</span>
+              <svg class="treatment-segment-lock" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3.5" y="7" width="9" height="6" rx="1.2"/>
+                <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="treatment-segment"
+              role="radio"
+              aria-checked="false"
+              data-treatment="original"
+            >
+              <span class="treatment-segment-label">Colour</span>
+              <svg class="treatment-segment-lock" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3.5" y="7" width="9" height="6" rx="1.2"/>
+                <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <label class="settings-row" for="toggle-segmented-effect" id="enhanced-background-row">
           <span class="settings-row-main">
-            <span class="settings-row-label">Enhanced background</span>
+            <span class="settings-row-label">Body focus</span>
             <span class="settings-row-hint" id="toggle-segmented-effect-hint">Body in focus — background dimmed</span>
           </span>
           <span class="settings-switch">
@@ -185,13 +260,19 @@
         <div class="rest-countdown-number" id="rest-countdown-number">0</div>
       </div>
 
-      <!-- Milestone Q — per-exercise segmented progress bar. Coral
-           segments for sets (with rep count), sage segments for the
-           inter-set breather. Built per active slide by app.js; hidden
-           outside workout mode + on rest slides + on single-set
-           exercises with no breather. Sits near the top of the
-           viewport overlay stack. -->
-      <div id="set-progress-bar" class="set-progress-bar" role="presentation" hidden></div>
+      <!-- Wave 21 — vertical rep-block stack (replaces the horizontal
+           segmented bar). Pinned to the LEFT edge of the viewport,
+           vertically centered. Bottom-up "stacking up your reps"
+           metaphor: Set 1 at the bottom, Set N + trailing rest at the
+           top. One micro-block per rep + one thinner block per
+           inter-set rest (including AFTER the last set). Section
+           labels (S1, R, S2, …) sit OUTSIDE the column to the left.
+           Built per active slide by app.js; hidden on photos / rest
+           slides / single-set-no-breather / legacy null-rep slides. -->
+      <div id="rep-stack" class="rep-stack" role="presentation" hidden>
+        <div id="rep-stack-labels" class="rep-stack-labels" aria-hidden="true"></div>
+        <div id="rep-stack-column" class="rep-stack-column"></div>
+      </div>
 
       <!-- Milestone Q — breather overlay. Sage countdown + restful
            glyph + "Breather" label shown during the inter-set rest.
@@ -239,6 +320,22 @@
       </div>
     </div>
 
+    <!-- Pre-workout landscape Maximise pill. Visible only when the
+         viewport is in landscape orientation AND the workout has not
+         started AND we're not already fullscreen. iOS Safari surfaces
+         tabs/URL/toolbar chrome in landscape that eats viewport — this
+         is a one-tap way for the client to reclaim it before tapping
+         Start. CSS hides it everywhere else. -->
+    <button id="btn-landscape-maximise" class="landscape-maximise-pill" type="button" aria-label="Maximise to fullscreen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="4 9 4 4 9 4"/>
+        <polyline points="20 9 20 4 15 4"/>
+        <polyline points="4 15 4 20 9 20"/>
+        <polyline points="20 15 20 20 15 20"/>
+      </svg>
+      <span>Maximise</span>
+    </button>
+
     <!-- Start Workout button (centered over the video as CTA) -->
     <button id="start-workout-btn" class="start-workout-btn" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -261,6 +358,10 @@
           <!-- SVG injected by buildHomefitLogo() at init time. -->
           <span class="homefit-logo-wordmark">homefit.studio</span>
         </div>
+        <!-- Discreet build marker — populated by app.js from PLAYER_VERSION
+             at init. Kept low-contrast so it doesn't pull focus during
+             normal use, but always there for QA. -->
+        <span class="footer-version" id="footer-version" aria-hidden="true"></span>
       </div>
     </footer>
   </div>

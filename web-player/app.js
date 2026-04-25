@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v64-landscape';
+const PLAYER_VERSION = 'v65-maximise-pill';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -385,6 +385,7 @@ const $matrixChevron = document.getElementById('progress-matrix-chevron');
 
 // Video-as-hero overlay refs
 const $btnFullscreen = document.getElementById('btn-fullscreen');
+const $btnLandscapeMaximise = document.getElementById('btn-landscape-maximise');
 const $btnPlayPause = document.getElementById('btn-playpause');
 const $btnPlayPauseIconPlay = $btnPlayPause
   ? $btnPlayPause.querySelector('.pp-icon-play')
@@ -2303,6 +2304,8 @@ function startWorkout() {
   isWorkoutMode = true;
   workoutCompleteFlag = false;
   workoutStartTime = Date.now();
+  document.body.classList.add('is-workout-mode');
+  updateLandscapeMaximisePillVisibility();
 
   // Hide the start button
   $startWorkoutBtn.hidden = true;
@@ -3406,13 +3409,42 @@ function requestFullscreen() {
   const el = document.documentElement;
   const req = el.requestFullscreen || el.webkitRequestFullscreen;
   if (req) {
-    try { req.call(el); } catch (_) { /* swallow */ }
+    let result;
+    try { result = req.call(el); } catch (_) { result = null; }
+    // iOS Safari 16.4+ supports Element.requestFullscreen on arbitrary
+    // elements. Older Safari throws or returns undefined; webkit-prefixed
+    // returned undefined synchronously. Use the Promise to fall back to
+    // faux when the real API rejects (older iOS, restricted contexts).
+    if (result && typeof result.then === 'function') {
+      result.catch(() => engageFauxFullscreen());
+      return;
+    }
+    // No-Promise path: defer one frame and check whether the API engaged.
+    setTimeout(() => {
+      if (!document.fullscreenElement &&
+          !document.webkitFullscreenElement &&
+          !fauxFullscreenActive) {
+        engageFauxFullscreen();
+      }
+    }, 200);
     return;
   }
-  // iPhone Safari fallback — no Fullscreen API. Flip the body class
-  // ourselves, lock scroll, and re-run the change handler so aria state +
-  // icon swap match the real-API path. The fullscreenchange event is
-  // browser-only; faux mode never fires it, hence the explicit call.
+  engageFauxFullscreen();
+}
+
+/**
+ * Landscape pre-workout Maximise pill is gated by body classes
+ * `is-workout-mode` and `is-fullscreen` via CSS. This helper exists so
+ * call sites that mutate either flag refresh both classes in one place.
+ * Visibility itself is CSS-driven — no JS toggle needed beyond the
+ * body class state.
+ */
+function updateLandscapeMaximisePillVisibility() {
+  document.body.classList.toggle('is-workout-mode', isWorkoutMode);
+}
+
+function engageFauxFullscreen() {
+  if (fauxFullscreenActive) return;
   fauxFullscreenActive = true;
   fauxFullscreenPrevHtmlOverflow = document.documentElement.style.overflow || '';
   fauxFullscreenPrevBodyOverflow = document.body.style.overflow || '';
@@ -3535,6 +3567,8 @@ function exitWorkout() {
   isWorkoutMode = false;
   isTimerRunning = false;
   isPrepPhase = false;
+  document.body.classList.remove('is-workout-mode');
+  updateLandscapeMaximisePillVisibility();
 
   clearWorkoutTimer();
   clearPrepTimer();
@@ -3857,6 +3891,18 @@ async function init() {
     if ($btnFullscreen) {
       $btnFullscreen.addEventListener('click', toggleFullscreen);
     }
+
+    // Landscape pre-workout Maximise pill — taps are a user gesture so
+    // requestFullscreen succeeds on iOS Safari 16.4+; older Safari falls
+    // back to faux fullscreen via the Promise-rejection path.
+    if ($btnLandscapeMaximise) {
+      $btnLandscapeMaximise.addEventListener('click', () => {
+        if (!isFullscreenActive()) requestFullscreen();
+      });
+    }
+    // Visibility is CSS-driven (body class + landscape media query),
+    // but seed the body class once at startup for the initial paint.
+    updateLandscapeMaximisePillVisibility();
 
     // Play/pause toggle — same dispatch as the centered tap-to-pause.
     // Hidden outside workout mode; click is a no-op there as a defence.

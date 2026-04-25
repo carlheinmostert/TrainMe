@@ -862,6 +862,16 @@ body {
   outline-offset: 2px;
 }
 
+/* === Landscape pre-workout Maximise pill =========================
+   Hidden everywhere by default. The landscape media query below
+   shows it only when (orientation: landscape) AND (max-height: 540)
+   AND not in workout mode AND not already fullscreen. Tap reclaims
+   viewport from Safari's persistent landscape chrome (URL bar +
+   tab bar + bottom toolbar). */
+.landscape-maximise-pill {
+  display: none;
+}
+
 /* === Fullscreen toggle (top-right of card-viewport, BELOW playpause) === */
 .fullscreen-toggle {
   position: absolute;
@@ -2254,6 +2264,44 @@ body.is-fullscreen .playpause-toggle {
   }
   .footer-version {
     font-size: 8px;
+  }
+
+  /* Maximise pill — landscape pre-workout only. The body-class guards
+     hide it once the workout starts (Start Workout already requests
+     fullscreen) or when fullscreen is already active. */
+  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill {
+    display: inline-flex;
+    position: fixed;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    z-index: 50;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border: 1px solid rgba(255, 107, 53, 0.55);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.78);
+    color: var(--c-brand);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+    transition: background 150ms ease, transform 100ms ease;
+  }
+  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill:hover {
+    background: rgba(0, 0, 0, 0.92);
+  }
+  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill:active {
+    transform: translateY(-50%) scale(0.96);
+  }
+  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill svg {
+    width: 16px;
+    height: 16px;
+    display: block;
   }
 }
 

@@ -320,6 +320,22 @@
       </div>
     </div>
 
+    <!-- Pre-workout landscape Maximise pill. Visible only when the
+         viewport is in landscape orientation AND the workout has not
+         started AND we're not already fullscreen. iOS Safari surfaces
+         tabs/URL/toolbar chrome in landscape that eats viewport — this
+         is a one-tap way for the client to reclaim it before tapping
+         Start. CSS hides it everywhere else. -->
+    <button id="btn-landscape-maximise" class="landscape-maximise-pill" type="button" aria-label="Maximise to fullscreen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="4 9 4 4 9 4"/>
+        <polyline points="20 9 20 4 15 4"/>
+        <polyline points="4 15 4 20 9 20"/>
+        <polyline points="20 15 20 20 15 20"/>
+      </svg>
+      <span>Maximise</span>
+    </button>
+
     <!-- Start Workout button (centered over the video as CTA) -->
     <button id="start-workout-btn" class="start-workout-btn" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

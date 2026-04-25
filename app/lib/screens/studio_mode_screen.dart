@@ -3391,21 +3391,31 @@ class _MediaViewerState extends State<_MediaViewer> {
       // Landscape — anchor a dialog near the top-right gear instead of
       // a bottom sheet. A bottom sheet in landscape would eat ~half the
       // canvas; the popover lives in the dead-zone above the gear pill.
+      // Carl 2026-04-25 (Wave 28 item 7): popover content was extending
+      // below the visible area on iPhone landscape (~350px available
+      // after the top anchor). Cap height to the available space and
+      // scroll internally if content overflows.
       showDialog<void>(
         context: context,
         barrierColor: Colors.black.withValues(alpha: 0.25),
         builder: (ctx) {
-          final topInset = MediaQuery.of(ctx).padding.top;
+          final media = MediaQuery.of(ctx);
+          final topInset = media.padding.top;
+          final bottomInset = media.padding.bottom;
+          final anchorTop = topInset + 8 + 48 + 4 + 32 + 8;
+          final maxHeight = (media.size.height - anchorTop - bottomInset - 12)
+              .clamp(160.0, 480.0);
           return SafeArea(
             child: Stack(
               children: [
                 Positioned(
-                  top: topInset + 8 + 48 + 4 + 32 + 8,
+                  top: anchorTop,
                   right: 12,
                   child: Material(
                     color: Colors.transparent,
                     child: Container(
                       width: 280,
+                      constraints: BoxConstraints(maxHeight: maxHeight),
                       decoration: BoxDecoration(
                         color: AppColors.surfaceBase,
                         borderRadius: BorderRadius.circular(16),
@@ -3419,7 +3429,7 @@ class _MediaViewerState extends State<_MediaViewer> {
                           ),
                         ],
                       ),
-                      child: body,
+                      child: SingleChildScrollView(child: body),
                     ),
                   ),
                 ),

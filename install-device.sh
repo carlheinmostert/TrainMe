@@ -18,6 +18,13 @@ echo "▸ Pulling latest main..."
 cd /Users/chm/dev/TrainMe
 git pull origin main
 
+echo "▸ Syncing web-player bundle into Flutter assets (R-10 parity)..."
+# Without this, app/assets/web-player/* drifts behind web-player/* and the
+# WebView preview ships stale bytes. 2026-04-25 — this had silently left
+# the iPhone unified preview on pre-Wave-21 web-player code for weeks.
+cd /Users/chm/dev/TrainMe/app
+dart run tool/sync_web_player_bundle.dart
+
 echo "▸ Building Flutter app for physical device in PROFILE mode (first run ≈ 5-8 min)..."
 # Profile mode — not release — during QA. Debug mode is rejected by iOS
 # 14+ for standalone launch ("Cannot create a FlutterEngine instance in

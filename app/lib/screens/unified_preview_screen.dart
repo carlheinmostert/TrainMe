@@ -81,7 +81,6 @@ class UnifiedPreviewScreen extends StatefulWidget {
 
 class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
   WebViewController? _controller;
-  Uri? _playerUri;
   String? _error;
   bool _loading = true;
   bool _audioSessionActivated = false;
@@ -211,7 +210,6 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
       if (!mounted) return;
       setState(() {
         _controller = controller;
-        _playerUri = uri;
       });
     } catch (e, st) {
       if (kDebugMode) {
@@ -330,36 +328,47 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.surfaceBase,
-      appBar: AppBar(
-        backgroundColor: AppColors.surfaceBase,
-        foregroundColor: AppColors.textOnDark,
-        elevation: 0,
-        title: const Text(
-          'Unified Preview (prototype)',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        actions: [
-          if (_playerUri != null)
-            IconButton(
-              tooltip: 'Reload bundle',
-              icon: const Icon(Icons.refresh),
-              onPressed: () {
-                _controller?.reload();
-              },
-            ),
-        ],
-      ),
+      // No AppBar — every pixel of vertical space is precious for the
+      // player, especially in landscape on iOS where Safari already
+      // surfaces its own chrome. The back-out affordance is a small
+      // overlay button (top-left) painted on top of the WebView.
       body: Stack(
         children: [
           if (_error != null)
             _ErrorView(message: _error!)
           else if (controller != null)
-            WebViewWidget(controller: controller)
+            Positioned.fill(child: WebViewWidget(controller: controller))
           else
             const SizedBox.expand(),
+          // Top-left back-out chip. Same circular dark-pill styling as
+          // the in-WebView right-rail chrome so the practitioner reads
+          // it as preview chrome, not a system bar.
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 8,
+            child: SafeArea(
+              child: Material(
+                color: Colors.black.withValues(alpha: 0.55),
+                shape: const CircleBorder(),
+                clipBehavior: Clip.antiAlias,
+                child: IconButton(
+                  iconSize: 20,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints.tightFor(
+                    width: 40,
+                    height: 40,
+                  ),
+                  tooltip: 'Close preview',
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: AppColors.primary,
+                  ),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              ),
+            ),
+          ),
           if (_loading)
             const ColoredBox(
               color: AppColors.surfaceBase,

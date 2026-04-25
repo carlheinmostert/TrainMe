@@ -58,6 +58,9 @@
   --radius-lg: 16px;
   --radius-xl: 20px;
 
+  /* ── Wave 21 — vertical rep-block stack ── */
+  --rep-stack-rest-height: 14px;
+
   /* ── Focus ring (D-07: only surviving shadow token) ── */
   --c-focus-ring: 0 0 0 3px rgba(255, 107, 53, 0.30);
 
@@ -714,16 +717,66 @@ body {
   display: block;
 }
 
+/* === Photo rotation wrapper (Wave 28) ==============================
+   Photos use the same wrapper-anchored rotation pattern as videos —
+   transform sits on .media-rotation-wrap so the inner <img> keeps a
+   clean stacking context (matches the .video-loop-pair shape).
+   Defaults to a no-op on legacy plans (no inline transform → identical
+   layout to today). */
+.media-rotation-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.media-rotation-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* === Dual-video crossfade pair (Wave 19.7) =========================
+   Two stacked <video> elements share the same source. The "active"
+   one sits at opacity:1, the inactive at opacity:0; on a loop seam
+   we flip data-active and let the 200ms transition do the visible
+   crossfade. Both elements are absolutely positioned so they
+   overlap pixel-perfect. The wrapper inherits the parent
+   .card-media's flex sizing. */
+.video-loop-pair {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.video-loop-pair .video-loop-slot {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  opacity: 0;
+  transition: opacity var(--loop-crossfade-fade-ms, 200ms) ease;
+  will-change: opacity;
+}
+.video-loop-pair .video-loop-slot[data-active="true"] {
+  opacity: 1;
+  z-index: 2;
+}
+.video-loop-pair .video-loop-slot[data-active="false"] {
+  z-index: 1;
+}
+
 /* === Mute toggle ==================================================
-   Speaker-icon button, top-right of card-media. Sits to the LEFT of
-   the global #btn-settings + #btn-fullscreen (both appended to
-   .card-viewport). Post-Milestone P the chrome row is
-   [mute 108] [settings 60] [fullscreen 12]. Only rendered for videos
-   that ship with audio. */
+   Speaker-icon button. Right-edge column is
+   [playpause at top:12 / fullscreen at top:60 / settings at top:108];
+   mute claims the same row as playpause at right:60 (one button width
+   to its left). Only rendered for videos that ship with audio. */
 .card-media .mute-toggle {
   position: absolute;
   top: 12px;
-  right: 108px;
+  right: 60px;
   width: 40px;
   height: 40px;
   border: none;
@@ -759,10 +812,70 @@ body {
   outline-offset: 2px;
 }
 
-/* === Fullscreen toggle (top-right of card-viewport) =============== */
-.fullscreen-toggle {
+/* === Play/pause toggle (top-right of card-viewport) ==============
+   YouTube-style icon-swap button. Same visual chrome as fullscreen +
+   settings. Hidden outside workout mode (the tap-to-pause on the
+   media area still handles preview interactions). */
+.playpause-toggle {
   position: absolute;
   top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--c-brand);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: background 150ms ease, transform 100ms ease, opacity 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.playpause-toggle[hidden] {
+  display: none;
+}
+.playpause-toggle:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+.playpause-toggle:active {
+  transform: scale(0.92);
+}
+.playpause-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  stroke: none;
+}
+.playpause-toggle svg:not([hidden]) {
+  display: block;
+}
+.playpause-toggle .pp-icon-play {
+  /* Optical-balance the play triangle against the circular bg. */
+  margin-left: 3px;
+}
+.playpause-toggle:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+
+/* === Landscape pre-workout Maximise pill =========================
+   Hidden everywhere by default. The landscape media query below
+   shows it only when (orientation: landscape) AND (max-height: 540)
+   AND not in workout mode AND not already fullscreen. Tap reclaims
+   viewport from Safari's persistent landscape chrome (URL bar +
+   tab bar + bottom toolbar). */
+.landscape-maximise-pill {
+  display: none;
+}
+
+/* === Fullscreen toggle (top-right of card-viewport, BELOW playpause) === */
+.fullscreen-toggle {
+  position: absolute;
+  top: 60px;
   right: 12px;
   width: 40px;
   height: 40px;
@@ -796,15 +909,14 @@ body {
   outline-offset: 2px;
 }
 
-/* === Settings toggle (top-right, left of fullscreen) ==============
-   Per-device playback preferences (Milestone P — segmented background
-   effect opt-out). Mirrors .fullscreen-toggle geometry so the two buttons
-   form a matched pair, and sits 52px further in so it never overlaps the
-   mute affordance (which anchors at right:60px on audio videos). */
+/* === Settings toggle (bottom of the right-edge chrome stack) ======
+   Per-device playback preferences (Milestone P + the Wave 19.5
+   "Show me" override). The right-edge column occupies a 40px
+   column so the video stays uncluttered when not maximised. */
 .settings-toggle {
   position: absolute;
-  top: 12px;
-  right: 60px;
+  top: 108px;
+  right: 12px;
   width: 40px;
   height: 40px;
   border: none;
@@ -840,17 +952,20 @@ body {
   outline-offset: 2px;
 }
 
-/* Chrome row when a mute button is present on the active slide:
-   [mute 108] [settings 60] [fullscreen 12]. The mute button claims
-   right:108px in its own rule above; settings + fullscreen stay put. */
+/* Right-edge chrome column when a mute button is present on the active
+   slide: top row is [mute 60] [playpause 12], then [fullscreen top:60],
+   then [settings top:108]. Each rule pins its own coords above. */
 
 /* === Settings popover ============================================= */
 .settings-popover {
   position: absolute;
-  top: 60px;
+  /* Anchored just below the gear button. The gear sits at top:108 (third
+     in the vertical chrome stack) — popover offsets by another
+     button-height + gap (40 + 8 = 48) so they don't overlap. */
+  top: 156px;
   right: 12px;
   z-index: 30;
-  min-width: 260px;
+  min-width: 296px;
   max-width: calc(100vw - 24px);
   background: rgba(26, 29, 39, 0.96);
   border: 1px solid var(--c-surface-border);
@@ -955,6 +1070,104 @@ body {
   outline-offset: 2px;
 }
 
+/* Disabled switch (Wave 19.6) — used when current effective treatment is
+   'line' so the Enhanced Background dimmer has nothing to act on. The
+   <input> stays in the DOM (so its checked state survives a re-enable),
+   but pointer events drop and the visual goes 40% alpha + grayscaled. The
+   tooltip lives on the row's `title=` attribute for hover/long-press. */
+.settings-row.is-disabled {
+  cursor: not-allowed;
+}
+.settings-row.is-disabled .settings-row-label,
+.settings-row.is-disabled .settings-row-hint {
+  opacity: 0.45;
+}
+.settings-row.is-disabled .settings-switch {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+  pointer-events: none;
+}
+
+/* === "Show me" segmented control (Wave 19.6) ====================== */
+/* Stacked row variant — label sits above its control instead of side-by-side.
+   Used by the segmented Show-me control because the 4 segments need the full
+   popover width. */
+.settings-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+  cursor: default;
+}
+
+.treatment-override {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 3px;
+}
+
+.treatment-segment {
+  position: relative;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 4px;
+  min-height: 44px;
+  color: var(--c-ink-secondary);
+  font-family: var(--f-body);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.15;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms var(--ease-standard), color 140ms var(--ease-standard);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.treatment-segment:hover:not(.is-disabled):not(.is-active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--c-ink-primary);
+}
+.treatment-segment.is-active {
+  background: var(--c-brand);
+  color: #FFFFFF;
+}
+.treatment-segment:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+.treatment-segment.is-disabled {
+  cursor: not-allowed;
+  color: rgba(255, 255, 255, 0.32);
+}
+.treatment-segment.is-disabled:hover {
+  background: transparent;
+}
+.treatment-segment-label {
+  display: inline-block;
+}
+.treatment-segment-lock {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 11px;
+  height: 11px;
+  display: none;
+  color: rgba(255, 255, 255, 0.5);
+}
+.treatment-segment.is-disabled .treatment-segment-lock {
+  display: block;
+}
+
 /* === Edge chevron nav (overlaid on video) ========================= */
 .edge-nav {
   position: absolute;
@@ -995,6 +1208,15 @@ body {
 }
 .edge-nav--prev { left: 6px; }
 .edge-nav--next { right: 6px; }
+
+/* Carl 2026-04-24: when the vertical rep stack is rendered on the left
+   edge, the prev chevron sat dead-centre over it. Shift the chevron
+   just past the stack column so both stay tappable. JS adds the
+   `has-rep-stack` class on `.card-viewport` whenever the stack is
+   visible (more reliable than :has() across iOS Safari versions). */
+.card-viewport.has-rep-stack .edge-nav--prev {
+  left: 64px;
+}
 
 /* Placeholder when no media */
 .media-placeholder {
@@ -1074,8 +1296,13 @@ body {
 
 /* === B&W treatment — CSS grayscale filter =========================
    The practitioner may prefer the B&W treatment; backend serves the
-   original video at grayscale_url and we filter client-side. */
-video.is-grayscale {
+   original video / photo at grayscale_url and we filter client-side.
+   Wave 22 extended the rule to <img> so photos get the same
+   single-source three-treatment behaviour as videos (the raw colour
+   JPG is loaded once; B&W and Colour share the same src and only
+   the .is-grayscale class differs). */
+video.is-grayscale,
+img.is-grayscale {
   filter: grayscale(1) contrast(1.05);
 }
 
@@ -1160,113 +1387,209 @@ video.is-prep-paused {
   text-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
 }
 
-/* === Milestone Q — Post Rep Breather (inter-set rest) ===============
-   Two surfaces:
-     1. .set-progress-bar — segmented strip above the media showing
-        the set / breather structure for the active exercise. Coral
-        segments for sets, sage segments for breathers. Active segment
-        fills from left→right with the phase-local countdown.
-     2. .breather-overlay — sage countdown + restful glyph shown on
-        top of the paused video during the inter-set rest.
-   Both use brand tokens (--c-brand, --c-rest, --c-ink-*) so they
-   inherit any future palette adjustments. */
+/* === Wave 21 — Vertical rep-block stack ============================
+   Replaces the Wave 19.7 horizontal segmented bar. Pinned to the
+   LEFT edge of .card-viewport, vertically centered, ~80% video-
+   height tall. Bottom-up stacking metaphor:
+     Set 1 (bottom)
+       → reps fill upward
+       → trailing rest block
+     Set 2
+       → reps fill upward
+       → trailing rest block
+     …
+     Set N
+       → reps fill upward
+       → TRAILING rest block (the "you're done, breathe" cue before
+         the slide advances — owned by advanceSetPhase()).
 
-.set-progress-bar {
+   Two flex children:
+     .rep-stack-labels — left gutter, section labels (S1, R, S2, …)
+                         vertically centered against each section.
+     .rep-stack-column — the block column itself; one micro-block
+                         per rep + one thinner block per rest.
+
+   Rep blocks: empty = surface-raised + 1px coral-tint border,
+               filled = solid coral, 200ms ease-in fill. Active
+               (next-to-land) gets a 1Hz coral pulse on the outline.
+   Rest blocks: 70% the height of a rep block (eye reads "different
+                category" with no label). Empty = surface-raised +
+                sage-tint border. Filling = solid sage, time-based
+                bottom-up grow over the rest duration.
+
+   Hidden when: rest slide, photo, single-set with no breather, or
+   slide.reps null/0 (legacy). */
+
+.rep-stack {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
+  left: 8px;
+  top: 10%;
+  bottom: 10%;
   display: flex;
   flex-direction: row;
+  align-items: stretch;
   gap: 4px;
-  height: 20px;
+  width: 50px;
   z-index: 12;
+  /* Carl 2026-04-24: blocks need to receive taps for navigable stack
+     (v52). The container itself stays pass-through so the gaps between
+     blocks don't intercept video pause/play taps; .rep-stack-block
+     re-enables pointer-events on the actual targets. */
   pointer-events: none;
 }
-.set-progress-bar[hidden] { display: none; }
+.rep-stack-block {
+  pointer-events: auto;
+}
+.rep-stack[hidden] { display: none; }
 
-.set-progress-bar-segment {
-  flex: 1 1 auto;
+.rep-stack-labels {
   position: relative;
-  height: 100%;
-  min-width: 18px;
-  border-radius: 4px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  width: 18px;
+  flex: 0 0 18px;
+  display: flex;
+  flex-direction: column-reverse; /* section 1 sits at the bottom */
 }
-.set-progress-bar-segment--rest {
-  /* Sage breather segments sit visually "between" sets — slightly
-     narrower feel via a thinner min-width and a muted base. */
-  flex-grow: 0.7;
-  min-width: 14px;
-  background: rgba(134, 239, 172, 0.10);
-  box-shadow: inset 0 0 0 1px var(--c-rest-tint-border);
-}
-.set-progress-bar-segment--set {
-  box-shadow: inset 0 0 0 1px var(--c-brand-tint-border);
-}
-
-/* Active segment — visible outline so the eye finds it fast. */
-.set-progress-bar-segment--active.set-progress-bar-segment--set {
-  box-shadow: inset 0 0 0 1.5px var(--c-brand),
-              0 0 12px rgba(255, 107, 53, 0.35);
-}
-.set-progress-bar-segment--active.set-progress-bar-segment--rest {
-  box-shadow: inset 0 0 0 1.5px var(--c-rest),
-              0 0 12px rgba(134, 239, 172, 0.35);
-}
-
-/* Complete segments — solid full fill via the fill child. */
-.set-progress-bar-segment-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 0%;
-  background: var(--c-brand);
-  transition: width 0.95s linear;
-  will-change: width;
-}
-.set-progress-bar-segment--rest .set-progress-bar-segment-fill {
-  background: var(--c-rest);
-}
-.set-progress-bar-segment--complete .set-progress-bar-segment-fill {
-  width: 100% !important;
-  transition: none;
-}
-.set-progress-bar-segment--upcoming .set-progress-bar-segment-fill {
-  width: 0% !important;
-  transition: none;
-}
-
-.set-progress-bar-segment-label {
-  position: absolute;
-  inset: 0;
+.rep-stack-labels-section {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-family: var(--f-body);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  color: var(--c-ink-primary);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: clip;
-  padding: 0 6px;
-  pointer-events: none;
-}
-.set-progress-bar-segment--rest .set-progress-bar-segment-label {
-  color: var(--c-rest);
+  justify-content: flex-end;
+  padding-right: 4px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
   letter-spacing: 0.3px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
-.set-progress-bar-segment--complete .set-progress-bar-segment-label {
-  color: rgba(240, 240, 245, 0.85);
+.rep-stack-labels-section--set { color: var(--c-brand); }
+.rep-stack-labels-section--rest { color: var(--c-rest); }
+.rep-stack-labels-section::after {
+  /* Hairline bracket connecting the label to its section's
+     vertical extent. Subtle — just a 1px right edge that runs
+     the full height of the section. */
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: currentColor;
+  opacity: 0.35;
 }
 
-/* Hide labels on narrow segments so a 4-set exercise doesn't clash. */
-@media (max-width: 420px) {
-  .set-progress-bar-segment-label { font-size: 9px; }
+.rep-stack-column {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column-reverse; /* set 1 + first rep at the bottom */
+  gap: 1px;
+}
+
+.rep-stack-section {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+  flex: var(--rep-stack-section-grow, 1) 1 0;
+  min-height: 0;
+}
+.rep-stack-section--rest {
+  /* Rest sections render as a single thinner block — already a
+     single child below; the section just provides the slot. */
+}
+
+.rep-stack-block {
+  position: relative;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 2px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--c-surface-raised);
+  box-shadow: inset 0 0 0 1px var(--c-brand-tint-border);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.rep-stack-block:active {
+  transform: scale(0.96);
+  transition: transform 80ms ease-out;
+}
+.rep-stack-block--rest {
+  /* Carl 2026-04-24: rest block now matches rep-block sizing so the
+     column reads as a uniform stack — colour (sage vs coral) carries
+     the "different category" signal, not size. The rest section is
+     given the same flex grow as ONE rep block (see the inline style
+     in the JS structure builder), so a 10-rep set has 11 equally
+     sized blocks (10 coral reps + 1 sage rest). */
+  background: var(--c-surface-raised);
+  box-shadow: inset 0 0 0 1px var(--c-rest-tint-border);
+  margin-top: 2px;
+}
+
+/* Filled rep block — solid coral, animated via the fill child so the
+   200ms ease-in lands smoothly on each loop seam. */
+.rep-stack-block-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0%;
+  background: var(--c-brand);
+  transition: height 200ms ease-in;
+  will-change: height;
+}
+.rep-stack-block--filled .rep-stack-block-fill {
+  height: 100%;
+}
+
+/* Carl 2026-04-24: active rep block doubles as a per-rep progress
+   bar. Linear 1.05s transition matches the 1Hz repaint cadence, with
+   a tiny tail so the fill never visually stalls between ticks. */
+.rep-stack-block--active .rep-stack-block-fill {
+  transition: height 1.05s linear;
+}
+
+/* Drain animation when the slide changes — every fill shrinks to 0
+   over 350ms before the column rebuilds for the new slide. Set via
+   the .is-draining class on the column root. */
+.rep-stack-column.is-draining .rep-stack-block-fill {
+  height: 0% !important;
+  transition: height 350ms ease-out;
+}
+.rep-stack-block--rest .rep-stack-block-fill {
+  background: var(--c-rest);
+  /* Rest fill is time-based (linear over the rest duration); the
+     200ms ease-in default is overridden inline via element style. */
+  transition: height 0.95s linear;
+}
+
+/* Active rep block — the next one to land. Subtle 1Hz coral pulse on
+   the outline so the eye tracks "you're about to fill here". */
+.rep-stack-block--active {
+  animation: rep-stack-active-pulse 1s ease-in-out infinite;
+}
+@keyframes rep-stack-active-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px var(--c-brand-tint-border);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1.5px var(--c-brand),
+                0 0 6px rgba(255, 107, 53, 0.45);
+  }
+}
+
+/* Active rest block — sage variant of the same pulse so the rest
+   countdown reads as "currently filling" without text. */
+.rep-stack-block--rest.rep-stack-block--active {
+  animation: rep-stack-active-rest-pulse 1s ease-in-out infinite;
+}
+@keyframes rep-stack-active-rest-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px var(--c-rest-tint-border);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1.5px var(--c-rest),
+                0 0 6px rgba(134, 239, 172, 0.45);
+  }
 }
 
 /* === Breather overlay =============================================== */
@@ -1419,6 +1742,19 @@ video.is-prep-paused {
   font-size: 12px;
   letter-spacing: -0.2px;
   color: var(--c-ink-secondary);
+}
+
+/* Discreet build marker — visible but not loud. Mirrors the mobile
+   pattern (build SHA at 35% opacity in the HomefitLogo footer on Home).
+   Sits beneath the wordmark; mono font so QA can read it at a glance. */
+.footer-version {
+  margin-top: 2px;
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: 0.2px;
+  color: var(--c-ink-muted);
+  opacity: 0.55;
+  user-select: text;
 }
 
 /* === Workout Timer Mode ========================================== */
@@ -1582,66 +1918,6 @@ video.is-prep-paused {
   transform: scale(0.97);
 }
 
-/* === Mode-aware pause overlay ====================================
-   Centered dark-disc + coral play icon — visible only on the active
-   paused slide. Touch-transparent; parent .card-media captures tap. */
-.media-pause-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 10;
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-standard);
-}
-/* Paused (workout live but timer stopped) — the play icon is the call to
-   action, so full alpha. */
-.media-pause-overlay.is-visible {
-  opacity: 1;
-}
-/* Flash-on-toggle (Wave 19.2) — briefly surface the overlay at full alpha
-   whenever play ↔ pause flips, then fade. Previous 0.35 dim pattern was
-   invisible against most video content so Carl couldn't tell his taps
-   landed. The persistent .is-visible state still drives the paused CTA. */
-.media-pause-overlay.is-flashing {
-  opacity: 1;
-  animation: pause-flash 900ms var(--ease-standard) forwards;
-}
-@keyframes pause-flash {
-  0%   { opacity: 1; }
-  65%  { opacity: 1; }
-  100% { opacity: 0; }
-}
-/* Photo slides don't have play/pause semantics (nothing's animating), so
-   suppress the overlay entirely — Carl flagged it as visually misleading
-   on image exercises. Hold-duration timing still runs in the background. */
-.exercise-card[data-media-type="photo"] .media-pause-overlay {
-  display: none;
-}
-.media-pause-overlay .pause-disc {
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.media-pause-overlay .pause-disc svg {
-  width: 42px;
-  height: 42px;
-  color: var(--c-brand);
-  fill: var(--c-brand);
-  stroke: none;
-}
-.media-pause-overlay .pause-disc .pause-icon-play {
-  margin-left: 4px;
-}
-
 /* === Prep countdown overlay ====================================== */
 .prep-overlay {
   position: absolute;
@@ -1775,22 +2051,11 @@ body.is-fullscreen .matrix-circuit-row {
   grid-template-columns: var(--row-template-fs);
 }
 
-body.is-fullscreen .card-media .mute-toggle,
-body.is-fullscreen .settings-toggle,
-body.is-fullscreen .edge-nav,
-body.is-fullscreen .card-notes-overlay,
-body.is-fullscreen .media-pause-overlay {
-  opacity: 0.30;
-  transition: opacity 220ms var(--ease-standard);
-}
-
-body.is-fullscreen.chrome-visible .card-media .mute-toggle,
-body.is-fullscreen.chrome-visible .settings-toggle,
-body.is-fullscreen.chrome-visible .edge-nav:not(:disabled),
-body.is-fullscreen.chrome-visible .card-notes-overlay,
-body.is-fullscreen.chrome-visible .media-pause-overlay {
-  opacity: 1;
-}
+/* Ambient-fullscreen chrome dimming retired (Carl 2026-04-24).
+   The chrome buttons sit on a translucent dark background already —
+   fading them further to 30% made them feel like they were greyed-
+   out controls. They now stay at 100% opacity in all states; the
+   dark-pill background is enough to keep them subtle. */
 
 /* Popover stays 100% alpha while open — if the user opened it in
    ambient fullscreen, we don't want to fade their UI out from under them. */
@@ -1804,8 +2069,10 @@ body.is-fullscreen .edge-nav:disabled {
   opacity: 0.15;
 }
 
-/* Fullscreen toggle is always 100% alpha so the user can always exit. */
-body.is-fullscreen .fullscreen-toggle {
+/* Fullscreen + playpause toggles are always 100% alpha so the user
+   can always exit fullscreen / pause the workout. */
+body.is-fullscreen .fullscreen-toggle,
+body.is-fullscreen .playpause-toggle {
   opacity: 1;
 }
 
@@ -1864,3 +2131,198 @@ body.is-fullscreen .fullscreen-toggle {
     border: 0;
   }
 }
+
+/* === Landscape orientation (Wave 28) ==============================
+   Slim every horizontal row that lives above the card viewport so the
+   hero region keeps its share of the canvas, and reflow the right-edge
+   chrome stack to suit the wider, shorter shape. The portrait branch
+   above stays untouched — every rule below only applies when the
+   visual viewport is wider than it is tall.
+
+   Keeps the desktop phone-frame (≥640px portrait) intact: the
+   `(max-aspect-ratio: 1/1)` + (orientation: landscape) intersection
+   below targets phones rotated landscape. Desktop landscape browsers
+   are wide-enough that the existing portrait styles still feel right
+   inside the 430×932 frame.
+*/
+@media (orientation: landscape) and (max-height: 540px) {
+  /* Slim plan-bar — ~28px tall vs the portrait 14+6 padding chunk. */
+  .plan-bar {
+    padding: 4px 16px 2px;
+  }
+  .plan-title {
+    font-size: 15px;
+    line-height: 1.15;
+  }
+  .header-client {
+    font-size: 11px;
+  }
+
+  /* Active-slide header: compact pill above the matrix. Same content,
+     tighter padding + smaller font so it shares vertical real estate. */
+  .active-slide-header {
+    padding: 2px 16px 4px;
+  }
+  .active-slide-title {
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  /* Workout timeline strip: keep horizontal, halve vertical padding. */
+  .workout-timeline-bar {
+    padding: 1px 12px 2px;
+    font-size: 10px;
+  }
+  .workout-timeline-total {
+    font-size: 11px;
+  }
+
+  /* Progress matrix: shrink the inner padding + drop the bottom margin
+     so the matrix hugs the timeline strip. The wider canvas means more
+     pills fit per row visually; we let the existing flex-distribute
+     logic do the layout, just give it a slimmer band. */
+  .progress-matrix {
+    margin: 1px 0 2px;
+  }
+  .progress-matrix-inner {
+    padding: 1px 12px;
+    gap: 6px;
+  }
+  /* Pills can be a touch shorter — visual cap mirrors the new tier. */
+  .matrix-col {
+    max-width: 40px;
+  }
+
+  /* Card viewport gets every spare pixel — no max-height, no padding. */
+  .card-viewport {
+    padding: 0;
+  }
+
+  /* Edge chevrons stay mid-vertical-edge; pull them in slightly so they
+     don't compete with the right-edge chrome stack on the slimmer band. */
+  .edge-nav {
+    width: 44px;
+    height: 60px;
+  }
+  .edge-nav--prev { left: 4px; }
+  .edge-nav--next { right: 4px; }
+  .card-viewport.has-rep-stack .edge-nav--prev {
+    left: 56px;
+  }
+
+  /* Right-edge chrome: tighten the stack so it doesn't letterbox into
+     the card area on the shorter canvas. Mute keeps its same-row spot
+     to the left of playpause; fullscreen + settings stack closer. */
+  .playpause-toggle,
+  .fullscreen-toggle,
+  .settings-toggle,
+  .card-media .mute-toggle {
+    width: 36px;
+    height: 36px;
+  }
+  .playpause-toggle {
+    top: 8px;
+    right: 8px;
+  }
+  .card-media .mute-toggle {
+    top: 8px;
+    right: 52px;
+  }
+  .fullscreen-toggle {
+    top: 50px;
+    right: 8px;
+  }
+  .settings-toggle {
+    top: 92px;
+    right: 8px;
+  }
+
+  /* Settings popover: anchor as a popover (not a near-full-bottom-sheet).
+     The wider canvas would otherwise leave the popover marooned in the
+     lower-right corner. Keep its anchor under the gear button + cap the
+     width so it sits as a proper floating card. */
+  .settings-popover {
+    top: 134px;
+    right: 8px;
+    min-width: 280px;
+    max-width: 360px;
+    padding: 10px 14px;
+  }
+
+  /* Body focus pill (mobile inline preview chrome) — kept from
+     colliding with the mute pill on the slimmer canvas. The pill lives
+     above the mute button at bottom-left in the mobile preview path;
+     match the tighter mute coords. */
+  .body-focus-pill {
+    bottom: 56px;
+    left: 8px;
+  }
+
+  /* Footer: thin band so the card viewport keeps its share. */
+  .footer {
+    padding: 2px 16px 4px;
+  }
+  .footer-version {
+    font-size: 8px;
+  }
+
+  /* Maximise pill — landscape pre-workout only. The body-class guards
+     hide it once the workout starts (Start Workout already requests
+     fullscreen) or when fullscreen is already active. */
+  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill {
+    display: inline-flex;
+    position: fixed;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    z-index: 50;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border: 1px solid rgba(255, 107, 53, 0.55);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.78);
+    color: var(--c-brand);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+    transition: background 150ms ease, transform 100ms ease;
+  }
+  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill:hover {
+    background: rgba(0, 0, 0, 0.92);
+  }
+  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill:active {
+    transform: translateY(-50%) scale(0.96);
+  }
+  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+  }
+}
+
+/* Landscape exercise-card aspect-ratio handling (Wave 28).
+   The card-viewport itself is always full-bleed; the per-exercise
+   aspect ratio drives whether the source video fills the card or
+   letterboxes inside it.
+
+     • aspect-ratio > 1 (landscape source) — let object-fit: contain
+       letterbox top/bottom on a portrait viewport, but on a landscape
+       viewport the source already matches the canvas shape, so the
+       contain rule effectively fills.
+
+     • aspect-ratio < 1 (portrait source) — object-fit: contain
+       letterboxes left/right on a landscape viewport. The pillarbox
+       background is the same #0A0C12 that .card-media already paints.
+
+   No new layout rules required: the existing .card-media + video /
+   img object-fit: contain pair handles both cases correctly. The
+   `--exercise-aspect-ratio` custom property is set on each card for
+   future use (preload sizing, OG card generation) — readable via
+   getComputedStyle without round-tripping through the video metadata
+   event.
+*/

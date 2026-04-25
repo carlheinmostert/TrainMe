@@ -49,6 +49,20 @@
  * against already-published plans without re-capture. This module
  * normalises `mask_url` to explicit null when absent.
  *
+ * ## Soft-trim window (Milestone X / Wave 20)
+ *
+ * Milestone X added two more per-exercise keys:
+ *   - start_offset_ms
+ *   - end_offset_ms
+ * Practitioner-controlled in/out window per exercise. Both null = no
+ * trim, full clip plays. Both set = `app.js` clamps the `<video>`
+ * element's `currentTime` to `[start, end]` (in ms) and loops within
+ * that window. The same trim applies to ALL THREE treatments since
+ * they share source timing — switching treatment must NOT reset trim.
+ * NO re-conversion: the underlying media file stays full-length; trim
+ * is purely a playback-time clamp. This module normalises both keys
+ * to explicit null when absent.
+ *
  * Exposed on `window.HomefitApi` so `app.js` (a plain script, not an
  * ES module) can reach it. When the web player gains a bundler this
  * turns into a proper `export`.
@@ -120,6 +134,20 @@
       // disable, >0 = breather seconds. app.js consumes this to drive
       // the segmented progress bar + sage breather overlay.
       inter_set_rest_seconds: e.inter_set_rest_seconds ?? null,
+      // Milestone X — per-exercise soft-trim window (Wave 20).
+      // Both null = no trim, full clip plays. Both set = mobile + web
+      // player clamp `<video>.currentTime` to [start, end] in ms and
+      // loop within the window. Same trim applies across all three
+      // treatments since they share source timing.
+      start_offset_ms: e.start_offset_ms ?? null,
+      end_offset_ms: e.end_offset_ms ?? null,
+      // Wave 24 — number of reps captured in the source video. NULL =
+      // legacy / pre-migration row (player treats as 1 rep per loop,
+      // preserving pre-Wave-24 playback math). Drives the per-rep /
+      // per-set time derivation in calculatePerSetSeconds /
+      // calculateDuration; replaces the manual custom_duration_seconds
+      // override in the practitioner UI.
+      video_reps_per_loop: e.video_reps_per_loop ?? null,
     }));
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     return { ...payload, exercises };
@@ -175,6 +203,20 @@
       // disable, >0 = breather seconds. app.js consumes this to drive
       // the segmented progress bar + sage breather overlay.
       inter_set_rest_seconds: e.inter_set_rest_seconds ?? null,
+      // Milestone X — per-exercise soft-trim window (Wave 20).
+      // Both null = no trim, full clip plays. Both set = mobile + web
+      // player clamp `<video>.currentTime` to [start, end] in ms and
+      // loop within the window. Same trim applies across all three
+      // treatments since they share source timing.
+      start_offset_ms: e.start_offset_ms ?? null,
+      end_offset_ms: e.end_offset_ms ?? null,
+      // Wave 24 — number of reps captured in the source video. NULL =
+      // legacy / pre-migration row (player treats as 1 rep per loop,
+      // preserving pre-Wave-24 playback math). Drives the per-rep /
+      // per-set time derivation in calculatePerSetSeconds /
+      // calculateDuration; replaces the manual custom_duration_seconds
+      // override in the practitioner UI.
+      video_reps_per_loop: e.video_reps_per_loop ?? null,
     }));
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
