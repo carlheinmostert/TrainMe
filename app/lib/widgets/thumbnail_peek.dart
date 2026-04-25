@@ -29,6 +29,11 @@ class ThumbnailPeek extends StatelessWidget {
   /// coordinates — today only Studio wires it).
   final VoidCallback? onDownloadOriginal;
 
+  /// Resting (closed-menu) thumbnail size. Wave 30 bumped Studio's
+  /// card thumbnail from 56 → 88 so the caption-row beside it has
+  /// roughly three lines of vertical company.
+  final double size;
+
   const ThumbnailPeek({
     super.key,
     required this.exercise,
@@ -37,6 +42,7 @@ class ThumbnailPeek extends StatelessWidget {
     required this.onReplaceMedia,
     required this.onDelete,
     this.onDownloadOriginal,
+    this.size = 56,
   });
 
   @override
@@ -46,7 +52,7 @@ class ThumbnailPeek extends StatelessWidget {
       return GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
-        child: CaptureThumbnail(exercise: exercise, size: 56),
+        child: CaptureThumbnail(exercise: exercise, size: size),
       );
     }
     // Long-press + z-order fix (Wave 3 items 1 + retest after #47).
@@ -107,7 +113,7 @@ class ThumbnailPeek extends StatelessWidget {
       ],
       builder: (BuildContext ctx, Animation<double> anim) {
         final t = anim.value.clamp(0.0, 1.0);
-        final size = 56.0 + (240.0 - 56.0) * t;
+        final currentSize = size + (240.0 - size) * t;
         // Only build the video preview once the menu is opening — keeps
         // the list cheap (no VideoPlayerController per card at rest).
         final useBigPreview = t > 0.02;
@@ -119,8 +125,8 @@ class ThumbnailPeek extends StatelessWidget {
         // background" Carl flagged on Wave 19.4 item 24.
         final chromeOff = t > 0.0;
         return SizedBox(
-          width: size,
-          height: size,
+          width: currentSize,
+          height: currentSize,
           child: useBigPreview
               ? ClipRRect(
                   borderRadius: BorderRadius.circular(16),
@@ -131,7 +137,7 @@ class ThumbnailPeek extends StatelessWidget {
                   behavior: HitTestBehavior.opaque,
                   child: CaptureThumbnail(
                     exercise: exercise,
-                    size: 56,
+                    size: size,
                     showChrome: !chromeOff,
                     showConversionOverlay: !chromeOff,
                   ),

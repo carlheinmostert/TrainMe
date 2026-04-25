@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 30 Bundle (Studio polish + Network sheet + Body focus preview + Client avatar)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 30 · device QA</div>
+  <h1>Studio polish + Network sheet + Body focus preview + Client avatar</h1>
+
+  <p class="lede">
+    Bundled Wave 30 from staging plus 4 Wave-29 carryover fails. <strong>(A)</strong> Studio: session-list icon swap (camera → list-alt), locked-publish now routes to unlock sheet (no more silent toaster), thumbnail bumped to 88×88, rest-row icon+label re-paired into one centred unit. <strong>(B)</strong> Home: new top-left network entry-point opens a focused share sheet (referral code + QR + system share + portal link); standalone <code>NetworkShareKitScreen</code> retired (~1551 lines deleted); credits-chip URL re-verified (already correct in Wave 29 — confirm on fresh build). <strong>(C)</strong> Body Focus on session preview: bridge + local_player_server now emit <code>grayscale_segmented_url</code> + <code>original_segmented_url</code> and accept <code>kind=segmented</code>. <strong>(D)</strong> Client avatar with body-focus blur — new feature. SQLite v31. New native <code>ClientAvatarProcessor</code>.
+  </p>
+
+  <h2>A · Studio polish</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+      <span class="num">1.</span>
+      <span class="text">Session list icon now reads as a list, not a camera.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open a client. Sessions list — leading badge on each session is a checklist glyph (<code>list_alt_rounded</code>), not a camera.</li>
+        <li data-sub="1.2">Studio shell pull-tab on the right edge: same swap. Tab still toggles between Studio + Camera.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+      <span class="num">2.</span>
+      <span class="text">Locked-publish UX: tapping Publish on a locked plan now opens the same Unlock sheet as the padlock.</span>
+      <ol class="steps">
+        <li data-sub="2.1">On a locked plan (post-3-day grace, no prepaid unlock), tap the Publish button.</li>
+        <li data-sub="2.2">No silent toaster. The same Unlock confirm sheet that the padlock opens appears, with the standard copy ("Adds back add / delete / reorder. Consumes 1 credit. Version stays at v{N} until you republish.").</li>
+        <li data-sub="2.3">Cancel → Studio unchanged, no credit consumed, no toaster.</li>
+        <li data-sub="2.4">Confirm "Unlock" → SnackBar "Plan unlocked — edit and re-publish." Padlock disappears. Tap Publish a second time → publish proceeds normally without a second credit (prepaid covers).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+      <span class="num">3.</span>
+      <span class="text">Exercise card thumbnail is 88×88 — visibly bigger; caption + title flow tightly to the right.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Open Studio with at least one video exercise. Thumbnail visually reads as 3-line height (was ~2-line in Wave 29).</li>
+        <li data-sub="3.2">Edit-cog overlay at top-right of thumbnail still aligned correctly.</li>
+        <li data-sub="3.3">Title + caption stack vertically centred against the taller thumbnail (no stranded whitespace).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+      <span class="num">4.</span>
+      <span class="text">Rest row: icon + "Rest" label sit on the same vertical centre — no offset between them.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Studio with at least one rest row. Eye-test: the icon and the word "Rest" are visually centred together as a single unit.</li>
+        <li data-sub="4.2">No more "icon centred + label nudged down" feel.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B · Home network share sheet + chip URL</h2>
+  <ul class="checklist">
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+      <span class="num">5.</span>
+      <span class="text">New <code>group_add_outlined</code> icon on Home top-left → opens share bottom-sheet.</span>
+      <ol class="steps">
+        <li data-sub="5.1">Open Home. Top-left corner shows a coral <code>group_add_outlined</code> icon (peer to the Settings gear in the opposite corner).</li>
+        <li data-sub="5.2">Tap it. Bottom sheet titled "Share with another practitioner" appears with referral code, QR, "Share via…" coral button, "View network stats →" link.</li>
+        <li data-sub="5.3">Sheet is FAST — no infinite spinner. If the referral RPC errors, an inline retry is shown (not a dead screen).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+      <span class="num">6.</span>
+      <span class="text">Tap-to-copy referral code + system share + portal link all work.</span>
+      <ol class="steps">
+        <li data-sub="6.1">Tap the referral code pill → SnackBar confirms copied to clipboard.</li>
+        <li data-sub="6.2">Tap "Share via…" → iOS system share sheet appears with prefilled invite text + the <code>https://manage.homefit.studio/r/{code}</code> URL.</li>
+        <li data-sub="6.3">Tap "View network stats →" → portal opens at <code>manage.homefit.studio/network?practice=&lt;uuid&gt;</code>; portal active practice matches the app's.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+      <span class="num">7.</span>
+      <span class="text">Settings → Network row is gone (standalone screen retired).</span>
+      <ol class="steps">
+        <li data-sub="7.1">Open Settings. The previous "Share homefit.studio" / "Network" entry that opened the standalone screen is no longer present.</li>
+        <li data-sub="7.2">No dead navigation paths.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+      <span class="num">8.</span>
+      <span class="text">Credits chip on Home → portal lands on /credits (re-verify W29 item 12).</span>
+      <ol class="steps">
+        <li data-sub="8.1">Tap the credits chip on Home. Safari opens to <code>manage.homefit.studio/credits?practice=&lt;uuid&gt;</code> — NOT the portal home.</li>
+        <li data-sub="8.2">After redirect, URL settles on <code>/credits</code> (middleware 302-strips the param).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C · Body Focus on session preview</h2>
+  <ul class="checklist">
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+      <span class="num">9.</span>
+      <span class="text">Body focus toggle now actually applies the segmented blur in the session preview (UnifiedPreview WebView).</span>
+      <ol class="steps">
+        <li data-sub="9.1">Open a session that has at least one segmented video (Body focus enabled in capture). Tap "Preview" / slideshow → UnifiedPreview opens.</li>
+        <li data-sub="9.2">In the preview's settings popover, toggle Body focus on. Active video reflects the segmented variant (subject crisp, background dim).</li>
+        <li data-sub="9.3">Toggle off → reverts. Toggle treatment B&amp;W or Original → segmented variant still applies on top.</li>
+        <li data-sub="9.4">No "blank video" or "fall back to line drawing" — the segmented file plays from the local bundle.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>D · Client avatar with body-focus blur (new feature)</h2>
+  <ul class="checklist">
+    <li data-num="10" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+      <span class="num">10.</span>
+      <span class="text">Empty avatar slot next to client name → opens single-shot capture if consent OK.</span>
+      <ol class="steps">
+        <li data-sub="10.1">Open a client detail view. Next to the client's name there's a small circular slot (40-ish px) showing the initials monogram.</li>
+        <li data-sub="10.2">If <code>consent.avatar</code> is FALSE: tapping the slot routes you to the consent sheet with the avatar toggle highlighted, NOT the camera. Toggle on, save, return.</li>
+        <li data-sub="10.3">With consent on: tap the slot → <code>ClientAvatarCaptureScreen</code> opens (single-shot camera, no plan, no exercise list).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="11" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+      <span class="num">11.</span>
+      <span class="text">Capture → Vision body-focus blur composite renders cleanly.</span>
+      <ol class="steps">
+        <li data-sub="11.1">Take a photo of yourself or any subject with a complex background.</li>
+        <li data-sub="11.2">After ~150-300ms processing spinner: preview shows subject CRISP, background heavily blurred. Edges feathered (no hard cutout).</li>
+        <li data-sub="11.3">"Retake" returns to the camera. "Use this" saves.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="12" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+      <span class="num">12.</span>
+      <span class="text">Saved avatar replaces the initials monogram next to the client name.</span>
+      <ol class="steps">
+        <li data-sub="12.1">After "Use this", return to the client detail. Avatar slot now shows the composite PNG, circular crop, no text overlay.</li>
+        <li data-sub="12.2">Avatar persists across app restart (force-quit + reopen).</li>
+        <li data-sub="12.3">Optional cloud verify: <code>supabase db query --linked "select id, avatar_path from clients where avatar_path is not null limit 5;"</code> shows your client with a non-null path.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="13" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
+      <span class="num">13.</span>
+      <span class="text">Cloud upload is best-effort — offline still saves locally.</span>
+      <ol class="steps">
+        <li data-sub="13.1">Enable airplane mode. Capture an avatar for a different client.</li>
+        <li data-sub="13.2">SnackBar: "Saved locally — we'll upload when you're back online."</li>
+        <li data-sub="13.3">Avatar still displays locally. Disable airplane mode + force a sync (Settings → Diagnostics → Force sync now). Cloud row should populate within a few seconds.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="14" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+      <span class="num">14.</span>
+      <span class="text">ClientConsentSheet now shows the 4th avatar toggle.</span>
+      <ol class="steps">
+        <li data-sub="14.1">Open a client → consent sheet. Toggles: Line drawing (always on, immutable), B&amp;W, Original, Avatar.</li>
+        <li data-sub="14.2">Toggle Avatar — persists. Reopen the sheet, state holds.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>E · Regression smoke (Wave 28 + 29 carry-over)</h2>
+  <ul class="checklist">
+    <li data-num="15" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+      <span class="num">15.</span>
+      <span class="text">No regressions on landscape, lock policy, consent gate, Studio card cleanup.</span>
+      <ol class="steps">
+        <li data-sub="15.1">Quick smoke: rotate camera to landscape (Wave 28) — preview reflows.</li>
+        <li data-sub="15.2">Quick smoke: open a session that's locked (Wave 29) — padlock visible.</li>
+        <li data-sub="15.3">Quick smoke: publish a fresh-client plan — consent sheet appears.</li>
+        <li data-sub="15.4">Quick smoke: Studio card has no PLAYBACK accordion; thumbnail edit-cog visible; caption updates live.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope (skip if you see them)</h3>
+    <ul>
+      <li>iPad — explicitly portrait-locked-as-iPhone.</li>
+      <li>Web portal layout — desktop, unaffected by this wave.</li>
+      <li>Wave 29 lock-state cross-device sync — fixed in 64f36ed; not part of Wave 30.</li>
+      <li>Avatar memory profile — could surface on older devices; not testing here.</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-25-wave30-bundle.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave30-bundle', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

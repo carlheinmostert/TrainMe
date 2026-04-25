@@ -1034,7 +1034,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       onPreview: _openPreview,
       onPreviewLongPress: () {},
       onPublish: _publishFromToolbar,
-      onPublishLockedTap: () => showPublishLockToast(context),
+      // Wave 30 — tapping Publish on a locked plan used to surface a
+      // toaster-only message ("counts as a new version · 1 credit") with
+      // no path forward. Route straight to the unlock sheet (the same
+      // path the padlock chip uses); two-tap UX so the practitioner
+      // sees the unlocked state before committing the next publish.
+      onPublishLockedTap: _openUnlockSheet,
       onShowPublishError: () {
         final err = _publishError;
         if (err != null) _showPublishErrorSnackBar(err);
@@ -2076,38 +2081,43 @@ class _RestBarState extends State<_RestBar> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
-        // Wave 18.3.1 — top-align so icon + "Rest" label stay anchored
-        // at the top of the row when the chip row wraps to multiple
-        // lines. CrossAxisAlignment.center (default) would drift them
-        // down as the chip row grows, which looks awkward.
+        // Wave 18.3.1 — top-align so the icon + "Rest" pair stay
+        // anchored at the top of the row when the chip row wraps to
+        // multiple lines. Center would drift them down as the chip row
+        // grows.
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Wave 29 — icon padding was floating high; the chip pill
-          // text below sits at chip-row vertical-4 + chip-height-32 / 2,
-          // so its visual centre is ~y=20. Icon at top:6 put its centre
-          // at y=15, ~5pt above the chip text. top:11 lines the icon's
-          // 18pt glyph with the chip's first line of text.
-          const Padding(
-            padding: EdgeInsets.only(left: 4, right: 8, top: 11),
-            child: Icon(
-              Icons.self_improvement,
-              size: 18,
-              color: AppColors.rest,
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.only(top: 12),
-            child: Text(
-              'Rest',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AppColors.rest,
+          // Wave 30 — icon + label as ONE element. Earlier the two were
+          // padded independently (icon top:11, label top:12) and read as
+          // "icon centred + label nudged down". Shared 40pt SizedBox
+          // matches the chip row's vertical box, with center alignment
+          // giving icon + label a single visual centre line.
+          const SizedBox(
+            height: 40,
+            child: Padding(
+              padding: EdgeInsets.only(left: 4, right: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.self_improvement,
+                    size: 18,
+                    color: AppColors.rest,
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    'Rest',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.rest,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          const SizedBox(width: 10),
           Expanded(
             child: PresetChipRow(
               controlKey: 'rest',

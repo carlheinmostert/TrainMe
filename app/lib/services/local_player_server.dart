@@ -181,6 +181,15 @@ class LocalPlayerServer {
         request: req,
       );
     }
+    final segmentedMatch =
+        RegExp(r'^local/([^/]+)/segmented$').firstMatch(path);
+    if (segmentedMatch != null) {
+      return _serveExerciseMedia(
+        exerciseId: segmentedMatch.group(1)!,
+        kind: _MediaKind.segmented,
+        request: req,
+      );
+    }
 
     return shelf.Response.notFound('not found: ${req.url}');
   }
@@ -305,6 +314,12 @@ class LocalPlayerServer {
     final archiveUrl = e.mediaType == MediaType.video && e.archiveFilePath != null
         ? '/local/${e.id}/archive'
         : null;
+    // Body Focus variant — segmented body-pop file. Practitioner-only
+    // surface, so file-presence gating is sufficient.
+    final segmentedUrl =
+        e.mediaType == MediaType.video && e.segmentedRawFilePath != null
+            ? '/local/${e.id}/segmented'
+            : null;
 
     return {
       'id': e.id,
@@ -344,6 +359,9 @@ class LocalPlayerServer {
           (consent.grayscale && archiveUrl != null) ? archiveUrl : null,
       'original_url':
           (consent.original && archiveUrl != null) ? archiveUrl : null,
+      // Practitioner is the viewer — file-presence gating only.
+      'grayscale_segmented_url': segmentedUrl,
+      'original_segmented_url': segmentedUrl,
     };
   }
 
@@ -386,6 +404,10 @@ class LocalPlayerServer {
         break;
       case _MediaKind.archive:
         relativePath = exercise.archiveFilePath;
+        break;
+      case _MediaKind.segmented:
+        // Body Focus variant — segmented body-pop file.
+        relativePath = exercise.segmentedRawFilePath;
         break;
     }
     if (relativePath == null || relativePath.isEmpty) {
@@ -500,7 +522,7 @@ class LocalPlayerServer {
   }
 }
 
-enum _MediaKind { line, archive }
+enum _MediaKind { line, archive, segmented }
 
 class _ConsentFlags {
   final bool line;

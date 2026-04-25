@@ -20,7 +20,7 @@ import 'path_resolver.dart';
 ///     Matches the shape of the Phase 1 shelf `/api/plan/<id>` route —
 ///     a `get_plan_full`-shaped envelope built from local SQLite.
 ///
-/// * `resolveMediaPath({ "exerciseId": String, "kind": "line"|"archive" })`
+/// * `resolveMediaPath({ "exerciseId": String, "kind": "line"|"archive"|"segmented" })`
 ///     → String (absolute file path on disk)
 ///     Returns the absolute path the Swift handler should stream.
 ///     Nullable return (empty string -> nil) signals "no file for this
@@ -128,7 +128,7 @@ class UnifiedPreviewSchemeBridge {
     if (exerciseId == null || exerciseId.isEmpty) {
       throw PlatformException(code: 'BAD_ARGS', message: 'missing exerciseId');
     }
-    if (kind != 'line' && kind != 'archive') {
+    if (kind != 'line' && kind != 'archive' && kind != 'segmented') {
       throw PlatformException(code: 'BAD_ARGS', message: 'unknown kind $kind');
     }
 
@@ -153,6 +153,9 @@ class UnifiedPreviewSchemeBridge {
         break;
       case 'archive':
         relative = exercise.archiveFilePath;
+        break;
+      case 'segmented':
+        relative = exercise.segmentedRawFilePath;
         break;
     }
     if (relative == null || relative.isEmpty) {
@@ -200,6 +203,13 @@ class UnifiedPreviewSchemeBridge {
     final archiveUrl = e.mediaType == MediaType.video && e.archiveFilePath != null
         ? '/local/${e.id}/archive'
         : null;
+    // Body Focus variant — segmented body-pop file written by the converter.
+    // Practitioner is the viewer here, so consent is implicit; gating is
+    // strictly file-presence.
+    final segmentedUrl =
+        e.mediaType == MediaType.video && e.segmentedRawFilePath != null
+            ? '/local/${e.id}/segmented'
+            : null;
 
     return {
       'id': e.id,
@@ -223,6 +233,9 @@ class UnifiedPreviewSchemeBridge {
           (consent.grayscale && archiveUrl != null) ? archiveUrl : null,
       'original_url':
           (consent.original && archiveUrl != null) ? archiveUrl : null,
+      // Practitioner is the viewer — file-presence gating only.
+      'grayscale_segmented_url': segmentedUrl,
+      'original_segmented_url': segmentedUrl,
     };
   }
 }

@@ -276,6 +276,39 @@ class VideoConverterChannel {
                 )
             }
 
+        case "processClientAvatar":
+            // Wave 30 — single-still segmentation + Gaussian background blur.
+            // Input is a raw camera capture; output is a body-focus PNG that
+            // replaces the default initials monogram on the client detail view.
+            // Vision quality matches the line-drawing pipeline (.accurate).
+            guard let args = call.arguments as? [String: Any],
+                  let rawPath = args["rawPath"] as? String,
+                  let outPath = args["outPath"] as? String else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing required arguments for processClientAvatar",
+                    details: nil
+                ))
+                return
+            }
+            processingQueue.async {
+                if #available(iOS 15.0, *) {
+                    ClientAvatarProcessor.process(
+                        rawPath: rawPath,
+                        outPath: outPath,
+                        result: result
+                    )
+                } else {
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "UNSUPPORTED_OS",
+                            message: "Avatar processing requires iOS 15+",
+                            details: nil
+                        ))
+                    }
+                }
+            }
+
         case "getVideoDuration":
             guard let args = call.arguments as? [String: Any],
                   let inputPath = args["inputPath"] as? String else {

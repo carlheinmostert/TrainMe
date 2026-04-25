@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 30;
+  static const _dbVersion = 31;
 
   Database? _db;
 
@@ -163,6 +163,7 @@ class LocalStorageService {
         practice_id TEXT NOT NULL,
         name TEXT NOT NULL,
         video_consent TEXT NOT NULL,
+        avatar_path TEXT,
         client_exercise_defaults TEXT NOT NULL DEFAULT '{}',
         consent_confirmed_at INTEGER,
         synced_at INTEGER,
@@ -625,6 +626,25 @@ class LocalStorageService {
       // SessionShell now reconciles cloud → local on session open.
       await db.execute(
         'ALTER TABLE sessions ADD COLUMN first_opened_at INTEGER',
+      );
+    }
+    if (oldVersion < 31) {
+      // Wave 30 — body-focus client avatar.
+      //
+      //   * cached_clients.avatar_path (TEXT) — relative path inside the
+      //     `raw-archive` bucket of the practitioner-captured PNG. NULL =
+      //     no avatar yet (UI falls back to initials monogram).
+      //
+      // The matching `avatar` consent flag lives inside the existing
+      // `video_consent` JSON blob — no separate column needed (read at
+      // map-load time by CachedClient.fromMap). Existing rows: their
+      // serialised consent JSON is rewritten on the next sync pull (the
+      // cloud's `set_client_video_consent` upgrade backfills `avatar:false`
+      // for all rows missing the key).
+      //
+      // Supabase mirror: schema_wave30_client_avatar.sql.
+      await db.execute(
+        'ALTER TABLE cached_clients ADD COLUMN avatar_path TEXT',
       );
     }
   }

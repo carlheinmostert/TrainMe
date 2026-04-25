@@ -563,17 +563,25 @@ class SyncService {
   }
 
   /// Local-first consent write.
+  ///
+  /// Wave 30 — accepts the optional [avatarAllowed] fourth flag. When null,
+  /// the existing local value is preserved (matches the server-side 3-arg
+  /// shim's behaviour); when bool, it's written into both the cache row
+  /// and the queued op so a re-flush carries the explicit intent.
   Future<CachedClient?> queueSetConsent({
     required String clientId,
     required bool grayscaleAllowed,
     required bool colourAllowed,
+    bool? avatarAllowed,
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final current = await _loadCachedClientRaw(clientId);
     if (current == null) return null;
+    final nextAvatar = avatarAllowed ?? current.avatarAllowed;
     final updated = current.copyWith(
       grayscaleAllowed: grayscaleAllowed,
       colourAllowed: colourAllowed,
+      avatarAllowed: nextAvatar,
       // Wave 29 — stamp locally so the publish-gate passes immediately;
       // server-side `set_client_video_consent` re-stamps to its own now()
       // when the queued op flushes.
@@ -586,6 +594,43 @@ class SyncService {
       clientId: clientId,
       grayscaleAllowed: grayscaleAllowed,
       colourAllowed: colourAllowed,
+      avatarAllowed: nextAvatar,
+      nowMs: nowMs,
+    );
+    await _storage.enqueuePendingOp(op);
+    await _refreshPendingCount();
+    unawaited(flush());
+    return updated;
+  }
+
+  /// Local-first avatar pointer write (Wave 30). Writes [avatarPath]
+  /// into [CachedClient.avatarPath] in-memory + on-disk, queues the
+  /// `set_client_avatar` RPC, and best-effort flushes. Pass null to
+  /// clear the avatar (e.g. "remove avatar" affordance).
+  ///
+  /// The PNG file itself is uploaded directly via
+  /// [ApiClient.uploadRawArchive] BEFORE this call — this method only
+  /// commits the cloud-side pointer once the bytes are in place. Done
+  /// this way so an offline practitioner still sees their just-captured
+  /// avatar locally; the cloud pointer + remote upload retry on the
+  /// next reconnect via the queue.
+  Future<CachedClient?> queueSetAvatar({
+    required String clientId,
+    required String? avatarPath,
+  }) async {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final current = await _loadCachedClientRaw(clientId);
+    if (current == null) return null;
+    final updated = current.copyWith(
+      avatarPath: avatarPath,
+      clearAvatarPath: avatarPath == null,
+      dirty: true,
+    );
+    await _storage.upsertCachedClient(updated);
+    final op = PendingOp.setAvatar(
+      opId: _uuid.v4(),
+      clientId: clientId,
+      avatarPath: avatarPath,
       nowMs: nowMs,
     );
     await _storage.enqueuePendingOp(op);
@@ -816,16 +861,46 @@ class SyncService {
         final clientId = op.payload['client_id'] as String?;
         final grayscale = op.payload['grayscale_allowed'] as bool?;
         final colour = op.payload['colour_allowed'] as bool?;
+        // Wave 30 — optional. When the queued op pre-dates the upgrade
+        // (key missing), we route through the server-side 3-arg shim
+        // which preserves the existing avatar value. When present, the
+        // 4-arg path stamps it explicitly.
+        final avatar = op.payload['avatar_allowed'] as bool?;
         if (clientId == null || grayscale == null || colour == null) return true;
         final ok = await ApiClient.instance.setClientVideoConsent(
           clientId: clientId,
           lineAllowed: true,
           grayscaleAllowed: grayscale,
           colourAllowed: colour,
+          avatarAllowed: avatar,
         );
         if (!ok) {
           throw Exception('set_client_video_consent returned false');
         }
+        await _markCachedClientClean(clientId);
+        return true;
+
+      case PendingOpType.setAvatar:
+        // Wave 30 — flushes the cloud-side `avatar_path` pointer. The
+        // PNG bytes themselves were uploaded directly to the
+        // raw-archive bucket BEFORE this op was enqueued; here we just
+        // commit the metadata column. If the upload had failed, the
+        // cloud will return null on `set_client_avatar` (path doesn't
+        // exist in storage) — but the column still updates and the next
+        // re-render of the avatar slot will fall back to the initials
+        // monogram (signed URL on a missing object 404s, our UI catches
+        // and falls through). Acceptable trade for keeping the local
+        // path source-of-truth alive.
+        final clientId = op.payload['client_id'] as String?;
+        if (clientId == null) return true;
+        final pathRaw = op.payload['avatar_path'];
+        final avatarPath = pathRaw is String && pathRaw.isNotEmpty
+            ? pathRaw
+            : null;
+        await ApiClient.instance.setClientAvatar(
+          clientId: clientId,
+          avatarPath: avatarPath,
+        );
         await _markCachedClientClean(clientId);
         return true;
 

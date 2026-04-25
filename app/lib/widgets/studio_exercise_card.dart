@@ -377,6 +377,11 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
                   onReplaceMedia: widget.onReplaceMedia,
                   onDelete: widget.onDelete,
                   onDownloadOriginal: widget.onDownloadOriginal,
+                  // Wave 30 — Wave 29's PLAYBACK retirement left the
+                  // thumbnail looking cramped against the title +
+                  // caption stack. 88pt gives the row roughly three
+                  // text-lines of vertical company.
+                  size: 88,
                 ),
                 // Edit-affordance glyph — purely visual. The thumbnail
                 // itself is the tap target; the glyph is a hint, not a
@@ -469,9 +474,9 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
         // caption is a second tap-affordance for the same destination.
         // Sits below the title row (full card width) so multiple
         // tokens read as a compact line without wrapping under the
-        // 56pt thumbnail column.
+        // 88pt thumbnail column (Wave 30 bump; +12pt gap = 100).
         Padding(
-          padding: const EdgeInsets.only(top: 6, left: 68),
+          padding: const EdgeInsets.only(top: 6, left: 100),
           child: GestureDetector(
             onTap: () {
               HapticFeedback.selectionClick();

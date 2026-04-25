@@ -80,9 +80,10 @@ class SessionCard extends StatelessWidget {
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               children: [
-                // Leading camera badge — coral on dark surface, establishes
-                // sessions as capture artefacts at a glance.
-                _LeadingIconBadge(icon: Icons.camera_alt_outlined),
+                // Leading list-alt badge — sessions are assembled, dosed
+                // plans, not raw capture artefacts. The camera glyph was
+                // too narrow.
+                _LeadingIconBadge(icon: Icons.list_alt_rounded),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

@@ -26,10 +26,18 @@ class CachedClient {
   final String practiceId;
   final String name;
 
-  /// `{line_drawing: bool, grayscale: bool, original: bool}` as the
-  /// cloud stores it. `line_drawing` is always true (platform baseline).
+  /// `{line_drawing: bool, grayscale: bool, original: bool, avatar: bool}`
+  /// as the cloud stores it. `line_drawing` is always true (platform
+  /// baseline). `avatar` (Wave 30) gates the body-focus avatar capture
+  /// surface on the client detail view; default false.
   final bool grayscaleAllowed;
   final bool colourAllowed;
+  final bool avatarAllowed;
+
+  /// Wave 30 — relative path inside the `raw-archive` bucket of the
+  /// body-focus blurred avatar PNG. Shape `{practiceId}/{clientId}/avatar.png`.
+  /// Null = no avatar yet (UI falls back to initials monogram).
+  final String? avatarPath;
 
   /// Sticky per-client exercise defaults (Milestone R / Wave 8).
   ///
@@ -76,6 +84,8 @@ class CachedClient {
     required this.name,
     this.grayscaleAllowed = false,
     this.colourAllowed = false,
+    this.avatarAllowed = false,
+    this.avatarPath,
     this.clientExerciseDefaults = const <String, dynamic>{},
     this.consentConfirmedAt,
     this.syncedAt,
@@ -104,12 +114,16 @@ class CachedClient {
     } else if (confirmed is int) {
       confirmedMs = confirmed;
     }
+    final pathRaw = json['avatar_path'];
     return CachedClient(
       id: json['id'] as String,
       practiceId: (json['practice_id'] ?? '') as String,
       name: (json['name'] ?? '') as String,
       grayscaleAllowed: consentMap['grayscale'] == true,
       colourAllowed: consentMap['original'] == true || consentMap['colour'] == true,
+      avatarAllowed: consentMap['avatar'] == true,
+      avatarPath:
+          pathRaw is String && pathRaw.isNotEmpty ? pathRaw : null,
       clientExerciseDefaults: defaultsMap,
       consentConfirmedAt: confirmedMs,
       syncedAt: nowMs,
@@ -123,15 +137,17 @@ class CachedClient {
     final consentStr = row['video_consent'] as String?;
     var grayscale = false;
     var colour = false;
+    var avatar = false;
     if (consentStr != null && consentStr.isNotEmpty) {
       try {
         final decoded = jsonDecode(consentStr);
         if (decoded is Map) {
           grayscale = decoded['grayscale'] == true;
           colour = decoded['original'] == true || decoded['colour'] == true;
+          avatar = decoded['avatar'] == true;
         }
       } catch (_) {
-        // Malformed JSON in cache — treat as default (both off).
+        // Malformed JSON in cache — treat as default (all off).
       }
     }
 
@@ -149,12 +165,16 @@ class CachedClient {
       }
     }
 
+    final pathRaw = row['avatar_path'];
     return CachedClient(
       id: row['id'] as String,
       practiceId: row['practice_id'] as String,
       name: row['name'] as String,
       grayscaleAllowed: grayscale,
       colourAllowed: colour,
+      avatarAllowed: avatar,
+      avatarPath:
+          pathRaw is String && pathRaw.isNotEmpty ? pathRaw : null,
       clientExerciseDefaults: defaults,
       consentConfirmedAt: row['consent_confirmed_at'] as int?,
       syncedAt: row['synced_at'] as int?,
@@ -173,7 +193,9 @@ class CachedClient {
         'line_drawing': true,
         'grayscale': grayscaleAllowed,
         'original': colourAllowed,
+        'avatar': avatarAllowed,
       }),
+      'avatar_path': avatarPath,
       'client_exercise_defaults': jsonEncode(clientExerciseDefaults),
       'consent_confirmed_at': consentConfirmedAt,
       'synced_at': syncedAt,
@@ -190,6 +212,8 @@ class CachedClient {
       name: name,
       colourAllowed: colourAllowed,
       grayscaleAllowed: grayscaleAllowed,
+      avatarAllowed: avatarAllowed,
+      avatarPath: avatarPath,
     );
   }
 
@@ -199,6 +223,9 @@ class CachedClient {
     String? name,
     bool? grayscaleAllowed,
     bool? colourAllowed,
+    bool? avatarAllowed,
+    String? avatarPath,
+    bool clearAvatarPath = false,
     Map<String, dynamic>? clientExerciseDefaults,
     int? consentConfirmedAt,
     int? syncedAt,
@@ -211,6 +238,8 @@ class CachedClient {
       name: name ?? this.name,
       grayscaleAllowed: grayscaleAllowed ?? this.grayscaleAllowed,
       colourAllowed: colourAllowed ?? this.colourAllowed,
+      avatarAllowed: avatarAllowed ?? this.avatarAllowed,
+      avatarPath: clearAvatarPath ? null : (avatarPath ?? this.avatarPath),
       clientExerciseDefaults:
           clientExerciseDefaults ?? this.clientExerciseDefaults,
       consentConfirmedAt: consentConfirmedAt ?? this.consentConfirmedAt,

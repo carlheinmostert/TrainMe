@@ -11,10 +11,12 @@ import '../services/local_storage_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../utils/session_title.dart';
+import '../widgets/client_avatar_glyph.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/orientation_lock_guard.dart';
 import '../widgets/powered_by_footer.dart';
 import '../widgets/session_card.dart';
+import 'client_avatar_capture_screen.dart';
 import 'session_shell_screen.dart';
 
 /// One client's page. Lists every local session that belongs to this
@@ -284,12 +286,50 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
     );
   }
 
-  Future<void> _openConsent() async {
+  Future<void> _openConsent({bool highlightAvatar = false}) async {
     HapticFeedback.selectionClick();
-    final updated =
-        await showClientConsentSheet(context, client: _client);
+    final updated = await showClientConsentSheet(
+      context,
+      client: _client,
+      highlightAvatar: highlightAvatar,
+    );
     if (updated != null && mounted) {
       setState(() => _client = updated);
+    }
+  }
+
+  /// Tap on the avatar glyph next to the client name. Two paths:
+  ///
+  ///   * `client.avatarAllowed == false`: open the consent sheet with
+  ///     the avatar row highlighted. Capture only proceeds after consent.
+  ///   * `client.avatarAllowed == true`: open the dedicated single-shot
+  ///     [ClientAvatarCaptureScreen]. Confirmation reloads the local
+  ///     [_client] so the new avatar paints immediately.
+  ///
+  /// Long-tapping is reserved for a future "remove avatar" flow; today
+  /// it's a no-op. Single tap is the only affordance.
+  Future<void> _openAvatarFlow() async {
+    HapticFeedback.selectionClick();
+    if (!_client.avatarAllowed) {
+      await _openConsent(highlightAvatar: true);
+      return;
+    }
+    final outcome = await pushClientAvatarCapture(context, client: _client);
+    if (outcome == null) return;
+    if (!mounted) return;
+    // Optimistically reflect the new path locally; SyncService has
+    // already queued the cloud-side write. The avatar glyph sees the
+    // new path on rebuild + finds the local PNG file in the avatars/
+    // directory immediately.
+    setState(() {
+      _client = _client.copyWith(avatarPath: outcome.cloudPath);
+    });
+    if (!outcome.uploadedToCloud) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Saved locally — we'll upload when you're back online."),
+        ),
+      );
     }
   }
 
@@ -468,11 +508,29 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildEditableName(),
+          // Wave 30 — avatar glyph + editable name on a single row so the
+          // glyph reads as part of the client identity, not a chip in the
+          // chrome. Tap on the glyph opens the capture flow (or the
+          // consent sheet when avatar consent isn't granted yet).
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ClientAvatarGlyph(
+                client: _client,
+                diameter: 44,
+                onTap: _openAvatarFlow,
+              ),
+              const SizedBox(width: 14),
+              Expanded(child: _buildEditableName()),
+            ],
+          ),
           const SizedBox(height: 10),
           Row(
             children: [
-              _ConsentChip(label: 'Client consent', onTap: _openConsent),
+              _ConsentChip(
+                label: 'Client consent',
+                onTap: () => _openConsent(),
+              ),
               // Wave 18 — removed the "N sessions" count. The list
               // itself is the count; doubling it here was redundant.
             ],

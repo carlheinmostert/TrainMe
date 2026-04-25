@@ -918,6 +918,12 @@ class ApiClient {
   /// and is the platform baseline). Passed for explicitness; backend
   /// validates + preserves it. Returns true on success.
   ///
+  /// Wave 30 — [avatarAllowed] gates the body-focus avatar capture surface
+  /// on the client detail view. Optional + defaults to false so existing
+  /// callers don't need to pass it; the four-arg server-side fn merges
+  /// the missing key as false anyway. Pass an explicit value once the
+  /// caller's UI surface knows about avatar consent.
+  ///
   /// Failures are swallowed silently per R-voice fallback — the caller
   /// shows a neutral error if needed.
   Future<bool> setClientVideoConsent({
@@ -925,21 +931,99 @@ class ApiClient {
     required bool lineAllowed,
     required bool grayscaleAllowed,
     required bool colourAllowed,
+    bool? avatarAllowed,
   }) async {
     try {
+      // Pass the avatar flag through when the caller specified it; the
+      // server-side 5-arg fn handles all four. When null, route to the
+      // 3-arg shim which preserves the existing avatar value server-side
+      // — a stale caller can't accidentally clobber a flag it doesn't
+      // know about.
+      final params = <String, dynamic>{
+        'p_client_id': clientId,
+        'p_line_drawing': lineAllowed,
+        'p_grayscale': grayscaleAllowed,
+        'p_original': colourAllowed,
+      };
+      if (avatarAllowed != null) {
+        params['p_avatar'] = avatarAllowed;
+      }
       await _guardAuth(() => raw.rpc(
             'set_client_video_consent',
-            params: {
-              'p_client_id': clientId,
-              'p_line_drawing': lineAllowed,
-              'p_grayscale': grayscaleAllowed,
-              'p_original': colourAllowed,
-            },
+            params: params,
           ));
       return true;
     } catch (e) {
       debugPrint('ApiClient.setClientVideoConsent failed: $e');
       return false;
+    }
+  }
+
+  /// `set_client_avatar(p_client_id, p_avatar_path)` — Wave 30. Commits
+  /// the cloud-side pointer to the body-focus avatar PNG. Caller is
+  /// expected to have already uploaded the file to the `raw-archive`
+  /// bucket at [avatarPath] (shape `{practiceId}/{clientId}/avatar.png`)
+  /// before calling. Pass null to clear the avatar.
+  ///
+  /// Returns the updated row (id, practice_id, name, avatar_path,
+  /// video_consent) on success, or null on any error. Errors are caught
+  /// + debug-logged so the offline-first queue can keep flushing.
+  Future<Map<String, dynamic>?> setClientAvatar({
+    required String clientId,
+    required String? avatarPath,
+  }) async {
+    try {
+      final dynamic result = await _guardAuth(() => raw.rpc(
+            'set_client_avatar',
+            params: {
+              'p_client_id': clientId,
+              'p_avatar_path': avatarPath,
+            },
+          ));
+      if (result is List && result.isNotEmpty) {
+        final first = result.first;
+        if (first is Map) {
+          return Map<String, dynamic>.from(first);
+        }
+      }
+      if (result is Map) {
+        return Map<String, dynamic>.from(result);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('ApiClient.setClientAvatar failed: $e');
+      return null;
+    }
+  }
+
+  /// Sign a time-limited URL for an avatar PNG inside the private
+  /// `raw-archive` bucket. Wave 30 — the avatar slot on the client
+  /// detail view binds against this URL (cached per render). Returns
+  /// null when the vault secrets aren't populated or the RPC errors,
+  /// at which point the caller falls back to the initials monogram.
+  ///
+  /// `expiresIn` defaults to 1h; the avatar UI re-signs lazily, so a
+  /// longer-than-strictly-needed window keeps the visible image alive
+  /// across rapid rebuilds without piling RPCs.
+  Future<String?> signClientAvatarUrl({
+    required String avatarPath,
+    int expiresIn = 3600,
+  }) async {
+    if (avatarPath.isEmpty) return null;
+    try {
+      final result = await _guardAuth(() => raw.rpc(
+            'sign_storage_url',
+            params: {
+              'bucket': rawArchiveBucket,
+              'path': avatarPath,
+              'expires_in': expiresIn,
+            },
+          ));
+      if (result is String && result.isNotEmpty) return result;
+      return null;
+    } catch (e) {
+      debugPrint('ApiClient.signClientAvatarUrl failed: $e');
+      return null;
     }
   }
 

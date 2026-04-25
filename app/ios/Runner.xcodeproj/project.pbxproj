@@ -18,6 +18,7 @@
 		7884E8712EC3D00100C636F2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 7884E8702EC3D00000C636F2 /* PrivacyInfo.xcprivacy */; };
 		7884E8802EC3E00100C636F2 /* UnifiedPreviewAudioChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8812EC3E00100C636F2 /* UnifiedPreviewAudioChannel.swift */; };
 		7884E8822EC3E00200C636F2 /* UnifiedPlayerSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8832EC3E00200C636F2 /* UnifiedPlayerSchemeHandler.swift */; };
+		7A30001A30000000A0000001 /* ClientAvatarProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A30001B30000000A0000001 /* ClientAvatarProcessor.swift */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
@@ -63,6 +64,7 @@
 		7884E8702EC3D00000C636F2 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		7884E8812EC3E00100C636F2 /* UnifiedPreviewAudioChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedPreviewAudioChannel.swift; sourceTree = "<group>"; };
 		7884E8832EC3E00200C636F2 /* UnifiedPlayerSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnifiedPlayerSchemeHandler.swift; sourceTree = "<group>"; };
+		7A30001B30000000A0000001 /* ClientAvatarProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientAvatarProcessor.swift; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
 		9287FD5733032F2EED1B9894 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
@@ -166,6 +168,7 @@
 				7884E8692EC3CC0800C636F2 /* VideoConverterChannel.swift */,
 				7884E8812EC3E00100C636F2 /* UnifiedPreviewAudioChannel.swift */,
 				7884E8832EC3E00200C636F2 /* UnifiedPlayerSchemeHandler.swift */,
+				7A30001B30000000A0000001 /* ClientAvatarProcessor.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -417,6 +420,7 @@
 				7884E86A2EC3CC0900C636F2 /* VideoConverterChannel.swift in Sources */,
 				7884E8802EC3E00100C636F2 /* UnifiedPreviewAudioChannel.swift in Sources */,
 				7884E8822EC3E00200C636F2 /* UnifiedPlayerSchemeHandler.swift in Sources */,
+				7A30001A30000000A0000001 /* ClientAvatarProcessor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

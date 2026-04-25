@@ -13,6 +13,7 @@ import '../theme.dart';
 import '../widgets/bootstrap_error_banner.dart';
 import '../widgets/home_credits_chip.dart';
 import '../widgets/homefit_logo.dart';
+import '../widgets/network_share_sheet.dart';
 import '../widgets/offline_sync_chip.dart';
 import '../widgets/orientation_lock_guard.dart';
 import '../widgets/practice_chip.dart';
@@ -302,6 +303,14 @@ class _HomeScreenState extends State<HomeScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const SettingsScreen()),
     );
+  }
+
+  /// Wave 30 — open the network share-kit bottom sheet. Code + QR +
+  /// system share button + a hand-off to the portal's stats view. The
+  /// sheet captures the active practice id at mount time, so we don't
+  /// need to thread anything through here.
+  Future<void> _openNetworkShare() async {
+    await NetworkShareSheet.show(context);
   }
 
   Future<void> _addClient() async {
@@ -626,6 +635,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   size: 26,
                 ),
                 tooltip: 'Settings',
+              ),
+            ),
+            // Wave 30 — Network share entry point. Mirrors the Settings
+            // gear's corner placement on the opposite side so the brand
+            // lockup stays uncrowded. Tap opens the NetworkShareSheet
+            // (referral code + QR + share button + portal hand-off).
+            Positioned(
+              top: 4,
+              left: 4,
+              child: IconButton(
+                onPressed: _openNetworkShare,
+                icon: const Icon(
+                  Icons.group_add_outlined,
+                  color: AppColors.primary,
+                  size: 24,
+                ),
+                tooltip: 'Share with another practitioner',
               ),
             ),
           ],

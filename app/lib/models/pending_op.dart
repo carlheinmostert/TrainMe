@@ -35,6 +35,13 @@ enum PendingOpType {
   /// Wave 8). Dispatches `set_client_exercise_default` RPC. Idempotent
   /// — whole-value overwrite.
   setExerciseDefault,
+
+  /// Write the cloud-side avatar pointer (Wave 30). Dispatches
+  /// `set_client_avatar` RPC. Idempotent — whole-value overwrite, and
+  /// the PNG bytes themselves are uploaded directly via
+  /// [ApiClient.uploadRawArchive] outside the queue (best-effort + auto-
+  /// retry through Storage's own idempotent upsert path).
+  setAvatar,
 }
 
 String _opTypeToWire(PendingOpType t) {
@@ -51,6 +58,8 @@ String _opTypeToWire(PendingOpType t) {
       return 'restore_client';
     case PendingOpType.setExerciseDefault:
       return 'set_exercise_default';
+    case PendingOpType.setAvatar:
+      return 'set_avatar';
   }
 }
 
@@ -68,6 +77,8 @@ PendingOpType? _opTypeFromWire(String s) {
       return PendingOpType.restoreClient;
     case 'set_exercise_default':
       return PendingOpType.setExerciseDefault;
+    case 'set_avatar':
+      return PendingOpType.setAvatar;
     default:
       return null;
   }
@@ -201,6 +212,7 @@ class PendingOp {
     required String clientId,
     required bool grayscaleAllowed,
     required bool colourAllowed,
+    bool? avatarAllowed,
     required int nowMs,
   }) {
     return PendingOp(
@@ -210,6 +222,34 @@ class PendingOp {
         'client_id': clientId,
         'grayscale_allowed': grayscaleAllowed,
         'colour_allowed': colourAllowed,
+        // Wave 30 — null means "preserve server-side value" (drain layer
+        // routes to the 3-arg shim). Non-null carries the explicit intent
+        // and routes to the 4-arg fn.
+        if (avatarAllowed != null) 'avatar_allowed': avatarAllowed,
+      },
+      createdAt: nowMs,
+    );
+  }
+
+  /// Queue a `set_client_avatar` op (Wave 30). Whole-value overwrite of
+  /// the cloud-side pointer column. The PNG bytes go to raw-archive via
+  /// the storage uploader before this op enqueues; if the upload itself
+  /// failed, the local cache still records the path so a re-publish can
+  /// retry.
+  factory PendingOp.setAvatar({
+    required String opId,
+    required String clientId,
+    required String? avatarPath,
+    required int nowMs,
+  }) {
+    return PendingOp(
+      id: opId,
+      type: PendingOpType.setAvatar,
+      payload: <String, dynamic>{
+        'client_id': clientId,
+        // Storing null instead of omitting the key makes the drain
+        // unambiguous: "explicit clear" vs. "key missing".
+        'avatar_path': avatarPath,
       },
       createdAt: nowMs,
     );

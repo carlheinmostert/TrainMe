@@ -6,7 +6,8 @@ import '../services/sync_service.dart';
 import '../theme.dart';
 
 /// Bottom sheet where the practitioner captures the client's viewing
-/// preferences (line drawing / grayscale / original colour).
+/// preferences (line drawing / grayscale / original colour) and the
+/// Wave 30 avatar-storage opt-in.
 ///
 /// Voice: peer-to-peer. No "consent" / "legal" / "POPIA" / "withdraw"
 /// language — see docs/design/project/voice.md. The client's choice is
@@ -15,14 +16,21 @@ import '../theme.dart';
 /// Line drawing is the platform baseline and always on; the row renders
 /// disabled so the practitioner knows there's nothing to decide there.
 ///
-/// Layout: grouped sections (Wave 3). The current "Video treatment"
-/// group holds the three treatment toggles. Future consent groups
-/// (e.g. outcome-tracking, data sharing) slot in below — see the
-/// comment at the bottom of the build method.
+/// Layout: grouped sections (Wave 3). "Video treatment" holds the three
+/// playback toggles; "Profile" (Wave 30) holds the avatar toggle so it
+/// reads as a different category — it controls capture/storage, not
+/// playback. [highlightAvatar] lights the avatar row with a coral border
+/// + brief animation when the sheet opens via the avatar slot tap, so
+/// the practitioner immediately sees what they need to flip.
 ///
 /// Opens via [showClientConsentSheet].
 class ClientConsentSheet extends StatefulWidget {
   final PracticeClient client;
+
+  /// When true, the avatar row gets a coral pulse on first frame so the
+  /// practitioner sees what they need to enable. Used when the sheet was
+  /// triggered by tapping a locked avatar slot.
+  final bool highlightAvatar;
 
   /// Fires after a successful save with the updated client. Used by the
   /// Your-clients screen to refresh its list without a round-trip.
@@ -31,6 +39,7 @@ class ClientConsentSheet extends StatefulWidget {
   const ClientConsentSheet({
     super.key,
     required this.client,
+    this.highlightAvatar = false,
     this.onSaved,
   });
 
@@ -41,6 +50,7 @@ class ClientConsentSheet extends StatefulWidget {
 class _ClientConsentSheetState extends State<ClientConsentSheet> {
   late bool _grayscaleAllowed;
   late bool _colourAllowed;
+  late bool _avatarAllowed;
   bool _saving = false;
 
   @override
@@ -48,6 +58,7 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
     super.initState();
     _grayscaleAllowed = widget.client.grayscaleAllowed;
     _colourAllowed = widget.client.colourAllowed;
+    _avatarAllowed = widget.client.avatarAllowed;
   }
 
   Future<void> _save() async {
@@ -62,6 +73,7 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
         clientId: widget.client.id,
         grayscaleAllowed: _grayscaleAllowed,
         colourAllowed: _colourAllowed,
+        avatarAllowed: _avatarAllowed,
       );
       if (!mounted) return;
       if (cached == null) {
@@ -77,6 +89,7 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
       final updated = widget.client.copyWith(
         grayscaleAllowed: _grayscaleAllowed,
         colourAllowed: _colourAllowed,
+        avatarAllowed: _avatarAllowed,
       );
       widget.onSaved?.call(updated);
       Navigator.of(context).pop(updated);
@@ -164,6 +177,19 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
                 value: _colourAllowed,
                 onChanged: (v) => setState(() => _colourAllowed = v),
               ),
+              const SizedBox(height: 20),
+              _sectionHeader('Profile'),
+              const SizedBox(height: 4),
+              _row(
+                icon: Icons.account_circle_outlined,
+                title: 'Avatar still',
+                subtitle:
+                    'Single capture with the background blurred — replaces '
+                    'the initials circle on this client.',
+                value: _avatarAllowed,
+                onChanged: (v) => setState(() => _avatarAllowed = v),
+                highlight: widget.highlightAvatar,
+              ),
               // Future consent groups slot in below this line — e.g.
               // outcome-tracking, data sharing, reminder messaging.
               // Each new group: _sectionHeader('<title>') + its rows,
@@ -232,9 +258,10 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
     required String subtitle,
     required bool value,
     required ValueChanged<bool>? onChanged,
+    bool highlight = false,
   }) {
     final disabled = onChanged == null;
-    return Padding(
+    final padded = Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -287,15 +314,37 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
         ],
       ),
     );
+    if (!highlight) return padded;
+    // Coral-tinted card to draw the eye when the sheet was opened from
+    // a locked avatar slot. No animation — the practitioner just clicked
+    // the slot, the row appearing already-emphasised is enough.
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.45),
+          width: 1.2,
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: padded,
+    );
   }
 }
 
 /// Show the client-consent bottom sheet. Resolves to the updated
 /// [PracticeClient] when the practitioner saves, or null when they
 /// dismiss it.
+///
+/// [highlightAvatar] (Wave 30) — pass true when the sheet is being
+/// opened because the practitioner tapped a locked avatar slot, so the
+/// avatar row in the Profile group renders with a coral border to point
+/// at the toggle they need.
 Future<PracticeClient?> showClientConsentSheet(
   BuildContext context, {
   required PracticeClient client,
+  bool highlightAvatar = false,
   ValueChanged<PracticeClient>? onSaved,
 }) {
   return showModalBottomSheet<PracticeClient>(
@@ -307,6 +356,7 @@ Future<PracticeClient?> showClientConsentSheet(
     ),
     builder: (_) => ClientConsentSheet(
       client: client,
+      highlightAvatar: highlightAvatar,
       onSaved: onSaved,
     ),
   );
