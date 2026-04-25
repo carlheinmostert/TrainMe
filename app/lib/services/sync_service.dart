@@ -120,11 +120,56 @@ class SyncService {
   /// optimistically — when the plugin errors we assume online.
   final ValueNotifier<bool> offline = ValueNotifier<bool>(false);
 
+  /// Per-practice credit balance, last-known. The Home credits chip
+  /// (Wave 29) binds via [ValueListenableBuilder] so the displayed
+  /// number ticks down the moment a publish lands or a top-up settles
+  /// without the chip having to poll. The map is keyed by practice id;
+  /// values mirror [LocalStorageService.upsertCachedCreditBalance]
+  /// writes (which is also kept in sync with `cached_credit_balance`).
+  ///
+  /// Null entries / missing keys both mean "not yet known" — the chip
+  /// renders a muted placeholder. Concrete int values include zero.
+  final ValueNotifier<Map<String, int?>> creditBalances =
+      ValueNotifier<Map<String, int?>>(const <String, int?>{});
+
+  /// Stamp [practiceId]'s balance into [creditBalances] under a fresh
+  /// map instance so [ValueListenableBuilder] sees a new reference.
+  /// Any mutation that updates `cached_credit_balance` must also call
+  /// this so the UI stays in lock-step with the persistent cache.
+  void _setCreditBalanceLocal(String practiceId, int? balance) {
+    final next = Map<String, int?>.from(creditBalances.value);
+    next[practiceId] = balance;
+    creditBalances.value = next;
+  }
+
+  /// Public hook so call sites that mutate the cached balance directly
+  /// (e.g. settings screen's live fetch path, the publish flow's
+  /// post-consume refresh) can broadcast the new number without going
+  /// through a full pullAll. Returns immediately.
+  Future<void> refreshCreditBalance(String practiceId) async {
+    if (practiceId.isEmpty) return;
+    try {
+      final balance = await ApiClient.instance
+          .practiceCreditBalance(practiceId: practiceId);
+      if (balance == null) return;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      await _storage.upsertCachedCreditBalance(
+        practiceId: practiceId,
+        balance: balance,
+        nowMs: nowMs,
+      );
+      _setCreditBalanceLocal(practiceId, balance);
+    } catch (e) {
+      debugPrint('SyncService.refreshCreditBalance: $e');
+    }
+  }
+
   /// Call from app startup after LocalStorageService.init(). Wires the
   /// connectivity listener and seeds the pending-count notifier from
   /// persisted state.
   Future<void> start() async {
     await _refreshPendingCount();
+    await _seedCreditBalances();
     try {
       _connectivitySub = Connectivity().onConnectivityChanged.listen(
         _onConnectivityChanged,
@@ -377,6 +422,7 @@ class SyncService {
         balance: balance,
         nowMs: nowMs,
       );
+      _setCreditBalanceLocal(practiceId, balance);
       return _BranchOutcome.ok;
     } catch (e) {
       debugPrint('SyncService._pullCreditBalance: $e');
@@ -528,6 +574,10 @@ class SyncService {
     final updated = current.copyWith(
       grayscaleAllowed: grayscaleAllowed,
       colourAllowed: colourAllowed,
+      // Wave 29 — stamp locally so the publish-gate passes immediately;
+      // server-side `set_client_video_consent` re-stamps to its own now()
+      // when the queued op flushes.
+      consentConfirmedAt: nowMs,
       dirty: true,
     );
     await _storage.upsertCachedClient(updated);
@@ -863,6 +913,33 @@ class SyncService {
     final c = await _storage.countPendingOps();
     if (c != pendingOpCount.value) {
       pendingOpCount.value = c;
+    }
+  }
+
+  /// Hydrate [creditBalances] from `cached_credit_balance` on app boot.
+  /// The notifier's first listener sees a real number for every
+  /// practice with a known balance, so the Home credits chip paints an
+  /// instant value even before the first network round-trip lands.
+  Future<void> _seedCreditBalances() async {
+    try {
+      final rows = await _storage.db.query(
+        'cached_credit_balance',
+        columns: ['practice_id', 'balance'],
+      );
+      if (rows.isEmpty) return;
+      final next = <String, int?>{};
+      for (final r in rows) {
+        final pid = r['practice_id'];
+        final bal = r['balance'];
+        if (pid is String && bal is int) {
+          next[pid] = bal;
+        }
+      }
+      if (next.isNotEmpty) {
+        creditBalances.value = next;
+      }
+    } catch (e) {
+      debugPrint('SyncService._seedCreditBalances: $e');
     }
   }
 

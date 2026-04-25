@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 28;
+  static const _dbVersion = 29;
 
   Database? _db;
 
@@ -88,7 +88,8 @@ class LocalStorageService {
         created_by_user_id TEXT,
         client_id TEXT,
         crossfade_lead_ms INTEGER,
-        crossfade_fade_ms INTEGER
+        crossfade_fade_ms INTEGER,
+        unlock_credit_prepaid_at INTEGER
       )
     ''');
 
@@ -162,6 +163,7 @@ class LocalStorageService {
         name TEXT NOT NULL,
         video_consent TEXT NOT NULL,
         client_exercise_defaults TEXT NOT NULL DEFAULT '{}',
+        consent_confirmed_at INTEGER,
         synced_at INTEGER,
         dirty INTEGER NOT NULL DEFAULT 0,
         deleted INTEGER NOT NULL DEFAULT 0,
@@ -592,6 +594,26 @@ class LocalStorageService {
       );
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN rotation_quarters INTEGER',
+      );
+    }
+    if (oldVersion < 29) {
+      // Wave 29 — explicit unlock-for-edit + consent confirmation gate.
+      //
+      //   * sessions.unlock_credit_prepaid_at (INTEGER, epoch-ms) —
+      //     stamped when the practitioner pre-pays a credit on a
+      //     post-lock plan. consume_credit reads + clears it on the next
+      //     publish so the republish is free.
+      //
+      //   * cached_clients.consent_confirmed_at (INTEGER, epoch-ms) —
+      //     mirror of the cloud column. Publish gates on non-NULL so a
+      //     fresh client always surfaces the consent sheet first.
+      //
+      // Supabase mirror: schema_wave29_unlock_plan.sql.
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN unlock_credit_prepaid_at INTEGER',
+      );
+      await db.execute(
+        'ALTER TABLE cached_clients ADD COLUMN consent_confirmed_at INTEGER',
       );
     }
   }

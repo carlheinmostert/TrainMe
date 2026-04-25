@@ -1,9 +1,11 @@
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi, PortalReferralApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { PracticeContextLine } from '@/components/PracticeContextLine';
 import { DashboardTile } from '@/components/DashboardTile';
+import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
 
 type SearchParams = { practice?: string };
 
@@ -51,7 +53,22 @@ export default async function DashboardPage({
     );
   }
 
-  const selectedId = params.practice ?? practices[0].id;
+  // Active-practice resolution order:
+  //   1. Explicit `?practice=` (covered by middleware on first visit;
+  //      this branch only fires inside the portal's own internal Links
+  //      that propagate the param).
+  //   2. `hf_active_practice` cookie set by middleware on the previous
+  //      app→portal handoff. Lets a refresh / new-tab visit stay in
+  //      the practice the practitioner was just acting in.
+  //   3. First membership (legacy fallback for users who've never
+  //      arrived here from the app).
+  const cookieStore = await cookies();
+  const cookiePractice = cookieStore.get(ACTIVE_PRACTICE_COOKIE)?.value;
+  const cookieFallback =
+    cookiePractice && practices.some((p) => p.id === cookiePractice)
+      ? cookiePractice
+      : practices[0].id;
+  const selectedId = params.practice ?? cookieFallback;
   const selected = practices.find((p) => p.id === selectedId) ?? practices[0];
   const qs = `?practice=${selected.id}`;
 

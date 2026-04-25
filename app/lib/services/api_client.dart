@@ -477,6 +477,33 @@ class ApiClient {
     return out;
   }
 
+  /// `unlock_plan_for_edit(p_plan_id)` — pre-pay one credit to re-open
+  /// structural editing on a post-lock plan. Server-side stamps
+  /// `plans.unlock_credit_prepaid_at`; the next successful publish reads
+  /// + clears that flag inside `consume_credit` so the republish is
+  /// free.
+  ///
+  /// Returns the RPC's jsonb response as a `Map<String, dynamic>`:
+  ///
+  ///   * on success: `{ok: true, balance: int, prepaid_at: <ISO ts>}`
+  ///   * on insufficient funds: `{ok: false, reason:
+  ///     'insufficient_credits', balance: int}`
+  ///
+  /// Idempotent: a second call on a plan whose flag is still set returns
+  /// `{ok: true, balance: <unchanged>, prepaid_at: <existing>}` without
+  /// charging again.
+  Future<Map<String, dynamic>> unlockPlanForEdit({
+    required String planId,
+  }) async {
+    final result = await _guardAuth(() => raw.rpc(
+          'unlock_plan_for_edit',
+          params: {'p_plan_id': planId},
+        ));
+    return result is Map
+        ? Map<String, dynamic>.from(result)
+        : const <String, dynamic>{};
+  }
+
   /// `refund_credit(p_plan_id)` — idempotent compensating refund. Best-
   /// effort: swallows errors (retry logic would risk stacking refund rows
   /// under partial-success scenarios). Returns `true` when a ledger row

@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/portal_links.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/orientation_lock_guard.dart';
@@ -40,12 +41,16 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  /// Portal URL for the "Top up credits" action. Opens in Safari via
+  /// Portal path for the "Top up credits" action. The full URL is built
+  /// at tap time via [portalLink] so the active practice rides as a
+  /// `?practice=<uuid>` query param — without it the portal would
+  /// surface whichever practice the user last picked there, out of
+  /// context with what they're doing in the app. Opens in Safari via
   /// url_launcher in external mode so the practitioner lands in a real
   /// browser session (cookies + Supabase auth intact) and — critically —
   /// Apple Review doesn't see us hosting the credit purchase flow in an
   /// in-app WebView.
-  static const _creditsTopUpUrl = 'https://manage.homefit.studio/credits';
+  static const _creditsTopUpPath = '/credits';
 
   /// Number of times the version row has been tapped in the current
   /// screen lifetime. Seven taps flips [_diagnosticsVisible] on — same
@@ -365,7 +370,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// consistency.
   Future<void> _openCreditsTopUp() async {
     HapticFeedback.selectionClick();
-    final uri = Uri.parse(_creditsTopUpUrl);
+    final uri = portalLink(
+      _creditsTopUpPath,
+      practiceId: AuthService.instance.currentPracticeId.value,
+    );
     bool launched = false;
     try {
       launched = await launchUrl(
@@ -1125,13 +1133,14 @@ class _NetworkSectionState extends State<_NetworkSection> {
       "I use homefit.studio to share exercise plans with my clients — "
       "you might find it useful too: https://manage.homefit.studio/r/{code}";
 
-  /// Portal URL for the "View full network on the portal" link. Opens
-  /// in Safari via url_launcher in external mode so the practitioner
-  /// lands in a real browser session (cookies + Supabase auth intact).
-  /// Points at /dashboard — that's where the Network share + Network
-  /// earnings cards live (PR #6). /account only has password + sign
-  /// out + about.
-  static const _portalNetworkUrl = 'https://manage.homefit.studio/dashboard';
+  /// Portal path for the "View full network on the portal" link. The
+  /// full URL is built at tap time via [portalLink] so the active
+  /// practice rides as a `?practice=<uuid>` query param. Opens in
+  /// Safari via url_launcher in external mode so the practitioner lands
+  /// in a real browser session (cookies + Supabase auth intact). Points
+  /// at /dashboard — that's where the Network share + Network earnings
+  /// cards live (PR #6). /account only has password + sign out + about.
+  static const _portalNetworkPath = '/dashboard';
 
   Future<String>? _codeFuture;
   Future<ReferralStats>? _statsFuture;
@@ -1348,7 +1357,10 @@ class _NetworkSectionState extends State<_NetworkSection> {
 
   Future<void> _openPortal() async {
     HapticFeedback.selectionClick();
-    final uri = Uri.parse(_portalNetworkUrl);
+    final uri = portalLink(
+      _portalNetworkPath,
+      practiceId: AuthService.instance.currentPracticeId.value,
+    );
     final launched = await launchUrl(
       uri,
       mode: LaunchMode.externalApplication,

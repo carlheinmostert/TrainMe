@@ -11,6 +11,7 @@ import '../services/local_storage_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/bootstrap_error_banner.dart';
+import '../widgets/home_credits_chip.dart';
 import '../widgets/homefit_logo.dart';
 import '../widgets/offline_sync_chip.dart';
 import '../widgets/orientation_lock_guard.dart';
@@ -495,7 +496,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const Padding(
-              padding: EdgeInsets.fromLTRB(12, 4, 8, 0),
+              padding: EdgeInsets.fromLTRB(12, 4, 12, 0),
               child: Row(
                 children: [
                   PracticeChip(),
@@ -504,6 +505,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   // queue empty; subtle ink-muted when there's
                   // something to say.
                   OfflineSyncChip(),
+                  // Spacer pushes the credits chip to the right edge
+                  // of the row. PracticeChip stays left-anchored;
+                  // they read as peers on the identity line.
+                  Spacer(),
+                  // Wave 29 — credit balance for the active practice.
+                  // Tap → opens manage.homefit.studio/credits with
+                  // ?practice=<uuid> so the portal lands in context.
+                  HomeCreditsChip(),
                 ],
               ),
             ),

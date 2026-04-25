@@ -1,9 +1,12 @@
+import 'dart:async';
+import 'dart:developer' as dev;
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import '../config.dart';
+import '../models/client.dart';
 import '../models/session.dart';
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
@@ -11,6 +14,7 @@ import 'api_client.dart';
 import 'auth_service.dart';
 import 'local_storage_service.dart';
 import 'loud_swallow.dart';
+import 'sync_service.dart';
 
 // TODO: move to background URLSession for true non-blocking publish.
 // Today the upload runs on the Dart isolate tied to the app lifecycle; the
@@ -67,10 +71,11 @@ class PublishFailureMessage implements Exception {
   String toString() => message;
 }
 
-/// Outcome of a publish attempt. Exhaustive via the five factories:
+/// Outcome of a publish attempt. Exhaustive via the six factories:
 /// [PublishResult.success], [PublishResult.preflightFailed],
 /// [PublishResult.networkFailed], [PublishResult.insufficientCredits],
-/// [PublishResult.unconsentedTreatments].
+/// [PublishResult.unconsentedTreatments],
+/// [PublishResult.needsConsentConfirmation].
 class PublishResult {
   /// When [success] is true, [url] and [version] are set. Otherwise they are
   /// null and one of [missingFiles] / [error] / (balance+required) is set.
@@ -110,6 +115,13 @@ class PublishResult {
   /// bottom-sheet and then (optionally) retries after flipping consent.
   final UnconsentedTreatmentsException? unconsented;
 
+  /// Wave 29 — client whose `consent_confirmed_at` is null at publish
+  /// time. The caller surfaces the consent sheet, and on save retries
+  /// the publish. Non-null only for
+  /// [PublishResult.needsConsentConfirmation]. Carries enough to render
+  /// the sheet without re-fetching.
+  final PracticeClient? consentConfirmationClient;
+
   const PublishResult._({
     required this.success,
     this.url,
@@ -121,6 +133,7 @@ class PublishResult {
     this.required,
     this.practiceId,
     this.unconsented,
+    this.consentConfirmationClient,
   });
 
   /// Successful publish.
@@ -170,6 +183,13 @@ class PublishResult {
   ) =>
       PublishResult._(success: false, unconsented: e);
 
+  /// Wave 29 — publish refused because the linked client's
+  /// `consent_confirmed_at` is null. No credit was consumed. The caller
+  /// surfaces the consent sheet (which stamps the column server-side)
+  /// and re-fires publish.
+  factory PublishResult.needsConsentConfirmation(PracticeClient client) =>
+      PublishResult._(success: false, consentConfirmationClient: client);
+
   /// Convenience: was this a pre-flight failure?
   bool get isPreflightFailure => !success && missingFiles != null;
 
@@ -181,6 +201,10 @@ class PublishResult {
 
   /// Convenience: was this an unconsented-treatments rejection?
   bool get isUnconsentedTreatments => !success && unconsented != null;
+
+  /// Convenience: was this a missing-consent-confirmation rejection?
+  bool get isNeedsConsentConfirmation =>
+      !success && consentConfirmationClient != null;
 
   /// Human-readable error summary, suitable for snackbar display and storage
   /// in the `last_publish_error` column. Truncated to 500 chars.
@@ -196,6 +220,10 @@ class PublishResult {
       final u = unconsented!;
       s = '${u.clientName} has not consented to '
           '${u.violations.length} treatment(s).';
+    } else if (isNeedsConsentConfirmation) {
+      final c = consentConfirmationClient!;
+      s = 'Consent for ${c.name.isEmpty ? 'this client' : c.name} '
+          'has not been confirmed yet.';
     } else if (isNetworkFailure) {
       s = error.toString();
     } else {
@@ -359,6 +387,29 @@ class UploadService {
       final cached = await _storage.getCachedClientById(session.clientId!);
       if (cached != null && cached.name.trim().isNotEmpty) {
         effectiveClientName = cached.name;
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Step 0a: Consent-confirmation gate (Wave 29).
+    //
+    // If the linked client has never had `set_client_video_consent`
+    // called on them — i.e. `consent_confirmed_at IS NULL` — refuse to
+    // publish until the practitioner explicitly confirms what the
+    // client may see. No credit consumed, no files uploaded.
+    //
+    // Source of truth is the local `cached_clients` mirror: writes go
+    // through SyncService.queueSetConsent which stamps the column
+    // immediately + queues the RPC. The cloud column gets re-stamped on
+    // flush. Legacy sessions without a clientId (pre-R-11 rows) skip
+    // the gate — there's no client row to read against.
+    // ------------------------------------------------------------------
+    if (session.clientId != null && session.clientId!.isNotEmpty) {
+      final cached = await _storage.getCachedClientById(session.clientId!);
+      if (cached != null && cached.consentConfirmedAt == null) {
+        return PublishResult.needsConsentConfirmation(
+          cached.toPracticeClient(),
+        );
       }
     }
 
@@ -581,6 +632,18 @@ class UploadService {
         credits: creditsToCharge,
       );
       final ok = consumeMap['ok'] == true;
+      // Wave 29 — server-side prepaid-unlock fast path. consume_credit
+      // returns `prepaid_unlock_at` when a prior `unlock_plan_for_edit`
+      // already paid for this republish; the ledger was not debited
+      // and the flag was cleared in the same transaction.
+      final prepaidUnlockAt = consumeMap['prepaid_unlock_at'];
+      if (ok && prepaidUnlockAt != null) {
+        dev.log(
+          'consume_credit skipped: republish covered by prior unlock at '
+          '$prepaidUnlockAt (plan=${session.id}, practice=$practiceId)',
+          name: 'UploadService.uploadPlan',
+        );
+      }
       if (!ok) {
         final reportedBalance = consumeMap['balance'];
         final int resolvedBalance = reportedBalance is int
@@ -812,9 +875,21 @@ class UploadService {
         planUrl: planUrl,
         version: newVersion,
         lastPublishedAt: now,
+        // Wave 29 — server-side `consume_credit` cleared the prepaid
+        // unlock flag in the same transaction (whether it was the
+        // prepaid fast-path OR a normal charge that happened to follow
+        // an unlock-then-charge race). Mirror that locally so
+        // `_isPlanLocked` flips back to true once the post-open grace
+        // window has elapsed.
+        clearUnlockCreditPrepaidAt: true,
       );
       await _storage.saveSession(updated);
       await _recordSuccess(session.id);
+
+      // Wave 29 — broadcast the post-consume balance so the Home
+      // credits chip ticks down without waiting for the next pullAll.
+      // Fire-and-forget; failure is invisible to the publish path.
+      unawaited(SyncService.instance.refreshCreditBalance(practiceId));
 
       return PublishResult.success(
         url: planUrl,

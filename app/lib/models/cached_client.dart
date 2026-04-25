@@ -51,6 +51,12 @@ class CachedClient {
   /// the latest choice.
   final Map<String, dynamic> clientExerciseDefaults;
 
+  /// Wave 29 — epoch-ms of the most recent `set_client_video_consent`
+  /// call that explicitly confirmed this client's video consent.
+  /// Publish flow gates on non-NULL: NULL clients always trip the
+  /// confirmation sheet before the publish proceeds.
+  final int? consentConfirmedAt;
+
   /// Epoch-ms of the last successful cloud pull that confirmed this
   /// row. Null for offline-created rows that haven't synced yet.
   final int? syncedAt;
@@ -71,6 +77,7 @@ class CachedClient {
     this.grayscaleAllowed = false,
     this.colourAllowed = false,
     this.clientExerciseDefaults = const <String, dynamic>{},
+    this.consentConfirmedAt,
     this.syncedAt,
     this.dirty = false,
     this.deleted = false,
@@ -90,6 +97,13 @@ class CachedClient {
     final defaultsMap = defaults is Map
         ? Map<String, dynamic>.from(defaults)
         : const <String, dynamic>{};
+    final confirmed = json['consent_confirmed_at'];
+    int? confirmedMs;
+    if (confirmed is String) {
+      confirmedMs = DateTime.tryParse(confirmed)?.millisecondsSinceEpoch;
+    } else if (confirmed is int) {
+      confirmedMs = confirmed;
+    }
     return CachedClient(
       id: json['id'] as String,
       practiceId: (json['practice_id'] ?? '') as String,
@@ -97,6 +111,7 @@ class CachedClient {
       grayscaleAllowed: consentMap['grayscale'] == true,
       colourAllowed: consentMap['original'] == true || consentMap['colour'] == true,
       clientExerciseDefaults: defaultsMap,
+      consentConfirmedAt: confirmedMs,
       syncedAt: nowMs,
       dirty: false,
       deleted: false,
@@ -141,6 +156,7 @@ class CachedClient {
       grayscaleAllowed: grayscale,
       colourAllowed: colour,
       clientExerciseDefaults: defaults,
+      consentConfirmedAt: row['consent_confirmed_at'] as int?,
       syncedAt: row['synced_at'] as int?,
       dirty: (row['dirty'] as int? ?? 0) == 1,
       deleted: (row['deleted'] as int? ?? 0) == 1,
@@ -159,6 +175,7 @@ class CachedClient {
         'original': colourAllowed,
       }),
       'client_exercise_defaults': jsonEncode(clientExerciseDefaults),
+      'consent_confirmed_at': consentConfirmedAt,
       'synced_at': syncedAt,
       'dirty': dirty ? 1 : 0,
       'deleted': deleted ? 1 : 0,
@@ -183,6 +200,7 @@ class CachedClient {
     bool? grayscaleAllowed,
     bool? colourAllowed,
     Map<String, dynamic>? clientExerciseDefaults,
+    int? consentConfirmedAt,
     int? syncedAt,
     bool? dirty,
     bool? deleted,
@@ -195,6 +213,7 @@ class CachedClient {
       colourAllowed: colourAllowed ?? this.colourAllowed,
       clientExerciseDefaults:
           clientExerciseDefaults ?? this.clientExerciseDefaults,
+      consentConfirmedAt: consentConfirmedAt ?? this.consentConfirmedAt,
       syncedAt: syncedAt ?? this.syncedAt,
       dirty: dirty ?? this.dirty,
       deleted: deleted ?? this.deleted,

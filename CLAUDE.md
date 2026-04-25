@@ -248,7 +248,7 @@ Pitch guidance: lead with adherence improvement and correct execution, not clini
 
 **Prepaid credits.** The billing unit is the plan URL — one credit consumed per unique plan, scaled by exercise count (1-8 = 1 credit, 9-15 = 2, 16+ = 3). Practice managers buy credit bundles on the web portal via PayFast. Any practitioner in a practice can consume credits to publish.
 
-**Version-bump policy (decided, not yet enforced):** the first publish of a plan URL consumes a credit. Non-structural edits (reps, sets, hold, notes, filter params) are free forever. Structural edits (add/delete/reorder) are free for the first 24h after publish OR until the client first opens the link, whichever comes first. Past that window, structural changes require a new credit. Enforcement lives in the Flutter Studio UI (disabled add/reorder affordances post-lock).
+**Version-bump policy (Wave 29 revision):** the first publish of a plan URL consumes a credit. Non-structural edits (reps, sets, hold, notes, filter params) are free forever. Structural edits (add/delete/reorder) are free indefinitely while the client has not opened the link. Once the client opens the link, the practitioner has 3 days of free structural editing; past that window, the plan locks. The Studio AppBar surfaces a padlock chip → bottom sheet → 1-credit unlock pre-pays the next republish (server stamps `plans.unlock_credit_prepaid_at`; `consume_credit` reads + clears it on the next publish so there's no double charge). Enforcement lives in the Flutter Studio UI (`_isPlanLocked` against `firstOpenedAt + 3 days`) plus the atomic `unlock_plan_for_edit` RPC.
 
 **JIT (just-in-time client-pay) mode was considered and rejected** — adherence-damaging, undermines the platform's core value prop.
 

@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
+import '../models/client.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/conversion_service.dart';
@@ -18,9 +19,11 @@ import '../services/sticky_defaults.dart';
 import '../services/upload_service.dart';
 import '../theme.dart';
 import '../models/treatment.dart';
+import '../services/api_client.dart';
 import '../services/sync_service.dart';
 import '../widgets/unconsented_treatments_sheet.dart';
 import '../widgets/circuit_control_sheet.dart';
+import '../widgets/client_consent_sheet.dart';
 import '../widgets/download_original_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/inline_action_tray.dart';
@@ -274,21 +277,36 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   // Publish-lock state
   // ---------------------------------------------------------------------------
   //
-  // Lock rules:
-  //   - Before first publish → edits free (lock inactive).
-  //   - Published AND < 24h since first publish AND client has not opened →
-  //     open edit window. Chip counts down.
-  //   - Client has opened OR 24h elapsed → locked. Credit-costing affordances
-  //     (new exercise, drag-reorder, delete, break circuit) dim and
-  //     show the "counts as a new version · 1 credit" toast on tap.
+  // Lock rules (Wave 29 revision):
+  //   - Unpublished plan → edits free.
+  //   - Published, client has NEVER opened → edits free indefinitely.
+  //   - Published, client has opened, < 3 days since first open → edits free.
+  //   - Published, client has opened, ≥ 3 days since first open → LOCKED.
+  //   - LOCKED + unlock_credit_prepaid_at set → edits free (unlock paid;
+  //     flag clears server-side on next publish).
+  //
+  // The padlock chip in the AppBar action bar is the only path to unlock —
+  // tap → bottom sheet → 1 credit → editable again.
 
-  bool get _isPublishLocked {
+  /// Days of editing grace after the client first opens the plan. Carl
+  /// 2026-04-25: revised from 24h to 3 days, AND the clock now only
+  /// starts on first-open (not on first-publish).
+  static const int _kLockGraceDays = 3;
+
+  bool get _isPlanLocked {
     if (!_session.isPublished) return false;
-    if (_session.firstOpenedAt != null) return true;
-    final last = _session.lastPublishedAt;
-    if (last == null) return false;
-    return DateTime.now().difference(last) >= const Duration(hours: 24);
+    final firstOpened = _session.firstOpenedAt;
+    if (firstOpened == null) return false; // No clock until client opens.
+    if (_session.unlockCreditPrepaidAt != null) return false;
+    final since = DateTime.now().difference(firstOpened);
+    return since >= const Duration(days: _kLockGraceDays);
   }
+
+  /// Backwards-compat alias for the existing `_InlineActionTray` /
+  /// `_buildRestRow` / Studio toolbar callsites that read the lock
+  /// state. All of them want the same boolean — the post-grace lock —
+  /// so a thin getter keeps the policy edit single-touch.
+  bool get _isPublishLocked => _isPlanLocked;
 
   // `_inOpenEditWindow` / `_hoursRemainingInWindow` retired in Wave 18
   // along with `_buildPublishLockBadge`. If the edit-countdown chip
@@ -956,6 +974,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   }
 
   PreferredSizeWidget _buildAppBar() {
+    final showUnlockChip = _isPlanLocked;
     return AppBar(
       leading: IconButton(
         icon: const Icon(Icons.arrow_back),
@@ -984,10 +1003,21 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       // the gap above the toolbar read noticeably larger than the gap
       // below. 48pt brings the header rhythm into balance.
       toolbarHeight: 48,
-      // Wave 18 — actions moved to the StudioToolbar below the AppBar.
-      // Import + Preview were the only AppBar icons; Publish + Share
-      // were on SessionCard. The toolbar unifies all four + keeps the
-      // coral-triangle separators + state-aware dim rules in one place.
+      // Wave 29 — padlock action surfaces only when the plan crossed
+      // the post-open lock window (`first_opened_at + 3 days`).
+      // Tapping opens the unlock-for-edit sheet; success pre-pays a
+      // credit + sets `unlock_credit_prepaid_at` so the next publish
+      // is free.
+      actions: showUnlockChip
+          ? [
+              IconButton(
+                icon: const Icon(Icons.lock_outline),
+                color: AppColors.primary,
+                tooltip: 'Unlock plan for editing',
+                onPressed: _openUnlockSheet,
+              ),
+            ]
+          : null,
     );
   }
 
@@ -1710,10 +1740,162 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       );
     } else if (result.isUnconsentedTreatments) {
       await _handleUnconsentedTreatments(result.unconsented!);
+    } else if (result.isNeedsConsentConfirmation) {
+      await _handleNeedsConsentConfirmation(
+        result.consentConfirmationClient!,
+      );
     } else {
       final errStr = result.toErrorString();
       setState(() => _publishError = errStr);
       _showPublishErrorSnackBar(errStr);
+    }
+  }
+
+  /// Wave 29 — handle the "consent never explicitly confirmed" gate.
+  /// Open the consent sheet; on save (which stamps consent_confirmed_at
+  /// via the RPC + local cache) re-fire publish.
+  Future<void> _handleNeedsConsentConfirmation(PracticeClient client) async {
+    final saved = await showClientConsentSheet(context, client: client);
+    if (!mounted) return;
+    if (saved != null) {
+      await _publishFromToolbar();
+    }
+  }
+
+  /// Wave 29 — open the unlock-for-edit sheet. Pre-pays one credit via
+  /// `unlock_plan_for_edit`; on success the next publish is free
+  /// (server-side `consume_credit` reads + clears the flag). Insufficient
+  /// credits surfaces the same publish-error snackbar path.
+  Future<void> _openUnlockSheet() async {
+    HapticFeedback.selectionClick();
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AppColors.surfaceBase,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Unlock plan for editing',
+                style: TextStyle(
+                  fontFamily: 'Montserrat',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
+                  color: AppColors.textOnDark,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Adds back add / delete / reorder. Consumes 1 credit. '
+                'Version stays at v${_session.version} until you republish.',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  color: AppColors.textSecondaryOnDark,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(sheetCtx).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.surfaceBorder),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textOnDark,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(sheetCtx).pop(true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Unlock',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+
+    Map<String, dynamic> response;
+    try {
+      response = await ApiClient.instance.unlockPlanForEdit(
+        planId: _session.id,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showPublishErrorSnackBar('Unlock failed: $e');
+      return;
+    }
+
+    if (!mounted) return;
+    if (response['ok'] == true) {
+      // Stamp local mirror so `_isPlanLocked` flips immediately; the
+      // cloud row will re-confirm on the next session reload via
+      // `getPlanPublishState` / `_refreshSession`.
+      final prepaidIso = response['prepaid_at'];
+      DateTime? prepaidAt;
+      if (prepaidIso is String) {
+        prepaidAt = DateTime.tryParse(prepaidIso);
+      }
+      final updated = _session.copyWith(
+        unlockCreditPrepaidAt: prepaidAt ?? DateTime.now(),
+      );
+      setState(() => _pushSession(updated));
+      unawaited(widget.storage.saveSession(updated));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Plan unlocked — edit and re-publish.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } else if (response['reason'] == 'insufficient_credits') {
+      final balance = response['balance'];
+      _showPublishErrorSnackBar(
+        'Not enough credits to unlock. Balance: ${balance ?? 0}. '
+        'Buy more via manage.homefit.studio.',
+      );
+    } else {
+      _showPublishErrorSnackBar('Unlock failed: ${response['reason'] ?? 'unknown'}');
     }
   }
 
@@ -1900,8 +2082,13 @@ class _RestBarState extends State<_RestBar> {
         // down as the chip row grows, which looks awkward.
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Wave 29 — icon padding was floating high; the chip pill
+          // text below sits at chip-row vertical-4 + chip-height-32 / 2,
+          // so its visual centre is ~y=20. Icon at top:6 put its centre
+          // at y=15, ~5pt above the chip text. top:11 lines the icon's
+          // 18pt glyph with the chip's first line of text.
           const Padding(
-            padding: EdgeInsets.only(left: 4, right: 8, top: 6),
+            padding: EdgeInsets.only(left: 4, right: 8, top: 11),
             child: Icon(
               Icons.self_improvement,
               size: 18,
@@ -1909,7 +2096,7 @@ class _RestBarState extends State<_RestBar> {
             ),
           ),
           const Padding(
-            padding: EdgeInsets.only(top: 5),
+            padding: EdgeInsets.only(top: 12),
             child: Text(
               'Rest',
               style: TextStyle(

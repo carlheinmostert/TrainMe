@@ -108,6 +108,14 @@ class Session {
   /// Same round-trip path as [crossfadeLeadMs].
   final int? crossfadeFadeMs;
 
+  /// Wave 29 — set when the practitioner pre-pays a credit via
+  /// `unlock_plan_for_edit` to re-open structural editing on a plan that
+  /// crossed the post-publish lock window. The next successful publish
+  /// reads + clears this server-side inside `consume_credit` (no double
+  /// charge); locally the field clears on the next session reload from
+  /// SQLite (which mirrors the cloud row).
+  final DateTime? unlockCreditPrepaidAt;
+
   const Session({
     required this.id,
     required this.clientName,
@@ -129,6 +137,7 @@ class Session {
     this.clientId,
     this.crossfadeLeadMs,
     this.crossfadeFadeMs,
+    this.unlockCreditPrepaidAt,
   });
 
   /// Create a new session with a generated UUID.
@@ -214,6 +223,7 @@ class Session {
       clientId: map['client_id'] as String?,
       crossfadeLeadMs: map['crossfade_lead_ms'] as int?,
       crossfadeFadeMs: map['crossfade_fade_ms'] as int?,
+      unlockCreditPrepaidAt: _parseTimestamp(map['unlock_credit_prepaid_at']),
     );
   }
 
@@ -256,6 +266,8 @@ class Session {
       'client_id': clientId,
       'crossfade_lead_ms': crossfadeLeadMs,
       'crossfade_fade_ms': crossfadeFadeMs,
+      'unlock_credit_prepaid_at':
+          unlockCreditPrepaidAt?.millisecondsSinceEpoch,
     };
   }
 
@@ -283,6 +295,8 @@ class Session {
     int? crossfadeFadeMs,
     bool clearCrossfadeLeadMs = false,
     bool clearCrossfadeFadeMs = false,
+    DateTime? unlockCreditPrepaidAt,
+    bool clearUnlockCreditPrepaidAt = false,
   }) {
     return Session(
       id: id,
@@ -313,6 +327,9 @@ class Session {
       crossfadeFadeMs: clearCrossfadeFadeMs
           ? null
           : (crossfadeFadeMs ?? this.crossfadeFadeMs),
+      unlockCreditPrepaidAt: clearUnlockCreditPrepaidAt
+          ? null
+          : (unlockCreditPrepaidAt ?? this.unlockCreditPrepaidAt),
     );
   }
 
