@@ -96,6 +96,18 @@ class Session {
   /// through SQLite schema v16 (`client_id TEXT`).
   final String? clientId;
 
+  /// Wave 27 — per-plan dual-video crossfade preroll, in milliseconds.
+  /// NULL means "use the surface default" (250 on web + mobile). The
+  /// _MediaViewer tuner writes through here; on publish the value
+  /// flows to the cloud via `plans.crossfade_lead_ms`, then back to
+  /// the web player through `to_jsonb(plan_row)` in `get_plan_full`.
+  final int? crossfadeLeadMs;
+
+  /// Wave 27 — per-plan dual-video crossfade duration, in milliseconds.
+  /// NULL means "use the surface default" (200 on web + mobile).
+  /// Same round-trip path as [crossfadeLeadMs].
+  final int? crossfadeFadeMs;
+
   const Session({
     required this.id,
     required this.clientName,
@@ -115,6 +127,8 @@ class Session {
     this.firstOpenedAt,
     this.createdByUserId,
     this.clientId,
+    this.crossfadeLeadMs,
+    this.crossfadeFadeMs,
   });
 
   /// Create a new session with a generated UUID.
@@ -198,6 +212,8 @@ class Session {
       firstOpenedAt: _parseTimestamp(map['first_opened_at']),
       createdByUserId: map['created_by_user_id'] as String?,
       clientId: map['client_id'] as String?,
+      crossfadeLeadMs: map['crossfade_lead_ms'] as int?,
+      crossfadeFadeMs: map['crossfade_fade_ms'] as int?,
     );
   }
 
@@ -238,6 +254,8 @@ class Session {
       'preferred_rest_interval': preferredRestIntervalSeconds,
       'created_by_user_id': createdByUserId,
       'client_id': clientId,
+      'crossfade_lead_ms': crossfadeLeadMs,
+      'crossfade_fade_ms': crossfadeFadeMs,
     };
   }
 
@@ -261,6 +279,10 @@ class Session {
     DateTime? firstOpenedAt,
     String? createdByUserId,
     String? clientId,
+    int? crossfadeLeadMs,
+    int? crossfadeFadeMs,
+    bool clearCrossfadeLeadMs = false,
+    bool clearCrossfadeFadeMs = false,
   }) {
     return Session(
       id: id,
@@ -285,6 +307,12 @@ class Session {
       firstOpenedAt: firstOpenedAt ?? this.firstOpenedAt,
       createdByUserId: createdByUserId ?? this.createdByUserId,
       clientId: clientId ?? this.clientId,
+      crossfadeLeadMs: clearCrossfadeLeadMs
+          ? null
+          : (crossfadeLeadMs ?? this.crossfadeLeadMs),
+      crossfadeFadeMs: clearCrossfadeFadeMs
+          ? null
+          : (crossfadeFadeMs ?? this.crossfadeFadeMs),
     );
   }
 

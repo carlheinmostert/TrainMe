@@ -111,6 +111,8 @@ class UnifiedPreviewSchemeBridge {
       'client_id': session.clientId,
       'created_at': session.createdAt.toIso8601String(),
       'sent_at': session.sentAt?.toIso8601String(),
+      'crossfade_lead_ms': session.crossfadeLeadMs,
+      'crossfade_fade_ms': session.crossfadeFadeMs,
     };
     return jsonEncode({'plan': planJson, 'exercises': exercisesJson});
   }

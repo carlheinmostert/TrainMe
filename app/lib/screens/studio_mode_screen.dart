@@ -1833,6 +1833,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         builder: (_) => _MediaViewer(
           exercises: mediaList,
           initialIndex: initialIndex,
+          session: _session,
           // When the practitioner cycles treatment on an exercise, the
           // viewer writes to local SQLite directly. We bubble the change
           // up here so the Studio card tiles + in-memory session stay in
@@ -1843,6 +1844,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             if (dataIndex >= 0) {
               _updateExercise(dataIndex, updated);
             }
+          },
+          // Wave 27 — tuner sliders write through to the in-memory
+          // session so the AnimatedOpacity duration tracks the slider
+          // live. _touchAndPush also persists the row, so the value
+          // survives a viewer close before refresh.
+          onSessionUpdate: (next) {
+            _touchAndPush(next);
           },
         ),
       ),
@@ -2000,10 +2008,25 @@ class _MediaViewer extends StatefulWidget {
   /// hop.
   final ValueChanged<ExerciseCapture>? onExerciseUpdate;
 
+  /// Wave 27 — the parent session, source of crossfade timing values
+  /// (and target for tuner writes). NULL only on legacy callsites; the
+  /// tuner gear stays hidden when null so we never write through to a
+  /// missing target.
+  final Session? session;
+
+  /// Wave 27 — fired when the tuner sliders / reset button update
+  /// crossfade timings. Studio's `_pushSession` keeps the in-memory
+  /// list aligned; the viewer also debounces a SQLite save through
+  /// LocalStorageService so the value survives a viewer close before
+  /// the parent's refresh.
+  final ValueChanged<Session>? onSessionUpdate;
+
   const _MediaViewer({
     required this.exercises,
     required this.initialIndex,
     this.onExerciseUpdate,
+    this.session,
+    this.onSessionUpdate,
   });
 
   @override
@@ -2025,14 +2048,52 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// carry the previous selection forward.
   Treatment _treatment = Treatment.line;
 
-  /// Active video controller (whichever treatment is on screen). One
-  /// controller at a time keeps memory + decode budget bounded.
-  VideoPlayerController? _videoController;
+  /// Wave 27 — dual-video crossfade. Two VideoPlayerControllers point
+  /// at the SAME source file; whichever is in the active slot is fully
+  /// opaque, the other is held muted at frame 0 until preroll. On wrap
+  /// detection slots swap, the fade duration comes from
+  /// `session.crossfadeFadeMs ?? 200`. Mirrors `web-player/app.js` lines
+  /// 1457-1620 conceptually, minus the rep-tick wiring (preview-only).
+  VideoPlayerController? _videoControllerA;
+  VideoPlayerController? _videoControllerB;
+
+  /// 'a' or 'b' — whichever slot is currently visible and audio-bearing.
+  String _activeSlot = 'a';
+
+  /// True when the inactive slot has already been seeked + played for
+  /// preroll on the current loop. Reset on every wrap so the next
+  /// preroll fires exactly once per loop.
+  bool _prebuffered = false;
+
+  /// Last-seen position on the active controller. Used to detect a
+  /// wrap (`position < lastPosition - duration/2`) which is the signal
+  /// to swap slots. ms-precision is plenty for the seam window.
+  int _lastActivePositionMs = 0;
+
+  /// True once both slots have completed `initialize()` and the active
+  /// has begun playback. Drives loading spinner vs. video render.
   bool _videoInitialized = false;
+
+  /// Below this duration the wrap window is too short to crossfade
+  /// gracefully; above this it's so long the second decode is wasted.
+  /// Mirrors web `LOOP_CROSSFADE_MIN_DURATION` / `MAX_DURATION`.
+  static const int _kCrossfadeMinDurationMs = 1200;
+  static const int _kCrossfadeMaxDurationMs = 12000;
+
+  /// Surface defaults when `session.crossfadeLeadMs` /
+  /// `crossfadeFadeMs` are null. Mirrors the web player constants.
+  static const int _kDefaultCrossfadeLeadMs = 250;
+  static const int _kDefaultCrossfadeFadeMs = 200;
 
   /// Token used to ignore stale `initialize()` callbacks when the user
   /// swipes through treatments faster than a controller can come up.
   int _initToken = 0;
+
+  /// Wave 27 — local mirror of the parent session so the tuner writes
+  /// land in build() without waiting for a route pop. Seeded from
+  /// widget.session in initState; null only when the parent didn't
+  /// pass a session (legacy callsites — tuner gear hidden in that case).
+  Session? _session;
 
   /// Whether the bottom-right play/pause control is currently visible.
   /// When paused, always true. When playing, true for ~2s after the last
@@ -2045,9 +2106,10 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// user interaction / dispose.
   Timer? _controlsIdleTimer;
 
-  /// Listener attached to the active [VideoPlayerController] so the
-  /// button icon tracks play/pause transitions that don't originate
-  /// from `_togglePlayPause` (e.g. looping, buffering stalls).
+  /// Listener attached to the ACTIVE controller's value (whichever
+  /// slot is currently visible). Tracks play/pause transitions that
+  /// don't originate from `_togglePlayPause` AND drives the crossfade
+  /// preroll + wrap-swap logic.
   VoidCallback? _videoListener;
   bool _lastKnownIsPlaying = false;
 
@@ -2078,6 +2140,12 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// is paused and the practitioner can scrub. We remember whether
   /// the controller was playing pre-drag so we can resume on release.
   bool _trimDragWasPlaying = false;
+
+  /// Wave 27 — suspends [_enforceTrimWindow] while a trim handle is
+  /// mid-drag. Right-handle drags seek to the new end, the listener
+  /// then sees `position >= endMs` and would yank back to start; this
+  /// flag breaks that loop without affecting normal playback wrap.
+  bool _trimDragInProgress = false;
   static const String _enhancedBackgroundPrefsKey =
       'homefit.preview.enhanced_background';
 
@@ -2085,6 +2153,10 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// callback fires every gesture tick; we coalesce to one write per
   /// 200 ms so the disk doesn't take a beating during a long drag.
   Timer? _trimSaveTimer;
+
+  /// Wave 27 — debounce for the crossfade-tuner SQLite write. Slider
+  /// drags emit one event per pixel; coalesce to one save per 250 ms.
+  Timer? _crossfadePersistTimer;
 
   ExerciseCapture get _current => _exercises[_currentIndex];
 
@@ -2115,6 +2187,7 @@ class _MediaViewerState extends State<_MediaViewer> {
     super.initState();
     _currentIndex = widget.initialIndex;
     _exercises = List<ExerciseCapture>.from(widget.exercises);
+    _session = widget.session;
     _pageController = PageController(initialPage: _currentIndex);
     // Seed from the opening exercise's stored preference so the viewer
     // lands on the treatment the practitioner last chose. Falls back to
@@ -2130,6 +2203,20 @@ class _MediaViewerState extends State<_MediaViewer> {
     // changes (segmented vs untouched archive). No flicker on the common
     // case where the persisted value matches the default (true).
     _hydrateEnhancedBackgroundPreference();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MediaViewer old) {
+    super.didUpdateWidget(old);
+    // Wave 27 — keep the local session mirror in sync if the parent
+    // pushes a fresh copy (e.g. after publish version-bump). Don't
+    // overwrite while a debounced tuner write is pending — the parent
+    // would re-emit our pending value after `saveSession` resolves and
+    // would miss intermediate slider drags.
+    final pending = _crossfadePersistTimer;
+    if (old.session != widget.session && (pending == null || !pending.isActive)) {
+      _session = widget.session;
+    }
   }
 
   /// Wave 25 — read the Enhanced Background toggle from SharedPreferences.
@@ -2237,72 +2324,183 @@ class _MediaViewerState extends State<_MediaViewer> {
     }
   }
 
+  /// Wave 27 — bring up BOTH crossfade slots from the same source path.
+  /// Slot 'a' becomes active (visible + audio); slot 'b' is paused at
+  /// frame 0, muted, ready for preroll. Single source file → both
+  /// controllers point at the same `File` so the iOS H.264 decoder runs
+  /// two simultaneous instances on the SAME bytes; AVFoundation handles
+  /// this fine on real hardware (worth a memory-pressure follow-up if
+  /// QA flags it on older devices).
   void _initVideoForCurrent() {
-    final previous = _videoController;
+    final previousA = _videoControllerA;
+    final previousB = _videoControllerB;
     final previousListener = _videoListener;
-    if (previous != null && previousListener != null) {
-      previous.removeListener(previousListener);
+    if (previousListener != null) {
+      previousA?.removeListener(previousListener);
     }
-    previous?.dispose();
-    _videoController = null;
+    previousA?.dispose();
+    previousB?.dispose();
+    _videoControllerA = null;
+    _videoControllerB = null;
     _videoListener = null;
     _videoInitialized = false;
+    _activeSlot = 'a';
+    _prebuffered = false;
+    _lastActivePositionMs = 0;
     if (!_isVideo(_current)) return;
     final path = _sourcePathForTreatment(_current, _treatment);
     if (path == null) return;
     final token = ++_initToken;
-    final controller = VideoPlayerController.file(File(path));
-    _videoController = controller;
-    controller.initialize().then((_) {
+    final controllerA = VideoPlayerController.file(File(path));
+    final controllerB = VideoPlayerController.file(File(path));
+    _videoControllerA = controllerA;
+    _videoControllerB = controllerB;
+    Future.wait<void>([controllerA.initialize(), controllerB.initialize()]).then((_) {
       // Bail when the user swiped away or cycled treatments before init
-      // resolved — adopting a stale controller would leak the new one.
+      // resolved — adopting stale controllers would leak both.
       if (!mounted || token != _initToken) {
-        controller.dispose();
+        controllerA.dispose();
+        controllerB.dispose();
         return;
       }
       setState(() {
         _videoInitialized = true;
         _lastKnownIsPlaying = false;
       });
-      controller.setLooping(true);
-      // Honour the persistent mute toggle across treatment / page
-      // switches — a new controller inherits the current mute state so
-      // the speaker-icon glyph and the actual audio stay in lockstep.
-      controller.setVolume(_isMuted ? 0.0 : 1.0);
-      // Wave 20 — soft-trim seek-to-start. When the active exercise
-      // has a `startOffsetMs`, jump there before play() so the loop
-      // begins inside the trim window. The position-clamp listener
-      // below holds the loop end at `endOffsetMs` on every tick.
-      _seekToTrimStart(controller);
-      // Attach a listener so the play/pause button icon stays in sync
-      // with the controller even when the transition didn't go through
-      // `_togglePlayPause` (e.g. programmatic pause on end-of-media).
-      // The same listener clamps `position` to the soft-trim window.
-      void listener() => _onVideoStateChanged(controller, token);
-      controller.addListener(listener);
+      // Native looping handles the short-clip / long-clip fallback
+      // (clips outside the [_kCrossfadeMin, _kCrossfadeMax] window
+      // skip the dual-video path entirely; the listener bails before
+      // touching the inactive slot).
+      controllerA.setLooping(true);
+      controllerB.setLooping(true);
+      controllerA.setVolume(_isMuted ? 0.0 : 1.0);
+      controllerB.setVolume(0.0); // inactive stays muted always.
+      _seekToTrimStart(controllerA);
+      _seekToTrimStart(controllerB);
+      void listener() => _onVideoStateChanged(controllerA, token);
+      controllerA.addListener(listener);
       _videoListener = listener;
-      controller.play();
-      // Controller will flip to `isPlaying == true` shortly after play().
-      // Show controls immediately so the user sees the pause affordance,
-      // then arm the idle fade.
+      controllerA.play();
       _showControlsThenMaybeIdleFade();
     }).catchError((e) {
       debugPrint('MediaViewer: video init failed for $path — $e');
     });
   }
 
-  /// Called via the video controller's listener. Triggers a rebuild
-  /// whenever the playing state flips so the button icon + fade state
-  /// stay in sync with the actual controller. Also enforces the
-  /// Wave 20 soft-trim window: clamps `position` to
-  /// `[startOffsetMs, endOffsetMs]` and wraps the loop at the end.
+  /// Returns whichever controller is in the [_activeSlot] (visible +
+  /// audio-bearing). Null when the slots haven't been initialised yet.
+  VideoPlayerController? get _activeController =>
+      _activeSlot == 'a' ? _videoControllerA : _videoControllerB;
+
+  /// Returns the inactive (offscreen, muted, prebuffer-ready) slot.
+  VideoPlayerController? get _inactiveController =>
+      _activeSlot == 'a' ? _videoControllerB : _videoControllerA;
+
+  /// Both controllers as a list, omitting nulls. Used by control paths
+  /// that need to apply the same operation to BOTH slots: pause/resume,
+  /// trim drag, dispose-and-replace.
+  List<VideoPlayerController> _activeControllers() {
+    final out = <VideoPlayerController>[];
+    final a = _videoControllerA;
+    if (a != null) out.add(a);
+    final b = _videoControllerB;
+    if (b != null) out.add(b);
+    return out;
+  }
+
+  /// Resolved crossfade lead time, ms. Reads live from `_session` so
+  /// slider drags take effect on the next listener tick.
+  int get _crossfadeLeadMs =>
+      _session?.crossfadeLeadMs ?? _kDefaultCrossfadeLeadMs;
+
+  /// Resolved crossfade fade duration, ms. Drives the AnimatedOpacity
+  /// transition; reads live from `_session` so the visual swap timing
+  /// updates immediately while tuning.
+  int get _crossfadeFadeMs =>
+      _session?.crossfadeFadeMs ?? _kDefaultCrossfadeFadeMs;
+
+  /// Called via the active controller's listener. Drives:
+  ///   * trim window clamping (soft-trim wrap to start),
+  ///   * Wave 27 dual-video crossfade preroll + slot swap,
+  ///   * play/pause icon sync.
   void _onVideoStateChanged(VideoPlayerController controller, int token) {
     if (!mounted || token != _initToken) return;
     _enforceTrimWindow(controller);
+    _maybeCrossfade(controller);
     final isPlaying = controller.value.isPlaying;
-    if (isPlaying == _lastKnownIsPlaying) return;
-    _lastKnownIsPlaying = isPlaying;
-    _showControlsThenMaybeIdleFade();
+    if (isPlaying != _lastKnownIsPlaying) {
+      _lastKnownIsPlaying = isPlaying;
+      _showControlsThenMaybeIdleFade();
+    }
+  }
+
+  /// Wave 27 — preroll + wrap-swap. Mirrors `web-player/app.js`
+  /// `LOOP_CROSSFADE_LEAD_MS` logic:
+  ///   * outside the [_kCrossfadeMinDurationMs, _kCrossfadeMaxDurationMs]
+  ///     window → no-op (native loop handles it).
+  ///   * `(dur - pos) <= leadMs` and not yet prebuffered → seek inactive
+  ///     to start, play it muted. Sets [_prebuffered] so we don't
+  ///     re-prime mid-loop.
+  ///   * `pos < lastPos - dur/2` → wrap detected. Swap [_activeSlot],
+  ///     reset [_prebuffered], copy active volume to the new active so
+  ///     audio handoff is seamless, mute the new inactive.
+  void _maybeCrossfade(VideoPlayerController active) {
+    final durationMs = active.value.duration.inMilliseconds;
+    if (durationMs < _kCrossfadeMinDurationMs ||
+        durationMs > _kCrossfadeMaxDurationMs) {
+      return;
+    }
+    final positionMs = active.value.position.inMilliseconds;
+    final inactive = _inactiveController;
+    if (inactive == null) return;
+
+    // Wrap detection runs before preroll: a fresh wrap implicitly
+    // means the previous loop's preroll already fired.
+    if (positionMs < _lastActivePositionMs - durationMs ~/ 2) {
+      _swapSlots();
+      _lastActivePositionMs = positionMs;
+      return;
+    }
+    _lastActivePositionMs = positionMs;
+
+    if (!_prebuffered && (durationMs - positionMs) <= _crossfadeLeadMs) {
+      _prebuffered = true;
+      // Seek-to-start uses the trim window when set so the prerolled
+      // slot loops within the same window the visible slot does.
+      final trimStart = _current.startOffsetMs;
+      final seekMs = (trimStart != null && _current.endOffsetMs != null)
+          ? trimStart
+          : 0;
+      inactive.seekTo(Duration(milliseconds: seekMs));
+      inactive.setVolume(0.0);
+      inactive.play();
+    }
+  }
+
+  /// Flip [_activeSlot] and rewire audio so the new active slot picks
+  /// up the muted/unmuted state of the user's preference. The inactive
+  /// gets pushed back to volume=0 and loses prebuffer status.
+  void _swapSlots() {
+    final oldActive = _activeController;
+    final oldInactive = _inactiveController;
+    if (oldActive == null || oldInactive == null) return;
+    final volume = _isMuted ? 0.0 : 1.0;
+    setState(() {
+      _activeSlot = _activeSlot == 'a' ? 'b' : 'a';
+      _prebuffered = false;
+    });
+    // Listener moves with the slot — old active stops driving the loop
+    // detection and the new active takes over.
+    final listener = _videoListener;
+    if (listener != null) {
+      oldActive.removeListener(listener);
+      _activeController?.addListener(listener);
+    }
+    _activeController?.setVolume(volume);
+    oldInactive.setVolume(0.0); // belt and braces — was already 0.
+    // The just-superseded controller keeps playing for the duration of
+    // the fade-out (web behaviour); native looping keeps it from
+    // running off the end before the next swap.
   }
 
   /// Soft-trim clamp. Idempotent — called from the controller listener
@@ -2318,6 +2516,9 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// Treats null offsets as "no clamp" so legacy rows (and untrimmed
   /// captures) play through normally.
   void _enforceTrimWindow(VideoPlayerController controller) {
+    // Wave 27 — while a trim handle is being dragged, the right-handle
+    // seek would re-enter as `position >= endMs` and yank to start.
+    if (_trimDragInProgress) return;
     final exercise = _current;
     final startMs = exercise.startOffsetMs;
     final endMs = exercise.endOffsetMs;
@@ -2352,12 +2553,12 @@ class _MediaViewerState extends State<_MediaViewer> {
     _controlsIdleTimer?.cancel();
     if (!mounted) return;
     setState(() => _controlsVisible = true);
-    final c = _videoController;
+    final c = _activeController;
     if (c == null || !_videoInitialized) return;
     if (!c.value.isPlaying) return;
     _controlsIdleTimer = Timer(const Duration(seconds: 2), () {
       if (!mounted) return;
-      final controller = _videoController;
+      final controller = _activeController;
       if (controller == null || !controller.value.isPlaying) return;
       setState(() => _controlsVisible = false);
     });
@@ -2367,12 +2568,13 @@ class _MediaViewerState extends State<_MediaViewer> {
   void dispose() {
     _controlsIdleTimer?.cancel();
     _trimSaveTimer?.cancel();
-    final controller = _videoController;
+    _crossfadePersistTimer?.cancel();
     final listener = _videoListener;
-    if (controller != null && listener != null) {
-      controller.removeListener(listener);
+    if (listener != null) {
+      _videoControllerA?.removeListener(listener);
     }
-    controller?.dispose();
+    _videoControllerA?.dispose();
+    _videoControllerB?.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -2388,7 +2590,7 @@ class _MediaViewerState extends State<_MediaViewer> {
   bool get _trimPanelVisible {
     if (!_isVideo(_current)) return false;
     if (!_videoInitialized) return false;
-    final c = _videoController;
+    final c = _activeController;
     if (c == null) return false;
     final durMs = c.value.duration.inMilliseconds;
     return durMs >= 1000;
@@ -2431,7 +2633,7 @@ class _MediaViewerState extends State<_MediaViewer> {
   }
 
   void _onTrimScrub(int positionMs) {
-    final c = _videoController;
+    final c = _activeController;
     if (c == null || !_videoInitialized) return;
     c.seekTo(Duration(milliseconds: positionMs));
   }
@@ -2518,13 +2720,16 @@ class _MediaViewerState extends State<_MediaViewer> {
   }
 
   void _togglePlayPause() {
-    final c = _videoController;
-    if (c == null || !_videoInitialized) return;
+    final controllers = _activeControllers();
+    if (controllers.isEmpty || !_videoInitialized) return;
+    final wasPlaying = _activeController?.value.isPlaying ?? false;
     setState(() {
-      if (c.value.isPlaying) {
-        c.pause();
-      } else {
-        c.play();
+      for (final c in controllers) {
+        if (wasPlaying) {
+          c.pause();
+        } else {
+          c.play();
+        }
       }
     });
     // Any tap — on the video body or the overlay button — resets the
@@ -2545,10 +2750,10 @@ class _MediaViewerState extends State<_MediaViewer> {
     HapticFeedback.selectionClick();
     final nextMuted = !_isMuted;
     setState(() => _isMuted = nextMuted);
-    final c = _videoController;
-    if (c != null && _videoInitialized) {
-      c.setVolume(nextMuted ? 0.0 : 1.0);
-    }
+    // Active gets the user's volume; inactive stays muted always so the
+    // ~250 ms preroll overlap doesn't double up audio.
+    _activeController?.setVolume(nextMuted ? 0.0 : 1.0);
+    _inactiveController?.setVolume(0.0);
     _showControlsThenMaybeIdleFade();
 
     // Persist through to the exercise row + parent list.
@@ -2744,7 +2949,7 @@ class _MediaViewerState extends State<_MediaViewer> {
                       : 20) +
                   _bottomChromeTrimLift,
               child: _PlayPauseOverlayButton(
-                isPlaying: _videoController?.value.isPlaying ?? false,
+                isPlaying: _activeController?.value.isPlaying ?? false,
                 visible: _controlsVisible,
                 onTap: _togglePlayPause,
               ),
@@ -2819,7 +3024,7 @@ class _MediaViewerState extends State<_MediaViewer> {
               right: 12,
               bottom: MediaQuery.of(context).padding.bottom + 8,
               child: _TrimPanel(
-                durationMs: _videoController!.value.duration.inMilliseconds,
+                durationMs: _activeController!.value.duration.inMilliseconds,
                 startOffsetMs: _current.startOffsetMs,
                 endOffsetMs: _current.endOffsetMs,
                 reps: _current.reps,
@@ -2832,18 +3037,27 @@ class _MediaViewerState extends State<_MediaViewer> {
                 // against a playing video; the loop kept fighting
                 // the drag feedback.
                 onDragStart: () {
-                  final c = _videoController;
-                  if (c == null) return;
-                  _trimDragWasPlaying = c.value.isPlaying;
+                  _trimDragInProgress = true;
+                  final controllers = _activeControllers();
+                  if (controllers.isEmpty) return;
+                  _trimDragWasPlaying = controllers.first.value.isPlaying;
                   if (_trimDragWasPlaying) {
-                    c.pause();
+                    for (final c in controllers) {
+                      c.pause();
+                    }
                   }
                 },
                 onDragEnd: () {
-                  final c = _videoController;
-                  if (c == null) return;
+                  _trimDragInProgress = false;
+                  final controllers = _activeControllers();
+                  if (controllers.isEmpty) {
+                    _trimDragWasPlaying = false;
+                    return;
+                  }
                   if (_trimDragWasPlaying) {
-                    c.play();
+                    for (final c in controllers) {
+                      c.play();
+                    }
                   }
                   _trimDragWasPlaying = false;
                 },
@@ -2866,6 +3080,35 @@ class _MediaViewerState extends State<_MediaViewer> {
               tooltip: 'Close',
             ),
           ),
+          // Wave 27 — discreet tune gear, stacked under the close X.
+          // Coral icon on a dark pill so it reads at a glance without
+          // pulling focus from the exercise-name pill or the chrome
+          // pills along the bottom edge.
+          if (_crossfadeTunerVisible)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8 + 48 + 4,
+              right: 12,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _openCrossfadeTuner,
+                  customBorder: const CircleBorder(),
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.tune_rounded,
+                      color: AppColors.primary,
+                      size: 18,
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -2890,12 +3133,14 @@ class _MediaViewerState extends State<_MediaViewer> {
     );
   }
 
-  /// Build the active video frame for the AnimatedSwitcher. Keyed off
-  /// the treatment so the switcher knows when to crossfade. Wraps in a
-  /// ColorFiltered for grayscale.
+  /// Wave 27 — stacked dual-video crossfade. Both VideoPlayer widgets
+  /// are in the tree, the inactive one is opacity 0; the
+  /// AnimatedOpacity duration uses the live `crossfadeFadeMs` so a
+  /// slider drag reflows the next swap immediately.
   Widget _buildVideoFrame() {
-    final controller = _videoController;
-    if (controller == null || !_videoInitialized) {
+    final a = _videoControllerA;
+    final b = _videoControllerB;
+    if (a == null || b == null || !_videoInitialized) {
       return const SizedBox.expand(
         key: ValueKey('media-viewer-loading'),
         child: Center(
@@ -2903,19 +3148,94 @@ class _MediaViewerState extends State<_MediaViewer> {
         ),
       );
     }
-    Widget videoView = AspectRatio(
-      aspectRatio: controller.value.aspectRatio,
-      child: VideoPlayer(controller),
+    final fadeMs = _crossfadeFadeMs;
+    final aspect = a.value.aspectRatio;
+    Widget slot(VideoPlayerController c, bool visible) {
+      return AnimatedOpacity(
+        duration: Duration(milliseconds: fadeMs),
+        opacity: visible ? 1.0 : 0.0,
+        curve: Curves.easeInOut,
+        child: VideoPlayer(c),
+      );
+    }
+    Widget stack = AspectRatio(
+      aspectRatio: aspect,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          slot(a, _activeSlot == 'a'),
+          slot(b, _activeSlot == 'b'),
+        ],
+      ),
     );
     if (_treatment == Treatment.grayscale) {
-      videoView = ColorFiltered(
+      stack = ColorFiltered(
         colorFilter: grayscaleColorFilter,
-        child: videoView,
+        child: stack,
       );
     }
     return KeyedSubtree(
       key: ValueKey('media-viewer-${_treatment.name}'),
-      child: videoView,
+      child: stack,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Wave 27 — crossfade tuner (lead + fade sliders, reset-to-default)
+  // ---------------------------------------------------------------------------
+
+  /// Whether the tuner gear should render. Hidden when the parent
+  /// didn't pass a session (legacy callsite) or for non-video pages.
+  bool get _crossfadeTunerVisible =>
+      _session != null && _isVideo(_current) && _videoInitialized;
+
+  /// Optimistic in-memory update + debounced disk write for the
+  /// tuner sliders. AnimatedOpacity reads from `_session.crossfadeFadeMs`
+  /// in build() so the value flows live; the listener reads
+  /// `_crossfadeLeadMs` per tick so preroll updates live too.
+  void _persistCrossfade({int? leadMs, int? fadeMs, bool reset = false}) {
+    final session = _session;
+    if (session == null) return;
+    final updated = reset
+        ? session.copyWith(
+            clearCrossfadeLeadMs: true,
+            clearCrossfadeFadeMs: true,
+          )
+        : session.copyWith(
+            crossfadeLeadMs: leadMs ?? session.crossfadeLeadMs,
+            crossfadeFadeMs: fadeMs ?? session.crossfadeFadeMs,
+          );
+    setState(() => _session = updated);
+    final cb = widget.onSessionUpdate;
+    if (cb != null) cb(updated);
+    _crossfadePersistTimer?.cancel();
+    _crossfadePersistTimer = Timer(const Duration(milliseconds: 250), () {
+      unawaited(
+        SyncService.instance.storage.saveSession(updated).catchError((e, _) {
+          debugPrint('MediaViewer: saveSession(crossfade) failed: $e');
+        }),
+      );
+    });
+  }
+
+  void _openCrossfadeTuner() {
+    final session = _session;
+    if (session == null) return;
+    HapticFeedback.selectionClick();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _CrossfadeTunerSheet(
+        initialLeadMs: session.crossfadeLeadMs ?? _kDefaultCrossfadeLeadMs,
+        initialFadeMs: session.crossfadeFadeMs ?? _kDefaultCrossfadeFadeMs,
+        onChanged: ({int? leadMs, int? fadeMs}) {
+          _persistCrossfade(leadMs: leadMs, fadeMs: fadeMs);
+        },
+        onReset: () {
+          _persistCrossfade(reset: true);
+        },
+      ),
     );
   }
 }
@@ -3529,6 +3849,247 @@ class _TrimHandlePill extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Wave 27 — crossfade tuner sheet
+// -----------------------------------------------------------------------------
+
+/// Bottom sheet with two sliders (lead + fade) and a "Reset to defaults"
+/// button. Values commit immediately on slider release via [onChanged];
+/// the parent debounces a SQLite save through SyncService.
+class _CrossfadeTunerSheet extends StatefulWidget {
+  final int initialLeadMs;
+  final int initialFadeMs;
+  final void Function({int? leadMs, int? fadeMs}) onChanged;
+  final VoidCallback onReset;
+
+  const _CrossfadeTunerSheet({
+    required this.initialLeadMs,
+    required this.initialFadeMs,
+    required this.onChanged,
+    required this.onReset,
+  });
+
+  @override
+  State<_CrossfadeTunerSheet> createState() => _CrossfadeTunerSheetState();
+}
+
+class _CrossfadeTunerSheetState extends State<_CrossfadeTunerSheet> {
+  late int _lead;
+  late int _fade;
+
+  static const int _leadMin = 100;
+  static const int _leadMax = 800;
+  static const int _fadeMin = 50;
+  static const int _fadeMax = 600;
+  static const int _step = 10;
+
+  @override
+  void initState() {
+    super.initState();
+    _lead = widget.initialLeadMs.clamp(_leadMin, _leadMax);
+    _fade = widget.initialFadeMs.clamp(_fadeMin, _fadeMax);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CrossfadeTunerSheet old) {
+    super.didUpdateWidget(old);
+    // External resets (parent's "Reset to defaults" → null → default
+    // values) should reflect in the sheet without re-opening it.
+    if (old.initialLeadMs != widget.initialLeadMs) {
+      _lead = widget.initialLeadMs.clamp(_leadMin, _leadMax);
+    }
+    if (old.initialFadeMs != widget.initialFadeMs) {
+      _fade = widget.initialFadeMs.clamp(_fadeMin, _fadeMax);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: viewInsets),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surfaceBase,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border(top: BorderSide(color: AppColors.surfaceBorder)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const Text(
+              'Loop crossfade tuning',
+              style: TextStyle(
+                fontFamily: 'Montserrat',
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textOnDark,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Tune how the seam between video loops blends. '
+              'Affects this plan only — saved on publish.',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+                color: AppColors.textSecondaryOnDark,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 18),
+            _TunerSliderRow(
+              label: 'Lead time',
+              valueLabel: '$_lead ms',
+              helper: 'How early to start the next loop before the seam.',
+              value: _lead.toDouble(),
+              min: _leadMin.toDouble(),
+              max: _leadMax.toDouble(),
+              divisions: (_leadMax - _leadMin) ~/ _step,
+              onChanged: (v) {
+                setState(() => _lead = (v / _step).round() * _step);
+                widget.onChanged(leadMs: _lead);
+              },
+            ),
+            const SizedBox(height: 14),
+            _TunerSliderRow(
+              label: 'Fade duration',
+              valueLabel: '$_fade ms',
+              helper: 'How long the crossfade itself takes.',
+              value: _fade.toDouble(),
+              min: _fadeMin.toDouble(),
+              max: _fadeMax.toDouble(),
+              divisions: (_fadeMax - _fadeMin) ~/ _step,
+              onChanged: (v) {
+                setState(() => _fade = (v / _step).round() * _step);
+                widget.onChanged(fadeMs: _fade);
+              },
+            ),
+            const SizedBox(height: 18),
+            Center(
+              child: TextButton(
+                onPressed: () {
+                  setState(() {
+                    _lead = 250;
+                    _fade = 200;
+                  });
+                  widget.onReset();
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                ),
+                child: const Text(
+                  'Reset to defaults',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TunerSliderRow extends StatelessWidget {
+  final String label;
+  final String valueLabel;
+  final String helper;
+  final double value;
+  final double min;
+  final double max;
+  final int divisions;
+  final ValueChanged<double> onChanged;
+
+  const _TunerSliderRow({
+    required this.label,
+    required this.valueLabel,
+    required this.helper,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.divisions,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textOnDark,
+              ),
+            ),
+            Text(
+              valueLabel,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
+              ),
+            ),
+          ],
+        ),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            activeTrackColor: AppColors.primary,
+            inactiveTrackColor: AppColors.surfaceBorder,
+            thumbColor: AppColors.primary,
+            overlayColor: AppColors.primary.withValues(alpha: 0.18),
+            valueIndicatorColor: AppColors.primary,
+            trackHeight: 3,
+          ),
+          child: Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            divisions: divisions,
+            onChanged: onChanged,
+          ),
+        ),
+        Text(
+          helper,
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 11,
+            fontWeight: FontWeight.w400,
+            color: AppColors.textSecondaryOnDark,
+            height: 1.3,
+          ),
+        ),
+      ],
     );
   }
 }

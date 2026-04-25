@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 26;
+  static const _dbVersion = 27;
 
   Database? _db;
 
@@ -86,7 +86,9 @@ class LocalStorageService {
         last_publish_error TEXT,
         publish_attempt_count INTEGER NOT NULL DEFAULT 0,
         created_by_user_id TEXT,
-        client_id TEXT
+        client_id TEXT,
+        crossfade_lead_ms INTEGER,
+        crossfade_fade_ms INTEGER
       )
     ''');
 
@@ -554,6 +556,21 @@ class LocalStorageService {
       // Supabase mirror: schema_wave24_video_reps_per_loop.sql.
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN video_reps_per_loop INTEGER',
+      );
+    }
+    if (oldVersion < 27) {
+      // Wave 27 — per-plan dual-video crossfade timing.
+      //
+      // Both nullable; NULL means "use the surface default" (lead 250 ms,
+      // fade 200 ms). The _MediaViewer tuner writes through here; on
+      // publish the values land on `plans.crossfade_lead_ms` /
+      // `crossfade_fade_ms` and flow back to the web player via
+      // `to_jsonb(plan_row)` in `get_plan_full`.
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN crossfade_lead_ms INTEGER',
+      );
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN crossfade_fade_ms INTEGER',
       );
     }
   }

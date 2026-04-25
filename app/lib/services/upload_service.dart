@@ -563,6 +563,11 @@ class UploadService {
         'version': session.version,
         'created_at': session.createdAt.toIso8601String(),
         'practice_id': practiceId,
+        // Wave 27 — NULL means "use the surface default" on the cloud side
+        // too; the reset button explicitly writes null so a re-publish
+        // restores the default-rendered view.
+        'crossfade_lead_ms': session.crossfadeLeadMs,
+        'crossfade_fade_ms': session.crossfadeFadeMs,
       });
 
       // Step 3b: atomic credit consumption. Source of truth for whether
@@ -613,6 +618,8 @@ class UploadService {
         'created_at': session.createdAt.toIso8601String(),
         'sent_at': DateTime.now().toIso8601String(),
         'practice_id': practiceId,
+        'crossfade_lead_ms': session.crossfadeLeadMs,
+        'crossfade_fade_ms': session.crossfadeFadeMs,
       });
 
       // ----------------------------------------------------------------
