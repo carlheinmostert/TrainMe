@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v60-per-plan-crossfade';
+const PLAYER_VERSION = 'v61-playpause-icon-toggle';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)

@@ -165,11 +165,11 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
-        <a href="./2026-04-24-wave26-end-of-day-canonical.html">
+        <a href="./2026-04-25-wave27-per-plan-crossfade.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 26 — End-of-day canonical (supersedes 22 / 23 / 24 / 25)</div>
-              <div class="scope">Single canonical run for the full state of the player + mobile preview as of EOD 2026-04-24. <strong>16 items in 7 sections</strong>: capture &amp; data (defaults + video-reps + capture hint) · Studio per-exercise preview (PACING field, Body focus pill horizontal, trim handle pause + live-frame scrub) · web chrome (vertical stack, no dim, build marker) · Show me + Body focus parity · vertical rep stack (visibility, layout, active fill, trailing rest, top-down wave drain, circuit semantics, navigable, chevron shift) · photos three-treatment · video playback (crossfade, soft trim). Latest cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v57-body-focus-label</code>. Latest install-device commit <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">fc101ae</code>.</div>
+              <div class="name">1 · Wave 27 — Per-plan crossfade tuner + trim fix + play/pause rail</div>
+              <div class="scope">Three bundled changes from Wave 26 fallout. <strong>(1)</strong> Right trim handle no longer fights the video — <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_enforceTrimWindow</code> suspended via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_trimDragInProgress</code> flag while a handle drags. <strong>(2)</strong> Dual-video crossfade is now <em>per plan</em>: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plans.crossfade_lead_ms</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">crossfade_fade_ms</code> on the schema, two practitioner-tunable sliders in a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_MediaViewer</code> bottom-sheet, native dual-<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">VideoPlayerController</code> retrofit so tuning is felt live, web player reads same fields via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">get_plan_full</code> with NULL → 250/200 defaults preserved. SQLite v27. <strong>(3)</strong> Web player gets a YouTube-style play/pause toggle on the right rail above maximize; centered pause disc retired; icon swaps with playback state. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v60 → v61-playpause-icon-toggle</code>. <strong>15 items in 5 sections.</strong></div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -324,6 +324,20 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-04-24-wave26-end-of-day-canonical.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 26 — End-of-day canonical (fails carried into Wave 27)</div>
+              <div class="date">2026-04-24</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Closed</span>
+              <div class="results" id="wave26-results">Loading…</div>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-04-24-wave25-mobile-eb-toggle.html">
           <div class="row">
@@ -666,6 +680,7 @@
           .catch(function() { el.textContent = 'No results yet.'; });
       }
 
+      load('2026-04-24-wave26-end-of-day-canonical.results.json', 'wave26-results');
       load('2026-04-24-wave21-vertical-stack.results.json', 'wave21-results');
       load('2026-04-24-wave20-soft-trim.results.json', 'wave20-results');
       load('2026-04-23-wave19.5-fix-verification.results.json', 'wave19-5-results');

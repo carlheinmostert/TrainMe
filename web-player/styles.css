@@ -828,9 +828,11 @@ body {
 .playpause-toggle svg {
   width: 20px;
   height: 20px;
-  display: block;
   fill: currentColor;
   stroke: none;
+}
+.playpause-toggle svg:not([hidden]) {
+  display: block;
 }
 .playpause-toggle .pp-icon-play {
   /* Optical-balance the play triangle against the circular bg. */
