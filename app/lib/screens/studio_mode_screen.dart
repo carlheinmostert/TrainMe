@@ -2110,7 +2110,8 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// slot is currently visible). Tracks play/pause transitions that
   /// don't originate from `_togglePlayPause` AND drives the crossfade
   /// preroll + wrap-swap logic.
-  VoidCallback? _videoListener;
+  VoidCallback? _videoListenerA;
+  VoidCallback? _videoListenerB;
   bool _lastKnownIsPlaying = false;
 
   /// Wave 18 — the mute toggle is now a PERSISTENT per-exercise
@@ -2334,15 +2335,16 @@ class _MediaViewerState extends State<_MediaViewer> {
   void _initVideoForCurrent() {
     final previousA = _videoControllerA;
     final previousB = _videoControllerB;
-    final previousListener = _videoListener;
-    if (previousListener != null) {
-      previousA?.removeListener(previousListener);
-    }
+    final previousListenerA = _videoListenerA;
+    final previousListenerB = _videoListenerB;
+    if (previousListenerA != null) previousA?.removeListener(previousListenerA);
+    if (previousListenerB != null) previousB?.removeListener(previousListenerB);
     previousA?.dispose();
     previousB?.dispose();
     _videoControllerA = null;
     _videoControllerB = null;
-    _videoListener = null;
+    _videoListenerA = null;
+    _videoListenerB = null;
     _videoInitialized = false;
     _activeSlot = 'a';
     _prebuffered = false;
@@ -2377,17 +2379,15 @@ class _MediaViewerState extends State<_MediaViewer> {
       controllerB.setVolume(0.0); // inactive stays muted always.
       _seekToTrimStart(controllerA);
       _seekToTrimStart(controllerB);
-      // Listener resolves the active controller dynamically. After
-      // _swapSlots moves the listener attachment from A→B, the callback
-      // still has to operate against whichever slot is currently active
-      // — capturing controllerA in closure broke trim + crossfade by
-      // reading stale state on the just-paused slot.
-      void listener() {
-        final active = _activeController;
-        if (active != null) _onVideoStateChanged(active, token);
-      }
-      controllerA.addListener(listener);
-      _videoListener = listener;
+      // Listeners on BOTH controllers so trim enforcement runs whether
+      // A or B is currently visible. _maybeCrossfade only fires for the
+      // controller that is currently active (per-tick check).
+      void listenerA() => _onVideoStateChanged(controllerA, token);
+      void listenerB() => _onVideoStateChanged(controllerB, token);
+      controllerA.addListener(listenerA);
+      controllerB.addListener(listenerB);
+      _videoListenerA = listenerA;
+      _videoListenerB = listenerB;
       controllerA.play();
       _showControlsThenMaybeIdleFade();
     }).catchError((e) {
@@ -2404,18 +2404,6 @@ class _MediaViewerState extends State<_MediaViewer> {
   VideoPlayerController? get _inactiveController =>
       _activeSlot == 'a' ? _videoControllerB : _videoControllerA;
 
-  /// Both controllers as a list, omitting nulls. Used by control paths
-  /// that need to apply the same operation to BOTH slots: pause/resume,
-  /// trim drag, dispose-and-replace.
-  List<VideoPlayerController> _activeControllers() {
-    final out = <VideoPlayerController>[];
-    final a = _videoControllerA;
-    if (a != null) out.add(a);
-    final b = _videoControllerB;
-    if (b != null) out.add(b);
-    return out;
-  }
-
   /// Resolved crossfade lead time, ms. Reads live from `_session` so
   /// slider drags take effect on the next listener tick.
   int get _crossfadeLeadMs =>
@@ -2427,18 +2415,20 @@ class _MediaViewerState extends State<_MediaViewer> {
   int get _crossfadeFadeMs =>
       _session?.crossfadeFadeMs ?? _kDefaultCrossfadeFadeMs;
 
-  /// Called via the active controller's listener. Drives:
-  ///   * trim window clamping (soft-trim wrap to start),
-  ///   * Wave 27 dual-video crossfade preroll + slot swap,
-  ///   * play/pause icon sync.
+  /// Listeners are attached to BOTH controllers. Trim enforcement runs
+  /// on whichever ticked (so the inactive can't run off into untrimmed
+  /// territory while it's prerolled). Crossfade preroll + wrap-swap
+  /// only runs for the currently-active controller.
   void _onVideoStateChanged(VideoPlayerController controller, int token) {
     if (!mounted || token != _initToken) return;
     _enforceTrimWindow(controller);
-    _maybeCrossfade(controller);
-    final isPlaying = controller.value.isPlaying;
-    if (isPlaying != _lastKnownIsPlaying) {
-      _lastKnownIsPlaying = isPlaying;
-      _showControlsThenMaybeIdleFade();
+    if (identical(controller, _activeController)) {
+      _maybeCrossfade(controller);
+      final isPlaying = controller.value.isPlaying;
+      if (isPlaying != _lastKnownIsPlaying) {
+        _lastKnownIsPlaying = isPlaying;
+        _showControlsThenMaybeIdleFade();
+      }
     }
   }
 
@@ -2498,33 +2488,30 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// up the muted/unmuted state of the user's preference. The inactive
   /// gets pushed back to volume=0 and loses prebuffer status.
   void _swapSlots() {
-    final oldActive = _activeController;
-    final oldInactive = _inactiveController;
-    if (oldActive == null || oldInactive == null) return;
+    final outgoingActive = _activeController;
+    final incomingActive = _inactiveController;
+    if (outgoingActive == null || incomingActive == null) return;
     final volume = _isMuted ? 0.0 : 1.0;
     setState(() {
       _activeSlot = _activeSlot == 'a' ? 'b' : 'a';
       _prebuffered = false;
+      // Reset wrap-detect baseline so the new active's first tick
+      // doesn't false-fire against the outgoing's last position.
+      _lastActivePositionMs = 0;
     });
-    // Listener moves with the slot — old active stops driving the loop
-    // detection and the new active takes over.
-    final listener = _videoListener;
-    if (listener != null) {
-      oldActive.removeListener(listener);
-      _activeController?.addListener(listener);
-    }
-    _activeController?.setVolume(volume);
-    oldInactive.setVolume(0.0); // belt and braces — was already 0.
-    // Park the just-superseded slot at trim-start so the next preroll
-    // is one seek away. Pausing also halts the second decoder during
-    // the fade-out window — saves cycles on older devices.
+    // Listeners stay on both controllers (attached at init). No move.
+    incomingActive.setVolume(volume);
+    // Park the outgoing slot at trim-start so the next preroll is one
+    // seek away. Pause halts the second decoder during the fade-out
+    // window — saves cycles on older devices.
     final trimStart = _current.startOffsetMs;
     final trimEnd = _current.endOffsetMs;
     final hasTrim =
         trimStart != null && trimEnd != null && trimEnd > trimStart;
     final parkMs = hasTrim ? trimStart : 0;
-    oldActive.pause();
-    oldActive.seekTo(Duration(milliseconds: parkMs));
+    outgoingActive.pause();
+    outgoingActive.setVolume(0.0);
+    outgoingActive.seekTo(Duration(milliseconds: parkMs));
   }
 
   /// Soft-trim clamp. Idempotent — called from the controller listener
@@ -2593,10 +2580,10 @@ class _MediaViewerState extends State<_MediaViewer> {
     _controlsIdleTimer?.cancel();
     _trimSaveTimer?.cancel();
     _crossfadePersistTimer?.cancel();
-    final listener = _videoListener;
-    if (listener != null) {
-      _videoControllerA?.removeListener(listener);
-    }
+    final listenerA = _videoListenerA;
+    final listenerB = _videoListenerB;
+    if (listenerA != null) _videoControllerA?.removeListener(listenerA);
+    if (listenerB != null) _videoControllerB?.removeListener(listenerB);
     _videoControllerA?.dispose();
     _videoControllerB?.dispose();
     _pageController.dispose();
