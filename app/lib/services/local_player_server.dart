@@ -330,6 +330,13 @@ class LocalPlayerServer {
       // that window. Same trim applies across all three treatments.
       'start_offset_ms': e.startOffsetMs,
       'end_offset_ms': e.endOffsetMs,
+      // Wave 28 — landscape orientation metadata. aspect_ratio is the
+      // effective playback aspect AFTER any practitioner rotation;
+      // rotation_quarters is the manual 0/1/2/3 quarter-turn applied at
+      // render time. Both null on legacy rows; the player falls back to
+      // natural dimensions + zero rotation.
+      'aspect_ratio': e.aspectRatio,
+      'rotation_quarters': e.rotationQuarters,
       // Three-treatment keys. Same source file covers B&W and Original;
       // the web-player applies grayscale CSS filter to its own side.
       'line_drawing_url': lineUrl,

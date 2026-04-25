@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/painting.dart' show decodeImageFromList;
 import 'package:opencv_dart/opencv_dart.dart' as cv;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart' as vt;
 import '../config.dart';
 import '../models/exercise_capture.dart';
@@ -276,6 +278,31 @@ class ConversionService extends ChangeNotifier {
             // Non-fatal — leave videoDurationMs unset, estimator falls back
             // to AppConfig.secondsPerRep.
           }
+
+          // Wave 28 — probe natural aspect ratio so the landscape player
+          // can size pills + the rotated treatment correctly without
+          // re-decoding. Stamped at rotation_quarters=0 (no rotation
+          // applied yet); the Studio rotate-90 button will rewrite both
+          // fields together. Non-fatal — null leaves consumers to derive
+          // at first paint.
+          final aspect = await _probeVideoAspectRatio(done.absoluteRawFilePath);
+          if (aspect != null && aspect > 0) {
+            done = done.copyWith(
+              aspectRatio: aspect,
+              rotationQuarters: done.rotationQuarters ?? 0,
+            );
+          }
+        } else if (exercise.mediaType == MediaType.photo) {
+          // Wave 28 — same probe, photo flavour. Decoded via Flutter
+          // painting so we don't re-imread the source through OpenCV
+          // just for the dimensions.
+          final aspect = await _probePhotoAspectRatio(done.absoluteRawFilePath);
+          if (aspect != null && aspect > 0) {
+            done = done.copyWith(
+              aspectRatio: aspect,
+              rotationQuarters: done.rotationQuarters ?? 0,
+            );
+          }
         }
 
         await _storage.saveExercise(done);
@@ -487,6 +514,59 @@ class ConversionService extends ChangeNotifier {
       if (await File(candidate).exists()) return candidate;
     }
     return null;
+  }
+
+  /// Probe a video's natural aspect ratio (width / height) via a
+  /// transient `VideoPlayerController` (Wave 28). Returns null on any
+  /// failure — caller leaves aspect_ratio unset and consumers derive at
+  /// first paint.
+  ///
+  /// Hard 10s timeout: a botched file or codec stall would otherwise
+  /// hold the conversion queue indefinitely. The controller is always
+  /// disposed in finally so a partial init doesn't leak the player.
+  Future<double?> _probeVideoAspectRatio(String absolutePath) async {
+    if (absolutePath.isEmpty) return null;
+    final file = File(absolutePath);
+    if (!await file.exists()) return null;
+    final controller = VideoPlayerController.file(file);
+    try {
+      await controller.initialize().timeout(const Duration(seconds: 10));
+      final size = controller.value.size;
+      if (size.width <= 0 || size.height <= 0) return null;
+      return size.width / size.height;
+    } catch (e) {
+      debugPrint('Wave 28 video aspect probe failed for $absolutePath: $e');
+      return null;
+    } finally {
+      try {
+        await controller.dispose();
+      } catch (_) {
+        // Disposal failures are not actionable here — the controller is
+        // about to fall out of scope either way.
+      }
+    }
+  }
+
+  /// Probe a photo's natural aspect ratio via Flutter's painting decoder
+  /// (Wave 28). Returns null on any failure — caller leaves
+  /// aspect_ratio unset.
+  Future<double?> _probePhotoAspectRatio(String absolutePath) async {
+    if (absolutePath.isEmpty) return null;
+    final file = File(absolutePath);
+    if (!await file.exists()) return null;
+    try {
+      final bytes = await file.readAsBytes();
+      final image = await decodeImageFromList(bytes);
+      try {
+        if (image.width <= 0 || image.height <= 0) return null;
+        return image.width / image.height;
+      } finally {
+        image.dispose();
+      }
+    } catch (e) {
+      debugPrint('Wave 28 photo aspect probe failed for $absolutePath: $e');
+      return null;
+    }
   }
 
   /// Extract a video frame and save it as a JPEG thumbnail.

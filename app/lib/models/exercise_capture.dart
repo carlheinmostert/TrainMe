@@ -220,6 +220,36 @@ class ExerciseCapture {
   /// (schema_wave24_video_reps_per_loop.sql).
   final int? videoRepsPerLoop;
 
+  /// Effective playback aspect ratio (width / height) after any
+  /// practitioner rotation (Wave 28).
+  ///
+  /// Captured at conversion time from the source media's natural
+  /// dimensions. When [rotationQuarters] flips the orientation by 90°,
+  /// callers MUST update this to the rotated value in the same write
+  /// (single source of truth — consumers never re-derive from natural
+  /// dimensions + rotation).
+  ///
+  /// `null` → consumer derives from media at first paint (legacy /
+  /// pre-migration row, or a capture where the probe failed
+  /// non-fatally).
+  ///
+  /// Persistence: local SQLite `exercises.aspect_ratio` (schema v28) +
+  /// Supabase `exercises.aspect_ratio` (schema_wave28_landscape_metadata).
+  final double? aspectRatio;
+
+  /// Practitioner playback rotation in 90° clockwise quarters
+  /// (Wave 28).
+  ///
+  /// Values: 0 / 1 / 2 / 3. `null` is treated as 0 by both surfaces.
+  /// Applied as a CSS transform / Flutter `Transform.rotate` at render
+  /// time — NO source re-encoding. The web + native players each apply
+  /// the same rotation.
+  ///
+  /// Persistence: local SQLite `exercises.rotation_quarters` (schema
+  /// v28) + Supabase `exercises.rotation_quarters`
+  /// (schema_wave28_landscape_metadata).
+  final int? rotationQuarters;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -253,6 +283,8 @@ class ExerciseCapture {
     this.startOffsetMs,
     this.endOffsetMs,
     this.videoRepsPerLoop,
+    this.aspectRatio,
+    this.rotationQuarters,
   });
 
   /// Create a new capture with a generated UUID.
@@ -332,6 +364,8 @@ class ExerciseCapture {
       startOffsetMs: map['start_offset_ms'] as int?,
       endOffsetMs: map['end_offset_ms'] as int?,
       videoRepsPerLoop: map['video_reps_per_loop'] as int?,
+      aspectRatio: (map['aspect_ratio'] as num?)?.toDouble(),
+      rotationQuarters: map['rotation_quarters'] as int?,
     );
   }
 
@@ -367,6 +401,8 @@ class ExerciseCapture {
       'start_offset_ms': startOffsetMs,
       'end_offset_ms': endOffsetMs,
       'video_reps_per_loop': videoRepsPerLoop,
+      'aspect_ratio': aspectRatio,
+      'rotation_quarters': rotationQuarters,
     };
   }
 
@@ -424,6 +460,10 @@ class ExerciseCapture {
     bool clearEndOffsetMs = false,
     int? videoRepsPerLoop,
     bool clearVideoRepsPerLoop = false,
+    double? aspectRatio,
+    bool clearAspectRatio = false,
+    int? rotationQuarters,
+    bool clearRotationQuarters = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -482,6 +522,11 @@ class ExerciseCapture {
       videoRepsPerLoop: clearVideoRepsPerLoop
           ? null
           : (videoRepsPerLoop ?? this.videoRepsPerLoop),
+      aspectRatio:
+          clearAspectRatio ? null : (aspectRatio ?? this.aspectRatio),
+      rotationQuarters: clearRotationQuarters
+          ? null
+          : (rotationQuarters ?? this.rotationQuarters),
     );
   }
 

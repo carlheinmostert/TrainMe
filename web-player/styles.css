@@ -717,6 +717,25 @@ body {
   display: block;
 }
 
+/* === Photo rotation wrapper (Wave 28) ==============================
+   Photos use the same wrapper-anchored rotation pattern as videos —
+   transform sits on .media-rotation-wrap so the inner <img> keeps a
+   clean stacking context (matches the .video-loop-pair shape).
+   Defaults to a no-op on legacy plans (no inline transform → identical
+   layout to today). */
+.media-rotation-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.media-rotation-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
 /* === Dual-video crossfade pair (Wave 19.7) =========================
    Two stacked <video> elements share the same source. The "active"
    one sits at opacity:1, the inactive at opacity:0; on a loop seam
@@ -2102,3 +2121,160 @@ body.is-fullscreen .playpause-toggle {
     border: 0;
   }
 }
+
+/* === Landscape orientation (Wave 28) ==============================
+   Slim every horizontal row that lives above the card viewport so the
+   hero region keeps its share of the canvas, and reflow the right-edge
+   chrome stack to suit the wider, shorter shape. The portrait branch
+   above stays untouched — every rule below only applies when the
+   visual viewport is wider than it is tall.
+
+   Keeps the desktop phone-frame (≥640px portrait) intact: the
+   `(max-aspect-ratio: 1/1)` + (orientation: landscape) intersection
+   below targets phones rotated landscape. Desktop landscape browsers
+   are wide-enough that the existing portrait styles still feel right
+   inside the 430×932 frame.
+*/
+@media (orientation: landscape) and (max-height: 540px) {
+  /* Slim plan-bar — ~28px tall vs the portrait 14+6 padding chunk. */
+  .plan-bar {
+    padding: 4px 16px 2px;
+  }
+  .plan-title {
+    font-size: 15px;
+    line-height: 1.15;
+  }
+  .header-client {
+    font-size: 11px;
+  }
+
+  /* Active-slide header: compact pill above the matrix. Same content,
+     tighter padding + smaller font so it shares vertical real estate. */
+  .active-slide-header {
+    padding: 2px 16px 4px;
+  }
+  .active-slide-title {
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  /* Workout timeline strip: keep horizontal, halve vertical padding. */
+  .workout-timeline-bar {
+    padding: 1px 12px 2px;
+    font-size: 10px;
+  }
+  .workout-timeline-total {
+    font-size: 11px;
+  }
+
+  /* Progress matrix: shrink the inner padding + drop the bottom margin
+     so the matrix hugs the timeline strip. The wider canvas means more
+     pills fit per row visually; we let the existing flex-distribute
+     logic do the layout, just give it a slimmer band. */
+  .progress-matrix {
+    margin: 1px 0 2px;
+  }
+  .progress-matrix-inner {
+    padding: 1px 12px;
+    gap: 6px;
+  }
+  /* Pills can be a touch shorter — visual cap mirrors the new tier. */
+  .matrix-col {
+    max-width: 40px;
+  }
+
+  /* Card viewport gets every spare pixel — no max-height, no padding. */
+  .card-viewport {
+    padding: 0;
+  }
+
+  /* Edge chevrons stay mid-vertical-edge; pull them in slightly so they
+     don't compete with the right-edge chrome stack on the slimmer band. */
+  .edge-nav {
+    width: 44px;
+    height: 60px;
+  }
+  .edge-nav--prev { left: 4px; }
+  .edge-nav--next { right: 4px; }
+  .card-viewport.has-rep-stack .edge-nav--prev {
+    left: 56px;
+  }
+
+  /* Right-edge chrome: tighten the stack so it doesn't letterbox into
+     the card area on the shorter canvas. Mute keeps its same-row spot
+     to the left of playpause; fullscreen + settings stack closer. */
+  .playpause-toggle,
+  .fullscreen-toggle,
+  .settings-toggle,
+  .card-media .mute-toggle {
+    width: 36px;
+    height: 36px;
+  }
+  .playpause-toggle {
+    top: 8px;
+    right: 8px;
+  }
+  .card-media .mute-toggle {
+    top: 8px;
+    right: 52px;
+  }
+  .fullscreen-toggle {
+    top: 50px;
+    right: 8px;
+  }
+  .settings-toggle {
+    top: 92px;
+    right: 8px;
+  }
+
+  /* Settings popover: anchor as a popover (not a near-full-bottom-sheet).
+     The wider canvas would otherwise leave the popover marooned in the
+     lower-right corner. Keep its anchor under the gear button + cap the
+     width so it sits as a proper floating card. */
+  .settings-popover {
+    top: 134px;
+    right: 8px;
+    min-width: 280px;
+    max-width: 360px;
+    padding: 10px 14px;
+  }
+
+  /* Body focus pill (mobile inline preview chrome) — kept from
+     colliding with the mute pill on the slimmer canvas. The pill lives
+     above the mute button at bottom-left in the mobile preview path;
+     match the tighter mute coords. */
+  .body-focus-pill {
+    bottom: 56px;
+    left: 8px;
+  }
+
+  /* Footer: thin band so the card viewport keeps its share. */
+  .footer {
+    padding: 2px 16px 4px;
+  }
+  .footer-version {
+    font-size: 8px;
+  }
+}
+
+/* Landscape exercise-card aspect-ratio handling (Wave 28).
+   The card-viewport itself is always full-bleed; the per-exercise
+   aspect ratio drives whether the source video fills the card or
+   letterboxes inside it.
+
+     • aspect-ratio > 1 (landscape source) — let object-fit: contain
+       letterbox top/bottom on a portrait viewport, but on a landscape
+       viewport the source already matches the canvas shape, so the
+       contain rule effectively fills.
+
+     • aspect-ratio < 1 (portrait source) — object-fit: contain
+       letterboxes left/right on a landscape viewport. The pillarbox
+       background is the same #0A0C12 that .card-media already paints.
+
+   No new layout rules required: the existing .card-media + video /
+   img object-fit: contain pair handles both cases correctly. The
+   `--exercise-aspect-ratio` custom property is set on each card for
+   future use (preload sizing, OG card generation) — readable via
+   getComputedStyle without round-tripping through the video metadata
+   event.
+*/

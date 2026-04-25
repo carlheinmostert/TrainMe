@@ -165,10 +165,23 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-04-25-wave28-landscape.html">
+          <div class="row">
+            <div>
+              <div class="name">1 · Wave 28 — Landscape orientation support</div>
+              <div class="scope">Single landing of the entire landscape rollout. <strong>(A)</strong> Camera mode reflows correctly to landscape via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">OrientationBuilder</code>; recording-in-flight orientation lock prevents mid-record rotation. <strong>(B)</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_MediaViewer</code> reflows chrome — treatment + body focus + mute + new rotate-90 pill stack horizontally; tune sheet → popover; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_TrimPanel</code> compact mode. <strong>(C)</strong> Web player gets <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">@media (orientation: landscape) and (max-height: 540px)</code> CSS for the first time (was zero rules). New schema: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">exercises.aspect_ratio</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">rotation_quarters</code>. SQLite v28. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PlanPreviewScreen</code> retired. iPad locked to iPhone orientations. Race-safe <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">OrientationLockGuard</code> widget with stack-based lifecycle. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v63 → v64-landscape</code>. <strong>18 items in 7 sections</strong> incl. proactive 5-min memory profile.</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-04-25-wave27-per-plan-crossfade.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 27 — Per-plan crossfade tuner + trim fix + play/pause rail</div>
+              <div class="name">2 · Wave 27 — Per-plan crossfade tuner + trim fix + play/pause rail</div>
               <div class="scope">Three bundled changes from Wave 26 fallout. <strong>(1)</strong> Right trim handle no longer fights the video — <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_enforceTrimWindow</code> suspended via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_trimDragInProgress</code> flag while a handle drags. <strong>(2)</strong> Dual-video crossfade is now <em>per plan</em>: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plans.crossfade_lead_ms</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">crossfade_fade_ms</code> on the schema, two practitioner-tunable sliders in a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_MediaViewer</code> bottom-sheet, native dual-<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">VideoPlayerController</code> retrofit so tuning is felt live, web player reads same fields via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">get_plan_full</code> with NULL → 250/200 defaults preserved. SQLite v27. <strong>(3)</strong> Web player gets a YouTube-style play/pause toggle on the right rail above maximize; centered pause disc retired; icon swaps with playback state. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v60 → v61-playpause-icon-toggle</code>. <strong>15 items in 5 sections.</strong></div>
             </div>
             <div style="text-align: right;">
@@ -181,7 +194,7 @@
         <a href="./2026-04-22-wave19-player-polish.html">
           <div class="row">
             <div>
-              <div class="name">2 · Wave 19 — Web-player polish round 2</div>
+              <div class="name">3 · Wave 19 — Web-player polish round 2</div>
               <div class="scope">Four targeted polish changes to the unified web-player bundle. <strong>(1)</strong> Title row (exercise name + decoded grammar) promoted above the 3-number time row. <strong>(2)</strong> Circuit pill grid flipped column-first → <strong>row-first</strong>: each row = one round (exercises L→R), rounds stack downward, coral tint wraps each round. <strong>(3)</strong> Exercise notes redesigned as a centered dark soft-card (variant A) — <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">rgba(15,17,23,0.78)</code> bg + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">blur(8px)</code> + subtle coral border + off-white text + 10px radius; 3-line clamp + tap-to-expand preserved. <strong>(4)</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.matrix-col</code> max-width bumped <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">22 → 32px</code> so singles render as rectangles, not near-round squares. SW cache bumped <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v22 → v23-player-polish-round2</code>. Four-file touch (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">index.html</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">styles.css</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app.js</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">sw.js</code>). R-10 parity enforced by unified-player bundle — no Flutter code touched. 7 items.</div>
             </div>
             <div style="text-align: right;">
@@ -194,7 +207,7 @@
         <a href="./2026-04-22-web-player-top-stack-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">3 · Web-player top-stack v1 — Device QA</div>
+              <div class="name">4 · Web-player top-stack v1 — Device QA</div>
               <div class="scope">Wireframe-signed-off restructure of the client web player (session.homefit.studio) + mobile preview (WebView). <strong>Top stack above video:</strong> plan-title + client, 3-number ETA row (full-width centered), progress-pill matrix, active-slide name + decoded grammar. <strong>Video as hero</strong> with overlaid chrome: mid-height chevrons left/right, mute + NEW fullscreen toggle top-right, notes as plain coral text bottom (no box; 3-line clamp, tap to expand), centered prep + pause overlays. <strong>New:</strong> prep play-gating (video paused at frame 0 during runway), rest countdown overlay (big coral number), fullscreen ambient mode (top stack hides + coral overlays drop to 30% alpha + tap reveals for 3s), Start Workout triggers fullscreen, celebratory cue on workout complete (coral radial glow + 200ms check-icon scale-in), circuit context appends to name (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">· Round 2 of 3</code>). <strong>Retired:</strong> nav-dots, peek-panel, treatment-seg, card-position, bottom nav-bar, swipe-hint, card-level name/body. Three-file refactor (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/index.html</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">styles.css</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app.js</code>) + SW cache bumped <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v19 → v20-top-stack</code>. R-10 parity enforced by unified-player bundle (no Flutter code touched). 14 items.</div>
             </div>
             <div style="text-align: right;">
@@ -207,7 +220,7 @@
         <a href="./2026-04-22-wave18.11-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">4 · Wave 18.11 — Device QA</div>
+              <div class="name">5 · Wave 18.11 — Device QA</div>
               <div class="scope">polish round 8: elevated neutral sub-card for expanded sections, right-padding breathing room, inline-editor fill swap. Three-point correction on Wave 18.10's expanded-body treatment. (1) <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_ExpandedBody</code> swapped from recessed (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">surfaceBg</code> + coral left-stripe) to elevated neutral sub-card (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">surfaceRaised</code> @ r8 + 1pt 6%-white border) — mirrors outer card's grammar one elevation up. Zero coral on the body. (2) Horizontal padding now symmetric <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">12pt</code> so right-aligned values (REPS / SETS / HOLD / PREP / DURATION PER REP / Muted toggle) have breathing room. (3) <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">InlineNumericEditor</code> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">fillColor</code> swapped <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">surfaceRaised → surfaceBase</code> so the field reads as a darker recessed well against the new sub-card. Section-header bottom padding bumped <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">2 → 6</code> for sub-card top-edge breathing room. Delta-only; run AFTER Wave 18.1 baseline.</div>
             </div>
             <div style="text-align: right;">
@@ -220,7 +233,7 @@
         <a href="./2026-04-22-wave18.1-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">5 · Wave 18.1 — canonical baseline</div>
+              <div class="name">6 · Wave 18.1 — canonical baseline</div>
               <div class="scope">Consolidated post-Wave-18 canonical test — work this script top to bottom; it covers everything that should be true of the current binary. Home + client header + studio shell (toolbar identity + compaction). Exercise card accordion (PLAYBACK default-open; DOSE/PACING/NOTES single-open; non-default marker; collapsed summaries). Preset chip rows unified (cap 8 MRU, long-press removes any chip, no corner dot, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[Custom]</code> long-press no-op). Rest row (sage chips, swipe-to-delete, no horizontal scroll). Media Viewer (coral mute pill bottom-left persists <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">includeAudio</code>; coral dots). Publish (Camera-capture + mute dirty the session; atomic <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">replace_plan_exercises</code> RPC closes 23505 on reorder; SessionCard clean). Wave 18 preset migration. <strong>36 items.</strong></div>
             </div>
             <div style="text-align: right;">
@@ -233,7 +246,7 @@
         <a href="./2026-04-21-wave15-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">6 · Wave 15 — Offline-sync robustness</div>
+              <div class="name">7 · Wave 15 — Offline-sync robustness</div>
               <div class="scope">Three targeted fixes from Wave 5 QA failure modes. (A) Null-return <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">upsert_client_with_id</code> now throws + rides the flush error path instead of leaving ghost ops in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">pending_ops</code>. (B) <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">session_not_found</code> detected at the API boundary → forces sign-out + coral banner on Home + Studio with a Sign-in CTA. (C) Diagnostics gets a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Force sync now</code> action with a toast. Polish: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">pullAll</code> on signin + 5s retry backoff. 11 items.</div>
             </div>
             <div style="text-align: right;">
@@ -246,7 +259,7 @@
         <a href="./2026-04-21-wave5-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">7 · Wave 5 + 14 + 16 — Members area (add by email + pending + roles) + publish-time consent validation</div>
+              <div class="name">8 · Wave 5 + 14 + 16 — Members area (add by email + pending + roles) + publish-time consent validation</div>
               <div class="scope">Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/members</code> with the Wave 14 add-by-email flow that superseded the invite-code flow. Three paths: <em>added</em> (existing account → instant join), <em>already_member</em> (idempotent no-op), <em>pending</em> (no account → stashed in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">pending_practice_members</code>, auto-claims on signup via an <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">auth.users</code> trigger). Role change + hard remove + leave-with-guards unchanged. Mobile "Join a practice" card retired — practitioners discover via switcher. Wave 16 appended Section 8: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">validate_plan_treatment_consent</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">consume_credit</code> backstop + bottom-sheet with "Grant consent &amp; publish" / "Back to Studio" CTAs. 25 items.</div>
             </div>
             <div style="text-align: right;">
@@ -259,7 +272,7 @@
         <a href="./2026-04-21-wave8-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">8 · Wave 8 — Sticky per-client defaults</div>
+              <div class="name">9 · Wave 8 — Sticky per-client defaults</div>
               <div class="scope">JSONB <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">client_exercise_defaults</code> + SQLite mirror. Forward-only propagation on new captures for reps/sets/hold/rest/muted/preferred-treatment. Invisible UX — just pre-fills. Also: landscape capture + "long-press to record video" hint. 11 items.</div>
             </div>
             <div style="text-align: right;">
@@ -272,7 +285,7 @@
         <a href="./2026-04-21-wave10-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">9 · Wave 10 — Network share-kit Phase 3 (PNG + QR + analytics)</div>
+              <div class="name">10 · Wave 10 — Network share-kit Phase 3 (PNG + QR + analytics)</div>
               <div class="scope">Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/network</code> now renders a real 1080×1350 PNG with scannable QR (replaces the Phase 1 placeholder). Download + Copy-to-clipboard. Every share-kit action logs to the new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">share_events</code> table. 14 items.</div>
             </div>
             <div style="text-align: right;">
@@ -285,7 +298,7 @@
         <a href="./2026-04-21-wave11-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">10 · Wave 11 — Mobile R-11 twin for Network share-kit</div>
+              <div class="name">11 · Wave 11 — Mobile R-11 twin for Network share-kit</div>
               <div class="scope">Settings → Network → <strong>Share homefit.studio</strong> opens the new mobile surface. Three rendered templates (WhatsApp 1:1 with live colleague-name substitution, broadcast, email). <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">url_launcher</code>-backed intent launchers + PNG rasterised via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">RepaintBoundary.toImage</code> through iOS share sheet. 10 items.</div>
             </div>
             <div style="text-align: right;">
@@ -298,7 +311,7 @@
         <a href="./2026-04-21-wave9-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">11 · Wave 9 — Audit expansion (full event log + filters + CSV)</div>
+              <div class="name">12 · Wave 9 — Audit expansion (full event log + filters + CSV)</div>
               <div class="scope">Portal-only. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/audit</code> expands to a unified event log — publishes, credit changes, referral rebates, clients created/deleted, members joined, invites minted/claimed. New <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">audit_events</code> table for mutations without natural sources. Kind chips, filter bar (multi-select), pagination, CSV export. Everyone sees everything. 17 items.</div>
             </div>
             <div style="text-align: right;">
@@ -311,7 +324,7 @@
         <a href="./2026-04-21-wave7-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">12 · Wave 7 — Silent-failure observability</div>
+              <div class="name">13 · Wave 7 — Silent-failure observability</div>
               <div class="scope">Architectural. Test last because it's mostly invisible. Settings → About → Diagnostics runs the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">signed_url_self_check()</code> probe + three more. Boot self-check auto-opens on first sign-in. Verify <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">error_logs</code> is writing rows under failure simulation. 12 items.</div>
             </div>
             <div style="text-align: right;">

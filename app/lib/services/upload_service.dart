@@ -716,6 +716,17 @@ class UploadService {
                 // derive from this value (replacing the manual
                 // custom_duration_seconds override in the UI).
                 'video_reps_per_loop': e.videoRepsPerLoop,
+                // Wave 28 — landscape orientation metadata. aspect_ratio
+                // is the effective playback aspect AFTER any practitioner
+                // rotation (single source of truth — consumers don't
+                // re-derive from natural dimensions + rotation).
+                // rotation_quarters is the practitioner's manual playback
+                // rotation in 90° clockwise quarters; both surfaces apply
+                // it as a CSS / Transform.rotate at render time, no source
+                // re-encoding. Surfaces on the web player via
+                // get_plan_full (emitted by to_jsonb(e)).
+                'aspect_ratio': e.aspectRatio,
+                'rotation_quarters': e.rotationQuarters,
               })
           .toList();
 

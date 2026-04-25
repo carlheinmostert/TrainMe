@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supa show Session;
 import '../services/auth_service.dart';
 import '../services/local_storage_service.dart';
 import '../theme.dart';
+import '../widgets/orientation_lock_guard.dart';
 import 'home_screen.dart';
 import 'sign_in_screen.dart';
 
@@ -88,13 +89,19 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_initialized) {
-      return const _AuthLoader();
-    }
-    if (_session == null) {
-      return const SignInScreen();
-    }
-    return HomeScreen(storage: widget.storage);
+    return OrientationLockGuard(
+      child: Builder(
+        builder: (_) {
+          if (!_initialized) {
+            return const _AuthLoader();
+          }
+          if (_session == null) {
+            return const SignInScreen();
+          }
+          return HomeScreen(storage: widget.storage);
+        },
+      ),
+    );
   }
 }
 

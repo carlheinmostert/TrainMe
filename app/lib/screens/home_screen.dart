@@ -13,6 +13,7 @@ import '../theme.dart';
 import '../widgets/bootstrap_error_banner.dart';
 import '../widgets/homefit_logo.dart';
 import '../widgets/offline_sync_chip.dart';
+import '../widgets/orientation_lock_guard.dart';
 import '../widgets/practice_chip.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/undo_snackbar.dart';
@@ -468,7 +469,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return OrientationLockGuard(
+      child: Scaffold(
       backgroundColor: AppColors.surfaceBg,
       body: SafeArea(
         child: Stack(
@@ -619,6 +621,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

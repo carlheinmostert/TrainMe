@@ -33,7 +33,7 @@ import '../widgets/studio_toolbar.dart';
 import '../widgets/treatment_segmented_control.dart';
 import '../widgets/undo_snackbar.dart';
 import '../services/auth_service.dart';
-import 'plan_preview_screen.dart';
+import '../widgets/orientation_lock_guard.dart';
 import 'unified_preview_screen.dart';
 
 /// Post-session editing — the "Studio" mode.
@@ -919,7 +919,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // R-09: Studio is portrait-only — bottom-anchored one-handed reach.
+    return OrientationLockGuard(
+      allowed: const {DeviceOrientation.portraitUp},
+      child: Scaffold(
       backgroundColor: AppColors.surfaceBg,
       appBar: _buildAppBar(),
       body: Stack(
@@ -947,6 +950,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -998,7 +1002,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       publishError: _publishError,
       onImport: _importFromLibrary,
       onPreview: _openPreview,
-      onPreviewLongPress: _openLegacyPreview,
+      onPreviewLongPress: () {},
       onPublish: _publishFromToolbar,
       onPublishLockedTap: () => showPublishLockToast(context),
       onShowPublishError: () {
@@ -1806,15 +1810,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
   }
 
-  void _openLegacyPreview() {
-    HapticFeedback.selectionClick();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PlanPreviewScreen(session: _session),
-      ),
-    );
-  }
-
   Future<void> _openMediaViewer(ExerciseCapture exercise) async {
     if (exercise.isRest) return;
     // Build a list of the non-rest exercises so the viewer can page
@@ -2580,6 +2575,7 @@ class _MediaViewerState extends State<_MediaViewer> {
     _controlsIdleTimer?.cancel();
     _trimSaveTimer?.cancel();
     _crossfadePersistTimer?.cancel();
+    _rotationPersistTimer?.cancel();
     final listenerA = _videoListenerA;
     final listenerB = _videoListenerB;
     if (listenerA != null) _videoControllerA?.removeListener(listenerA);
@@ -2608,9 +2604,12 @@ class _MediaViewerState extends State<_MediaViewer> {
   }
 
   /// Single shared offset added to every bottom chrome element when the
-  /// trim panel is present. Per the brief: panel height + 8 px gap.
-  double get _bottomChromeTrimLift =>
-      _trimPanelVisible ? (_TrimPanel.panelHeight + 8) : 0;
+  /// trim panel is present. Panel height + 8 px gap. Compact = landscape
+  /// shorter panel.
+  double _bottomChromeTrimLiftFor({required bool compact}) =>
+      _trimPanelVisible
+          ? (_TrimPanel.effectiveHeight(compact: compact) + 8)
+          : 0;
 
   /// Optimistic update of the in-memory trim values + debounced disk
   /// write. Mirrors the pattern used for `_persistPreferredTreatment` /
@@ -2802,328 +2801,460 @@ class _MediaViewerState extends State<_MediaViewer> {
   @override
   Widget build(BuildContext context) {
     final hasArchive = _hasArchive(_current);
-    return Scaffold(
-      backgroundColor: AppColors.surfaceBg,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Pager — one page per non-rest exercise. Vertical swipes
-          // tunnelled into the GestureDetector cycle the treatment;
-          // horizontal swipes pass through to the PageView.
-          PageView.builder(
-            controller: _pageController,
-            itemCount: _exercises.length,
-            onPageChanged: _onPageChanged,
-            itemBuilder: (context, index) {
-              final ex = _exercises[index];
-              final isCurrent = index == _currentIndex;
-              final isVideo = _isVideo(ex);
-              return GestureDetector(
-                // Vertical gestures only fire on the active page — neighbours
-                // would never receive them anyway because they're offscreen.
-                onVerticalDragEnd: isCurrent ? _handleVerticalDragEnd : null,
-                onTap: isCurrent && isVideo ? _togglePlayPause : null,
-                behavior: HitTestBehavior.opaque,
-                child: Center(
-                  child: isVideo
-                      ? (isCurrent
-                          ? AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 220),
-                              switchInCurve: Curves.easeOut,
-                              switchOutCurve: Curves.easeIn,
-                              child: _buildVideoFrame(),
-                            )
-                          : const _VideoPagePlaceholder())
-                      : Image.file(
-                          File(ex.displayFilePath),
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, e, s) => const Icon(
-                            Icons.broken_image_outlined,
-                            size: 64,
-                            color: Colors.white54,
+    // Wave 28 — viewer is the one Studio surface that allows landscape
+    // (the editor stays portrait-locked). Both rotations + portraitUp;
+    // upside-down stays excluded so the device-rotation animation feels
+    // intentional instead of glitchy.
+    return OrientationLockGuard(
+      allowed: const {
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.surfaceBg,
+        body: OrientationBuilder(
+          builder: (context, orientation) {
+            final isLandscape = orientation == Orientation.landscape;
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                // Pager — one page per non-rest exercise. Vertical swipes
+                // tunnelled into the GestureDetector cycle the treatment;
+                // horizontal swipes pass through to the PageView.
+                PageView.builder(
+                  controller: _pageController,
+                  itemCount: _exercises.length,
+                  onPageChanged: _onPageChanged,
+                  itemBuilder: (context, index) {
+                    final ex = _exercises[index];
+                    final isCurrent = index == _currentIndex;
+                    final isVideo = _isVideo(ex);
+                    return GestureDetector(
+                      onVerticalDragEnd:
+                          isCurrent ? _handleVerticalDragEnd : null,
+                      onTap: isCurrent && isVideo ? _togglePlayPause : null,
+                      behavior: HitTestBehavior.opaque,
+                      child: Center(
+                        child: isVideo
+                            ? (isCurrent
+                                ? AnimatedSwitcher(
+                                    duration:
+                                        const Duration(milliseconds: 220),
+                                    switchInCurve: Curves.easeOut,
+                                    switchOutCurve: Curves.easeIn,
+                                    child: _buildVideoFrame(),
+                                  )
+                                : const _VideoPagePlaceholder())
+                            : Image.file(
+                                File(ex.displayFilePath),
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, e, s) => const Icon(
+                                  Icons.broken_image_outlined,
+                                  size: 64,
+                                  color: Colors.white54,
+                                ),
+                              ),
+                      ),
+                    );
+                  },
+                ),
+
+                // Treatment segmented pill — vertical book-spine in
+                // portrait (mirrors the vertical-swipe gesture); flat
+                // horizontal pill at top-center under the name pill in
+                // landscape (matches the wider canvas ergonomics).
+                if (_isVideo(_current))
+                  isLandscape
+                      ? Positioned(
+                          top: MediaQuery.of(context).padding.top + 64,
+                          left: 0,
+                          right: 0,
+                          child: SafeArea(
+                            top: false,
+                            child: Center(
+                              child: SizedBox(
+                                width: 260,
+                                child: TreatmentSegmentedControl(
+                                  orientation: Axis.horizontal,
+                                  active: _treatment,
+                                  grayscaleAvailable: hasArchive,
+                                  originalAvailable: hasArchive,
+                                  onChanged: _onTreatmentChanged,
+                                  onLockTap: _onLockedSegmentTap,
+                                  lockedMessages: hasArchive
+                                      ? null
+                                      : const {
+                                          Treatment.grayscale:
+                                              'Older capture — re-record to enable.',
+                                          Treatment.original:
+                                              'Older capture — re-record to enable.',
+                                        },
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      : Positioned(
+                          left: 12,
+                          top: 0,
+                          bottom: 0,
+                          child: SafeArea(
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: TreatmentSegmentedControl(
+                                orientation: Axis.vertical,
+                                active: _treatment,
+                                grayscaleAvailable: hasArchive,
+                                originalAvailable: hasArchive,
+                                onChanged: _onTreatmentChanged,
+                                onLockTap: _onLockedSegmentTap,
+                                lockedMessages: hasArchive
+                                    ? null
+                                    : const {
+                                        Treatment.grayscale:
+                                            'Older capture — re-record to enable.',
+                                        Treatment.original:
+                                            'Older capture — re-record to enable.',
+                                      },
+                              ),
+                            ),
                           ),
                         ),
-                ),
-              );
-            },
-          ),
 
-          // Left-edge vertical treatment pill. Lives on the left side,
-          // vertically centered, so the control's orientation mirrors
-          // the vertical-swipe gesture that cycles treatments. Only
-          // renders when the current exercise is a video — stills have
-          // nothing to switch between. Consent now lives at the client
-          // level on ClientSessionsScreen (Wave 3), so the inline
-          // toggle that used to sit below this pill is gone.
-          //
-          // Wave 25 — second pill stacked below: Enhanced Background
-          // toggle (R-10 twin of the web player's gear-popover switch).
-          // Same column, same book-spine rotated geometry.
-          if (_isVideo(_current))
-            Positioned(
-              left: 12,
-              top: 0,
-              bottom: 0,
-              child: SafeArea(
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: TreatmentSegmentedControl(
-                    orientation: Axis.vertical,
-                    active: _treatment,
-                    grayscaleAvailable: hasArchive,
-                    originalAvailable: hasArchive,
-                    onChanged: _onTreatmentChanged,
-                    onLockTap: _onLockedSegmentTap,
-                    lockedMessages: hasArchive
-                        ? null
-                        : const {
-                            Treatment.grayscale:
-                                'Older capture — re-record to enable.',
-                            Treatment.original:
-                                'Older capture — re-record to enable.',
-                          },
-                  ),
-                ),
-              ),
-            ),
-
-          // Exercise-name pill — stays top-centered. The vertical
-          // treatment control is on the left edge now, so this pill has
-          // the top strip free from the close button's right-edge
-          // territory. Second line inside the pill is the swipe
-          // affordance: "Exercise N of M".
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 12,
-            left: 0,
-            right: 0,
-            child: IgnorePointer(
-              child: Center(
-                child: Container(
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width - 96,
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _headerLabel(_current, _currentIndex),
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
+                // Exercise-name pill — top-centered in both orientations.
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 12,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: Center(
+                      child: Container(
+                        constraints: BoxConstraints(
+                          maxWidth:
+                              MediaQuery.of(context).size.width - 96,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _headerLabel(_current, _currentIndex),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Exercise ${_currentIndex + 1} of ${widget.exercises.length}',
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.3,
+                                color: AppColors.textSecondaryOnDark,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Exercise ${_currentIndex + 1} of ${widget.exercises.length}',
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 0.3,
-                          color: AppColors.textSecondaryOnDark,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // Bottom-right play/pause affordance. Always in the tree for
-          // videos so taps always hit — visibility is opacity-driven.
-          // When paused it stays at 100%; when playing it fades to 0
-          // after a 2s idle so it doesn't overlay demo-to-client view.
-          // Sits above the bottom dot-indicator row to avoid overlap.
-          // Wave 20 — lifted by `_bottomChromeTrimLift` when the trim
-          // panel is present so the panel doesn't overlap the button.
-          if (_isVideo(_current) && _videoInitialized)
-            Positioned(
-              right: 20,
-              bottom: MediaQuery.of(context).padding.bottom +
-                  ((widget.exercises.length > 1 &&
-                          widget.exercises.length <= 10)
-                      ? 48
-                      : 20) +
-                  _bottomChromeTrimLift,
-              child: _PlayPauseOverlayButton(
-                isPlaying: _activeController?.value.isPlaying ?? false,
-                visible: _controlsVisible,
-                onTap: _togglePlayPause,
-              ),
-            ),
-          // Page dots — swipe affordance at the bottom. Hidden past 10
-          // slides (matches the pattern in `plan_preview_screen.dart`);
-          // the counter inside the name pill above carries the
-          // where-are-we signal at larger plan sizes.
-          if (widget.exercises.length > 1 && widget.exercises.length <= 10)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: MediaQuery.of(context).padding.bottom +
-                  16 +
-                  _bottomChromeTrimLift,
-              child: IgnorePointer(
-                child: _MediaViewerDotIndicator(
-                  total: widget.exercises.length,
-                  activeIndex: _currentIndex,
-                ),
-              ),
-            ),
-          // Wave 18 — mute is now a persistent per-exercise setting.
-          // Bottom-left coral pill, labelled "Muted" / "Audio on" so
-          // the current state reads at a glance without the
-          // volume-glyph ambiguity. Tap persists via
-          // LocalStorageService.saveExercise; swiping to a neighbour
-          // re-reads from THAT exercise's includeAudio so the pill
-          // tracks per-exercise state.
-          if (_isVideo(_current) && _videoInitialized)
-            Positioned(
-              left: 20,
-              bottom: MediaQuery.of(context).padding.bottom +
-                  12 +
-                  _bottomChromeTrimLift,
-              child: _TogglePill(
-                iconWhenActive: Icons.volume_off_rounded,
-                iconWhenInactive: Icons.volume_up_rounded,
-                labelWhenActive: 'Muted',
-                labelWhenInactive: 'Audio on',
-                active: _isMuted,
-                onTap: _toggleMute,
-              ),
-            ),
-          // Body focus pill stacked above the mute pill in the
-          // bottom-left chrome cluster. Mirrors the web player gear
-          // popover's Enhanced background switch (R-10).
-          if (_isVideo(_current) && _videoInitialized)
-            Positioned(
-              left: 20,
-              bottom: MediaQuery.of(context).padding.bottom +
-                  12 + 36 + 8 + _bottomChromeTrimLift,
-              child: _TogglePill(
-                iconWhenActive: Icons.blur_on_rounded,
-                iconWhenInactive: Icons.blur_off_rounded,
-                labelWhenActive: 'Body focus',
-                labelWhenInactive: 'Body focus',
-                active: _enhancedBackground,
-                enabled: _enhancedBackgroundEnabled,
-                onTap: _onEnhancedBackgroundToggle,
-                tooltipWhenActive: 'Body focus ON — background dimmed for clarity.',
-                tooltipWhenInactive: 'Body focus OFF — playing the untouched colour file.',
-                tooltipWhenDisabled: 'Body focus applies to colour playback only.',
-              ),
-            ),
-          // Wave 20 — soft-trim editor. Always 100% opacity so the
-          // practitioner can edit at any time. Hidden for photos /
-          // rest rows / sub-1s videos via [_trimPanelVisible].
-          if (_trimPanelVisible)
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: MediaQuery.of(context).padding.bottom + 8,
-              child: _TrimPanel(
-                durationMs: _activeController!.value.duration.inMilliseconds,
-                startOffsetMs: _current.startOffsetMs,
-                endOffsetMs: _current.endOffsetMs,
-                reps: _current.reps,
-                onTrimChanged: (s, e) => _persistTrim(s, e),
-                onScrub: _onTrimScrub,
-                onGuardHit: () => HapticFeedback.lightImpact(),
-                onReset: _resetTrim,
-                // Pause-on-drag-down + resume-on-drag-up for the trim
-                // handles. Carl 2026-04-24: was confusing to scrub
-                // against a playing video; the loop kept fighting
-                // the drag feedback.
-                onDragStart: () {
-                  _trimDragInProgress = true;
-                  final active = _activeController;
-                  if (active == null) return;
-                  _trimDragWasPlaying = active.value.isPlaying;
-                  if (_trimDragWasPlaying) active.pause();
-                  // The inactive may be mid-preroll. Halt it so the next
-                  // cycle re-prerolls into the freshly-trimmed window.
-                  _inactiveController?.pause();
-                },
-                onDragEnd: () {
-                  _trimDragInProgress = false;
-                  final active = _activeController;
-                  if (active == null) {
-                    _trimDragWasPlaying = false;
-                    return;
-                  }
-                  // Reset prebuffer so the next preroll cycle fires off
-                  // the freshly-trimmed window rather than carrying over
-                  // a stale prerolled inactive seeked into the old window.
-                  _prebuffered = false;
-                  if (_trimDragWasPlaying) active.play();
-                  _trimDragWasPlaying = false;
-                },
-                onHandleSeek: _onTrimScrub,
-              ),
-            ),
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            right: 8,
-            child: IconButton(
-              onPressed: () => Navigator.of(context).pop(),
-              icon: const Icon(
-                Icons.close,
-                color: Colors.white,
-                size: 28,
-              ),
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.black54,
-              ),
-              tooltip: 'Close',
-            ),
-          ),
-          // Wave 27 — discreet tune gear, stacked under the close X.
-          // Coral icon on a dark pill so it reads at a glance without
-          // pulling focus from the exercise-name pill or the chrome
-          // pills along the bottom edge.
-          if (_crossfadeTunerVisible)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 8 + 48 + 4,
-              right: 12,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: _openCrossfadeTuner,
-                  customBorder: const CircleBorder(),
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.55),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.tune_rounded,
-                      color: AppColors.primary,
-                      size: 18,
                     ),
                   ),
                 ),
-              ),
-            ),
-        ],
+
+                // Bottom-right play/pause overlay. Lifted by trim-panel
+                // height (compact in landscape).
+                if (_isVideo(_current) && _videoInitialized)
+                  Positioned(
+                    right: 20,
+                    bottom: MediaQuery.of(context).padding.bottom +
+                        ((widget.exercises.length > 1 &&
+                                widget.exercises.length <= 10)
+                            ? 48
+                            : 20) +
+                        _bottomChromeTrimLiftFor(compact: isLandscape),
+                    child: _PlayPauseOverlayButton(
+                      isPlaying:
+                          _activeController?.value.isPlaying ?? false,
+                      visible: _controlsVisible,
+                      onTap: _togglePlayPause,
+                    ),
+                  ),
+
+                // Page dots — bottom-center in both orientations.
+                if (widget.exercises.length > 1 &&
+                    widget.exercises.length <= 10)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: MediaQuery.of(context).padding.bottom +
+                        16 +
+                        _bottomChromeTrimLiftFor(compact: isLandscape),
+                    child: IgnorePointer(
+                      child: _MediaViewerDotIndicator(
+                        total: widget.exercises.length,
+                        activeIndex: _currentIndex,
+                      ),
+                    ),
+                  ),
+
+                // Bottom-left chrome cluster: mute + body focus + rotate.
+                // Portrait stacks vertical (mute at base, body focus
+                // above); landscape stacks them in a single horizontal
+                // row to recover vertical canvas. Rotate-90 is the new
+                // pill — videos only.
+                if (_isVideo(_current) && _videoInitialized)
+                  Positioned(
+                    left: 20,
+                    bottom: MediaQuery.of(context).padding.bottom +
+                        12 +
+                        _bottomChromeTrimLiftFor(compact: isLandscape),
+                    child: _buildBottomLeftChromeCluster(
+                      isLandscape: isLandscape,
+                    ),
+                  ),
+
+                // Soft-trim editor. Compact bar in landscape.
+                if (_trimPanelVisible)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: MediaQuery.of(context).padding.bottom + 8,
+                    child: _TrimPanel(
+                      durationMs: _activeController!
+                          .value.duration.inMilliseconds,
+                      startOffsetMs: _current.startOffsetMs,
+                      endOffsetMs: _current.endOffsetMs,
+                      reps: _current.reps,
+                      compact: isLandscape,
+                      onTrimChanged: (s, e) => _persistTrim(s, e),
+                      onScrub: _onTrimScrub,
+                      onGuardHit: () => HapticFeedback.lightImpact(),
+                      onReset: _resetTrim,
+                      onDragStart: () {
+                        _trimDragInProgress = true;
+                        final active = _activeController;
+                        if (active == null) return;
+                        _trimDragWasPlaying = active.value.isPlaying;
+                        if (_trimDragWasPlaying) active.pause();
+                        _inactiveController?.pause();
+                      },
+                      onDragEnd: () {
+                        _trimDragInProgress = false;
+                        final active = _activeController;
+                        if (active == null) {
+                          _trimDragWasPlaying = false;
+                          return;
+                        }
+                        _prebuffered = false;
+                        if (_trimDragWasPlaying) active.play();
+                        _trimDragWasPlaying = false;
+                      },
+                      onHandleSeek: _onTrimScrub,
+                    ),
+                  ),
+
+                // Close X — top-right in both orientations.
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 8,
+                  right: 8,
+                  child: IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(
+                      Icons.close,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.black54,
+                    ),
+                    tooltip: 'Close',
+                  ),
+                ),
+
+                // Tune gear — top-right column under the close X.
+                if (_crossfadeTunerVisible)
+                  Positioned(
+                    top: MediaQuery.of(context).padding.top + 8 + 48 + 4,
+                    right: 12,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => _openCrossfadeTuner(
+                          asPopover: isLandscape,
+                        ),
+                        customBorder: const CircleBorder(),
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.tune_rounded,
+                            color: AppColors.primary,
+                            size: 18,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
       ),
     );
+  }
+
+  /// Bottom-left chrome cluster — mute + body focus + rotate-90 pills.
+  /// Portrait: vertical column (rotate stacked above body focus, body
+  /// focus above mute). Landscape: single horizontal row (mute, body
+  /// focus, rotate) so the pills don't eat vertical canvas.
+  ///
+  /// Rotate-90 only renders for videos (rest rows are guarded by the
+  /// caller; photos by the inner `_isVideo` check). Long-press resets
+  /// rotation_quarters to 0; tap advances by one quarter clockwise.
+  Widget _buildBottomLeftChromeCluster({required bool isLandscape}) {
+    final mute = _TogglePill(
+      iconWhenActive: Icons.volume_off_rounded,
+      iconWhenInactive: Icons.volume_up_rounded,
+      labelWhenActive: 'Muted',
+      labelWhenInactive: 'Audio on',
+      active: _isMuted,
+      onTap: _toggleMute,
+    );
+    final bodyFocus = _TogglePill(
+      iconWhenActive: Icons.blur_on_rounded,
+      iconWhenInactive: Icons.blur_off_rounded,
+      labelWhenActive: 'Body focus',
+      labelWhenInactive: 'Body focus',
+      active: _enhancedBackground,
+      enabled: _enhancedBackgroundEnabled,
+      onTap: _onEnhancedBackgroundToggle,
+      tooltipWhenActive: 'Body focus ON — background dimmed for clarity.',
+      tooltipWhenInactive:
+          'Body focus OFF — playing the untouched colour file.',
+      tooltipWhenDisabled:
+          'Body focus applies to colour playback only.',
+    );
+    final rotate = _RotatePill(
+      onTap: _onRotateTap,
+      onLongPress: _onRotateReset,
+    );
+
+    if (isLandscape) {
+      // Single row, oldest-to-newest left-to-right.
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          mute,
+          const SizedBox(width: 8),
+          bodyFocus,
+          const SizedBox(width: 8),
+          rotate,
+        ],
+      );
+    }
+    // Portrait stays the historical bottom-up stack: mute (base),
+    // body focus, rotate (top). Reversed Column children so the base
+    // pill sits at the bottom of the cluster's bounding box.
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        rotate,
+        const SizedBox(height: 8),
+        bodyFocus,
+        const SizedBox(height: 8),
+        mute,
+      ],
+    );
+  }
+
+  /// Advance the active exercise's `rotation_quarters` by +1 mod 4. Also
+  /// flips the stored `aspect_ratio` when the new rotation is odd
+  /// (1 or 3) — width and height swap visually, so callers that read
+  /// the field for sizing don't need to know about rotation.
+  ///
+  /// Wave 28 contract: depends on Agent 1's `int? rotationQuarters` +
+  /// `double? aspectRatio` fields on [ExerciseCapture] (and matching
+  /// `copyWith` parameters). If those are missing the analyzer will
+  /// surface the gap loud and clear.
+  void _onRotateTap() {
+    final exercise = _current;
+    HapticFeedback.selectionClick();
+    final current = (exercise.rotationQuarters ?? 0) % 4;
+    final next = (current + 1) % 4;
+    final oldAspect = exercise.aspectRatio;
+    final newAspect = (next.isOdd != current.isOdd && oldAspect != null)
+        ? 1 / oldAspect
+        : oldAspect;
+    final updated = exercise.copyWith(
+      rotationQuarters: next,
+      aspectRatio: newAspect,
+    );
+    setState(() {
+      _exercises[_currentIndex] = updated;
+    });
+    final cb = widget.onExerciseUpdate;
+    if (cb != null) cb(updated);
+    _persistRotation(updated);
+  }
+
+  /// Long-press handler — reset rotation back to 0 and restore the
+  /// canonical aspect by reverse-flipping if the current rotation was
+  /// odd. Cheap escape hatch for accidental taps.
+  void _onRotateReset() {
+    final exercise = _current;
+    final current = (exercise.rotationQuarters ?? 0) % 4;
+    if (current == 0 && exercise.aspectRatio != null) return;
+    HapticFeedback.lightImpact();
+    final oldAspect = exercise.aspectRatio;
+    final newAspect = (current.isOdd && oldAspect != null)
+        ? 1 / oldAspect
+        : oldAspect;
+    final updated = exercise.copyWith(
+      rotationQuarters: 0,
+      aspectRatio: newAspect,
+    );
+    setState(() {
+      _exercises[_currentIndex] = updated;
+    });
+    final cb = widget.onExerciseUpdate;
+    if (cb != null) cb(updated);
+    _persistRotation(updated);
+  }
+
+  // Rotation persist debouncer — same 200 ms cadence as `_persistTrim`
+  // so rapid taps coalesce into a single SQLite write.
+  Timer? _rotationPersistTimer;
+  void _persistRotation(ExerciseCapture updated) {
+    _rotationPersistTimer?.cancel();
+    _rotationPersistTimer = Timer(const Duration(milliseconds: 200), () {
+      unawaited(
+        SyncService.instance.storage.saveExercise(updated).catchError((e, _) {
+          debugPrint('MediaViewer: saveExercise(rotation) failed: $e');
+        }),
+      );
+    });
   }
 
   /// Tap handler for a locked segment in the segmented control.
@@ -3161,7 +3292,15 @@ class _MediaViewerState extends State<_MediaViewer> {
       );
     }
     final fadeMs = _crossfadeFadeMs;
-    final aspect = a.value.aspectRatio;
+    // Wave 28 — rotation lives outside the slot Stack so a single
+    // RotatedBox composes over both crossfade slots; rotating between
+    // slot swaps would double-rotate or cancel in flight.
+    final quarters = (_current.rotationQuarters ?? 0) % 4;
+    final rawAspect = a.value.aspectRatio;
+    // Visible aspect swaps when the rotation is a quarter or three-
+    // quarters turn — width and height effectively trade places so the
+    // letterboxing math reads natural.
+    final aspect = quarters.isOdd ? 1 / rawAspect : rawAspect;
     Widget slot(VideoPlayerController c, bool visible) {
       return AnimatedOpacity(
         duration: Duration(milliseconds: fadeMs),
@@ -3172,12 +3311,15 @@ class _MediaViewerState extends State<_MediaViewer> {
     }
     Widget stack = AspectRatio(
       aspectRatio: aspect,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          slot(a, _activeSlot == 'a'),
-          slot(b, _activeSlot == 'b'),
-        ],
+      child: RotatedBox(
+        quarterTurns: quarters,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            slot(a, _activeSlot == 'a'),
+            slot(b, _activeSlot == 'b'),
+          ],
+        ),
       ),
     );
     if (_treatment == Treatment.grayscale) {
@@ -3187,7 +3329,7 @@ class _MediaViewerState extends State<_MediaViewer> {
       );
     }
     return KeyedSubtree(
-      key: ValueKey('media-viewer-${_treatment.name}'),
+      key: ValueKey('media-viewer-${_treatment.name}-q$quarters'),
       child: stack,
     );
   }
@@ -3230,24 +3372,69 @@ class _MediaViewerState extends State<_MediaViewer> {
     });
   }
 
-  void _openCrossfadeTuner() {
+  void _openCrossfadeTuner({bool asPopover = false}) {
     final session = _session;
     if (session == null) return;
     HapticFeedback.selectionClick();
+    final body = _CrossfadeTunerSheet(
+      initialLeadMs: session.crossfadeLeadMs ?? _kDefaultCrossfadeLeadMs,
+      initialFadeMs: session.crossfadeFadeMs ?? _kDefaultCrossfadeFadeMs,
+      compact: asPopover,
+      onChanged: ({int? leadMs, int? fadeMs}) {
+        _persistCrossfade(leadMs: leadMs, fadeMs: fadeMs);
+      },
+      onReset: () {
+        _persistCrossfade(reset: true);
+      },
+    );
+    if (asPopover) {
+      // Landscape — anchor a dialog near the top-right gear instead of
+      // a bottom sheet. A bottom sheet in landscape would eat ~half the
+      // canvas; the popover lives in the dead-zone above the gear pill.
+      showDialog<void>(
+        context: context,
+        barrierColor: Colors.black.withValues(alpha: 0.25),
+        builder: (ctx) {
+          final topInset = MediaQuery.of(ctx).padding.top;
+          return SafeArea(
+            child: Stack(
+              children: [
+                Positioned(
+                  top: topInset + 8 + 48 + 4 + 32 + 8,
+                  right: 12,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Container(
+                      width: 280,
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceBase,
+                        borderRadius: BorderRadius.circular(16),
+                        border:
+                            Border.all(color: AppColors.surfaceBorder),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black54,
+                            blurRadius: 16,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: body,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _CrossfadeTunerSheet(
-        initialLeadMs: session.crossfadeLeadMs ?? _kDefaultCrossfadeLeadMs,
-        initialFadeMs: session.crossfadeFadeMs ?? _kDefaultCrossfadeFadeMs,
-        onChanged: ({int? leadMs, int? fadeMs}) {
-          _persistCrossfade(leadMs: leadMs, fadeMs: fadeMs);
-        },
-        onReset: () {
-          _persistCrossfade(reset: true);
-        },
-      ),
+      builder: (ctx) => body,
     );
   }
 }
@@ -3328,6 +3515,65 @@ class _TogglePill extends StatelessWidget {
         ? Tooltip(message: msg, triggerMode: TooltipTriggerMode.tap, child: pill)
         : pill;
     return enabled ? wrapped : Opacity(opacity: 0.4, child: wrapped);
+  }
+}
+
+/// Compact coral pill that advances the active exercise's playback
+/// rotation by one quarter-turn clockwise on tap, and resets it on
+/// long-press. Lives in the bottom-left chrome cluster next to mute /
+/// body-focus, hidden for photos and rest rows by the host's guard.
+class _RotatePill extends StatelessWidget {
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _RotatePill({
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Rotate playback 90°',
+      triggerMode: TooltipTriggerMode.longPress,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          onLongPress: onLongPress,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.primary, width: 1.5),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.rotate_right_rounded,
+                  color: AppColors.primary,
+                  size: 16,
+                ),
+                SizedBox(width: 6),
+                Text(
+                  'Rotate',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -3521,6 +3767,11 @@ class _TrimPanel extends StatefulWidget {
   /// snapshot of wherever the video happened to be when drag started.
   final void Function(int positionMs)? onHandleSeek;
 
+  /// Compact mode for landscape — drops the second live-readout row and
+  /// shrinks the panel to a single horizontal scrubber bar. Frees up
+  /// vertical canvas in landscape where height is the scarce axis.
+  final bool compact;
+
   const _TrimPanel({
     required this.durationMs,
     required this.startOffsetMs,
@@ -3533,12 +3784,19 @@ class _TrimPanel extends StatefulWidget {
     this.onDragStart,
     this.onDragEnd,
     this.onHandleSeek,
+    this.compact = false,
   });
 
   /// Layout constant — total panel height including its internal padding.
   /// The host uses this to lift the bottom chrome (mute pill / page dots
   /// / play-pause overlay) by `panelHeight + 8` so they don't overlap.
   static const double panelHeight = 96;
+  static const double compactPanelHeight = 64;
+
+  /// The effective height for the given mode — used by the host's
+  /// `_bottomChromeTrimLift` math.
+  static double effectiveHeight({required bool compact}) =>
+      compact ? compactPanelHeight : panelHeight;
 
   @override
   State<_TrimPanel> createState() => _TrimPanelState();
@@ -3644,9 +3902,12 @@ class _TrimPanelState extends State<_TrimPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final isCompact = widget.compact;
     return Container(
-      height: _TrimPanel.panelHeight,
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      height: _TrimPanel.effectiveHeight(compact: isCompact),
+      padding: isCompact
+          ? const EdgeInsets.fromLTRB(10, 6, 10, 6)
+          : const EdgeInsets.fromLTRB(12, 8, 12, 8),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(14),
@@ -3778,45 +4039,47 @@ class _TrimPanelState extends State<_TrimPanel> {
               ),
             ],
           ),
-          const Spacer(),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  _trimmedReadout(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              if (_hasTrim)
-                GestureDetector(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    widget.onReset();
-                  },
-                  behavior: HitTestBehavior.opaque,
-                  child: const Padding(
-                    padding: EdgeInsets.only(left: 8),
-                    child: Text(
-                      '⤺ Reset to full video',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.primary,
-                      ),
+          if (!isCompact) ...[
+            const Spacer(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    _trimmedReadout(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
                     ),
                   ),
                 ),
-            ],
-          ),
+                if (_hasTrim)
+                  GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onReset();
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: const Padding(
+                      padding: EdgeInsets.only(left: 8),
+                      child: Text(
+                        '⤺ Reset to full video',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -3878,11 +4141,18 @@ class _CrossfadeTunerSheet extends StatefulWidget {
   final void Function({int? leadMs, int? fadeMs}) onChanged;
   final VoidCallback onReset;
 
+  /// True when rendered inside a landscape popover (dialog-anchored).
+  /// Drops the drag-handle + the rounded-top-only chrome that only
+  /// makes sense for a bottom sheet, since the parent Container in the
+  /// popover already provides the surface decoration.
+  final bool compact;
+
   const _CrossfadeTunerSheet({
     required this.initialLeadMs,
     required this.initialFadeMs,
     required this.onChanged,
     required this.onReset,
+    this.compact = false,
   });
 
   @override
@@ -3922,19 +4192,18 @@ class _CrossfadeTunerSheetState extends State<_CrossfadeTunerSheet> {
   @override
   Widget build(BuildContext context) {
     final viewInsets = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
-      padding: EdgeInsets.only(bottom: viewInsets),
-      child: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.surfaceBase,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          border: Border(top: BorderSide(color: AppColors.surfaceBorder)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+    final body = Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        widget.compact ? 16 : 12,
+        20,
+        widget.compact ? 16 : 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (!widget.compact)
             Center(
               child: Container(
                 width: 36,
@@ -3946,7 +4215,7 @@ class _CrossfadeTunerSheetState extends State<_CrossfadeTunerSheet> {
                 ),
               ),
             ),
-            const Text(
+          const Text(
               'Loop crossfade tuning',
               style: TextStyle(
                 fontFamily: 'Montserrat',
@@ -4020,6 +4289,21 @@ class _CrossfadeTunerSheetState extends State<_CrossfadeTunerSheet> {
             ),
           ],
         ),
+    );
+    if (widget.compact) {
+      // Popover host already provides the surface chrome — return the
+      // raw column so we don't double-frame it.
+      return body;
+    }
+    return Padding(
+      padding: EdgeInsets.only(bottom: viewInsets),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surfaceBase,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border(top: BorderSide(color: AppColors.surfaceBorder)),
+        ),
+        child: body,
       ),
     );
   }

@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 import '../services/auth_service.dart';
 import '../theme.dart';
 import '../widgets/homefit_logo.dart';
+import '../widgets/orientation_lock_guard.dart';
 
 /// Full-screen sign-in landing. Rendered by the AuthGate when the user has
 /// no Supabase session. Once sign-in completes (magic-link deep-link fires,
@@ -187,7 +188,8 @@ class _SignInScreenState extends State<SignInScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return OrientationLockGuard(
+      child: Scaffold(
       backgroundColor: AppColors.surfaceBg,
       resizeToAvoidBottomInset: true,
       body: SafeArea(
@@ -235,6 +237,7 @@ class _SignInScreenState extends State<SignInScreen> {
             );
           },
         ),
+      ),
       ),
     );
   }

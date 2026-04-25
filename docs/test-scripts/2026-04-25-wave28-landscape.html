@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 28 Landscape orientation support</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 28 · device QA</div>
+  <h1>Landscape orientation support</h1>
+
+  <p class="lede">
+    Single landing for the entire landscape rollout. <strong>(A)</strong> Camera mode now reflows correctly to landscape; preview no longer warps. Recording-in-flight orientation lock prevents mid-record rotation. <strong>(B)</strong> <code>_MediaViewer</code> reflows chrome for landscape — treatment + body focus + mute + new rotate-90 pill stack horizontally; tune sheet becomes a popover; trim panel is compact. <strong>(C)</strong> Web player has landscape CSS for the first time (zero <code>@media (orientation: landscape)</code> rules existed before today). Schema migration adds <code>aspect_ratio</code> + <code>rotation_quarters</code> to <code>exercises</code>; <code>get_plan_full</code> auto-flows. Mobile + web read both. Home / ClientSessions / Settings / Sign-In / Auth gate / Studio mode are explicitly portrait-locked. iPad locked to iPhone-only orientations. <code>PlanPreviewScreen</code> retired entirely. Latest cache <code>v64-landscape</code>. SQLite <code>v28</code>.
+  </p>
+
+  <h2>A · Orientation policy — stay portrait where it should</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+      <span class="num">1.</span>
+      <span class="text">Sign-in, Home, Client list, Client detail, Settings all stay portrait when rotated.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Sign out. Rotate iPhone — Sign-in screen stays portrait.</li>
+        <li data-sub="1.2">Sign in. Home screen — rotate, stays portrait.</li>
+        <li data-sub="1.3">Tap a client → ClientSessionsScreen — rotate, stays portrait.</li>
+        <li data-sub="1.4">Open Settings — rotate, stays portrait.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+      <span class="num">2.</span>
+      <span class="text">Studio mode stays portrait — bottom-anchored reach unchanged.</span>
+      <ol class="steps">
+        <li data-sub="2.1">Open a session → Studio mode. Rotate — stays portrait.</li>
+        <li data-sub="2.2">Studio's chip rows + InlineActionTray + bottom rest bars all unchanged from previous waves.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B · Camera capture — landscape works (Wave 28 marquee)</h2>
+  <ul class="checklist">
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+      <span class="num">3.</span>
+      <span class="text">Rotating the phone in Camera mode reflows the preview correctly. No warp.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Open a session → swipe to Camera mode. Verify preview is correct in portrait (full screen, fills bounds).</li>
+        <li data-sub="3.2">Rotate to landscape (left or right). Preview should reflow to fill the now-wider canvas. <strong>No more "warps to portrait".</strong></li>
+        <li data-sub="3.3">Rotate back to portrait. Preview reflows back. No artifacts.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+      <span class="num">4.</span>
+      <span class="text">Recording locks orientation while in flight.</span>
+      <ol class="steps">
+        <li data-sub="4.1">In Camera, rotate to landscape. Long-press shutter to start recording.</li>
+        <li data-sub="4.2">Mid-recording, try to rotate to portrait. Phone orientation should NOT change until you release the shutter (lock acquired at landscape on record-start).</li>
+        <li data-sub="4.3">Release the shutter (recording ends). Orientation lock releases — phone can now rotate freely.</li>
+        <li data-sub="4.4">Repeat starting in portrait — record-start locks at portrait until release.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+      <span class="num">5.</span>
+      <span class="text">Landscape-recorded clip plays back as landscape on the Studio card thumbnail + in <code>_MediaViewer</code>.</span>
+      <ol class="steps">
+        <li data-sub="5.1">Record a video in landscape.</li>
+        <li data-sub="5.2">Swipe back to Studio (forces portrait). Card thumbnail shows the landscape source proportionally — no squashed faces.</li>
+        <li data-sub="5.3">Tap the thumbnail → <code>_MediaViewer</code> opens. Video renders correctly (letterboxed inside portrait viewport, OR fills if you rotate the phone to landscape).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C · <code>_MediaViewer</code> landscape reflow</h2>
+  <ul class="checklist">
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+      <span class="num">6.</span>
+      <span class="text">Open <code>_MediaViewer</code> in portrait → rotate to landscape → all chrome elements visible, no overlap.</span>
+      <ol class="steps">
+        <li data-sub="6.1">Tap a video thumbnail in Studio → <code>_MediaViewer</code> opens portrait. Verify normal chrome (treatment pill on left rail, mute + body focus + rotate stacked bottom-left, exercise-name pill top-center, close X top-right, dot indicators bottom-center, trim panel bottom).</li>
+        <li data-sub="6.2">Rotate to landscape. Treatment segmented control switches to horizontal. Mute / body focus / rotate-90 line up horizontally bottom-left. Exercise-name pill stays top-center. Close X top-right. No chrome overlaps; no hidden buttons.</li>
+        <li data-sub="6.3">Trim panel becomes compact (~64px tall) and bar stretches across the wider canvas.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+      <span class="num">7.</span>
+      <span class="text">Tune sheet opens as a popover in landscape (NOT a bottom sheet).</span>
+      <ol class="steps">
+        <li data-sub="7.1">In landscape <code>_MediaViewer</code>, tap the tune gear.</li>
+        <li data-sub="7.2">A 280-px popover anchors near the gear. Two crossfade sliders + reset button. NOT a bottom sheet eating half the canvas.</li>
+        <li data-sub="7.3">Drag a slider — value updates live; crossfade reflects on the next loop seam.</li>
+        <li data-sub="7.4">Rotate back to portrait — close the popover, tap the gear again. Now opens as a bottom sheet (portrait keeps the historical UX).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+      <span class="num">8.</span>
+      <span class="text">Trim drag works in landscape.</span>
+      <ol class="steps">
+        <li data-sub="8.1">In landscape <code>_MediaViewer</code>, drag the right trim handle. Video pauses on drag, scrubs to dragged frame, resumes on release.</li>
+        <li data-sub="8.2">Drag the left handle — same behaviour.</li>
+        <li data-sub="8.3">No layout glitches; bar handles stay tappable across the wider canvas.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>D · Rotate-90 button (new)</h2>
+  <ul class="checklist">
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+      <span class="num">9.</span>
+      <span class="text">Rotate-90 pill in <code>_MediaViewer</code> rotates playback 90° clockwise per tap; long-press resets to 0.</span>
+      <ol class="steps">
+        <li data-sub="9.1">In <code>_MediaViewer</code>, find the new rotate pill in the bottom-left chrome cluster (icon: rotate-right). Tap it.</li>
+        <li data-sub="9.2">Video rotates 90° clockwise. Aspect ratio swaps if odd quarters. Letterboxing reads natural.</li>
+        <li data-sub="9.3">Tap again. 180°. Tap again. 270°. Tap again. Back to 0°.</li>
+        <li data-sub="9.4">Long-press the pill — instantly resets to 0° regardless of current state.</li>
+        <li data-sub="9.5">Pill is hidden on photo / rest rows (only visible for videos).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="10" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+      <span class="num">10.</span>
+      <span class="text">Rotation persists across app restart and ships on publish.</span>
+      <ol class="steps">
+        <li data-sub="10.1">Rotate a video to 90° via the pill. Close <code>_MediaViewer</code>. Force-quit app. Reopen.</li>
+        <li data-sub="10.2">Reopen the same exercise → still rotated 90°.</li>
+        <li data-sub="10.3">Publish the plan. Open the published URL on Mac Safari (hard refresh for new SW cache).</li>
+        <li data-sub="10.4">Same exercise renders rotated 90° in the web player.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="11" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+      <span class="num">11.</span>
+      <span class="text">Rotation composes correctly with crossfade, body focus, treatment switch, trim.</span>
+      <ol class="steps">
+        <li data-sub="11.1">Rotate to 90°. Watch the loop seam — crossfade is smooth, no double-rotation glitch.</li>
+        <li data-sub="11.2">Toggle Body focus — segmented variant renders in rotated orientation.</li>
+        <li data-sub="11.3">Cycle treatments (Line / B&amp;W / Original) — all render rotated.</li>
+        <li data-sub="11.4">Drag trim handles — trim window respected against the source clock (rotation doesn't affect trim).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>E · Web player landscape (client-facing)</h2>
+  <ul class="checklist">
+    <li data-num="12" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+      <span class="num">12.</span>
+      <span class="text">Published plan in portrait Safari (iPhone) — baseline, no regression.</span>
+      <ol class="steps">
+        <li data-sub="12.1">Open a published plan URL on iPhone Safari, portrait orientation. Workout starts cleanly. Pill matrix, ETA row, prep overlay all render correctly. SW cache is <code>homefit-player-v64-landscape</code> (visible in the footer build marker).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="13" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
+      <span class="num">13.</span>
+      <span class="text">Same plan rotated to landscape — pill matrix + card viewport + chrome reflow.</span>
+      <ol class="steps">
+        <li data-sub="13.1">Rotate iPhone to landscape on the published page. Plan title bar slims down. Pill matrix reflows wider. Active card occupies most of the canvas. Right-edge chrome (mute / playpause / fullscreen / settings) stays a column on the right edge — none of them collide.</li>
+        <li data-sub="13.2">Settings popover anchors as a popover (not full-bottom-sheet) — capped 360px width.</li>
+        <li data-sub="13.3">Edge nav chevrons stay mid-vertical. Tappable.</li>
+        <li data-sub="13.4">Rotate back — portrait layout returns instantly with no jank.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="14" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+      <span class="num">14.</span>
+      <span class="text">Mid-workout rotation: timer + active pill stay in sync.</span>
+      <ol class="steps">
+        <li data-sub="14.1">Start the workout. Mid-set, rotate to landscape. Timer keeps counting; active pill stays highlighted; auto-scroll re-targets the active pill correctly.</li>
+        <li data-sub="14.2">Rotate back. Same — no drift, no double-tick.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="15" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+      <span class="num">15.</span>
+      <span class="text">Mixed-orientation plan: portrait + landscape exercises in one circuit.</span>
+      <ol class="steps">
+        <li data-sub="15.1">Build a plan with 3 exercises: one 9:16 (portrait phone capture), one 16:9 (landscape phone capture), one photo. Publish.</li>
+        <li data-sub="15.2">Open on iPhone Safari portrait. Each exercise card scales to its own aspect — portrait pills letterbox in the card viewport without artefacts.</li>
+        <li data-sub="15.3">Rotate to landscape. Same — landscape source fills, portrait letterboxes.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>F · End-to-end: schema → mobile → web</h2>
+  <ul class="checklist">
+    <li data-num="16" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
+      <span class="num">16.</span>
+      <span class="text">Schema columns + RPC surface the new fields.</span>
+      <ol class="steps">
+        <li data-sub="16.1">Optional spot-check: <code>supabase db query --linked "select id, aspect_ratio, rotation_quarters from exercises limit 5;"</code> — recently-captured exercises return non-null aspect; legacy rows return NULL.</li>
+        <li data-sub="16.2"><code>get_plan_full</code> includes both fields in the per-exercise jsonb.</li>
+        <li data-sub="16.3">Published plan in Mac Safari devtools → Network → <code>get_plan_full</code> response shows the new fields per exercise.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="17" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
+      <span class="num">17.</span>
+      <span class="text"><code>PlanPreviewScreen</code> escape hatch is gone.</span>
+      <ol class="steps">
+        <li data-sub="17.1">In Studio mode, find the slideshow icon. Long-press — should NOT open the legacy native preview (the file is deleted).</li>
+        <li data-sub="17.2">Regular tap still opens the unified WebView preview.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>G · Memory profile (proactive — Carl's request)</h2>
+  <ul class="checklist">
+    <li data-num="18" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
+      <span class="num">18.</span>
+      <span class="text">Dual-video crossfade on landscape 1080p — memory + thermal acceptable for ~5 min of continuous loop.</span>
+      <ol class="steps">
+        <li data-sub="18.1">Open a 1080p landscape-recorded video in <code>_MediaViewer</code>.</li>
+        <li data-sub="18.2">Set crossfade lead = 250 ms / fade = 200 ms (defaults). Let it loop continuously for 5 minutes.</li>
+        <li data-sub="18.3">Note any thermal warnings, frame stutters, or visible decoder hiccups. NOTE the rough peak memory if you can grab it via Xcode Instruments while plugged in.</li>
+        <li data-sub="18.4">If anything degrades: capture in the failure note. If stable for 5 min: PASS.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope (skip if you see them)</h3>
+    <ul>
+      <li>Android — iOS-only Wave 28.</li>
+      <li>iPad — locked to iPhone-only orientations; no iPad-specific testing needed.</li>
+      <li>Practitioner Studio mode landscape — explicitly portrait-locked.</li>
+      <li>Web portal (manage.homefit.studio) — desktop-first, unaffected.</li>
+      <li>Wave 27 items already verified (per-plan crossfade tuner, trim handle, play/pause icon swap) — re-verify only if Wave 28 surfaces a regression.</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-25-wave28-landscape.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave28-landscape', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

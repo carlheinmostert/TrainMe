@@ -12,6 +12,7 @@ import '../services/sync_service.dart';
 import '../theme.dart';
 import '../utils/session_title.dart';
 import '../widgets/client_consent_sheet.dart';
+import '../widgets/orientation_lock_guard.dart';
 import '../widgets/powered_by_footer.dart';
 import '../widgets/session_card.dart';
 import 'session_shell_screen.dart';
@@ -382,7 +383,8 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return OrientationLockGuard(
+      child: Scaffold(
       backgroundColor: AppColors.surfaceBg,
       appBar: AppBar(
         backgroundColor: AppColors.surfaceBg,
@@ -455,6 +457,7 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
             const PoweredByFooter(),
           ],
         ),
+      ),
       ),
     );
   }

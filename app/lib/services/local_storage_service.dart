@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 27;
+  static const _dbVersion = 28;
 
   Database? _db;
 
@@ -123,6 +123,8 @@ class LocalStorageService {
         start_offset_ms INTEGER,
         end_offset_ms INTEGER,
         video_reps_per_loop INTEGER,
+        aspect_ratio REAL,
+        rotation_quarters INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -573,6 +575,25 @@ class LocalStorageService {
         'ALTER TABLE sessions ADD COLUMN crossfade_fade_ms INTEGER',
       );
     }
+    if (oldVersion < 28) {
+      // Wave 28 — landscape orientation metadata.
+      //
+      //   * aspect_ratio (REAL) — effective playback aspect after any
+      //     practitioner rotation. NULL = consumer derives at first
+      //     paint (legacy / pre-migration).
+      //   * rotation_quarters (INTEGER) — practitioner rotation in 90°
+      //     clockwise quarters (0/1/2/3). NULL treated as 0.
+      //
+      // Both flow through `replace_plan_exercises` on publish and back
+      // through `get_plan_full` to the web player. Supabase mirror:
+      // schema_wave28_landscape_metadata.sql.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN aspect_ratio REAL',
+      );
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN rotation_quarters INTEGER',
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -954,6 +975,13 @@ class LocalStorageService {
     // video is a semantic content edit; it shifts the per-rep / per-set
     // playback math on both surfaces.
     if (prev.videoRepsPerLoop != next.videoRepsPerLoop) return true;
+    // Wave 28 — practitioner rotation flips playback orientation on
+    // both surfaces. Aspect-ratio writes that accompany a rotation are
+    // covered by the same delta. The first capture-time aspect-ratio
+    // write (no prior row) already counts as a fresh insert and dirties
+    // the session via the `existing == null` branch in `saveExercise`.
+    if (prev.rotationQuarters != next.rotationQuarters) return true;
+    if (prev.aspectRatio != next.aspectRatio) return true;
     return false;
   }
 

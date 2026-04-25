@@ -15,6 +15,7 @@ import '../services/sticky_defaults.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/capture_thumbnail.dart';
+import '../widgets/orientation_lock_guard.dart';
 import '../widgets/shell_pull_tab.dart';
 
 /// In-session camera mode.
@@ -57,6 +58,15 @@ class CaptureModeScreen extends StatefulWidget {
   @override
   State<CaptureModeScreen> createState() => _CaptureModeScreenState();
 }
+
+/// The default orientation set for the camera surface — portrait plus
+/// both landscapes. Recording lock clamps this to a single orientation
+/// (or both landscapes only) for the duration of a clip.
+const Set<DeviceOrientation> _kCameraDefaultOrientations = {
+  DeviceOrientation.portraitUp,
+  DeviceOrientation.landscapeLeft,
+  DeviceOrientation.landscapeRight,
+};
 
 class _CaptureModeScreenState extends State<CaptureModeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
@@ -117,6 +127,13 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   bool _wasRecordingOnBackground = false;
   Timer? _recordingTickTimer;
   int _recordingSeconds = 0;
+
+  /// Orientation lock for the camera surface. Defaults to portrait +
+  /// both landscapes. The moment a recording starts, this clamps to the
+  /// orientation recording started in so AVFoundation's embedded
+  /// transform metadata stays single-valued (mid-clip rotation otherwise
+  /// produces a half-portrait, half-landscape clip with one transform).
+  Set<DeviceOrientation> _allowedOrientations = _kCameraDefaultOrientations;
 
   // --- Peek box state ---
   /// Latest capture shown in the peek box. Updated whenever a capture
@@ -237,6 +254,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         _recordingSeconds = 0;
         _isCameraInitialized = false;
         _cameraController = null;
+        _allowedOrientations = _kCameraDefaultOrientations;
       });
 
       unawaited(_teardownController(controller, salvageRecording: wasRecording));
@@ -556,12 +574,26 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // with medium on his device.
     HapticFeedback.heavyImpact();
 
+    // Snapshot orientation at the first frame and lock the surface to
+    // it. AVFoundation embeds `videoOrientation` once at recording
+    // start; allowing the device to rotate mid-clip produces a clip
+    // with a single transform that no longer matches the latter half
+    // of the frames. Locking is the standard pattern.
+    final isPortrait = MediaQuery.orientationOf(context) == Orientation.portrait;
+    final lockedSet = isPortrait
+        ? const {DeviceOrientation.portraitUp}
+        : const {
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          };
+
     try {
       await _cameraController!.startVideoRecording();
       if (!mounted) return;
       setState(() {
         _isRecording = true;
         _recordingSeconds = 0;
+        _allowedOrientations = lockedSet;
       });
 
       // If the user already released during the async start, honour
@@ -599,6 +631,11 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     } catch (e) {
       debugPrint('Video recording start failed: $e');
       _pendingStopAfterStart = false;
+      if (mounted) {
+        setState(() {
+          _allowedOrientations = _kCameraDefaultOrientations;
+        });
+      }
     }
   }
 
@@ -613,6 +650,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         setState(() {
           _isRecording = false;
           _recordingSeconds = 0;
+          _allowedOrientations = _kCameraDefaultOrientations;
         });
       }
       return;
@@ -629,6 +667,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         setState(() {
           _isRecording = false;
           _recordingSeconds = 0;
+          _allowedOrientations = _kCameraDefaultOrientations;
         });
       }
       return;
@@ -649,6 +688,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       setState(() {
         _isRecording = false;
         _recordingSeconds = 0;
+        _allowedOrientations = _kCameraDefaultOrientations;
       });
 
       // Haptic confirmation:
@@ -674,6 +714,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         setState(() {
           _isRecording = false;
           _recordingSeconds = 0;
+          _allowedOrientations = _kCameraDefaultOrientations;
         });
       }
       // Silent: the count simply doesn't go up.
@@ -771,7 +812,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return OrientationLockGuard(
+      allowed: _allowedOrientations,
+      child: Container(
       color: Colors.black,
       child: Stack(
         fit: StackFit.expand,
@@ -837,6 +880,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           ),
         ],
       ),
+      ),
     );
   }
 
@@ -862,18 +906,33 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // BoxFit.contain with black letterboxing shows the full sensor
     // frame. Carl's "zoomed in" report was the previous BoxFit.cover
     // cropping the long edge of the frame.
+    //
+    // The `camera` plugin reports `previewSize` in the sensor's native
+    // landscape coordinates (e.g. 1920x1080). In portrait we have to
+    // swap width/height so the FittedBox lays the frame out as a
+    // portrait box; in landscape we pass the dimensions through
+    // unswapped. The previous always-swap math inverted the moment the
+    // device rotated — that was Carl's "weirdly warps into portrait."
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onScaleStart: _onPinchStart,
       onScaleUpdate: _onPinchUpdate,
       child: ClipRect(
-        child: FittedBox(
-          fit: BoxFit.contain,
-          child: SizedBox(
-            width: _cameraController!.value.previewSize?.height ?? 0,
-            height: _cameraController!.value.previewSize?.width ?? 0,
-            child: CameraPreview(_cameraController!),
-          ),
+        child: OrientationBuilder(
+          builder: (context, orientation) {
+            final size = _cameraController!.value.previewSize;
+            final sensorW = size?.width ?? 0;
+            final sensorH = size?.height ?? 0;
+            final isPortrait = orientation == Orientation.portrait;
+            return FittedBox(
+              fit: BoxFit.contain,
+              child: SizedBox(
+                width: isPortrait ? sensorH : sensorW,
+                height: isPortrait ? sensorW : sensorH,
+                child: CameraPreview(_cameraController!),
+              ),
+            );
+          },
         ),
       ),
     );

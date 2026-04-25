@@ -13,6 +13,7 @@ import 'services/practitioner_custom_presets.dart';
 import 'services/sync_service.dart';
 import 'services/unified_preview_scheme_bridge.dart';
 import 'screens/auth_gate.dart';
+import 'widgets/orientation_lock_guard.dart';
 
 /// TrainMe — Exercise plan capture and sharing for biokineticists.
 ///
@@ -24,17 +25,13 @@ void main() async {
   // Initialize path resolver before anything that touches file paths
   await PathResolver.initialize();
 
-  // Wave 8: landscape capture. Exercise demos are mostly filmed
-  // vertically, but some (gait analysis, long lateral movements) need
-  // landscape. Allow all four orientations; individual screens that
-  // really want portrait-only can override locally with another
-  // setPreferredOrientations call on push.
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ]);
+  // Wave 28: portrait-only global default. Camera mode and the media
+  // viewer push their own landscape allowance via OrientationLockGuard;
+  // every other surface stays portrait. The guard's empty-stack
+  // fallback re-applies this baseline.
+  await OrientationLockGuardScope.setGlobalDefault(
+    const {DeviceOrientation.portraitUp},
+  );
 
   // Initialize Supabase for cloud storage and plan sharing
   await Supabase.initialize(

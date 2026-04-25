@@ -8,6 +8,7 @@ import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
+import '../widgets/orientation_lock_guard.dart';
 import '../widgets/powered_by_footer.dart';
 import '../widgets/set_password_sheet.dart';
 import '../widgets/undo_snackbar.dart';
@@ -64,7 +65,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final user = AuthService.instance.currentSession?.user;
     final email = user?.email ?? '—';
 
-    return Scaffold(
+    return OrientationLockGuard(
+      child: Scaffold(
       backgroundColor: AppColors.surfaceBg,
       appBar: AppBar(
         backgroundColor: AppColors.surfaceBg,
@@ -248,6 +250,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const PoweredByFooter(),
           ],
         ),
+      ),
       ),
     );
   }

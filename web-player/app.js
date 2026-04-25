@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v63-svg-hidden-attr';
+const PLAYER_VERSION = 'v64-landscape';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -581,9 +581,18 @@ function buildCard(slide, index) {
 
   const mediaHTML = buildMedia(slide, index);
   const mediaType = slide.media_type === 'video' ? 'video' : 'photo';
+  // Wave 28 — landscape support. Each exercise carries its post-rotation
+  // effective aspect ratio (NULL on legacy plans). Stash it on the card
+  // as a CSS var so portrait/landscape media queries can size the slot
+  // before the video metadata fires. NULL → no inline style → CSS
+  // defaults win exactly as before.
+  const ar = Number(slide.aspect_ratio);
+  const arAttr = Number.isFinite(ar) && ar > 0
+    ? ` style="--exercise-aspect-ratio: ${ar};"`
+    : '';
 
   return `
-    <div class="exercise-card" data-index="${index}" data-media-type="${mediaType}">
+    <div class="exercise-card" data-index="${index}" data-media-type="${mediaType}"${arAttr}>
       <div class="card-inner">
         <div class="card-media" data-media-index="${index}">
           ${mediaHTML}
@@ -592,6 +601,20 @@ function buildCard(slide, index) {
       </div>
     </div>
   `;
+}
+
+/**
+ * Wave 28 — landscape support. Practitioner's manual playback rotation
+ * for each exercise, expressed in quarter-turns. Maps NULL / garbage
+ * to 0 so legacy plans render identically to today. The CSS transform
+ * lives on a wrapper element (.video-loop-pair for videos,
+ * .media-rotation-wrap for photos), never directly on the <video> /
+ * <img> — that keeps the dual-video crossfade opacity transitions on
+ * a clean stacking context.
+ */
+function getExerciseRotationDeg(slide) {
+  const q = Number(slide && slide.rotation_quarters) || 0;
+  return ((q % 4) + 4) % 4 * 90;
 }
 
 function buildRestCard(slide, index) {
@@ -803,8 +826,13 @@ function buildMedia(exercise, index) {
     // The secondary lives at `video-${index}-b` and is paused by
     // default at frame 0.
     const grayscaleClass = slideT === 'bw' ? 'is-grayscale' : '';
+    // Wave 28 — practitioner's manual playback rotation lives on the
+    // pair wrapper so it composes cleanly with the per-video opacity
+    // crossfade. 0deg → no transform style → identical CSS to legacy.
+    const rotDeg = getExerciseRotationDeg(exercise);
+    const rotStyle = rotDeg ? ` style="transform: rotate(${rotDeg}deg);"` : '';
     return `
-      <div class="video-loop-pair" data-pair-index="${index}">
+      <div class="video-loop-pair" data-pair-index="${index}" data-rotation-deg="${rotDeg}"${rotStyle}>
         <video
           id="video-${index}"
           class="video-loop-slot ${grayscaleClass}"
@@ -859,7 +887,13 @@ function buildMedia(exercise, index) {
   // future per-element preview/inspect tooling treats both surfaces
   // uniformly.
   const grayscaleClass = slideT === 'bw' ? 'is-grayscale' : '';
-  return `<img src="${escapeHTML(resolvedUrl)}" alt="${escapeHTML(exercise.name || 'Exercise')}" class="${grayscaleClass}" data-treatment="${slideT}" loading="lazy">`;
+  // Wave 28 — wrap photos in a thin rotation container so the same
+  // wrapper-anchored rotation pattern that videos use works for images
+  // too. Wrapper is a no-op for legacy plans (rotation 0 → no inline
+  // style); CSS rules in styles.css give the wrapper inherent fill.
+  const rotDeg = getExerciseRotationDeg(exercise);
+  const rotStyle = rotDeg ? ` style="transform: rotate(${rotDeg}deg);"` : '';
+  return `<div class="media-rotation-wrap" data-rotation-deg="${rotDeg}"${rotStyle}><img src="${escapeHTML(resolvedUrl)}" alt="${escapeHTML(exercise.name || 'Exercise')}" class="${grayscaleClass}" data-treatment="${slideT}" loading="lazy"></div>`;
 }
 
 /**
@@ -3946,16 +3980,28 @@ async function init() {
         if (Number.isFinite(idx) && idx !== currentIndex) jumpToSlide(idx);
       });
       // Re-choose size tier on viewport resize — rebuild is cheap.
+      // Wave 28: debounce ~150ms so a rapid portrait↔landscape rotation
+      // (which fires resize multiple times as iOS Safari settles the new
+      // visual viewport) doesn't thrash buildProgressMatrix(). The
+      // post-debounce pass recomputes the size tier, rebuilds the matrix
+      // if the tier changed, and restores the active-pill state without
+      // a scroll animation (the matrix flex-fits, so there's no scroll
+      // offset to preserve — we just want correct layout immediately).
+      let matrixResizeTimer = null;
       window.addEventListener('resize', () => {
-        const prev = matrixSizeTier;
-        const blocks = buildMatrixBlocks();
-        const nextTier = chooseMatrixSizeTier(countMatrixColumns(blocks), window.innerWidth);
-        if (nextTier !== prev) {
-          buildProgressMatrix();
-          updateProgressMatrix();
-        } else {
-          updateProgressMatrix();
-        }
+        if (matrixResizeTimer) clearTimeout(matrixResizeTimer);
+        matrixResizeTimer = setTimeout(() => {
+          matrixResizeTimer = null;
+          const prev = matrixSizeTier;
+          const blocks = buildMatrixBlocks();
+          const nextTier = chooseMatrixSizeTier(countMatrixColumns(blocks), window.innerWidth);
+          if (nextTier !== prev) {
+            buildProgressMatrix();
+            updateProgressMatrix();
+          } else {
+            updateProgressMatrix();
+          }
+        }, 150);
       });
     }
 
