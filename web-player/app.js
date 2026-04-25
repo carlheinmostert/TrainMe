@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v62-trim-aware-crossfade';
+const PLAYER_VERSION = 'v63-svg-hidden-attr';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -3007,16 +3007,26 @@ function updatePlayPauseToggle() {
   if (!$btnPlayPause) return;
   // Hide outside workout mode; the start-workout button is the only
   // playback affordance pre-workout.
-  $btnPlayPause.hidden = !isWorkoutMode;
-  if (!isWorkoutMode) return;
+  if (isWorkoutMode) $btnPlayPause.removeAttribute('hidden');
+  else { $btnPlayPause.setAttribute('hidden', ''); return; }
   const showPlayIcon = !isPrepPhase && !isTimerRunning;
-  if ($btnPlayPauseIconPlay) $btnPlayPauseIconPlay.hidden = !showPlayIcon;
-  if ($btnPlayPauseIconPause) $btnPlayPauseIconPause.hidden = showPlayIcon;
+  // setAttribute/removeAttribute rather than `.hidden = bool` —
+  // SVGElement's hidden IDL reflection is inconsistent across browsers,
+  // so the content attribute (which the `[hidden]` selector matches)
+  // can end up out of sync.
+  toggleHiddenAttr($btnPlayPauseIconPlay, !showPlayIcon);
+  toggleHiddenAttr($btnPlayPauseIconPause, showPlayIcon);
   $btnPlayPause.setAttribute('aria-pressed', showPlayIcon ? 'true' : 'false');
   $btnPlayPause.setAttribute(
     'aria-label',
     showPlayIcon ? 'Resume workout' : 'Pause workout'
   );
+}
+
+function toggleHiddenAttr(el, hide) {
+  if (!el) return;
+  if (hide) el.setAttribute('hidden', '');
+  else el.removeAttribute('hidden');
 }
 
 /**
