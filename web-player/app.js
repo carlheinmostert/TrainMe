@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v58-simplify-pass';
+const PLAYER_VERSION = 'v60-per-plan-crossfade';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -209,9 +209,32 @@ let interSetRestForSlide = 0;
 // Skipped entirely for: photos, rest slides, videos longer than
 // LOOP_CROSSFADE_MAX_DURATION (no perceptual seam at low loop frequency).
 // ------------------------------------------------------------------
-const LOOP_CROSSFADE_LEAD_MS = 250;     // preroll the inactive video this far before duration
+// Per-plan crossfade tuning (Wave 27). Defaults match historical
+// behaviour; overrides ride on `plan.crossfade_lead_ms` /
+// `plan.crossfade_fade_ms` from get_plan_full and clamp to the
+// safe ranges below. NULL → use the default.
+const DEFAULT_LOOP_CROSSFADE_LEAD_MS = 250;
+const DEFAULT_LOOP_CROSSFADE_FADE_MS = 200;
+const LOOP_CROSSFADE_LEAD_RANGE = [100, 800];
+const LOOP_CROSSFADE_FADE_RANGE = [50, 600];
 const LOOP_CROSSFADE_MIN_DURATION = 1.2; // < this → fall back to native loop (too short for crossfade)
 const LOOP_CROSSFADE_MAX_DURATION = 12;  // > this → seam is rare, skip the dual-video machinery
+
+function getLoopCrossfadeLeadMs() {
+  const v = plan && plan.crossfade_lead_ms;
+  if (v == null) return DEFAULT_LOOP_CROSSFADE_LEAD_MS;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DEFAULT_LOOP_CROSSFADE_LEAD_MS;
+  return Math.max(LOOP_CROSSFADE_LEAD_RANGE[0], Math.min(LOOP_CROSSFADE_LEAD_RANGE[1], n));
+}
+
+function getLoopCrossfadeFadeMs() {
+  const v = plan && plan.crossfade_fade_ms;
+  if (v == null) return DEFAULT_LOOP_CROSSFADE_FADE_MS;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DEFAULT_LOOP_CROSSFADE_FADE_MS;
+  return Math.max(LOOP_CROSSFADE_FADE_RANGE[0], Math.min(LOOP_CROSSFADE_FADE_RANGE[1], n));
+}
 const REP_TICK_PULSE_MS = 200;
 const loopState = new Map();
 let drainTimer = null;
@@ -362,6 +385,13 @@ const $matrixChevron = document.getElementById('progress-matrix-chevron');
 
 // Video-as-hero overlay refs
 const $btnFullscreen = document.getElementById('btn-fullscreen');
+const $btnPlayPause = document.getElementById('btn-playpause');
+const $btnPlayPauseIconPlay = $btnPlayPause
+  ? $btnPlayPause.querySelector('.pp-icon-play')
+  : null;
+const $btnPlayPauseIconPause = $btnPlayPause
+  ? $btnPlayPause.querySelector('.pp-icon-pause')
+  : null;
 const $restCountdownOverlay = document.getElementById('rest-countdown-overlay');
 const $restCountdownNumber = document.getElementById('rest-countdown-number');
 const $cardNotes = document.getElementById('card-notes');
@@ -512,6 +542,13 @@ function renderPlan() {
   $clientName.textContent = plan.client_name;
   $planTitle.textContent = plan.title;
 
+  // Push the per-plan crossfade fade-duration into a CSS var so the
+  // .video-loop-slot transition picks it up. Cascades from :root.
+  document.documentElement.style.setProperty(
+    '--loop-crossfade-fade-ms',
+    `${getLoopCrossfadeFadeMs()}ms`,
+  );
+
   // Build the progress-pill matrix (replaces legacy single linear bar).
   buildProgressMatrix();
 
@@ -531,12 +568,9 @@ function renderPlan() {
   updateCardNotes();
 
   updateUI();
-  // Wave 19.3 fix: the pause overlay is baked with play-icon-default in
-  // buildMediaPauseOverlay(), but the initial glyph state should reflect
-  // "video is playing" (= PAUSE glyph) on first paint. updateUI() does not
-  // touch the overlay so we flip it explicitly here — otherwise the first
-  // time the user sees fullscreen they get a dimmed ▶ instead of ||.
-  updatePauseOverlay();
+  // updateUI() doesn't touch the play/pause toggle, so prime it here so
+  // its hidden state + glyph reflect workout-mode on first paint.
+  updatePlayPauseToggle();
 }
 
 function buildCard(slide, index) {
@@ -553,7 +587,6 @@ function buildCard(slide, index) {
       <div class="card-inner">
         <div class="card-media" data-media-index="${index}">
           ${mediaHTML}
-          ${buildMediaPauseOverlay()}
           ${buildPrepOverlay()}
         </div>
       </div>
@@ -564,7 +597,7 @@ function buildCard(slide, index) {
 function buildRestCard(slide, index) {
   // Rest card: icon + "Rest" title + "Next up: X" subtitle. Name + grammar
   // live in the top-stack active-slide-header (not inside the card). Tap
-  // to pause/resume is via the same .media-pause-overlay as exercise slides.
+  // to pause/resume is via the .card-media area (handleMediaTap).
   const nextSlide = index < slides.length - 1 ? slides[index + 1] : null;
   const nextUpName = nextSlide ? (nextSlide.name || 'Next exercise') : null;
 
@@ -584,35 +617,8 @@ function buildRestCard(slide, index) {
             <div class="rest-title">Rest</div>
             ${nextUpName ? `<div class="rest-next-up">Next up: ${escapeHTML(nextUpName)}</div>` : ''}
           </div>
-          ${buildMediaPauseOverlay()}
           ${buildPrepOverlay()}
         </div>
-      </div>
-    </div>
-  `;
-}
-
-/**
- * Item 8: centered dark-circle overlay with coral play icon. Shown only when
- * the workout is paused on the active slide. Touch-transparent — the parent
- * .card-media captures the tap and dispatches via handleMediaTap(). The
- * overlay is injected into every card but only toggled visible on the
- * currently active, paused slide.
- */
-function buildMediaPauseOverlay() {
-  // Wave 19.3: default the visible glyph to PAUSE because the video begins
-  // playing on first paint (preview autoplay). updatePauseOverlay() then
-  // swaps to PLAY only during the explicit mid-workout paused state.
-  return `
-    <div class="media-pause-overlay">
-      <div class="pause-disc">
-        <svg class="pause-icon pause-icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
-          <polygon points="6 3 20 12 6 21 6 3"/>
-        </svg>
-        <svg class="pause-icon pause-icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <rect x="6" y="4" width="4" height="16" rx="1"/>
-          <rect x="14" y="4" width="4" height="16" rx="1"/>
-        </svg>
       </div>
     </div>
   `;
@@ -1403,7 +1409,7 @@ function goTo(index) {
   updateTimelineBar();
   // Slide state changed — re-evaluate the pause/prep overlay visibility on
   // the new active slide and hide them on the old one.
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updatePrepOverlay();
   // Wave 19.6 — Enhanced Background switch enabled-state depends on the
   // CURRENT slide's effective treatment when in `auto` mode. Re-evaluate
@@ -1552,7 +1558,7 @@ function attachLoopListeners(idx, videoEl) {
   if (!videoEl) return;
 
   // `lastTime` lets timeupdate detect both:
-  //   * the prebuffer trigger (currentTime > duration - LOOP_CROSSFADE_LEAD_MS)
+  //   * the prebuffer trigger (currentTime > duration - getLoopCrossfadeLeadMs())
   //   * the loop seam itself (currentTime < lastTime → just wrapped)
   // We can't rely on the `ended` event because the native `loop`
   // attribute suppresses it — the browser silently seeks back to 0
@@ -1580,7 +1586,7 @@ function attachLoopListeners(idx, videoEl) {
     }
 
     // Prebuffer trigger.
-    if (!state.prebuffered && inWindow && (dur - t) * 1000 <= LOOP_CROSSFADE_LEAD_MS) {
+    if (!state.prebuffered && inWindow && (dur - t) * 1000 <= getLoopCrossfadeLeadMs()) {
       const inactive = getInactiveVideoForSlide(idx);
       if (inactive) {
         state.prebuffered = true;
@@ -1971,7 +1977,7 @@ function onKeyDown(e) {
     } else if (remainingSeconds > 0) {
       resumeTimer();
     }
-    updatePauseOverlay();
+    updatePlayPauseToggle();
   }
 }
 
@@ -2363,7 +2369,7 @@ function startPrepPhase() {
 
   updatePrepOverlay();
   schedulePrepFade();
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updateRestCountdownOverlay();
   // ETA now reflects prep seconds + new slide's full duration + upcoming.
   updateTimelineBar();
@@ -2411,7 +2417,7 @@ function startTimer() {
   clearPrepTimer();
 
   isTimerRunning = true;
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updateRestCountdownOverlay();
   updateRepStack();
   updateBreatherOverlay();
@@ -2567,7 +2573,7 @@ function resumeActiveVideoAfterBreather() {
 
 // updateTimerDisplay + setTimerModeIcon removed — the dedicated chip is
 // gone (item 7). Prep digits are driven by updatePrepOverlay(); pause state
-// is driven by updatePauseOverlay(); countdown numbers read from the ETA row.
+// is driven by updatePlayPauseToggle(); countdown numbers read from the ETA row.
 
 /**
  * Timer hit zero -- advance to next slide. goTo() re-enters the workout
@@ -2599,16 +2605,12 @@ function pauseTimer() {
   if (currentVideo && !currentVideo.paused) {
     currentVideo.pause();
   }
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updateRestCountdownOverlay();
   updateBreatherOverlay();
   // ETA clock keeps running in the background — remaining stays static,
   // finish-time drifts forward. Nudge once to reflect immediately.
   updateTimelineBar();
-  // Transition already visually loud (overlay snaps to full alpha on pause)
-  // but keep the flash-class for symmetry with the resume path so rapid
-  // pause/resume doesn't leave a stale animation.
-  flashPauseOverlay();
 }
 
 /**
@@ -2628,13 +2630,10 @@ function resumeTimer() {
       console.warn('video resume failed:', err);
     });
   }
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updateRestCountdownOverlay();
   updateBreatherOverlay();
   updateTimelineBar();
-  // Flash the pause icon at full alpha for ~900ms so the tap's outcome is
-  // legible on top of the running video.
-  flashPauseOverlay();
 }
 
 /**
@@ -2676,7 +2675,7 @@ function handleMediaTap(e) {
   } else if (remainingSeconds > 0) {
     resumeTimer();
   }
-  updatePauseOverlay();
+  updatePlayPauseToggle();
 }
 
 /**
@@ -2984,66 +2983,27 @@ function updateEnhancedBackgroundEnabled() {
 }
 
 /**
- * Wave 19.2: pause overlay is now a flash-on-toggle confirmation, not a
- * persistent dim affordance. The previous 0.35-opacity pause icon during
- * running was invisible against most video content.
- *
- * State model:
- *   Running  → overlay invisible; `flashPauseOverlay()` surfaces it briefly
- *              (full alpha → fade) on every play↔pause toggle to confirm
- *              the gesture landed.
- *   Paused   → overlay stays visible at full alpha (the play icon is the
- *              CTA to resume).
- *   Prep / offscreen slide → overlay hidden unconditionally.
+ * Drive the right-edge play/pause toggle (#btn-playpause). Glyph
+ * semantics = "what is playing right now":
+ *   Workout running / prep / preview → PAUSE icon (tap pauses).
+ *   Workout paused mid-set           → PLAY icon (tap resumes).
+ * The button is hidden outside workout mode — the centered tap-to-pause
+ * still handles preview-state interactions on the media area itself.
  */
-function updatePauseOverlay() {
-  if (!$cardTrack) return;
-  const overlays = $cardTrack.querySelectorAll('.media-pause-overlay');
-  const workoutLive = isWorkoutMode && !isPrepPhase && remainingSeconds > 0;
-  // Wave 19.3: glyph semantics = "what would tap do / what is playing now".
-  // Everywhere the video is effectively playing (pre-workout preview, prep,
-  // active timer) we show the PAUSE icon. Only the explicit paused-mid-
-  // workout state shows the PLAY icon. Fixes the fullscreen dimmed-button
-  // showing a play glyph while the video was clearly playing.
-  const showPlayIcon = isWorkoutMode && !isPrepPhase && !isTimerRunning;
-  overlays.forEach((overlay) => {
-    const card = overlay.closest('.exercise-card');
-    const idx = card ? Number(card.getAttribute('data-index')) : -1;
-    const isActive = workoutLive && idx === currentIndex;
-    // Persistent visibility ONLY when paused on the active slide. Running
-    // state leans on flashPauseOverlay() for transient feedback.
-    overlay.classList.toggle('is-visible', isActive && !isTimerRunning);
-    const playIcon = overlay.querySelector('.pause-icon-play');
-    const pauseIcon = overlay.querySelector('.pause-icon-pause');
-    if (playIcon) playIcon.hidden = !showPlayIcon;
-    if (pauseIcon) pauseIcon.hidden = showPlayIcon;
-  });
-}
-
-/**
- * Briefly surface the pause overlay at full alpha to confirm a toggle.
- * CSS animation (.media-pause-overlay.is-flashing) holds at 1 alpha then
- * fades — we just toggle the class and clear any in-flight timer so
- * rapid taps don't leak stacked animations.
- */
-function flashPauseOverlay() {
-  if (!$cardTrack) return;
-  const card = $cardTrack.querySelector(`.exercise-card[data-index="${currentIndex}"]`);
-  if (!card) return;
-  const overlay = card.querySelector('.media-pause-overlay');
-  if (!overlay) return;
-  const playIcon = overlay.querySelector('.pause-icon-play');
-  const pauseIcon = overlay.querySelector('.pause-icon-pause');
-  // Match the glyph semantics used by updatePauseOverlay (Wave 19.3):
-  // PLAY glyph only during an explicit mid-workout pause; PAUSE glyph any
-  // time the video is playing (pre-start preview, prep, or running).
-  const showPlayIcon = isWorkoutMode && !isPrepPhase && !isTimerRunning;
-  if (playIcon) playIcon.hidden = !showPlayIcon;
-  if (pauseIcon) pauseIcon.hidden = showPlayIcon;
-  // Restart the animation — remove, force reflow, re-add.
-  overlay.classList.remove('is-flashing');
-  void overlay.offsetWidth;
-  overlay.classList.add('is-flashing');
+function updatePlayPauseToggle() {
+  if (!$btnPlayPause) return;
+  // Hide outside workout mode; the start-workout button is the only
+  // playback affordance pre-workout.
+  $btnPlayPause.hidden = !isWorkoutMode;
+  if (!isWorkoutMode) return;
+  const showPlayIcon = !isPrepPhase && !isTimerRunning;
+  if ($btnPlayPauseIconPlay) $btnPlayPauseIconPlay.hidden = !showPlayIcon;
+  if ($btnPlayPauseIconPause) $btnPlayPauseIconPause.hidden = showPlayIcon;
+  $btnPlayPause.setAttribute('aria-pressed', showPlayIcon ? 'true' : 'false');
+  $btnPlayPause.setAttribute(
+    'aria-label',
+    showPlayIcon ? 'Resume workout' : 'Pause workout'
+  );
 }
 
 /**
@@ -3487,7 +3447,7 @@ function finishWorkout() {
   isTimerRunning = false;
   isPrepPhase = false;
 
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updatePrepOverlay();
   updateRestCountdownOverlay();
 
@@ -3526,7 +3486,7 @@ function exitWorkout() {
 
   $workoutComplete.hidden = true;
   if ($workoutComplete) $workoutComplete.classList.remove('is-live');
-  updatePauseOverlay();
+  updatePlayPauseToggle();
   updatePrepOverlay();
   updateRestCountdownOverlay();
 
@@ -3843,6 +3803,23 @@ async function init() {
     // Fullscreen toggle — body.is-fullscreen drives ambient mode CSS.
     if ($btnFullscreen) {
       $btnFullscreen.addEventListener('click', toggleFullscreen);
+    }
+
+    // Play/pause toggle — same dispatch as the centered tap-to-pause.
+    // Hidden outside workout mode; click is a no-op there as a defence.
+    if ($btnPlayPause) {
+      $btnPlayPause.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!isWorkoutMode) return;
+        if (isPrepPhase) {
+          finishPrepPhase();
+        } else if (isTimerRunning) {
+          pauseTimer();
+        } else if (remainingSeconds > 0) {
+          resumeTimer();
+        }
+        updatePlayPauseToggle();
+      });
     }
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('webkitfullscreenchange', onFullscreenChange);

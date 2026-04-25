@@ -738,7 +738,7 @@ body {
   object-fit: contain;
   display: block;
   opacity: 0;
-  transition: opacity 200ms ease;
+  transition: opacity var(--loop-crossfade-fade-ms, 200ms) ease;
   will-change: opacity;
 }
 .video-loop-pair .video-loop-slot[data-active="true"] {
@@ -750,12 +750,10 @@ body {
 }
 
 /* === Mute toggle ==================================================
-   Speaker-icon button. Carl 2026-04-24: chrome was a horizontal row
-   [mute 108] [settings 60] [fullscreen 12]; restacked into a tight
-   right-edge column so chrome is "out of the way when not maximised".
-   Now the right column is [fullscreen at top:12 / settings at top:60],
-   and mute moves to right:60 — same row as fullscreen, one button
-   width to its left. Only rendered for videos that ship with audio. */
+   Speaker-icon button. Right-edge column is
+   [playpause at top:12 / fullscreen at top:60 / settings at top:108];
+   mute claims the same row as playpause at right:60 (one button width
+   to its left). Only rendered for videos that ship with audio. */
 .card-media .mute-toggle {
   position: absolute;
   top: 12px;
@@ -795,10 +793,58 @@ body {
   outline-offset: 2px;
 }
 
-/* === Fullscreen toggle (top-right of card-viewport) =============== */
-.fullscreen-toggle {
+/* === Play/pause toggle (top-right of card-viewport) ==============
+   YouTube-style icon-swap button. Same visual chrome as fullscreen +
+   settings. Hidden outside workout mode (the tap-to-pause on the
+   media area still handles preview interactions). */
+.playpause-toggle {
   position: absolute;
   top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--c-brand);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: background 150ms ease, transform 100ms ease, opacity 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.playpause-toggle[hidden] {
+  display: none;
+}
+.playpause-toggle:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+.playpause-toggle:active {
+  transform: scale(0.92);
+}
+.playpause-toggle svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  fill: currentColor;
+  stroke: none;
+}
+.playpause-toggle .pp-icon-play {
+  /* Optical-balance the play triangle against the circular bg. */
+  margin-left: 3px;
+}
+.playpause-toggle:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+
+/* === Fullscreen toggle (top-right of card-viewport, BELOW playpause) === */
+.fullscreen-toggle {
+  position: absolute;
+  top: 60px;
   right: 12px;
   width: 40px;
   height: 40px;
@@ -832,15 +878,13 @@ body {
   outline-offset: 2px;
 }
 
-/* === Settings toggle (top-right, BELOW fullscreen) ================
+/* === Settings toggle (bottom of the right-edge chrome stack) ======
    Per-device playback preferences (Milestone P + the Wave 19.5
-   "Show me" override). Carl 2026-04-24: stacked under fullscreen
-   instead of beside it so the right-edge chrome occupies a 40px
-   column instead of a 88px horizontal strip — keeps the video
-   uncluttered when not maximised. */
+   "Show me" override). The right-edge column occupies a 40px
+   column so the video stays uncluttered when not maximised. */
 .settings-toggle {
   position: absolute;
-  top: 60px;
+  top: 108px;
   right: 12px;
   width: 40px;
   height: 40px;
@@ -877,17 +921,17 @@ body {
   outline-offset: 2px;
 }
 
-/* Chrome row when a mute button is present on the active slide:
-   [mute 108] [settings 60] [fullscreen 12]. The mute button claims
-   right:108px in its own rule above; settings + fullscreen stay put. */
+/* Right-edge chrome column when a mute button is present on the active
+   slide: top row is [mute 60] [playpause 12], then [fullscreen top:60],
+   then [settings top:108]. Each rule pins its own coords above. */
 
 /* === Settings popover ============================================= */
 .settings-popover {
   position: absolute;
-  /* Anchored just below the gear button. With the new vertical chrome
-     stack (Carl 2026-04-24) the gear sits at top:60 — popover offsets
-     by another button-height + gap (40 + 8 = 48) so they don't overlap. */
-  top: 108px;
+  /* Anchored just below the gear button. The gear sits at top:108 (third
+     in the vertical chrome stack) — popover offsets by another
+     button-height + gap (40 + 8 = 48) so they don't overlap. */
+  top: 156px;
   right: 12px;
   z-index: 30;
   min-width: 296px;
@@ -1843,66 +1887,6 @@ video.is-prep-paused {
   transform: scale(0.97);
 }
 
-/* === Mode-aware pause overlay ====================================
-   Centered dark-disc + coral play icon — visible only on the active
-   paused slide. Touch-transparent; parent .card-media captures tap. */
-.media-pause-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 10;
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-standard);
-}
-/* Paused (workout live but timer stopped) — the play icon is the call to
-   action, so full alpha. */
-.media-pause-overlay.is-visible {
-  opacity: 1;
-}
-/* Flash-on-toggle (Wave 19.2) — briefly surface the overlay at full alpha
-   whenever play ↔ pause flips, then fade. Previous 0.35 dim pattern was
-   invisible against most video content so Carl couldn't tell his taps
-   landed. The persistent .is-visible state still drives the paused CTA. */
-.media-pause-overlay.is-flashing {
-  opacity: 1;
-  animation: pause-flash 900ms var(--ease-standard) forwards;
-}
-@keyframes pause-flash {
-  0%   { opacity: 1; }
-  65%  { opacity: 1; }
-  100% { opacity: 0; }
-}
-/* Photo slides don't have play/pause semantics (nothing's animating), so
-   suppress the overlay entirely — Carl flagged it as visually misleading
-   on image exercises. Hold-duration timing still runs in the background. */
-.exercise-card[data-media-type="photo"] .media-pause-overlay {
-  display: none;
-}
-.media-pause-overlay .pause-disc {
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.media-pause-overlay .pause-disc svg {
-  width: 42px;
-  height: 42px;
-  color: var(--c-brand);
-  fill: var(--c-brand);
-  stroke: none;
-}
-.media-pause-overlay .pause-disc .pause-icon-play {
-  margin-left: 4px;
-}
-
 /* === Prep countdown overlay ====================================== */
 .prep-overlay {
   position: absolute;
@@ -2054,8 +2038,10 @@ body.is-fullscreen .edge-nav:disabled {
   opacity: 0.15;
 }
 
-/* Fullscreen toggle is always 100% alpha so the user can always exit. */
-body.is-fullscreen .fullscreen-toggle {
+/* Fullscreen + playpause toggles are always 100% alpha so the user
+   can always exit fullscreen / pause the workout. */
+body.is-fullscreen .fullscreen-toggle,
+body.is-fullscreen .playpause-toggle {
   opacity: 1;
 }
 

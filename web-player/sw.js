@@ -9,7 +9,7 @@
 // together — bumping one without the other will leave the version label
 // stale on a freshly-cached client. Convention: keep `homefit-player-`
 // prefix here; drop it in PLAYER_VERSION.
-const CACHE_NAME = 'homefit-player-v58-simplify-pass';
+const CACHE_NAME = 'homefit-player-v60-per-plan-crossfade';
 
 // App shell files — always cached
 const APP_SHELL = [
