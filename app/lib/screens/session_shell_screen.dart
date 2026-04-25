@@ -60,34 +60,60 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
   }
 
   Future<void> _reconcileWithCloudIfUnpublished() async {
-    if (_session.isPublished) return;
+    // Wave 29 follow-up: ALSO runs on already-published sessions so we
+    // can pull `first_opened_at` + `unlock_credit_prepaid_at` from cloud
+    // (they don't flow through any other path). The publish-state heal
+    // only applies when local thinks it's unpublished but cloud has a
+    // version — the lock-state heal applies always.
     try {
       final cloud = await ApiClient.instance.getPlanPublishState(_session.id);
       if (cloud == null || !mounted) return;
-      final rawVersion = cloud['version'];
-      final cloudVersion = rawVersion is int
-          ? rawVersion
-          : (rawVersion is num ? rawVersion.toInt() : 0);
-      final sentAtStr = cloud['sent_at'];
-      if (cloudVersion <= 0 || sentAtStr is! String || sentAtStr.isEmpty) {
-        return;
+
+      Session updated = _session;
+      bool changed = false;
+
+      // Publish-state heal (only when local was unpublished).
+      if (!_session.isPublished) {
+        final rawVersion = cloud['version'];
+        final cloudVersion = rawVersion is int
+            ? rawVersion
+            : (rawVersion is num ? rawVersion.toInt() : 0);
+        final sentAtStr = cloud['sent_at'];
+        if (cloudVersion > 0 && sentAtStr is String && sentAtStr.isNotEmpty) {
+          final cloudSentAt = DateTime.tryParse(sentAtStr);
+          if (cloudSentAt != null) {
+            final planUrl = '${AppConfig.webPlayerBaseUrl}/p/${_session.id}';
+            updated = updated.copyWith(
+              version: cloudVersion,
+              planUrl: planUrl,
+              sentAt: cloudSentAt,
+              lastPublishedAt: cloudSentAt,
+            );
+            changed = true;
+          }
+        }
       }
-      final cloudSentAt = DateTime.tryParse(sentAtStr);
-      if (cloudSentAt == null) return;
-      final planUrl = '${AppConfig.webPlayerBaseUrl}/p/${_session.id}';
-      final healed = _session.copyWith(
-        version: cloudVersion,
-        planUrl: planUrl,
-        sentAt: cloudSentAt,
-        lastPublishedAt: cloudSentAt,
-      );
-      await widget.storage.saveSession(healed);
+
+      // Lock-state heal — always.
+      DateTime? parseTs(dynamic v) =>
+          v is String && v.isNotEmpty ? DateTime.tryParse(v) : null;
+      final cloudFirstOpened = parseTs(cloud['first_opened_at']);
+      final cloudPrepaid = parseTs(cloud['unlock_credit_prepaid_at']);
+      if (cloudFirstOpened != updated.firstOpenedAt ||
+          cloudPrepaid != updated.unlockCreditPrepaidAt) {
+        updated = updated.copyWith(
+          firstOpenedAt: cloudFirstOpened,
+          unlockCreditPrepaidAt: cloudPrepaid,
+          clearFirstOpenedAt: cloudFirstOpened == null,
+          clearUnlockCreditPrepaidAt: cloudPrepaid == null,
+        );
+        changed = true;
+      }
+
+      if (!changed) return;
+      await widget.storage.saveSession(updated);
       if (!mounted) return;
-      setState(() => _session = healed);
-      debugPrint(
-        'SessionShell: reconciled local row for ${_session.id} — '
-        'cloud v$cloudVersion sentAt=$sentAtStr',
-      );
+      setState(() => _session = updated);
     } catch (e) {
       debugPrint('SessionShell reconcile failed: $e');
     }

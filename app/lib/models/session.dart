@@ -240,11 +240,10 @@ class Session {
   /// Serialize to a map suitable for SQLite insertion.
   /// Exercises are stored in their own table — not included here.
   ///
-  /// Note: `practiceId` and `firstOpenedAt` are intentionally NOT included
-  /// here. They exist only on the remote Supabase `plans` row in Milestone A;
-  /// the local SQLite schema gets matching columns when auth / membership
-  /// goes dynamic in a later milestone. Adding them here today would error
-  /// against the current LocalStorageService schema.
+  /// `practiceId` is omitted (claim-time + membership-derived; not local).
+  /// `firstOpenedAt` IS persisted (Wave 29 follow-up): SessionShell
+  /// reconciles cloud → local on open so the structural-edit lock UI
+  /// can read it offline.
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -268,6 +267,7 @@ class Session {
       'crossfade_fade_ms': crossfadeFadeMs,
       'unlock_credit_prepaid_at':
           unlockCreditPrepaidAt?.millisecondsSinceEpoch,
+      'first_opened_at': firstOpenedAt?.millisecondsSinceEpoch,
     };
   }
 
@@ -289,6 +289,7 @@ class Session {
     bool clearPreferredRestInterval = false,
     String? practiceId,
     DateTime? firstOpenedAt,
+    bool clearFirstOpenedAt = false,
     String? createdByUserId,
     String? clientId,
     int? crossfadeLeadMs,
@@ -318,7 +319,9 @@ class Session {
           ? null
           : (preferredRestIntervalSeconds ?? this.preferredRestIntervalSeconds),
       practiceId: practiceId ?? this.practiceId,
-      firstOpenedAt: firstOpenedAt ?? this.firstOpenedAt,
+      firstOpenedAt: clearFirstOpenedAt
+          ? null
+          : (firstOpenedAt ?? this.firstOpenedAt),
       createdByUserId: createdByUserId ?? this.createdByUserId,
       clientId: clientId ?? this.clientId,
       crossfadeLeadMs: clearCrossfadeLeadMs

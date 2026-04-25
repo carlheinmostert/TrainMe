@@ -585,7 +585,9 @@ class ApiClient {
     try {
       final dynamic result = await _guardAuth(() => raw
           .from('plans')
-          .select('version, sent_at')
+          .select(
+            'version, sent_at, first_opened_at, unlock_credit_prepaid_at',
+          )
           .eq('id', planId)
           .maybeSingle());
       if (result is Map) {

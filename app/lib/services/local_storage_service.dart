@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 29;
+  static const _dbVersion = 30;
 
   Database? _db;
 
@@ -89,7 +89,8 @@ class LocalStorageService {
         client_id TEXT,
         crossfade_lead_ms INTEGER,
         crossfade_fade_ms INTEGER,
-        unlock_credit_prepaid_at INTEGER
+        unlock_credit_prepaid_at INTEGER,
+        first_opened_at INTEGER
       )
     ''');
 
@@ -614,6 +615,16 @@ class LocalStorageService {
       );
       await db.execute(
         'ALTER TABLE cached_clients ADD COLUMN consent_confirmed_at INTEGER',
+      );
+    }
+    if (oldVersion < 30) {
+      // Wave 29 follow-up — sessions.first_opened_at (INTEGER, epoch-ms).
+      // Cloud-side this lives on `plans.first_opened_at` and feeds the
+      // post-3-day structural-edit lock; the original Wave 29 patch
+      // shipped without the local mirror, so the lock UI never engaged.
+      // SessionShell now reconciles cloud → local on session open.
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN first_opened_at INTEGER',
       );
     }
   }
