@@ -307,18 +307,18 @@ Risk: low. Pipeline already does this.
 - **Body focus tuning for landscape.** v6 LOCKED constants are aesthetic — orientation doesn't affect them.
 - **Web portal landscape.** `manage.homefit.studio` is desktop-first; unaffected.
 
-## Open questions for Carl
+## Open questions for Carl — ANSWERED 2026-04-25
 
-1. **Single-tier or multi-tier rollout?** Phase A alone fixes the camera bug — could ship that and leave Phases B/C for next wave. OR ship A+B together, then C as its own wave. Recommendation: ship A alone first, then a combined B+C as a "landscape player" wave once A has baked on device for ~3 days.
+1. **Single-tier or multi-tier rollout?** → **All three phases together as one wave** (Carl won't be around to test stages). Single landing, single test pass, single install-device.
 
-2. **Mixed-orientation plans on the published web — accept now, or constrain to single-orientation per plan as v1?** (Decision #1 above.)
+2. **Mixed-orientation plans on the published web?** → **YES, allow mixed.** Web pill matrix + card viewport adapt per-exercise to source aspect ratio.
 
-3. **Add `exercises.aspect_ratio` schema column now** (Phase C opt-in), or defer until first user feedback that the pre-load pill sizing matters?
+3. **Add `exercises.aspect_ratio` schema column now?** → **YES, add it now** as part of this wave. `numeric NULL` (`1.778` for 16:9, `0.5625` for 9:16). Mobile capture writes it; `get_plan_full` auto-flows it; web bundle uses it to size pills before video metadata loads.
 
-4. **Lock iPad to iPhone-only orientations**, or punt iPad entirely (no install support) for MVP?
+4. **iPad?** → **iPhone-only.** Lock iPad to iPhone-only orientations via `UISupportedInterfaceOrientations~ipad`.
 
-5. **PlanPreviewScreen** — retire as part of this work (recommend), or leave the dead code path for future?
+5. **PlanPreviewScreen?** → **Retire** as part of this work. Delete file, drop import from `studio_mode_screen.dart`, scrub the long-press escape-hatch branch.
 
-6. **Body focus / Vision segmentation memory cost on landscape 1080p with dual-video crossfade** — worth a proactive profile, or wait for QA to flag a stutter on older devices?
+6. **Vision / dual-decode landscape memory cost?** → **Proactive profile.** Spin up a 1080p landscape source on Carl's iPhone, run the dual-video crossfade for ~5 minutes, capture peak memory + thermal state. Document findings in the test script.
 
-7. **Should landscape capture come with a "tap to rotate the OUTPUT 90°" affordance**, in case the practitioner accidentally landscape-recorded a portrait demo? (Likely future polish; not Phase A.)
+7. **"Rotate output 90°" affordance for misrotated captures?** → **YES, add it.** Post-capture rotate button in `_MediaViewer` that re-encodes the source +90°/-90° and updates the line-drawing + segmented + mask outputs accordingly. Live alongside the trim panel and Body focus toggle.
