@@ -2377,7 +2377,15 @@ class _MediaViewerState extends State<_MediaViewer> {
       controllerB.setVolume(0.0); // inactive stays muted always.
       _seekToTrimStart(controllerA);
       _seekToTrimStart(controllerB);
-      void listener() => _onVideoStateChanged(controllerA, token);
+      // Listener resolves the active controller dynamically. After
+      // _swapSlots moves the listener attachment from A→B, the callback
+      // still has to operate against whichever slot is currently active
+      // — capturing controllerA in closure broke trim + crossfade by
+      // reading stale state on the just-paused slot.
+      void listener() {
+        final active = _activeController;
+        if (active != null) _onVideoStateChanged(active, token);
+      }
       controllerA.addListener(listener);
       _videoListener = listener;
       controllerA.play();
@@ -3050,27 +3058,26 @@ class _MediaViewerState extends State<_MediaViewer> {
                 // the drag feedback.
                 onDragStart: () {
                   _trimDragInProgress = true;
-                  final controllers = _activeControllers();
-                  if (controllers.isEmpty) return;
-                  _trimDragWasPlaying = controllers.first.value.isPlaying;
-                  if (_trimDragWasPlaying) {
-                    for (final c in controllers) {
-                      c.pause();
-                    }
-                  }
+                  final active = _activeController;
+                  if (active == null) return;
+                  _trimDragWasPlaying = active.value.isPlaying;
+                  if (_trimDragWasPlaying) active.pause();
+                  // The inactive may be mid-preroll. Halt it so the next
+                  // cycle re-prerolls into the freshly-trimmed window.
+                  _inactiveController?.pause();
                 },
                 onDragEnd: () {
                   _trimDragInProgress = false;
-                  final controllers = _activeControllers();
-                  if (controllers.isEmpty) {
+                  final active = _activeController;
+                  if (active == null) {
                     _trimDragWasPlaying = false;
                     return;
                   }
-                  if (_trimDragWasPlaying) {
-                    for (final c in controllers) {
-                      c.play();
-                    }
-                  }
+                  // Reset prebuffer so the next preroll cycle fires off
+                  // the freshly-trimmed window rather than carrying over
+                  // a stale prerolled inactive seeked into the old window.
+                  _prebuffered = false;
+                  if (_trimDragWasPlaying) active.play();
                   _trimDragWasPlaying = false;
                 },
                 onHandleSeek: _onTrimScrub,
