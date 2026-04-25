@@ -2453,6 +2453,10 @@ class _MediaViewerState extends State<_MediaViewer> {
   ///     reset [_prebuffered], copy active volume to the new active so
   ///     audio handoff is seamless, mute the new inactive.
   void _maybeCrossfade(VideoPlayerController active) {
+    // Trim drag drives explicit seeks on the active controller. Letting
+    // the swap-on-wrap heuristic fire mid-drag flips _activeSlot mid-
+    // gesture; the panel's onDragEnd then resumes the wrong controller.
+    if (_trimDragInProgress) return;
     final durationMs = active.value.duration.inMilliseconds;
     // Trim window collapses the effective loop end. Without this the
     // preroll waits for natural duration but `_enforceTrimWindow` wraps
@@ -2740,16 +2744,18 @@ class _MediaViewerState extends State<_MediaViewer> {
   }
 
   void _togglePlayPause() {
-    final controllers = _activeControllers();
-    if (controllers.isEmpty || !_videoInitialized) return;
-    final wasPlaying = _activeController?.value.isPlaying ?? false;
+    final active = _activeController;
+    if (active == null || !_videoInitialized) return;
+    final wasPlaying = active.value.isPlaying;
     setState(() {
-      for (final c in controllers) {
-        if (wasPlaying) {
-          c.pause();
-        } else {
-          c.play();
-        }
+      if (wasPlaying) {
+        active.pause();
+        // Halt the prerolled inactive too — preroll resumes naturally on
+        // the next cycle once playback restarts.
+        _inactiveController?.pause();
+        _prebuffered = false;
+      } else {
+        active.play();
       }
     });
     // Any tap — on the video body or the overlay button — resets the
