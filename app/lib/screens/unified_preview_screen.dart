@@ -17,6 +17,7 @@ import '../services/local_player_server.dart';
 import '../services/local_storage_service.dart';
 import '../services/unified_preview_scheme_bridge.dart';
 import '../theme.dart';
+import '../widgets/orientation_lock_guard.dart';
 
 /// Wave 4 Phase 2 — transport toggle.
 ///
@@ -326,7 +327,17 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
   Widget build(BuildContext context) {
     final controller = _controller;
 
-    return Scaffold(
+    return OrientationLockGuard(
+      // Practitioner verifies what the client sees, so the WebView
+      // mirrors the client surface's allowed orientations: portrait OR
+      // landscape. Studio's parent guard restores portrait when this
+      // screen pops.
+      allowed: const {
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      },
+      child: Scaffold(
       backgroundColor: AppColors.surfaceBase,
       // No AppBar — every pixel of vertical space is precious for the
       // player, especially in landscape on iOS where Safari already
@@ -377,6 +388,7 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
               ),
             ),
         ],
+      ),
       ),
     );
   }
