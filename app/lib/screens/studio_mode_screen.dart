@@ -2446,8 +2446,18 @@ class _MediaViewerState extends State<_MediaViewer> {
   ///     audio handoff is seamless, mute the new inactive.
   void _maybeCrossfade(VideoPlayerController active) {
     final durationMs = active.value.duration.inMilliseconds;
-    if (durationMs < _kCrossfadeMinDurationMs ||
-        durationMs > _kCrossfadeMaxDurationMs) {
+    // Trim window collapses the effective loop end. Without this the
+    // preroll waits for natural duration but `_enforceTrimWindow` wraps
+    // first — crossfade never fires inside a trimmed clip.
+    final trimStart = _current.startOffsetMs;
+    final trimEnd = _current.endOffsetMs;
+    final hasTrim =
+        trimStart != null && trimEnd != null && trimEnd > trimStart;
+    final effectiveStartMs = hasTrim ? trimStart : 0;
+    final effectiveEndMs = hasTrim ? trimEnd : durationMs;
+    final effectiveWindowMs = effectiveEndMs - effectiveStartMs;
+    if (effectiveWindowMs < _kCrossfadeMinDurationMs ||
+        effectiveWindowMs > _kCrossfadeMaxDurationMs) {
       return;
     }
     final positionMs = active.value.position.inMilliseconds;
@@ -2455,23 +2465,18 @@ class _MediaViewerState extends State<_MediaViewer> {
     if (inactive == null) return;
 
     // Wrap detection runs before preroll: a fresh wrap implicitly
-    // means the previous loop's preroll already fired.
-    if (positionMs < _lastActivePositionMs - durationMs ~/ 2) {
+    // means the previous loop's preroll already fired. Threshold uses
+    // the trim window so a 2 s loop inside a 30 s file still detects.
+    if (positionMs < _lastActivePositionMs - effectiveWindowMs ~/ 2) {
       _swapSlots();
       _lastActivePositionMs = positionMs;
       return;
     }
     _lastActivePositionMs = positionMs;
 
-    if (!_prebuffered && (durationMs - positionMs) <= _crossfadeLeadMs) {
+    if (!_prebuffered && (effectiveEndMs - positionMs) <= _crossfadeLeadMs) {
       _prebuffered = true;
-      // Seek-to-start uses the trim window when set so the prerolled
-      // slot loops within the same window the visible slot does.
-      final trimStart = _current.startOffsetMs;
-      final seekMs = (trimStart != null && _current.endOffsetMs != null)
-          ? trimStart
-          : 0;
-      inactive.seekTo(Duration(milliseconds: seekMs));
+      inactive.seekTo(Duration(milliseconds: effectiveStartMs));
       inactive.setVolume(0.0);
       inactive.play();
     }
@@ -2498,9 +2503,16 @@ class _MediaViewerState extends State<_MediaViewer> {
     }
     _activeController?.setVolume(volume);
     oldInactive.setVolume(0.0); // belt and braces — was already 0.
-    // The just-superseded controller keeps playing for the duration of
-    // the fade-out (web behaviour); native looping keeps it from
-    // running off the end before the next swap.
+    // Park the just-superseded slot at trim-start so the next preroll
+    // is one seek away. Pausing also halts the second decoder during
+    // the fade-out window — saves cycles on older devices.
+    final trimStart = _current.startOffsetMs;
+    final trimEnd = _current.endOffsetMs;
+    final hasTrim =
+        trimStart != null && trimEnd != null && trimEnd > trimStart;
+    final parkMs = hasTrim ? trimStart : 0;
+    oldActive.pause();
+    oldActive.seekTo(Duration(milliseconds: parkMs));
   }
 
   /// Soft-trim clamp. Idempotent — called from the controller listener

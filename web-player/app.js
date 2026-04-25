@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v61-playpause-icon-toggle';
+const PLAYER_VERSION = 'v62-trim-aware-crossfade';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -1558,7 +1558,7 @@ function attachLoopListeners(idx, videoEl) {
   if (!videoEl) return;
 
   // `lastTime` lets timeupdate detect both:
-  //   * the prebuffer trigger (currentTime > duration - getLoopCrossfadeLeadMs())
+  //   * the prebuffer trigger (currentTime > effectiveEnd - leadMs)
   //   * the loop seam itself (currentTime < lastTime → just wrapped)
   // We can't rely on the `ended` event because the native `loop`
   // attribute suppresses it — the browser silently seeks back to 0
@@ -1569,29 +1569,37 @@ function attachLoopListeners(idx, videoEl) {
   const onTimeUpdate = () => {
     const dur = videoEl.duration;
     if (!Number.isFinite(dur) || dur <= 0) return;
-    const inWindow = dur >= LOOP_CROSSFADE_MIN_DURATION
-                  && dur <= LOOP_CROSSFADE_MAX_DURATION;
+    // Trim window collapses the effective loop end. Without this the
+    // crossfade triggers off natural duration, which the trim-wrap
+    // beats to the punch — preroll never fires inside a trimmed clip.
+    const slide = slides[idx];
+    const startSec = (slide && Number.isFinite(slide.start_offset_ms) && slide.start_offset_ms > 0)
+      ? slide.start_offset_ms / 1000 : 0;
+    const endSec = (slide && Number.isFinite(slide.end_offset_ms) && slide.end_offset_ms > 0)
+      ? Math.min(slide.end_offset_ms / 1000, dur) : dur;
+    const windowSec = Math.max(0, endSec - startSec);
+    const inWindow = windowSec >= LOOP_CROSSFADE_MIN_DURATION
+                  && windowSec <= LOOP_CROSSFADE_MAX_DURATION;
     const state = loopState.get(idx);
     if (!state) { lastTime = videoEl.currentTime; return; }
 
     const t = videoEl.currentTime;
 
-    // Loop-wrap detection: `loop` makes the browser seek back to 0
-    // without firing `ended`. A drop of more than (duration / 2) is
-    // unambiguously a wrap (rules out small skip-back jitter).
-    if (lastTime > 0 && t + 0.05 < lastTime && (lastTime - t) > dur / 2) {
+    // Wrap detect: trim or natural-loop both seek backwards. Threshold
+    // is half the trim window so a tiny skip-back doesn't false-fire.
+    if (lastTime > 0 && t + 0.05 < lastTime && (lastTime - t) > windowSec / 2) {
       lastTime = t;
       handleLoopBoundary(idx);
       return;
     }
 
-    // Prebuffer trigger.
-    if (!state.prebuffered && inWindow && (dur - t) * 1000 <= getLoopCrossfadeLeadMs()) {
+    // Prebuffer trigger — measured against the trim end, not natural duration.
+    if (!state.prebuffered && inWindow && (endSec - t) * 1000 <= getLoopCrossfadeLeadMs()) {
       const inactive = getInactiveVideoForSlide(idx);
       if (inactive) {
         state.prebuffered = true;
         try {
-          inactive.currentTime = 0;
+          inactive.currentTime = startSec;
         } catch (_) { /* metadata may not be ready */ }
         // Force-mute the prerolled slot so the ~250ms overlap window
         // doesn't play double-audio. Audio handoff happens at the
@@ -1645,20 +1653,25 @@ function handleLoopBoundary(idx) {
   const newActive = getInactiveVideoForSlide(idx);
   if (newActive && oldActive && newActive !== oldActive) {
     const dur = oldActive.duration || 0;
-    const inWindow = dur >= LOOP_CROSSFADE_MIN_DURATION
-                  && dur <= LOOP_CROSSFADE_MAX_DURATION;
+    const startSec = (Number.isFinite(slide.start_offset_ms) && slide.start_offset_ms > 0)
+      ? slide.start_offset_ms / 1000 : 0;
+    const endSec = (Number.isFinite(slide.end_offset_ms) && slide.end_offset_ms > 0)
+      ? Math.min(slide.end_offset_ms / 1000, dur) : dur;
+    const windowSec = Math.max(0, endSec - startSec);
+    const inWindow = windowSec >= LOOP_CROSSFADE_MIN_DURATION
+                  && windowSec <= LOOP_CROSSFADE_MAX_DURATION;
     if (state.prebuffered && inWindow) {
-      // Visible swap. CSS handles the 200ms opacity transition.
+      // Visible swap. CSS handles the opacity transition.
       newActive.setAttribute('data-active', 'true');
       oldActive.setAttribute('data-active', 'false');
-      // Audio handoff: inherit the legacy mute-pref logic. The new
-      // active slot adopts the muted state of the old one.
+      // Audio handoff: the new active slot inherits the muted state
+      // of the old one.
       newActive.muted = oldActive.muted;
-      // The native `loop` attribute will have already restarted oldActive;
-      // pause + reset it so it sits idle for the next cycle.
+      // Park the just-superseded slot at trim-start so the next preroll
+      // is one seek away.
       try {
         oldActive.pause();
-        oldActive.currentTime = 0;
+        oldActive.currentTime = startSec;
       } catch (_) { /* swallow */ }
       // Re-arm listeners on the new active slot.
       detachLoopListeners(oldActive);
@@ -3774,12 +3787,8 @@ async function init() {
     // viewport so newly-rendered <video> elements don't need their own
     // wire-up. `loadedmetadata` seeks into the trim window before the
     // first painted frame; `timeupdate` wraps the loop at the out-point.
-    //
-    // TODO: integrate with loop-crossfade end trigger (parallel branch).
-    // The other agent's crossfade `endTrigger` should become
-    // `Math.min(duration, end_offset_ms / 1000)` so the dual-video
-    // seam fires exactly at the trimmed out-point. Until that lands,
-    // the timeupdate clamp below is the sole loop-wrap mechanism.
+    // The crossfade detector in `attachLoopListeners` reads the same
+    // trim window so preroll fires at the trimmed end, not natural end.
     $cardViewport.addEventListener('loadedmetadata', onVideoLoadedMetadata, true);
     $cardViewport.addEventListener('timeupdate', onVideoTimeUpdate, true);
     $cardViewport.addEventListener('touchstart', onTouchStart, { passive: true });
