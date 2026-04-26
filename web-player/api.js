@@ -223,8 +223,46 @@
     return { ...payload, exercises };
   }
 
+  /**
+   * `record_plan_opened(p_plan_id)` — Wave 33 SECURITY DEFINER RPC that
+   * idempotently stamps `plans.first_opened_at = COALESCE(first_opened_at, now())`
+   * + `plans.last_opened_at = now()` on every call. Drives the Studio
+   * "First opened {date} · Last opened {date}" analytics row.
+   *
+   * Best-effort: errors are caught + logged but never thrown to the
+   * caller. The plan still renders if this round-trip fails — engagement
+   * analytics is a side-channel, not load-bearing.
+   *
+   * Skipped on the local surface (mobile preview WebView): the device
+   * preview is the practitioner's own private rehearsal, not a real
+   * client open. Stamping last_opened_at every time the practitioner
+   * peeks at their own plan would corrupt the engagement signal.
+   */
+  async function recordPlanOpened(planId) {
+    if (!planId) return;
+    if (isLocalSurface()) return;
+    try {
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/record_plan_opened`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ p_plan_id: planId }),
+        },
+      );
+    } catch (err) {
+      // Engagement signal is non-critical — log + continue.
+      try { console.warn('[homefit] record_plan_opened failed:', err); } catch (_) {}
+    }
+  }
+
   window.HomefitApi = Object.freeze({
     getPlanFull,
+    recordPlanOpened,
     isLocalSurface,
     getLocalPlanId,
     SUPABASE_URL,

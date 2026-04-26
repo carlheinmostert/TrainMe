@@ -68,11 +68,19 @@ class Session {
   final String? practiceId;
 
   /// Timestamp of the first time the client web player fetched this plan (set
-  /// by the `get_plan_full` RPC atomically on first read). Used by the future
-  /// publish-lock rule: once a client has opened the plan, add/reorder/swap
-  /// is locked; delete stays free. Milestone A records the column; the lock
-  /// UI lands in a later milestone.
+  /// by the `get_plan_full` RPC atomically on first read; also stamped via
+  /// the Wave 33 `record_plan_opened` RPC). Used by the publish-lock rule:
+  /// once a client has opened the plan, add/reorder/swap is locked after the
+  /// 14-day grace; delete stays free. Milestone A records the column; the
+  /// 14-day lock UI lives in StudioModeScreen.
   final DateTime? firstOpenedAt;
+
+  /// Timestamp of the most recent client open (Wave 33). Stamped by the
+  /// `record_plan_opened` SECURITY DEFINER RPC on every web-player session
+  /// start. Drives the studio analytics row "First opened {date} · Last
+  /// opened {date}" without altering the lock policy (which keys off
+  /// firstOpenedAt + 14d). NULL when the plan has never been opened.
+  final DateTime? lastOpenedAt;
 
   /// Supabase `auth.users.id` of the practitioner who created this session on
   /// this device. Persisted locally in SQLite as `created_by_user_id` (schema
@@ -133,6 +141,7 @@ class Session {
     this.preferredRestIntervalSeconds,
     this.practiceId,
     this.firstOpenedAt,
+    this.lastOpenedAt,
     this.createdByUserId,
     this.clientId,
     this.crossfadeLeadMs,
@@ -219,6 +228,7 @@ class Session {
       // we round-trip them; otherwise they stay null.
       practiceId: map['practice_id'] as String?,
       firstOpenedAt: _parseTimestamp(map['first_opened_at']),
+      lastOpenedAt: _parseTimestamp(map['last_opened_at']),
       createdByUserId: map['created_by_user_id'] as String?,
       clientId: map['client_id'] as String?,
       crossfadeLeadMs: map['crossfade_lead_ms'] as int?,
@@ -268,6 +278,7 @@ class Session {
       'unlock_credit_prepaid_at':
           unlockCreditPrepaidAt?.millisecondsSinceEpoch,
       'first_opened_at': firstOpenedAt?.millisecondsSinceEpoch,
+      'last_opened_at': lastOpenedAt?.millisecondsSinceEpoch,
     };
   }
 
@@ -290,6 +301,8 @@ class Session {
     String? practiceId,
     DateTime? firstOpenedAt,
     bool clearFirstOpenedAt = false,
+    DateTime? lastOpenedAt,
+    bool clearLastOpenedAt = false,
     String? createdByUserId,
     String? clientId,
     int? crossfadeLeadMs,
@@ -322,6 +335,9 @@ class Session {
       firstOpenedAt: clearFirstOpenedAt
           ? null
           : (firstOpenedAt ?? this.firstOpenedAt),
+      lastOpenedAt: clearLastOpenedAt
+          ? null
+          : (lastOpenedAt ?? this.lastOpenedAt),
       createdByUserId: createdByUserId ?? this.createdByUserId,
       clientId: clientId ?? this.clientId,
       crossfadeLeadMs: clearCrossfadeLeadMs

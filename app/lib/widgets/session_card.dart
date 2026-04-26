@@ -20,7 +20,7 @@ import '../theme.dart';
 /// Wave 32 layout:
 ///   [icon+badge]  Title (date)                              ›
 ///                 v3 · 25 Apr               ← status row
-///                 ● Free to republish · 11d 4h left ← lock row
+///                 ● Free Edits · 11d 4h left ← lock row (Wave 33 copy)
 ///                 [coral pill: 2 converting...]   ← active only
 ///                 [coral pill: N failed]          ← active only
 ///
@@ -218,7 +218,7 @@ class SessionCard extends StatelessWidget {
         : remaining <= _kWarningWindow
             ? _LockTone.warning
             : _LockTone.fresh;
-    return _LockState(tone, 'Free to republish · ${_formatRemaining(remaining)} left');
+    return _LockState(tone, 'Free Edits · ${_formatRemaining(remaining)} left');
   }
 
   /// Compact "Xd Yh" / "Xh Ym" / "Xm" formatter for [Duration]. Drops
@@ -491,6 +491,13 @@ class _LeadingIconBadge extends StatelessWidget {
 
 /// Coral count pill — 16×16 circular, white digits, 1px dark border.
 /// Triple-digit counts widen to a stadium so "100+" still reads.
+///
+/// Wave 33: digits shrink at 2+ characters so the count fits without
+/// truncating inside the same 16×16 footprint. Carl flagged that 10+
+/// were running off the badge — keeping the badge geometry constant
+/// (so the dot reads as a glanceable accent next to the icon, not a
+/// growing pill) and dropping the font size from 10 → 8 at width ≥ 2
+/// chars solved it without changing the iconography.
 class _CountBadge extends StatelessWidget {
   final int count;
   const _CountBadge({required this.count});
@@ -498,10 +505,14 @@ class _CountBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = count > 99 ? '99+' : '$count';
+    final isMultiDigit = label.length >= 2;
     return Container(
       constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
       padding: EdgeInsets.symmetric(
-        horizontal: count > 9 ? 4 : 0,
+        // Triple-digit ("99+") still gets a touch of horizontal pad so
+        // the glyphs don't kiss the dark border. Two-digit fits inside
+        // 16px once the font drops to 8pt — no extra pad needed.
+        horizontal: count > 99 ? 3 : 0,
         vertical: 0,
       ),
       decoration: BoxDecoration(
@@ -512,10 +523,10 @@ class _CountBadge extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           fontFamily: 'Inter',
           color: Colors.white,
-          fontSize: 10,
+          fontSize: isMultiDigit ? 8 : 10,
           fontWeight: FontWeight.w700,
           height: 1.0,
         ),

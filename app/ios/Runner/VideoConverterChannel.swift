@@ -341,6 +341,66 @@ class VideoConverterChannel {
                 }
             }
 
+        case "getPreferredBackCameraName":
+            // Wave 33 — diagnostic + lens-disambiguation helper for the
+            // avatar capture surface. The Flutter `camera` plugin maps
+            // multi-cam iPhones to virtual devices that automatically
+            // switch between Wide / UltraWide / Telephoto based on
+            // framing distance. Even with a `setZoomLevel(1.0)` and a
+            // name-substring filter the surfaced device list can still
+            // include `.builtInDualWideCamera` / `.builtInTripleCamera`
+            // virtual entries that report a sub-1.0× minZoom and give
+            // the fish-eye look Carl reported.
+            //
+            // This method returns:
+            //   - `name`           — AVCaptureDevice.localizedName of the
+            //                        canonical 1× back wide-angle lens
+            //                        (`.builtInWideAngleCamera`).
+            //   - `uniqueID`       — its uniqueID for an exact match.
+            //   - `position`       — "back" / "front".
+            //   - `availableTypes` — string list of device-type rawValues
+            //                        present on this device, for logging.
+            //
+            // Dart side reads `name` and uses it to pick from the
+            // `availableCameras()` list. If the names disagree we fall
+            // back to the previous Wave 32 substring filter — better
+            // than nothing.
+            let discovery = AVCaptureDevice.DiscoverySession(
+                deviceTypes: [
+                    .builtInWideAngleCamera,
+                    .builtInUltraWideCamera,
+                    .builtInTelephotoCamera,
+                    .builtInDualCamera,
+                    .builtInDualWideCamera,
+                    .builtInTripleCamera,
+                ],
+                mediaType: .video,
+                position: .back
+            )
+            let allBack = discovery.devices
+            let preferred = AVCaptureDevice.default(
+                .builtInWideAngleCamera,
+                for: .video,
+                position: .back
+            )
+            var payload: [String: Any] = [
+                "availableTypes": allBack.map { $0.deviceType.rawValue },
+                "availableNames": allBack.map { $0.localizedName },
+                "availableUniqueIds": allBack.map { $0.uniqueID },
+            ]
+            if let preferred = preferred {
+                payload["name"] = preferred.localizedName
+                payload["uniqueID"] = preferred.uniqueID
+                payload["position"] = "back"
+                payload["minZoom"] = preferred.activeFormat.videoMaxZoomFactor > 0
+                    ? NSNumber(value: Double(preferred.minAvailableVideoZoomFactor))
+                    : NSNumber(value: 1.0)
+                payload["maxZoom"] = NSNumber(value: Double(preferred.maxAvailableVideoZoomFactor))
+            }
+            DispatchQueue.main.async {
+                result(payload)
+            }
+
         default:
             result(FlutterMethodNotImplemented)
         }

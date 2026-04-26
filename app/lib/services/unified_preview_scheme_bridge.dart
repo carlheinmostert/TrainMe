@@ -121,6 +121,7 @@ class UnifiedPreviewSchemeBridge {
       'version': session.version,
       'practice_id': session.practiceId,
       'first_opened_at': session.firstOpenedAt?.toIso8601String(),
+      'last_opened_at': session.lastOpenedAt?.toIso8601String(),
       'client_id': session.clientId,
       'created_at': session.createdAt.toIso8601String(),
       'sent_at': session.sentAt?.toIso8601String(),

@@ -1044,6 +1044,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       return Column(
         children: [
           toolbar,
+          // Wave 33 analytics row — even an empty plan can be published
+          // and opened. Render the same conditional logic.
+          _buildOpenedAnalyticsRow(),
           Expanded(
             child: Center(
               child: Padding(
@@ -1058,9 +1061,113 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     return Column(
       children: [
         toolbar,
+        // Wave 33 — engagement-analytics row above the exercise list.
+        // Returns SizedBox.shrink() for drafts (no header) per spec.
+        _buildOpenedAnalyticsRow(),
         Expanded(child: _buildExerciseList()),
       ],
     );
+  }
+
+  /// Wave 33 — discreet "First opened … · Last opened …" row above the
+  /// exercise list. Three rendering cases:
+  ///   (a) opened ≥1 time → "First opened {date} · Last opened {date}"
+  ///       (collapses to "First & last opened {date}" if same day).
+  ///   (b) published but never opened → "Not yet opened".
+  ///   (c) draft (never published) → row HIDDEN entirely.
+  ///
+  /// Styled muted (text-mute size 12 / Inter / no border) so the row
+  /// reads as analytics, not primary content. Reads from the local
+  /// SQLite mirror (sessions.first_opened_at / sessions.last_opened_at);
+  /// SessionShell reconciles the cloud row on every session open so
+  /// the values are at most one open stale.
+  Widget _buildOpenedAnalyticsRow() {
+    if (!_session.isPublished) {
+      // Draft: hide entirely. The card hasn't been published, so
+      // engagement analytics has nothing to say.
+      return const SizedBox.shrink();
+    }
+    final firstOpened = _session.firstOpenedAt;
+    final lastOpened = _session.lastOpenedAt;
+
+    // Published-but-never-opened: tell the practitioner so. This is the
+    // "I shared the link, has the client looked yet?" signal — useful
+    // even before any exercise edits happen.
+    if (firstOpened == null) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+        child: Row(
+          children: [
+            Icon(
+              Icons.schedule_rounded,
+              size: 13,
+              color: AppColors.textSecondaryOnDark.withValues(alpha: 0.6),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'Not yet opened',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: AppColors.textSecondaryOnDark.withValues(alpha: 0.85),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Opened ≥1 time. lastOpened may be null on legacy rows (pre-W33
+    // captures) — fall back to firstOpened so the row still shows a
+    // single timestamp rather than mixing null + a value.
+    final last = lastOpened ?? firstOpened;
+    final sameDay = firstOpened.year == last.year &&
+        firstOpened.month == last.month &&
+        firstOpened.day == last.day;
+
+    final label = sameDay
+        ? 'First & last opened ${_formatAnalyticsDate(firstOpened)}'
+        : 'First opened ${_formatAnalyticsDate(firstOpened)}'
+            ' \u00b7 Last opened ${_formatAnalyticsDate(last)}';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+      child: Row(
+        children: [
+          Icon(
+            Icons.visibility_outlined,
+            size: 13,
+            color: AppColors.textSecondaryOnDark.withValues(alpha: 0.6),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: AppColors.textSecondaryOnDark.withValues(alpha: 0.85),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Compact analytics-row date formatter. Same vocabulary the
+  /// SessionCard status row uses ("DD Mon" → "25 Apr") so the surfaces
+  /// agree on date grammar. Hour-resolution would be too granular for
+  /// the at-a-glance signal Carl wants; day resolution reads as
+  /// "engagement", not surveillance.
+  String _formatAnalyticsDate(DateTime dt) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${dt.day} ${months[dt.month - 1]}';
   }
 
   Widget _buildEmptyState() {

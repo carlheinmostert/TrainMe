@@ -87,34 +87,108 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
   Future<void> _initCamera() async {
     try {
       final cams = await availableCameras();
+
+      // ALWAYS log every camera enumerated by the plugin, before any
+      // filtering. Wave 33 #6 device-QA item asks Carl to capture this
+      // in Console.app on `avatar.capture` subsystem — without the full
+      // dump there's nothing to diagnose against on his iPhone.
+      dev.log(
+        'availableCameras() returned ${cams.length} entries:\n'
+        '${cams.asMap().entries.map((e) => '  [${e.key}] '
+            'name="${e.value.name}" '
+            'lens=${e.value.lensDirection} '
+            'sensorOrientation=${e.value.sensorOrientation}').join('\n')}',
+        name: 'avatar.capture',
+      );
+
       if (cams.isEmpty) {
         setState(() => _initFailed = true);
         return;
       }
-      // Wave 31 picked `first back-facing camera`, which on iPhones with
-      // separate ultrawide / telephoto entries lands on the standalone
-      // ultrawide — `setZoomLevel(1.0)` on that physical lens stays at
-      // its native ~120° FOV (the fish-eye Carl saw). Filter explicitly:
-      // back-facing AND not ultra/tele by name. Older single-lens phones
-      // have one back entry with no qualifier — fall back to that.
+
+      // Wave 33 — ask the native side for the canonical
+      // `.builtInWideAngleCamera` localizedName + uniqueID. The Flutter
+      // camera plugin maps multi-cam iPhones to VIRTUAL devices
+      // (`.builtInDualWideCamera` etc.) that auto-switch lens based on
+      // framing — `setZoomLevel(1.0)` on a virtual device doesn't
+      // reliably hold the wide lens, hence the fish-eye Carl reported
+      // through Wave 31 + 32. Native side resolves the canonical 1×
+      // back wide-angle device by `AVCaptureDeviceType` (not name) so
+      // we have an authoritative reference.
+      String? nativePreferredName;
+      String? nativePreferredUniqueId;
+      try {
+        final dynamic nativeInfo = await _processor
+            .invokeMethod<Object?>('getPreferredBackCameraName')
+            .timeout(const Duration(seconds: 2));
+        if (nativeInfo is Map) {
+          final m = Map<String, dynamic>.from(nativeInfo);
+          nativePreferredName = m['name'] as String?;
+          nativePreferredUniqueId = m['uniqueID'] as String?;
+          dev.log(
+            'native getPreferredBackCameraName: '
+            'name="$nativePreferredName" '
+            'uniqueID="$nativePreferredUniqueId" '
+            'minZoom=${m['minZoom']} maxZoom=${m['maxZoom']} '
+            'availableTypes=${m['availableTypes']} '
+            'availableNames=${m['availableNames']}',
+            name: 'avatar.capture',
+          );
+        }
+      } catch (e) {
+        dev.log(
+          'native getPreferredBackCameraName unavailable: $e — '
+          'falling back to substring filter',
+          name: 'avatar.capture',
+        );
+      }
+
       final back = cams
           .where((c) => c.lensDirection == CameraLensDirection.back)
           .toList();
-      final wide = back.where((c) {
-        final n = c.name.toLowerCase();
-        return !n.contains('ultra') && !n.contains('tele');
-      }).toList();
-      final picked = wide.isNotEmpty
-          ? wide.first
-          : (back.isNotEmpty ? back.first : null);
+
+      // Strategy 1 — exact match against the native canonical device's
+      // localizedName / uniqueID. The Flutter `camera` plugin's
+      // `CameraDescription.name` IS the AVCaptureDevice.localizedName on
+      // iOS, so this is the authoritative pick.
+      CameraDescription? picked;
+      if (nativePreferredName != null && nativePreferredName.isNotEmpty) {
+        for (final c in back) {
+          if (c.name == nativePreferredName) {
+            picked = c;
+            break;
+          }
+        }
+      }
+      // Strategy 2 — substring filter excluding virtual multi-cam
+      // device hints AND ultra/tele names. The `Dual` / `Triple` virtual
+      // devices auto-switch between lenses based on subject distance,
+      // which is what produces the fish-eye when the practitioner
+      // frames a person at typical avatar-portrait distance.
+      if (picked == null) {
+        final wide = back.where((c) {
+          final n = c.name.toLowerCase();
+          return !n.contains('ultra') &&
+              !n.contains('tele') &&
+              !n.contains('dual') &&
+              !n.contains('triple');
+        }).toList();
+        if (wide.isNotEmpty) picked = wide.first;
+      }
+      // Strategy 3 — last resort, any back camera. Older single-lens
+      // iPhones have exactly one back entry with no qualifier.
+      picked ??= back.isNotEmpty ? back.first : null;
+
       if (picked == null) {
         setState(() => _initFailed = true);
         return;
       }
+
       dev.log(
-        'avatar capture picked camera: name=${picked.name} '
+        'avatar capture picked camera: name="${picked.name}" '
         'lens=${picked.lensDirection} sensorOrient=${picked.sensorOrientation} '
-        '(back=${back.length}, wide-after-filter=${wide.length})',
+        'matchedNativeCanonical=${picked.name == nativePreferredName} '
+        '(back=${back.length})',
         name: 'avatar.capture',
       );
 
@@ -136,18 +210,22 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
       }
       // Even after picking the standard wide, iPhone virtual multi-cam
       // devices can still report a sub-1.0× minZoom — snap explicitly
-      // so we land at the standard-wide native FOV.
+      // so we land at the standard-wide native FOV. (Wave 31 baseline,
+      // verified still in place; do not remove.)
       try {
         final minZoom = await controller.getMinZoomLevel();
         final maxZoom = await controller.getMaxZoomLevel();
         final z = 1.0.clamp(minZoom, maxZoom).toDouble();
         await controller.setZoomLevel(z);
         dev.log(
-          'avatar capture zoom: min=$minZoom max=$maxZoom applied=$z',
+          'avatar capture zoom: min=$minZoom max=$maxZoom applied=$z '
+          '(uniqueIdHint="$nativePreferredUniqueId")',
           name: 'avatar.capture',
         );
-      } catch (_) {
-        // Some simulators / single-lens devices throw — safe to ignore.
+      } catch (e) {
+        // Some simulators / single-lens devices throw — log and proceed.
+        dev.log('setZoomLevel failed (non-fatal): $e',
+            name: 'avatar.capture');
       }
       if (!mounted) {
         await controller.dispose();
@@ -159,6 +237,7 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
       });
     } catch (e) {
       debugPrint('ClientAvatarCaptureScreen camera init failed: $e');
+      dev.log('init failed: $e', name: 'avatar.capture');
       if (mounted) {
         setState(() => _initFailed = true);
       }

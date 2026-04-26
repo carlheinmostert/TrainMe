@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v65-maximise-pill';
+const PLAYER_VERSION = 'v66-record-plan-opened';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -3820,6 +3820,16 @@ async function init() {
     if (!plan || !plan.exercises || plan.exercises.length === 0) {
       throw new Error('Empty plan');
     }
+
+    // Wave 33 — fire the engagement-analytics stamp once per session
+    // start. Idempotently sets `plans.first_opened_at` (preserving any
+    // prior value) + advances `plans.last_opened_at`. Skipped on the
+    // local surface (mobile preview WebView) so the practitioner's
+    // own rehearsal doesn't corrupt the signal.
+    //
+    // Fire-and-forget — no await; engagement is a side-channel and
+    // must never block the player render path.
+    window.HomefitApi.recordPlanOpened(plan.id);
 
     // Sort exercises by position
     plan.exercises.sort((a, b) => a.position - b.position);

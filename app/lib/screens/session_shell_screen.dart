@@ -94,17 +94,25 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
         }
       }
 
-      // Lock-state heal — always.
+      // Lock-state + analytics heal — always.
+      // Wave 33 — also pull `last_opened_at` so the Studio analytics row
+      // ("First opened {date} · Last opened {date}") reads from the same
+      // local mirror as the lock state. The lock policy itself keys
+      // off firstOpenedAt + 14d; lastOpenedAt is purely UX signal.
       DateTime? parseTs(dynamic v) =>
           v is String && v.isNotEmpty ? DateTime.tryParse(v) : null;
       final cloudFirstOpened = parseTs(cloud['first_opened_at']);
+      final cloudLastOpened = parseTs(cloud['last_opened_at']);
       final cloudPrepaid = parseTs(cloud['unlock_credit_prepaid_at']);
       if (cloudFirstOpened != updated.firstOpenedAt ||
+          cloudLastOpened != updated.lastOpenedAt ||
           cloudPrepaid != updated.unlockCreditPrepaidAt) {
         updated = updated.copyWith(
           firstOpenedAt: cloudFirstOpened,
+          lastOpenedAt: cloudLastOpened,
           unlockCreditPrepaidAt: cloudPrepaid,
           clearFirstOpenedAt: cloudFirstOpened == null,
+          clearLastOpenedAt: cloudLastOpened == null,
           clearUnlockCreditPrepaidAt: cloudPrepaid == null,
         );
         changed = true;

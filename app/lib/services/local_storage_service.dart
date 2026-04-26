@@ -19,7 +19,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 31;
+  static const _dbVersion = 32;
 
   Database? _db;
 
@@ -90,7 +90,8 @@ class LocalStorageService {
         crossfade_lead_ms INTEGER,
         crossfade_fade_ms INTEGER,
         unlock_credit_prepaid_at INTEGER,
-        first_opened_at INTEGER
+        first_opened_at INTEGER,
+        last_opened_at INTEGER
       )
     ''');
 
@@ -645,6 +646,20 @@ class LocalStorageService {
       // Supabase mirror: schema_wave30_client_avatar.sql.
       await db.execute(
         'ALTER TABLE cached_clients ADD COLUMN avatar_path TEXT',
+      );
+    }
+    if (oldVersion < 32) {
+      // Wave 33 — sessions.last_opened_at (INTEGER, epoch-ms).
+      // Cloud-side this lives on `plans.last_opened_at` and gets stamped
+      // by the new `record_plan_opened` SECURITY DEFINER RPC on every
+      // anonymous web-player session start. The Studio analytics row
+      // ("First opened {date} · Last opened {date}") reads both columns
+      // out of SQLite. SessionShell reconciles cloud → local on session
+      // open, same pattern as first_opened_at.
+      //
+      // Supabase mirror: schema_wave33_last_opened_at.sql.
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN last_opened_at INTEGER',
       );
     }
   }

@@ -586,7 +586,10 @@ class ApiClient {
       final dynamic result = await _guardAuth(() => raw
           .from('plans')
           .select(
-            'version, sent_at, first_opened_at, unlock_credit_prepaid_at',
+            // Wave 33: pull `last_opened_at` alongside `first_opened_at`
+            // so SessionShell can reconcile both into the local SQLite
+            // mirror — the Studio analytics row needs both timestamps.
+            'version, sent_at, first_opened_at, last_opened_at, unlock_credit_prepaid_at',
           )
           .eq('id', planId)
           .maybeSingle());
