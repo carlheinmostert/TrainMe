@@ -17,6 +17,13 @@ import '../theme.dart';
 /// path roots from a single surface. Once the practitioner is inside
 /// the Studio, they have full publish + share control there.
 ///
+/// Wave 32 layout:
+///   [icon+badge]  Title (date)                              ›
+///                 v3 · 25 Apr               ← status row
+///                 ● Free to republish · 11d 4h left ← lock row
+///                 [coral pill: 2 converting...]   ← active only
+///                 [coral pill: N failed]          ← active only
+///
 /// Failed-conversion retry pill stays — it's a per-exercise concern,
 /// not a publish concern, and the parent list is the natural surface.
 class SessionCard extends StatelessWidget {
@@ -39,6 +46,17 @@ class SessionCard extends StatelessWidget {
     required this.onDelete,
   });
 
+  /// Lock-grace window MUST mirror `StudioModeScreen._kLockGraceDays`
+  /// (Wave 32 = 14 days). Duplicated here as a const so the card can
+  /// derive its lock-state row without importing the screen.
+  static const Duration _kLockGrace = Duration(days: 14);
+
+  /// Inside the last [_kUrgentWindow] of grace the lock row paints
+  /// coral. Inside the last [_kWarningWindow] it paints amber. Otherwise
+  /// sage. Matches the colour grammar Carl spec'd in the brief.
+  static const Duration _kUrgentWindow = Duration(hours: 24);
+  static const Duration _kWarningWindow = Duration(days: 3);
+
   @override
   Widget build(BuildContext context) {
     final exerciseCount = session.exercises.length;
@@ -48,6 +66,8 @@ class SessionCard extends StatelessWidget {
         .where((e) => e.conversionStatus == ConversionStatus.failed)
         .toList(growable: false);
     final hasFailedConversions = failedConversions.isNotEmpty;
+
+    final lockState = _resolveLockState(session);
 
     return Dismissible(
       key: ValueKey(session.id),
@@ -82,8 +102,13 @@ class SessionCard extends StatelessWidget {
               children: [
                 // Leading list-alt badge — sessions are assembled, dosed
                 // plans, not raw capture artefacts. The camera glyph was
-                // too narrow.
-                _LeadingIconBadge(icon: Icons.list_alt_rounded),
+                // too narrow. Wave 32: count badge overlays at bottom-right
+                // (notification-style), so the count is no longer in the
+                // status row text.
+                _LeadingIconBadge(
+                  icon: Icons.list_alt_rounded,
+                  count: exerciseCount,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -98,29 +123,23 @@ class SessionCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),
-                      Text.rich(
-                        TextSpan(
-                          children: [
-                            TextSpan(
-                              text:
-                                  '$exerciseCount exercise${exerciseCount == 1 ? '' : 's'}'
-                                  '${pending > 0 ? ' ($pending converting...)' : ''}',
-                            ),
-                            TextSpan(
-                              text: ' \u00b7 ${_publishLabel(session)}',
-                              style: TextStyle(
-                                color: session.version > 0
-                                    ? AppColors.circuit
-                                    : AppColors.grey500,
-                              ),
-                            ),
-                          ],
-                        ),
-                        style: const TextStyle(
-                          color: AppColors.textSecondaryOnDark,
+                      Text(
+                        _publishLabel(session),
+                        style: TextStyle(
+                          color: session.version > 0
+                              ? AppColors.circuit
+                              : AppColors.textSecondaryOnDark,
                           fontSize: 13,
                         ),
                       ),
+                      if (lockState != null) ...[
+                        const SizedBox(height: 4),
+                        _LockStateRow(state: lockState),
+                      ],
+                      if (pending > 0) ...[
+                        const SizedBox(height: 6),
+                        _PendingConversionsPill(count: pending),
+                      ],
                       if (hasFailedConversions) ...[
                         const SizedBox(height: 6),
                         _FailedConversionsPill(
@@ -157,10 +176,12 @@ class SessionCard extends StatelessWidget {
     return session.clientName;
   }
 
-  /// Short publish-status label for the session card.
+  /// Short publish-status label for the session card. Wave 32 dropped
+  /// the "{N} exercises" prefix — that count now lives on the leading
+  /// icon's overlaid badge.
   static String _publishLabel(Session session) {
     if (session.version == 0) return 'Draft';
-    final v = 'Published v${session.version}';
+    final v = 'v${session.version}';
     final dt = session.lastPublishedAt;
     if (dt == null) return v;
     const months = [
@@ -171,6 +192,172 @@ class SessionCard extends StatelessWidget {
     return '$v \u00b7 $date';
   }
 
+  /// Resolve the lock-state row to render — null if the row should be
+  /// hidden (draft + never-opened states; only pre-locked / locked /
+  /// unlocked surface a row).
+  ///
+  /// Mirrors `StudioModeScreen._isPlanLocked` rules (Wave 32) so the
+  /// list view + the screen agree.
+  static _LockState? _resolveLockState(Session session) {
+    if (!session.isPublished) return null; // draft: hide
+    final firstOpened = session.firstOpenedAt;
+    if (firstOpened == null) return null; // published-never-opened: hide
+    if (session.unlockCreditPrepaidAt != null) {
+      return const _LockState(_LockTone.unlocked, 'Unlocked · republish free');
+    }
+    final elapsed = DateTime.now().difference(firstOpened);
+    final remaining = _kLockGrace - elapsed;
+    if (remaining <= Duration.zero) {
+      return const _LockState(
+        _LockTone.locked,
+        'Republish costs 1 credit · tap to unlock',
+      );
+    }
+    final tone = remaining <= _kUrgentWindow
+        ? _LockTone.urgent
+        : remaining <= _kWarningWindow
+            ? _LockTone.warning
+            : _LockTone.fresh;
+    return _LockState(tone, 'Free to republish · ${_formatRemaining(remaining)} left');
+  }
+
+  /// Compact "Xd Yh" / "Xh Ym" / "Xm" formatter for [Duration]. Drops
+  /// the trailing unit when it's 0 (e.g. exactly 24h → "1d", exactly
+  /// 1h → "1h"). Sub-minute clamps to "1m" so the row never renders
+  /// "0m left" — inside that final minute the lock effectively flips,
+  /// and "1m left" reads as imminent rather than already-expired.
+  static String _formatRemaining(Duration d) {
+    if (d.inDays >= 1) {
+      final days = d.inDays;
+      final hours = d.inHours - days * 24;
+      return hours == 0 ? '${days}d' : '${days}d ${hours}h';
+    }
+    if (d.inHours >= 1) {
+      final hours = d.inHours;
+      final minutes = d.inMinutes - hours * 60;
+      return minutes == 0 ? '${hours}h' : '${hours}h ${minutes}m';
+    }
+    final minutes = d.inMinutes;
+    return minutes <= 0 ? '1m' : '${minutes}m';
+  }
+}
+
+/// Lock-row tone — drives the leading dot colour + (occasionally) the
+/// label colour. Five distinct visual states; none of them open a
+/// separate tap surface — the whole card row is the tap target and
+/// opens the Studio, which is where the unlock CTA lives.
+enum _LockTone { fresh, warning, urgent, locked, unlocked }
+
+class _LockState {
+  final _LockTone tone;
+  final String label;
+  const _LockState(this.tone, this.label);
+}
+
+/// Single row showing the publish-lock state. Tiny (8×8) coloured
+/// circle + 12pt label. Visual-only; tap target is the whole card.
+class _LockStateRow extends StatelessWidget {
+  final _LockState state;
+  const _LockStateRow({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final dotColor = _toneColor(state.tone);
+    // Locked + unlocked nudge the label colour too — locked reads as
+    // "do something", unlocked reads as "you already did".
+    final labelColor = state.tone == _LockTone.locked
+        ? AppColors.error
+        : state.tone == _LockTone.unlocked
+            ? AppColors.primary
+            : AppColors.textSecondaryOnDark;
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: dotColor,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            state.label,
+            style: TextStyle(
+              color: labelColor,
+              fontSize: 12,
+              fontWeight: state.tone == _LockTone.locked
+                  ? FontWeight.w600
+                  : FontWeight.w400,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  static Color _toneColor(_LockTone tone) {
+    switch (tone) {
+      case _LockTone.fresh:
+        return AppColors.rest; // sage
+      case _LockTone.warning:
+        return AppColors.warning; // amber
+      case _LockTone.urgent:
+        return AppColors.primary; // coral
+      case _LockTone.locked:
+        return AppColors.error; // red
+      case _LockTone.unlocked:
+        return AppColors.primaryLight; // light coral
+    }
+  }
+}
+
+/// Thin coral-tinted "N converting..." pill. Wave 32 promoted this out
+/// of the status-row text so the lock row can read cleanly without
+/// pending-conversion noise pushing the publish version off the line.
+class _PendingConversionsPill extends StatelessWidget {
+  final int count;
+  const _PendingConversionsPill({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.5,
+                valueColor:
+                    AlwaysStoppedAnimation<Color>(AppColors.primary),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '$count converting...',
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Coral-tinted retry pill. Extracted unchanged from the retired Home
@@ -261,21 +448,78 @@ class _FailedConversionsPill extends StatelessWidget {
 ///
 /// Coral at 12% alpha background on the dark surface + a coral-filled
 /// glyph. Size + radius match the app's chip vocabulary (40×40, radius 10).
+///
+/// Wave 32: when [count] > 0, an exercise-count badge overlays the
+/// bottom-right corner — like an app-icon notification badge. White
+/// digits on solid coral with a 1px dark border so it pops against
+/// both the icon and the card surface. Hidden when [count] == 0
+/// (pre-capture sessions).
 class _LeadingIconBadge extends StatelessWidget {
   final IconData icon;
-  const _LeadingIconBadge({required this.icon});
+  final int count;
+  const _LeadingIconBadge({required this.icon, this.count = 0});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       width: 40,
       height: 40,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            alignment: Alignment.center,
+            child: Icon(icon, color: AppColors.primary, size: 22),
+          ),
+          if (count > 0)
+            Positioned(
+              right: -4,
+              bottom: -4,
+              child: _CountBadge(count: count),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Coral count pill — 16×16 circular, white digits, 1px dark border.
+/// Triple-digit counts widen to a stadium so "100+" still reads.
+class _CountBadge extends StatelessWidget {
+  final int count;
+  const _CountBadge({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = count > 99 ? '99+' : '$count';
+    return Container(
+      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+      padding: EdgeInsets.symmetric(
+        horizontal: count > 9 ? 4 : 0,
+        vertical: 0,
+      ),
       decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.surfaceBg, width: 1),
       ),
       alignment: Alignment.center,
-      child: Icon(icon, color: AppColors.primary, size: 22),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          height: 1.0,
+        ),
+      ),
     );
   }
 }

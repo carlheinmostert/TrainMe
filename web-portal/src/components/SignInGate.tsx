@@ -3,19 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getBrowserClient } from '@/lib/supabase-browser';
-
-/**
- * Validate a `?next=` query param before treating it as a post-sign-in
- * destination. Must be a same-origin app path: starts with a single `/`
- * and is not a protocol-relative URL (`//evil.example`). Anything else
- * collapses to /dashboard so an attacker can't smuggle a redirect.
- */
-function safeNext(raw: string | null | undefined): string {
-  if (!raw) return '/dashboard';
-  if (!raw.startsWith('/')) return '/dashboard';
-  if (raw.startsWith('//')) return '/dashboard';
-  return raw;
-}
+import { safeNext } from '@/lib/safe-next';
 
 /**
  * Sign-in surface for the web portal.

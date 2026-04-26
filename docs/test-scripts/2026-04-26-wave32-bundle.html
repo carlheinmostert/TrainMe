@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 32 Bundle (SessionCard + 14d grace + W31 carryover fixes)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 32 · device QA</div>
+  <h1>SessionCard + 14d grace + W31 carryover fixes</h1>
+
+  <p class="lede">
+    <strong>(A)</strong> SessionCard: <code>14×14</code> coral count badge OVERLAYS the leading icon (icon stays); status row trimmed to <code>v3 · 25 Apr</code>; new third row dedicated to lock state with explicit copy + colour-coded dot. <strong>(B)</strong> Lock-grace policy extended <code>3 → 14 days</code>. <strong>(C)</strong> Circuit rail no longer takes the triangle's coral colour where they overlap (rail clipped through the triangle band). <strong>(D)</strong> Avatar capture: name-substring filter excludes Ultra/Telephoto cameras + <code>lockCaptureOrientation(portraitUp)</code> after init. <strong>(E)</strong> Credits chip portal: extracted shared <code>safeNext()</code> helper; home page honours <code>?next=</code> when already signed-in (the redirect-to-dashboard fall-through was the W31 #6 bug). <strong>(F)</strong> Preview videos: iOS scheme handler accepts <code>kind=segmented</code>; bridge falls back to <code>rawFilePath</code> for videos whose <code>convertedFilePath</code> is a JPG fallback (avoids serving image/jpeg to <code>&lt;video&gt;</code>).
+  </p>
+
+  <h2>A · SessionCard consolidation + lock indicator</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+      <span class="num">1.</span>
+      <span class="text">Number badge overlays the leading icon — does NOT replace it.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open a client → sessions list. The leading <code>list_alt</code> icon is still there.</li>
+        <li data-sub="1.2">A small coral pill (~14×14) sits at the bottom-right corner of the icon with the exercise count in white digits.</li>
+        <li data-sub="1.3">A session with 0 exercises (pre-capture) shows the icon WITHOUT a badge.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+      <span class="num">2.</span>
+      <span class="text">Status row reads cleanly without the duplicate exercise count.</span>
+      <ol class="steps">
+        <li data-sub="2.1">Published session: status row shows <code>v3 · 25 Apr</code> (no "12 exercises" prefix).</li>
+        <li data-sub="2.2">Draft session: status row shows just <code>Draft</code>.</li>
+        <li data-sub="2.3">Pending conversions ("X converting…") moved BELOW into a thin coral pill, not inline.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+      <span class="num">3.</span>
+      <span class="text">Lock-state third row appears with explicit copy + coloured dot.</span>
+      <ol class="steps">
+        <li data-sub="3.1">A published plan whose client opened it ≤14 days ago shows: small sage circle + <code>Free to republish · 11d 4h left</code> (or similar).</li>
+        <li data-sub="3.2">≤3 days remaining: amber dot + <code>Free to republish · 2d 4h left</code>.</li>
+        <li data-sub="3.3">≤24h: coral dot + <code>Free to republish · 5h left</code>.</li>
+        <li data-sub="3.4">Locked (past 14 days): red dot + bold <code>Republish costs 1 credit · tap to unlock</code>.</li>
+        <li data-sub="3.5">Unlocked (prepaid): light coral dot + <code>Unlocked · republish free</code>.</li>
+        <li data-sub="3.6">Draft / never-opened: third row HIDDEN entirely.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B · 14-day grace policy</h2>
+  <ul class="checklist">
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+      <span class="num">4.</span>
+      <span class="text">Lock now kicks in 14 days post-first-open, not 3.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Backdate a plan's <code>first_opened_at</code> to 4 days ago. Open Studio for that plan. Padlock NOT visible (still in grace).</li>
+        <li data-sub="4.2">Backdate to 13 days ago. Padlock NOT visible.</li>
+        <li data-sub="4.3">Backdate to 15 days ago. Padlock visible.</li>
+        <li data-sub="4.4">Tell me when you're ready and I'll run the SQL backdates for you.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C · Circuit rail colour overlap (W31 #4 note)</h2>
+  <ul class="checklist">
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+      <span class="num">5.</span>
+      <span class="text">Circuit rail line stays its proper colour through the triangle band.</span>
+      <ol class="steps">
+        <li data-sub="5.1">Open a session with a circuit (linked exercises). The rail line connecting them runs vertically through the gutter.</li>
+        <li data-sub="5.2">Where the inter-exercise insert triangle sits within the rail's path, the rail line is now CLEANLY BROKEN through that band — no coral bleed-through.</li>
+        <li data-sub="5.3">Triangle still paints over the gap; tap behaviour unchanged.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>D · Avatar capture lens + orientation (W31 #5 fail)</h2>
+  <ul class="checklist">
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+      <span class="num">6.</span>
+      <span class="text">Avatar capture opens portrait + standard wide lens (no fish-eye).</span>
+      <ol class="steps">
+        <li data-sub="6.1">Tap empty avatar slot on a client detail. Camera opens locked PORTRAIT.</li>
+        <li data-sub="6.2">Subject in centre frame looks proportional — no Ultra Wide warping.</li>
+        <li data-sub="6.3">If you have Console.app handy: filter on <code>avatar.capture</code> subsystem to confirm "picked back wide camera (name=...)" + zoom range logged.</li>
+        <li data-sub="6.4">Capture works. Composite preview shows clean subject + blurred background.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>E · Credits chip portal redirect (W31 #6 fail, third pass)</h2>
+  <ul class="checklist">
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+      <span class="num">7.</span>
+      <span class="text">Credits chip lands on <code>/credits</code> regardless of portal session state.</span>
+      <ol class="steps">
+        <li data-sub="7.1">Already-signed-in case: portal cookie present in iPhone Safari. Tap credits chip → lands on <code>/credits</code>. NOT <code>/dashboard</code>.</li>
+        <li data-sub="7.2">Expired-session case: clear portal cookie. Tap chip → lands on portal sign-in page with <code>?next=/credits</code>. Sign in (password OR magic link) → final landing is <code>/credits</code>.</li>
+        <li data-sub="7.3">Vercel runtime logs (if needed): each redirect step now emits a <code>[wave32-redirect-trace]</code> line so the chain is captureable.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>F · Preview player videos (Wave 31 carryover)</h2>
+  <ul class="checklist">
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+      <span class="num">8.</span>
+      <span class="text">Videos render in unified preview (the WebView wrapping web-player).</span>
+      <ol class="steps">
+        <li data-sub="8.1">Open a session with at least one video exercise. Tap "Preview" / slideshow → UnifiedPreview WebView opens.</li>
+        <li data-sub="8.2">Video plays. No black frame, no "media not available" fallback.</li>
+        <li data-sub="8.3">Body Focus toggle works (segmented variant plays; iOS scheme handler now accepts <code>kind=segmented</code>).</li>
+        <li data-sub="8.4">If a video had a failed conversion (its <code>convertedFilePath</code> ended up as a JPG), the bundle now serves the raw video file — no longer serving image/jpeg to a <code>&lt;video&gt;</code> tag.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>G · Wave 31 carryover smoke (untested last round)</h2>
+  <ul class="checklist">
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+      <span class="num">9.</span>
+      <span class="text">Locked-plan EDITS proceed silently — no warning toast.</span>
+      <ol class="steps">
+        <li data-sub="9.1">On a locked plan (post-14d grace now), try add / delete / reorder. All proceed with no warning.</li>
+        <li data-sub="9.2">Tap Publish on the same plan → unlock confirm sheet still appears.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope (skip if you see them)</h3>
+    <ul>
+      <li>Wave 30 client-avatar core flow (already verified). This wave only fixes the lens.</li>
+      <li>Wave 31 #1, #2, #4, #8, #9 (already passed). Re-test only if a regression surfaces.</li>
+      <li>Wave 28 landscape support — unaffected.</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-26-wave32-bundle.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave32-bundle', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

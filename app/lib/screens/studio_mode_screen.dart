@@ -277,21 +277,22 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   // Publish-lock state
   // ---------------------------------------------------------------------------
   //
-  // Lock rules (Wave 29 revision):
+  // Lock rules (Wave 32 revision):
   //   - Unpublished plan → edits free.
   //   - Published, client has NEVER opened → edits free indefinitely.
-  //   - Published, client has opened, < 3 days since first open → edits free.
-  //   - Published, client has opened, ≥ 3 days since first open → LOCKED.
+  //   - Published, client has opened, < 14 days since first open → edits free.
+  //   - Published, client has opened, ≥ 14 days since first open → LOCKED.
   //   - LOCKED + unlock_credit_prepaid_at set → edits free (unlock paid;
   //     flag clears server-side on next publish).
   //
   // The padlock chip in the AppBar action bar is the only path to unlock —
   // tap → bottom sheet → 1 credit → editable again.
 
-  /// Days of editing grace after the client first opens the plan. Carl
-  /// 2026-04-25: revised from 24h to 3 days, AND the clock now only
-  /// starts on first-open (not on first-publish).
-  static const int _kLockGraceDays = 3;
+  /// Days of editing grace after the client first opens the plan. Wave 32:
+  /// extended from 3d → 14d to match typical practitioner / client follow-up
+  /// cadence (1-2 weeks); the practitioner needs free refinement until the
+  /// follow-up session.
+  static const int _kLockGraceDays = 14;
 
   bool get _isPlanLocked {
     if (!_session.isPublished) return false;

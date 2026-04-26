@@ -358,20 +358,39 @@ class GutterGapPainter extends CustomPainter {
     //    early anymore — the insertion triangle still paints in the
     //    right channel on top of this, advertising insertion even inside
     //    a circuit.
+    //
+    // Wave 32 fix: previously a single Paint instance was reused below
+    // (see triangle blocks) without rebuilding, so when the painter ran
+    // a second time after a state change the rail's paint colour was
+    // observed to leak from the triangle's coral. The rail now uses a
+    // local-scoped Paint that never escapes this block — and the rail
+    // is clipped to leave a clean horizontal gap exactly where the
+    // triangle sits in the right channel, so the two affordances no
+    // longer visually merge in the segment they share vertically.
     if (continuousRail) {
-      final paint = Paint()
+      final railPaint = Paint()
         ..color = AppColors.primary.withValues(alpha: dimmed ? 0.3 : 0.85)
         ..style = PaintingStyle.fill;
       const railWidth = 3.0;
-      canvas.drawRect(
-        Rect.fromLTRB(
-          centerX - railWidth / 2,
-          0,
-          centerX + railWidth / 2,
-          size.height,
-        ),
-        paint,
+      // Triangle's vertical extent: centerY ± 6 (active halfHeight). Cut
+      // a 16px slot through the rail centred on centerY so the rail
+      // reads as "broken" through the insertion-triangle band rather
+      // than continuous coral that the triangle floats inside.
+      const triBandHalf = 8.0;
+      final topRect = Rect.fromLTRB(
+        centerX - railWidth / 2,
+        0,
+        centerX + railWidth / 2,
+        centerY - triBandHalf,
       );
+      final bottomRect = Rect.fromLTRB(
+        centerX - railWidth / 2,
+        centerY + triBandHalf,
+        centerX + railWidth / 2,
+        size.height,
+      );
+      canvas.drawRect(topRect, railPaint);
+      canvas.drawRect(bottomRect, railPaint);
     }
 
     // 2) Insertion marker: right-pointing triangle in the RIGHT channel.

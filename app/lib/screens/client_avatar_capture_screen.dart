@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as dev;
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -90,33 +91,63 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
         setState(() => _initFailed = true);
         return;
       }
-      // Prefer the back camera; iPhone has both, the back is the natural
-      // pick for capturing a client across the room. Practitioner can
-      // exit + re-tap if they want a self-portrait — single-shot UX is
-      // intentional.
-      //
-      // iPhone multi-camera virtual devices default to the 0.5× ultrawide
-      // when zoom is unset, which fish-eyes the subject at avatar range.
-      // Snap to 1.0× post-init so the standard wide is in play. Mirror of
-      // capture_mode_screen._attachController.
-      var idx = cams.indexWhere(
-        (c) => c.lensDirection == CameraLensDirection.back,
+      // Wave 31 picked `first back-facing camera`, which on iPhones with
+      // separate ultrawide / telephoto entries lands on the standalone
+      // ultrawide — `setZoomLevel(1.0)` on that physical lens stays at
+      // its native ~120° FOV (the fish-eye Carl saw). Filter explicitly:
+      // back-facing AND not ultra/tele by name. Older single-lens phones
+      // have one back entry with no qualifier — fall back to that.
+      final back = cams
+          .where((c) => c.lensDirection == CameraLensDirection.back)
+          .toList();
+      final wide = back.where((c) {
+        final n = c.name.toLowerCase();
+        return !n.contains('ultra') && !n.contains('tele');
+      }).toList();
+      final picked = wide.isNotEmpty
+          ? wide.first
+          : (back.isNotEmpty ? back.first : null);
+      if (picked == null) {
+        setState(() => _initFailed = true);
+        return;
+      }
+      dev.log(
+        'avatar capture picked camera: name=${picked.name} '
+        'lens=${picked.lensDirection} sensorOrient=${picked.sensorOrientation} '
+        '(back=${back.length}, wide-after-filter=${wide.length})',
+        name: 'avatar.capture',
       );
-      if (idx < 0) idx = 0;
+
       final controller = CameraController(
-        cams[idx],
+        picked,
         ResolutionPreset.high,
         enableAudio: false,
       );
       await controller.initialize();
+      // Belt-and-braces against the camera plugin overriding the
+      // OrientationLockGuard. The plugin reads device orientation at
+      // capture time and bakes it into the still's EXIF; locking pins
+      // that to portrait so a sideways phone still produces an upright
+      // avatar. MUST run AFTER initialize() — earlier calls throw.
+      try {
+        await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
+      } catch (e) {
+        dev.log('lockCaptureOrientation failed: $e', name: 'avatar.capture');
+      }
+      // Even after picking the standard wide, iPhone virtual multi-cam
+      // devices can still report a sub-1.0× minZoom — snap explicitly
+      // so we land at the standard-wide native FOV.
       try {
         final minZoom = await controller.getMinZoomLevel();
         final maxZoom = await controller.getMaxZoomLevel();
-        await controller
-            .setZoomLevel(1.0.clamp(minZoom, maxZoom).toDouble());
+        final z = 1.0.clamp(minZoom, maxZoom).toDouble();
+        await controller.setZoomLevel(z);
+        dev.log(
+          'avatar capture zoom: min=$minZoom max=$maxZoom applied=$z',
+          name: 'avatar.capture',
+        );
       } catch (_) {
-        // Some simulators / single-lens devices throw — safe to ignore;
-        // there's no ultrawide to flee from on those.
+        // Some simulators / single-lens devices throw — safe to ignore.
       }
       if (!mounted) {
         await controller.dispose();

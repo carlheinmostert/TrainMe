@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as dev;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,18 @@ import '../models/session.dart';
 import '../models/treatment.dart';
 import 'local_storage_service.dart';
 import 'path_resolver.dart';
+
+/// True when an exercise's `convertedFilePath` is a still-image fallback
+/// (the converter dropped to a single frame because video conversion
+/// failed). Mirrors the studio-screen helper of the same name; copied
+/// here to keep the bridge dependency-free.
+bool _isStillImageFallback(String? path) {
+  if (path == null) return false;
+  final lower = path.toLowerCase();
+  return lower.endsWith('.jpg') ||
+      lower.endsWith('.jpeg') ||
+      lower.endsWith('.png');
+}
 
 /// Wave 4 Phase 2 — Dart side of the `WKURLSchemeHandler` bridge.
 ///
@@ -149,7 +162,16 @@ class UnifiedPreviewSchemeBridge {
     String? relative;
     switch (kind) {
       case 'line':
-        relative = exercise.convertedFilePath ?? exercise.rawFilePath;
+        // Wave 32 fix — if a VIDEO's converted file is a still-image (.jpg)
+        // fallback, the WebView's <video> element gets `image/jpeg` and
+        // silently fails. Skip the still and fall through to rawFilePath
+        // so a real video stream is served for the line treatment.
+        if (exercise.mediaType == MediaType.video &&
+            _isStillImageFallback(exercise.convertedFilePath)) {
+          relative = exercise.rawFilePath;
+        } else {
+          relative = exercise.convertedFilePath ?? exercise.rawFilePath;
+        }
         break;
       case 'archive':
         relative = exercise.archiveFilePath;
@@ -159,12 +181,23 @@ class UnifiedPreviewSchemeBridge {
         break;
     }
     if (relative == null || relative.isEmpty) {
+      dev.log(
+        'no $kind file for ${exercise.mediaType.name} exercise $exerciseId '
+        '(converted=${exercise.convertedFilePath} raw=${exercise.rawFilePath} '
+        'archive=${exercise.archiveFilePath} segmented=${exercise.segmentedRawFilePath})',
+        name: 'UnifiedPreviewSchemeBridge',
+      );
       throw PlatformException(
         code: 'NOT_FOUND',
         message: 'no $kind file for exercise $exerciseId',
       );
     }
-    return PathResolver.resolve(relative);
+    final resolved = PathResolver.resolve(relative);
+    dev.log(
+      '$exerciseId/$kind → $resolved',
+      name: 'UnifiedPreviewSchemeBridge',
+    );
+    return resolved;
   }
 
   // ---------------------------------------------------------------------------

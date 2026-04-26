@@ -285,6 +285,10 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
           self.safeDidFail(task, Self.error(.fileDoesNotExist, "no media for \(exerciseId)/\(kind)"))
           return
         }
+        // Wave 32 — diagnostic for the "video doesn't render" bug. Logs the
+        // served path + content-type so a still-image fallback (jpg) being
+        // handed to a <video> tag is obvious in Console.app.
+        NSLog("[UnifiedPreview] serve \(exerciseId)/\(kind) → \(path) (\(self.contentTypeFor(path)))")
         self.streamFileWithRangeSupport(task, filePath: path)
       }
     }
@@ -447,7 +451,10 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
     return id.removingPercentEncoding ?? id
   }
 
-  /// Parses `local/<exerciseId>/(line|archive)`. Returns nil on mismatch.
+  /// Parses `local/<exerciseId>/(line|archive|segmented)`. Returns nil on
+  /// mismatch. `segmented` is the body-pop variant added in Wave 30 — the
+  /// Dart bridge already accepts it, so the iOS guard had to follow or
+  /// every Body-Focus video request 404'd silently.
   private func parseLocalMediaPath(_ path: String) -> (String, String)? {
     guard path.hasPrefix("local/") else { return nil }
     let rest = path.dropFirst("local/".count)
@@ -456,7 +463,10 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
     let exerciseId = String(parts[0])
     let kind = String(parts[1])
     if exerciseId.isEmpty { return nil }
-    guard kind == "line" || kind == "archive" else { return nil }
+    guard kind == "line" || kind == "archive" || kind == "segmented" else {
+      NSLog("[UnifiedPreview] rejected unknown kind '\(kind)' for exercise \(exerciseId)")
+      return nil
+    }
     return (exerciseId.removingPercentEncoding ?? exerciseId, kind)
   }
 
