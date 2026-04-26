@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
-import '../services/portal_links.dart';
 import '../theme.dart';
 
 /// Wave 30 — replaces the standalone `NetworkShareKitScreen` as the
@@ -129,30 +127,6 @@ class _NetworkShareSheetState extends State<NetworkShareSheet> {
     }
   }
 
-  Future<void> _openPortalNetwork() async {
-    HapticFeedback.selectionClick();
-    final uri = portalLink('/network', practiceId: _practiceId);
-    bool launched = false;
-    try {
-      launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-    } catch (_) {
-      launched = false;
-    }
-    if (!launched && mounted) {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text("Couldn't open the portal. Try again shortly."),
-            duration: Duration(seconds: 3),
-          ),
-        );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     // Sheet content lives inside a SafeArea so it respects the home-
@@ -191,8 +165,6 @@ class _NetworkShareSheetState extends State<NetworkShareSheet> {
             _buildCodeAndQr(),
             const SizedBox(height: 16),
             _buildShareButton(),
-            const SizedBox(height: 12),
-            _buildPortalLink(),
           ],
         ),
       ),
@@ -267,32 +239,6 @@ class _NetworkShareSheetState extends State<NetworkShareSheet> {
     );
   }
 
-  Widget _buildPortalLink() {
-    return Center(
-      child: TextButton(
-        onPressed: _openPortalNetwork,
-        style: TextButton.styleFrom(
-          foregroundColor: AppColors.primary,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'View network stats',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(width: 4),
-            Icon(Icons.arrow_forward_rounded, size: 14),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------

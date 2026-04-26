@@ -738,10 +738,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// Whichever side drops to <2 members has its circuit id cleared —
   /// a single-member circuit has no semantic meaning.
   void _breakLinkBetween(int upperIndex, int lowerIndex) {
-    if (_isPublishLocked) {
-      showPublishLockToast(context);
-      return;
-    }
     final exercises = List<ExerciseCapture>.from(_session.exercises);
     if (upperIndex < 0 || lowerIndex >= exercises.length) return;
     final originalCircuitId = exercises[upperIndex].circuitId;
@@ -841,7 +837,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       // A circuit with 1 cycle is just a regular exercise — enforce ≥2.
       minCycles: 2,
       maxCycles: 10,
-      breakLocked: _isPublishLocked,
     );
     if (result == null) return;
     _renameCircuit(circuitId, result.name);
@@ -874,12 +869,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   // ---------------------------------------------------------------------------
 
   void _onReorder(int oldVisualIndex, int newVisualIndex) {
-    // Reorder is a "credit-costing" structural change once the plan is
-    // locked. Intercept and surface the tooltip-toast instead.
-    if (_isPublishLocked) {
-      showPublishLockToast(context);
-      return;
-    }
+    // Wave 31 — edits on a locked plan no longer surface a toast or
+    // get blocked. Only the Publish button materialises the change to
+    // the client, so the credit gate lives on Publish alone.
     if (newVisualIndex > oldVisualIndex) newVisualIndex--;
     if (oldVisualIndex == newVisualIndex) return;
 
@@ -1106,12 +1098,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   }
 
   // Wave 18 — retired. The exercise-count summary chip + publish-lock
-  // badge lived here; the new StudioToolbar replaces both. The lock
-  // badge's affordance moved into the Publish-icon overlay (small lock
-  // glyph) + `onPublishLockedTap` still fires `showPublishLockToast`.
-  // If the edit-open countdown proves useful we can re-introduce it as
-  // a pill in the AppBar title area; it's currently accepted as lost
-  // real estate per the Wave 18 spec.
+  // badge lived here; the new StudioToolbar replaces both. Wave 30+31
+  // route the lock affordance through the AppBar padlock chip + the
+  // unlock sheet; edits no longer surface a credit toast (only Publish
+  // materialises a version bump).
 
   Widget _buildExerciseList() {
     final exercises = _session.exercises;
@@ -1223,13 +1213,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         onUpdate: (u) => _updateExercise(dataIndex, u),
         onThumbnailTap: () => _openMediaViewer(exercise),
         onReplaceMedia: () => _replaceMedia(dataIndex),
-        onDelete: () {
-          if (_isPublishLocked) {
-            showPublishLockToast(context);
-            return;
-          }
-          _deleteExercise(dataIndex);
-        },
+        onDelete: () => _deleteExercise(dataIndex),
         // Video-only: pipe the thumbnail peek's "Download original"
         // row into the Save / Share bottom sheet. Rest + photo rows
         // don't render this option (gated in ThumbnailPeek).
@@ -1259,13 +1243,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             size: 24,
           ),
         ),
-        confirmDismiss: (_) async {
-          if (_isPublishLocked) {
-            showPublishLockToast(context);
-            return false;
-          }
-          return true;
-        },
+        confirmDismiss: (_) async => true,
         onDismissed: (_) => _deleteExercise(dataIndex),
         child: cardBody,
       );
@@ -1337,9 +1315,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
               ],
             ),
           ),
-          // Gap below this card (unless it's the last card).
+          // Gap below this card. After the last data card the gap is
+          // re-used as the trailing tail-append affordance — same
+          // triangle, same tray, lowerIndex == exercises.length so
+          // _importFromLibrary / _insertRestBetween append cleanly.
           if (dataIndex < exercises.length - 1)
-            _buildGap(dataIndex + 1, exercise, exercises[dataIndex + 1]),
+            _buildGap(dataIndex + 1, exercise, exercises[dataIndex + 1])
+          else
+            _buildGap(exercises.length, exercise, null),
         ],
       ),
     );
@@ -1385,13 +1368,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           ],
         ),
       ),
-      confirmDismiss: (_) async {
-        if (_isPublishLocked) {
-          showPublishLockToast(context);
-          return false;
-        }
-        return true;
-      },
+      confirmDismiss: (_) async => true,
       onDismissed: (_) => _deleteExercise(dataIndex),
       child: Container(
         margin: const EdgeInsets.only(bottom: 6),
@@ -1528,19 +1505,26 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   Widget _buildGap(
     int lowerIndex,
     ExerciseCapture upper,
-    ExerciseCapture lower,
+    ExerciseCapture? lower,
   ) {
     final isActive = _activeInsertIndex == lowerIndex;
-    final sameCircuit = upper.circuitId != null &&
+    // Trailing gap (lower == null): no successor → no shared circuit, no
+    // link/break, only Rest + Insert. Tail-append index lowerIndex ==
+    // exercises.length is a unique sentinel vs. the inter-card gaps
+    // (which use 1..exercises.length-1) so _activeInsertIndex stays
+    // unambiguous.
+    final sameCircuit = lower != null &&
+        upper.circuitId != null &&
         upper.circuitId == lower.circuitId;
 
-    final showRest = !upper.isRest && !lower.isRest;
+    final showRest = !upper.isRest && (lower == null || !lower.isRest);
     // Rests are first-class members of a circuit — semantically identical
     // to exercises for the purpose of linking. The only reason to NOT show
     // link is that the two items are already in the same circuit — in that
     // case we offer Break instead, to split the circuit at this point.
-    final showLink = !sameCircuit;
-    final showBreak = sameCircuit;
+    // No successor → neither link nor break makes sense.
+    final showLink = lower != null && !sameCircuit;
+    final showBreak = lower != null && sameCircuit;
 
     return Stack(
       children: [
@@ -1572,11 +1556,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                 showLinkAction: showLink,
                 showBreakAction: showBreak,
                 showInsertAction: true,
-                locked: _isPublishLocked,
-                onLockedAction: () {
-                  showPublishLockToast(context);
-                  setState(() => _activeInsertIndex = null);
-                },
+                // Wave 31 — edits run free regardless of lock state.
+                // Only the Publish button materialises a credit-costing
+                // version bump.
+                locked: false,
                 onRestHere: () async {
                   setState(() => _activeInsertIndex = null);
                   await _insertRestBetween(lowerIndex);
@@ -4596,4 +4579,5 @@ class _TunerSliderRow extends StatelessWidget {
     );
   }
 }
+
 

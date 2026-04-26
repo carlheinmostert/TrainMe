@@ -441,12 +441,6 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    // Wave 18.2 — mixed-case kept. Reps / sets / hold
-                    // read naturally ("3 reps · 1 set · 5s hold") next
-                    // to the InlineEditableText name above, which is
-                    // also mixed case. The ALL CAPS variant from
-                    // pre-18.1 read like a label strip rather than a
-                    // live stat readout.
                     _buildSummary(),
                     style: const TextStyle(
                       fontFamily: 'Inter',
@@ -456,45 +450,35 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
                       color: AppColors.textSecondaryOnDark,
                     ),
                   ),
+                  const SizedBox(height: 4),
+                  // Wave 31 — playback caption moved INSIDE the title
+                  // column so the three text rows (title, summary,
+                  // caption) stack beside the 88pt thumbnail instead
+                  // of dropping under it. Wave 30 left the caption as
+                  // a separate full-width row padded left:100, which
+                  // landed it BELOW the thumbnail and bloated the card.
+                  GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onThumbnailTap();
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: Text(
+                      _playbackCaption(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textSecondaryOnDark,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-            // Wave 18 — the trailing `_StatusDot` was removed. The
-            // ThumbnailPeek widget's capture_thumbnail overlays already
-            // signal every conversion state (green check on done, red
-            // warning on failed, centre spinner while converting), so
-            // the status dot was redundant and contributed to header-
-            // row visual noise. Zero information loss.
           ],
-        ),
-        // Wave 29 — playback caption. Replaces the retired PLAYBACK
-        // accordion summary; rebuilds via setState whenever the model
-        // changes (parent owns onUpdate). Tap routes to `_MediaViewer`
-        // via the same callback the thumbnail already uses, so the
-        // caption is a second tap-affordance for the same destination.
-        // Sits below the title row (full card width) so multiple
-        // tokens read as a compact line without wrapping under the
-        // 88pt thumbnail column (Wave 30 bump; +12pt gap = 100).
-        Padding(
-          padding: const EdgeInsets.only(top: 6, left: 100),
-          child: GestureDetector(
-            onTap: () {
-              HapticFeedback.selectionClick();
-              widget.onThumbnailTap();
-            },
-            behavior: HitTestBehavior.opaque,
-            child: Text(
-              _playbackCaption(),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: AppColors.textSecondaryOnDark,
-              ),
-            ),
-          ),
         ),
       ],
     );

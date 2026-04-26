@@ -49,28 +49,3 @@ void showUndoSnackBar(
   );
 }
 
-/// Inline tooltip-toast surfaced when a credit-costing affordance is tapped
-/// while the plan is in its post-lock window. Purely informational; no undo.
-void showPublishLockToast(BuildContext context) {
-  final messenger = ScaffoldMessenger.of(context);
-  messenger.clearSnackBars();
-  messenger.showSnackBar(
-    SnackBar(
-      content: const Text(
-        'This counts as a new version · 1 credit.',
-        style: TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 14,
-          color: AppColors.textOnDark,
-        ),
-      ),
-      backgroundColor: AppColors.surfaceRaised,
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 3),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: AppColors.surfaceBorder),
-      ),
-    ),
-  );
-}

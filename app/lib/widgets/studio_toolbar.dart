@@ -29,7 +29,7 @@ import '../theme.dart';
 ///
 /// A small lock badge overlays the Publish icon bottom-right when
 /// [isPublishLocked] is true; tapping a locked Publish fires the
-/// caller's [onPublishLockedTap] (the existing showPublishLockToast).
+/// caller's [onPublishLockedTap] (which routes to the unlock sheet).
 class StudioToolbar extends StatelessWidget {
   final Session session;
   final bool isPublishing;

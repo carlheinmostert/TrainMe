@@ -94,6 +94,11 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
       // pick for capturing a client across the room. Practitioner can
       // exit + re-tap if they want a self-portrait — single-shot UX is
       // intentional.
+      //
+      // iPhone multi-camera virtual devices default to the 0.5× ultrawide
+      // when zoom is unset, which fish-eyes the subject at avatar range.
+      // Snap to 1.0× post-init so the standard wide is in play. Mirror of
+      // capture_mode_screen._attachController.
       var idx = cams.indexWhere(
         (c) => c.lensDirection == CameraLensDirection.back,
       );
@@ -104,6 +109,15 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
         enableAudio: false,
       );
       await controller.initialize();
+      try {
+        final minZoom = await controller.getMinZoomLevel();
+        final maxZoom = await controller.getMaxZoomLevel();
+        await controller
+            .setZoomLevel(1.0.clamp(minZoom, maxZoom).toDouble());
+      } catch (_) {
+        // Some simulators / single-lens devices throw — safe to ignore;
+        // there's no ultrawide to flee from on those.
+      }
       if (!mounted) {
         await controller.dispose();
         return;
@@ -281,7 +295,12 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Single-shot still capture — no reason to allow landscape; the
+    // shutter/preview chrome is laid out portrait-only. Explicit lock
+    // (vs leaning on the guard's default) so the intent is obvious at
+    // the call site.
     return OrientationLockGuard(
+      allowed: const {DeviceOrientation.portraitUp},
       child: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(

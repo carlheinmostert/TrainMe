@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { BrandHeader } from '@/components/BrandHeader';
@@ -18,7 +19,11 @@ export default async function HomePage() {
     <main className="flex min-h-screen flex-col">
       <BrandHeader />
       <div className="flex flex-1 items-center justify-center px-6 py-12">
-        <SignInGate />
+        {/* Suspense boundary — SignInGate uses useSearchParams to read */}
+        {/* the ?next= post-sign-in destination; required by Next 15. */}
+        <Suspense fallback={null}>
+          <SignInGate />
+        </Suspense>
       </div>
     </main>
   );

@@ -19,7 +19,10 @@ export default async function CreditsPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect('/');
+  // Carry the destination through sign-in. Without this, a chip tap
+  // from the mobile app while the portal session has expired bounced
+  // through `/` and forward-defaulted to `/dashboard`, losing /credits.
+  if (!user) redirect('/?next=/credits');
 
   const params = await searchParams;
   // Resolution order: explicit `?practice=` (e.g. coming through an

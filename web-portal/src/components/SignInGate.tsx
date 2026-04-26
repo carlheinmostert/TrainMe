@@ -1,7 +1,21 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { getBrowserClient } from '@/lib/supabase-browser';
+
+/**
+ * Validate a `?next=` query param before treating it as a post-sign-in
+ * destination. Must be a same-origin app path: starts with a single `/`
+ * and is not a protocol-relative URL (`//evil.example`). Anything else
+ * collapses to /dashboard so an attacker can't smuggle a redirect.
+ */
+function safeNext(raw: string | null | undefined): string {
+  if (!raw) return '/dashboard';
+  if (!raw.startsWith('/')) return '/dashboard';
+  if (raw.startsWith('//')) return '/dashboard';
+  return raw;
+}
 
 /**
  * Sign-in surface for the web portal.
@@ -24,6 +38,11 @@ export function SignInGate() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  // `?next=` carries the original destination forward when an
+  // unauth'd user hits a gated page (e.g. /credits) and bounces here.
+  // Defaults to /dashboard if absent / unsafe.
+  const searchParams = useSearchParams();
+  const next = safeNext(searchParams?.get('next'));
 
   async function handleEmailSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -45,9 +64,10 @@ export function SignInGate() {
       });
       if (!pwErr) {
         // Success — Supabase has set the session cookie; the browser
-        // reload below triggers the server HomePage to redirect to
-        // /dashboard.
-        window.location.assign('/dashboard');
+        // reload below triggers the server HomePage to redirect onward.
+        // Honour ?next= so app→portal handoffs (e.g. /credits chip)
+        // land back on the originally-requested page.
+        window.location.assign(next);
         return;
       }
       // Password failed — fall through to the magic-link path with a
@@ -56,7 +76,13 @@ export function SignInGate() {
     }
 
     // 2) Magic-link fallback (also the default when no password given).
-    const redirectTo = `${window.location.origin}/auth/callback`;
+    // Pass ?next= through so /auth/callback bounces the user back to
+    // the page they originally tried to open (e.g. /credits).
+    const redirectTo =
+      `${window.location.origin}/auth/callback` +
+      (next !== '/dashboard'
+        ? `?next=${encodeURIComponent(next)}`
+        : '');
     const { error: otpErr } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: { emailRedirectTo: redirectTo },

@@ -105,14 +105,12 @@ class _ShellPullTabState extends State<ShellPullTab>
 
     final shadowOffset = isLeft ? const Offset(2, 1) : const Offset(-2, 1);
 
-    // Icon that communicates the *target* mode (what tapping reveals).
-    //   left-edge  -> reveals Studio -> edit icon
-    //   right-edge -> reveals Camera -> list-alt (session) icon — the
-    //   camera glyph read as "capture mode" when sessions are wider
-    //   than that.
+    // Icon communicates the *target* mode (what tapping reveals).
+    //   left-edge  -> in Capture, reveals Studio -> session-list glyph
+    //   right-edge -> in Studio,  reveals Camera -> camera glyph
     final icon = isLeft
-        ? Icons.edit_outlined
-        : Icons.list_alt_rounded;
+        ? Icons.list_alt_rounded
+        : Icons.camera_alt_outlined;
 
     return Align(
       alignment: Alignment(isLeft ? -1.0 : 1.0, widget.verticalAlignment),

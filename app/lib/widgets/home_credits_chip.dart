@@ -1,3 +1,5 @@
+import 'dart:developer' as dev;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -58,6 +60,10 @@ class HomeCreditsChip extends StatelessWidget {
   Future<void> _onTap(BuildContext context, String practiceId) async {
     HapticFeedback.selectionClick();
     final uri = portalLink('/credits', practiceId: practiceId);
+    // Diagnostic — Wave 30 #8 chased "lands on home" intermittently;
+    // keep this line so a fresh repro can be confirmed against the
+    // actual outbound URL the launcher receives.
+    dev.log('home_credits_chip launch -> $uri', name: 'homefit.chip');
     bool launched = false;
     try {
       launched = await launchUrl(

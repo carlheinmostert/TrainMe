@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme.dart';
-import 'undo_snackbar.dart';
 
 /// The circuit-header control sheet. Opened by tapping a circuit header
 /// in the Studio list. Replaces the old inline slider with a focused
@@ -161,9 +160,7 @@ class _CircuitControlSheetState extends State<CircuitControlSheet> {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: widget.breakLocked
-                        ? () {
-                            showPublishLockToast(context);
-                          }
+                        ? null
                         : () {
                             HapticFeedback.mediumImpact();
                             _commit(breakCircuit: true);

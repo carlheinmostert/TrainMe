@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 31 Bundle (Studio polish + Avatar lens + Credits URL + Referral RPC)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 31 · device QA</div>
+  <h1>Studio polish + Avatar lens + Credits URL + Referral RPC</h1>
+
+  <p class="lede">
+    Three Wave 30 fails fixed + four pass-with-notes addressed. <strong>(A)</strong> Studio: card layout regression resolved (caption moved INSIDE the title column \u2014 was double-stacked below the thumbnail), shell pull-tab icon asymmetric (camera\u2192Studio shows list_alt; Studio\u2192camera shows camera), locked-plan EDITS proceed silently (only Publish gates), insert-triangle now CLONED from the existing inter-exercise gutter affordance and rendered after the last card. <strong>(B)</strong> Avatar capture: portrait-locked + <code>setZoomLevel(1.0)</code> defeats the iPhone multi-cam ultrawide default (no more fish-eye). <strong>(C)</strong> Credits chip: real bug was portal SignInGate dropping the original destination on auth round-trip; fixed via <code>?next=/credits</code> threading + Suspense wrapper. <strong>(D)</strong> Server: referral-code RPC guard relaxed from owner-only to any-member; "View network stats" link removed from share sheet.
+  </p>
+
+  <h2>A · Studio polish</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">\u2713</button><button class="fail" type="button" aria-label="Fail 1">\u2717</button></div>
+      <span class="num">1.</span>
+      <span class="text">Exercise card layout fixed \u2014 title + caption beside the thumbnail, NOT stacked below.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open Studio. The 88\u00d788 thumbnail sits LEFT, title + decoded grammar (e.g. <code>10 reps \u00b7 3 sets \u00b7 5s hold</code>) + state caption stack vertically beside it.</li>
+        <li data-sub="1.2">Card height now hugs the 88pt thumbnail \u2014 no excessive whitespace. Net vertical \u2248 24pt SHORTER than Wave 30.</li>
+        <li data-sub="1.3">Edit cog still anchored top-right of the thumbnail.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">\u2713</button><button class="fail" type="button" aria-label="Fail 2">\u2717</button></div>
+      <span class="num">2.</span>
+      <span class="text">Shell pull-tab icon is now asymmetric.</span>
+      <ol class="steps">
+        <li data-sub="2.1">In Studio mode (left side of the SessionShell), the pull-tab on the RIGHT edge shows <code>Icons.camera_alt_outlined</code> (going to camera).</li>
+        <li data-sub="2.2">In Camera mode, the pull-tab on the LEFT edge shows <code>Icons.list_alt_rounded</code> (going to the session list).</li>
+        <li data-sub="2.3">SessionCard list-item leading badge is unchanged \u2014 still <code>list_alt_rounded</code>.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">\u2713</button><button class="fail" type="button" aria-label="Fail 3">\u2717</button></div>
+      <span class="num">3.</span>
+      <span class="text">Locked-plan EDITS proceed silently \u2014 no "This counts as a new version" toast.</span>
+      <ol class="steps">
+        <li data-sub="3.1">On a locked plan, try add / delete / reorder exercises, swipe-to-delete a card, swipe-to-delete a rest row, break a circuit link.</li>
+        <li data-sub="3.2">All edits proceed normally. NO toast / SnackBar / warning fires.</li>
+        <li data-sub="3.3">Tapping Publish on the same locked plan STILL routes to the unlock confirm sheet (Wave 30 #2 behaviour intact).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">\u2713</button><button class="fail" type="button" aria-label="Fail 4">\u2717</button></div>
+      <span class="num">4.</span>
+      <span class="text">Insert triangle visible AFTER the last exercise \u2014 same look + behaviour as the inter-exercise gutter triangle.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Studio with at least one exercise. Below the last (visually bottom-most) card, the gutter rail shows the SAME coral right-pointing triangle that sits between adjacent exercises.</li>
+        <li data-sub="4.2">Tap it \u2014 the same <code>InlineActionTray</code> expands. Pills shown: Rest + Exercise (no Link / Break, since there's no successor).</li>
+        <li data-sub="4.3">Tap "Exercise" \u2014 iOS multi-media library picker opens. Pick something \u2014 inserted as the LAST item.</li>
+        <li data-sub="4.4">Tap "Rest" \u2014 trailing rest row inserted at the end.</li>
+        <li data-sub="4.5">Tap outside the tray \u2014 dismisses, same as the inter-exercise pattern.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B · Avatar capture lens + orientation</h2>
+  <ul class="checklist">
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">\u2713</button><button class="fail" type="button" aria-label="Fail 5">\u2717</button></div>
+      <span class="num">5.</span>
+      <span class="text">Avatar capture screen opens portrait, no fish-eye.</span>
+      <ol class="steps">
+        <li data-sub="5.1">Tap the empty avatar slot on a client detail view (consent.avatar = on).</li>
+        <li data-sub="5.2">Camera screen opens locked PORTRAIT. Rotating phone doesn't reflow the screen.</li>
+        <li data-sub="5.3">Lens reads as standard wide \u2014 no fish-eye distortion. Subject in centre frame looks proportional.</li>
+        <li data-sub="5.4">Capture works. Composite preview shows subject crisp + background blurred. Save.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C · Credits chip URL (Wave 30 #8 second-pass)</h2>
+  <ul class="checklist">
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">\u2713</button><button class="fail" type="button" aria-label="Fail 6">\u2717</button></div>
+      <span class="num">6.</span>
+      <span class="text">Tap credits chip when portal session is fresh \u2192 lands on /credits.</span>
+      <ol class="steps">
+        <li data-sub="6.1">Visit <code>manage.homefit.studio</code> on Mac Safari, sign in, leave the tab open. Verify portal cookie exists.</li>
+        <li data-sub="6.2">Switch to iPhone. Open Home, tap credits chip. Browser opens to <code>/credits?practice=&lt;uuid&gt;</code>, then 302-strips to clean <code>/credits</code>.</li>
+        <li data-sub="6.3">Page loads as the Credits page (bundles, Top Up button, ledger), NOT the portal home/dashboard.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">\u2713</button><button class="fail" type="button" aria-label="Fail 7">\u2717</button></div>
+      <span class="num">7.</span>
+      <span class="text">Tap credits chip when portal session is EXPIRED \u2192 sign-in flow returns to /credits after auth.</span>
+      <ol class="steps">
+        <li data-sub="7.1">Clear portal cookies in Safari (or use a fresh device). Tap credits chip on iPhone.</li>
+        <li data-sub="7.2">Browser lands on portal sign-in page with <code>?next=/credits</code> in the URL.</li>
+        <li data-sub="7.3">Sign in via password OR magic link. After auth, lands on <code>/credits</code> (NOT dashboard).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>D · Server changes (referral RPC + share sheet stats link)</h2>
+  <ul class="checklist">
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">\u2713</button><button class="fail" type="button" aria-label="Fail 8">\u2717</button></div>
+      <span class="num">8.</span>
+      <span class="text">Non-owner practitioner can fetch + share the referral code.</span>
+      <ol class="steps">
+        <li data-sub="8.1">Sign in as a practitioner who is in a practice but NOT the owner (any practice with at least 2 members \u2014 or invite a test member into yours).</li>
+        <li data-sub="8.2">Tap the new top-left network share icon on Home. Bottom sheet should load the practice's referral code WITHOUT erroring.</li>
+        <li data-sub="8.3">Tap "Share via..." \u2014 system share sheet opens with the referral text + URL.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">\u2713</button><button class="fail" type="button" aria-label="Fail 9">\u2717</button></div>
+      <span class="num">9.</span>
+      <span class="text">Network share sheet no longer shows "View network stats \u2192" link.</span>
+      <ol class="steps">
+        <li data-sub="9.1">Open the network share bottom sheet from Home top-left icon.</li>
+        <li data-sub="9.2">Sheet contents: title + referral code pill + QR + "Share via..." button only. No stats link at the bottom.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope (skip if you see them)</h3>
+    <ul>
+      <li>Wave 30 #16 thumbnail size (passed in W30, layout regression in W31 #1 covers any side effects).</li>
+      <li>Wave 30 client avatar core flow (W30 verified). This wave only fixes the lens + orientation.</li>
+      <li>Wave 32 staged: SessionCard consolidation + lock indicator + 14-day grace; video-not-showing bug. Not in this build.</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-26-wave31-bundle.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave31-bundle', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>
