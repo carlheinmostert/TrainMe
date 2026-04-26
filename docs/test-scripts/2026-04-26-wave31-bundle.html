@@ -56,37 +56,37 @@
   <h1>Studio polish + Avatar lens + Credits URL + Referral RPC</h1>
 
   <p class="lede">
-    Three Wave 30 fails fixed + four pass-with-notes addressed. <strong>(A)</strong> Studio: card layout regression resolved (caption moved INSIDE the title column \u2014 was double-stacked below the thumbnail), shell pull-tab icon asymmetric (camera\u2192Studio shows list_alt; Studio\u2192camera shows camera), locked-plan EDITS proceed silently (only Publish gates), insert-triangle now CLONED from the existing inter-exercise gutter affordance and rendered after the last card. <strong>(B)</strong> Avatar capture: portrait-locked + <code>setZoomLevel(1.0)</code> defeats the iPhone multi-cam ultrawide default (no more fish-eye). <strong>(C)</strong> Credits chip: real bug was portal SignInGate dropping the original destination on auth round-trip; fixed via <code>?next=/credits</code> threading + Suspense wrapper. <strong>(D)</strong> Server: referral-code RPC guard relaxed from owner-only to any-member; "View network stats" link removed from share sheet.
+    Three Wave 30 fails fixed + four pass-with-notes addressed. <strong>(A)</strong> Studio: card layout regression resolved (caption moved INSIDE the title column — was double-stacked below the thumbnail), shell pull-tab icon asymmetric (camera→Studio shows list_alt; Studio→camera shows camera), locked-plan EDITS proceed silently (only Publish gates), insert-triangle now CLONED from the existing inter-exercise gutter affordance and rendered after the last card. <strong>(B)</strong> Avatar capture: portrait-locked + <code>setZoomLevel(1.0)</code> defeats the iPhone multi-cam ultrawide default (no more fish-eye). <strong>(C)</strong> Credits chip: real bug was portal SignInGate dropping the original destination on auth round-trip; fixed via <code>?next=/credits</code> threading + Suspense wrapper. <strong>(D)</strong> Server: referral-code RPC guard relaxed from owner-only to any-member; "View network stats" link removed from share sheet.
   </p>
 
   <h2>A · Studio polish</h2>
   <ul class="checklist">
     <li data-num="1" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">\u2713</button><button class="fail" type="button" aria-label="Fail 1">\u2717</button></div>
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
       <span class="num">1.</span>
-      <span class="text">Exercise card layout fixed \u2014 title + caption beside the thumbnail, NOT stacked below.</span>
+      <span class="text">Exercise card layout fixed — title + caption beside the thumbnail, NOT stacked below.</span>
       <ol class="steps">
-        <li data-sub="1.1">Open Studio. The 88\u00d788 thumbnail sits LEFT, title + decoded grammar (e.g. <code>10 reps \u00b7 3 sets \u00b7 5s hold</code>) + state caption stack vertically beside it.</li>
-        <li data-sub="1.2">Card height now hugs the 88pt thumbnail \u2014 no excessive whitespace. Net vertical \u2248 24pt SHORTER than Wave 30.</li>
+        <li data-sub="1.1">Open Studio. The 88×88 thumbnail sits LEFT, title + decoded grammar (e.g. <code>10 reps · 3 sets · 5s hold</code>) + state caption stack vertically beside it.</li>
+        <li data-sub="1.2">Card height now hugs the 88pt thumbnail — no excessive whitespace. Net vertical ≈ 24pt SHORTER than Wave 30.</li>
         <li data-sub="1.3">Edit cog still anchored top-right of the thumbnail.</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
     <li data-num="2" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">\u2713</button><button class="fail" type="button" aria-label="Fail 2">\u2717</button></div>
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
       <span class="num">2.</span>
       <span class="text">Shell pull-tab icon is now asymmetric.</span>
       <ol class="steps">
         <li data-sub="2.1">In Studio mode (left side of the SessionShell), the pull-tab on the RIGHT edge shows <code>Icons.camera_alt_outlined</code> (going to camera).</li>
         <li data-sub="2.2">In Camera mode, the pull-tab on the LEFT edge shows <code>Icons.list_alt_rounded</code> (going to the session list).</li>
-        <li data-sub="2.3">SessionCard list-item leading badge is unchanged \u2014 still <code>list_alt_rounded</code>.</li>
+        <li data-sub="2.3">SessionCard list-item leading badge is unchanged — still <code>list_alt_rounded</code>.</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
     <li data-num="3" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">\u2713</button><button class="fail" type="button" aria-label="Fail 3">\u2717</button></div>
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
       <span class="num">3.</span>
-      <span class="text">Locked-plan EDITS proceed silently \u2014 no "This counts as a new version" toast.</span>
+      <span class="text">Locked-plan EDITS proceed silently — no "This counts as a new version" toast.</span>
       <ol class="steps">
         <li data-sub="3.1">On a locked plan, try add / delete / reorder exercises, swipe-to-delete a card, swipe-to-delete a rest row, break a circuit link.</li>
         <li data-sub="3.2">All edits proceed normally. NO toast / SnackBar / warning fires.</li>
@@ -95,15 +95,15 @@
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
     <li data-num="4" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">\u2713</button><button class="fail" type="button" aria-label="Fail 4">\u2717</button></div>
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
       <span class="num">4.</span>
-      <span class="text">Insert triangle visible AFTER the last exercise \u2014 same look + behaviour as the inter-exercise gutter triangle.</span>
+      <span class="text">Insert triangle visible AFTER the last exercise — same look + behaviour as the inter-exercise gutter triangle.</span>
       <ol class="steps">
         <li data-sub="4.1">Studio with at least one exercise. Below the last (visually bottom-most) card, the gutter rail shows the SAME coral right-pointing triangle that sits between adjacent exercises.</li>
-        <li data-sub="4.2">Tap it \u2014 the same <code>InlineActionTray</code> expands. Pills shown: Rest + Exercise (no Link / Break, since there's no successor).</li>
-        <li data-sub="4.3">Tap "Exercise" \u2014 iOS multi-media library picker opens. Pick something \u2014 inserted as the LAST item.</li>
-        <li data-sub="4.4">Tap "Rest" \u2014 trailing rest row inserted at the end.</li>
-        <li data-sub="4.5">Tap outside the tray \u2014 dismisses, same as the inter-exercise pattern.</li>
+        <li data-sub="4.2">Tap it — the same <code>InlineActionTray</code> expands. Pills shown: Rest + Exercise (no Link / Break, since there's no successor).</li>
+        <li data-sub="4.3">Tap "Exercise" — iOS multi-media library picker opens. Pick something — inserted as the LAST item.</li>
+        <li data-sub="4.4">Tap "Rest" — trailing rest row inserted at the end.</li>
+        <li data-sub="4.5">Tap outside the tray — dismisses, same as the inter-exercise pattern.</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
@@ -112,13 +112,13 @@
   <h2>B · Avatar capture lens + orientation</h2>
   <ul class="checklist">
     <li data-num="5" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">\u2713</button><button class="fail" type="button" aria-label="Fail 5">\u2717</button></div>
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
       <span class="num">5.</span>
       <span class="text">Avatar capture screen opens portrait, no fish-eye.</span>
       <ol class="steps">
         <li data-sub="5.1">Tap the empty avatar slot on a client detail view (consent.avatar = on).</li>
         <li data-sub="5.2">Camera screen opens locked PORTRAIT. Rotating phone doesn't reflow the screen.</li>
-        <li data-sub="5.3">Lens reads as standard wide \u2014 no fish-eye distortion. Subject in centre frame looks proportional.</li>
+        <li data-sub="5.3">Lens reads as standard wide — no fish-eye distortion. Subject in centre frame looks proportional.</li>
         <li data-sub="5.4">Capture works. Composite preview shows subject crisp + background blurred. Save.</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
@@ -128,9 +128,9 @@
   <h2>C · Credits chip URL (Wave 30 #8 second-pass)</h2>
   <ul class="checklist">
     <li data-num="6" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">\u2713</button><button class="fail" type="button" aria-label="Fail 6">\u2717</button></div>
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
       <span class="num">6.</span>
-      <span class="text">Tap credits chip when portal session is fresh \u2192 lands on /credits.</span>
+      <span class="text">Tap credits chip when portal session is fresh → lands on /credits.</span>
       <ol class="steps">
         <li data-sub="6.1">Visit <code>manage.homefit.studio</code> on Mac Safari, sign in, leave the tab open. Verify portal cookie exists.</li>
         <li data-sub="6.2">Switch to iPhone. Open Home, tap credits chip. Browser opens to <code>/credits?practice=&lt;uuid&gt;</code>, then 302-strips to clean <code>/credits</code>.</li>
@@ -139,9 +139,9 @@
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
     <li data-num="7" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">\u2713</button><button class="fail" type="button" aria-label="Fail 7">\u2717</button></div>
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
       <span class="num">7.</span>
-      <span class="text">Tap credits chip when portal session is EXPIRED \u2192 sign-in flow returns to /credits after auth.</span>
+      <span class="text">Tap credits chip when portal session is EXPIRED → sign-in flow returns to /credits after auth.</span>
       <ol class="steps">
         <li data-sub="7.1">Clear portal cookies in Safari (or use a fresh device). Tap credits chip on iPhone.</li>
         <li data-sub="7.2">Browser lands on portal sign-in page with <code>?next=/credits</code> in the URL.</li>
@@ -154,20 +154,20 @@
   <h2>D · Server changes (referral RPC + share sheet stats link)</h2>
   <ul class="checklist">
     <li data-num="8" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">\u2713</button><button class="fail" type="button" aria-label="Fail 8">\u2717</button></div>
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
       <span class="num">8.</span>
       <span class="text">Non-owner practitioner can fetch + share the referral code.</span>
       <ol class="steps">
-        <li data-sub="8.1">Sign in as a practitioner who is in a practice but NOT the owner (any practice with at least 2 members \u2014 or invite a test member into yours).</li>
+        <li data-sub="8.1">Sign in as a practitioner who is in a practice but NOT the owner (any practice with at least 2 members — or invite a test member into yours).</li>
         <li data-sub="8.2">Tap the new top-left network share icon on Home. Bottom sheet should load the practice's referral code WITHOUT erroring.</li>
-        <li data-sub="8.3">Tap "Share via..." \u2014 system share sheet opens with the referral text + URL.</li>
+        <li data-sub="8.3">Tap "Share via..." — system share sheet opens with the referral text + URL.</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
     <li data-num="9" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">\u2713</button><button class="fail" type="button" aria-label="Fail 9">\u2717</button></div>
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
       <span class="num">9.</span>
-      <span class="text">Network share sheet no longer shows "View network stats \u2192" link.</span>
+      <span class="text">Network share sheet no longer shows "View network stats →" link.</span>
       <ol class="steps">
         <li data-sub="9.1">Open the network share bottom sheet from Home top-left icon.</li>
         <li data-sub="9.2">Sheet contents: title + referral code pill + QR + "Share via..." button only. No stats link at the bottom.</li>
