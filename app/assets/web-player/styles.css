@@ -2266,10 +2266,13 @@ body.is-fullscreen .playpause-toggle {
     font-size: 8px;
   }
 
-  /* Maximise pill — landscape pre-workout only. The body-class guards
-     hide it once the workout starts (Start Workout already requests
-     fullscreen) or when fullscreen is already active. */
-  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill {
+  /* Maximise pill — landscape pre-workout only on the LIVE web surface.
+     The body-class guards hide it once the workout starts (Start Workout
+     already requests fullscreen), when fullscreen is already active, OR
+     when the bundle is loaded inside the mobile-preview WebView (the
+     pill is purely an iOS-Safari-chrome workaround for client viewers
+     and has no business in practitioner-side preview). */
+  body:not(.is-workout-mode):not(.is-fullscreen):not(.is-local-preview) .landscape-maximise-pill {
     display: inline-flex;
     position: fixed;
     top: 50%;
@@ -2292,13 +2295,13 @@ body.is-fullscreen .playpause-toggle {
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
     transition: background 150ms ease, transform 100ms ease;
   }
-  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill:hover {
+  body:not(.is-workout-mode):not(.is-fullscreen):not(.is-local-preview) .landscape-maximise-pill:hover {
     background: rgba(0, 0, 0, 0.92);
   }
-  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill:active {
+  body:not(.is-workout-mode):not(.is-fullscreen):not(.is-local-preview) .landscape-maximise-pill:active {
     transform: translateY(-50%) scale(0.96);
   }
-  body:not(.is-workout-mode):not(.is-fullscreen) .landscape-maximise-pill svg {
+  body:not(.is-workout-mode):not(.is-fullscreen):not(.is-local-preview) .landscape-maximise-pill svg {
     width: 16px;
     height: 16px;
     display: block;

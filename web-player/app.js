@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v66-record-plan-opened';
+const PLAYER_VERSION = 'v67-no-maximise-in-preview';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -3782,6 +3782,17 @@ function jumpToRest(setIdx) {
 
 async function init() {
   registerServiceWorker();
+
+  // Wave 33 hotfix — flag the local-preview surface (mobile WebView)
+  // so practitioner-only chrome (e.g. the landscape Maximise pill) can
+  // be CSS-gated out. The pill is an iOS-Safari-chrome workaround for
+  // live client viewers; rendering it inside the WebView wrapped by
+  // Flutter mobile preview was leaking giant artwork into the canvas
+  // when the WebView container hit the (orientation: landscape) +
+  // (max-height: 540) media-query window.
+  if (window.HomefitApi && window.HomefitApi.isLocalSurface()) {
+    document.body.classList.add('is-local-preview');
+  }
 
   // Discreet build marker in the footer — see PLAYER_VERSION at the
   // top of this file. Stamped pre-fetch so it's visible even on plan
