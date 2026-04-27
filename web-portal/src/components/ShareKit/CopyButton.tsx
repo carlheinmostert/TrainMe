@@ -98,14 +98,14 @@ export function CopyButton({
         {state === 'copied' ? copiedLabel : label}
       </button>
 
-      {/* Polite live-region toast. Fixed bottom-center like the existing
-          rename toast in PracticeContextLine so the two read as one
-          shared visual language. */}
+      {/* Polite live-region toast. Wave 35: top-center positioning so
+          mobile Safari and tall desktop pages don't clip the message
+          off-screen. Matches the rest of the portal's fixed toasts. */}
       {toast && (
         <div
           role="status"
           aria-live="polite"
-          className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4"
+          className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4"
         >
           <div className="pointer-events-auto rounded-md border border-surface-border bg-surface-raised px-4 py-3 text-sm text-ink shadow-focus-ring">
             {toast}

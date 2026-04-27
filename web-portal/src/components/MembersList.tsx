@@ -10,6 +10,7 @@ import {
   type MemberProfile,
   type PendingMember,
 } from '@/lib/supabase/api';
+import { Toast, type ToastState } from './Toast';
 
 type Props = {
   practiceId: string;
@@ -17,11 +18,6 @@ type Props = {
   initialPending: PendingMember[];
   isOwner: boolean;
 };
-
-type Toast =
-  | { kind: 'ok'; text: string }
-  | { kind: 'err'; text: string }
-  | { kind: 'pending-note'; text: string };
 
 /**
  * Interactive members + pending table — Wave 14 rewrite of the Wave 5
@@ -64,7 +60,7 @@ export function MembersList({
   const [members, setMembers] = useState<MemberProfile[]>(initialMembers);
   const [pending, setPending] = useState<PendingMember[]>(initialPending);
   const [email, setEmail] = useState('');
-  const [toast, setToast] = useState<Toast | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [addPending, startAddTransition] = useTransition();
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -81,7 +77,7 @@ export function MembersList({
     };
   }, []);
 
-  function fireToast(next: Toast, ttlMs = 5000) {
+  function fireToast(next: ToastState, ttlMs = 5000) {
     setToast(next);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), ttlMs);
@@ -92,7 +88,7 @@ export function MembersList({
     if (!isOwner) return;
     const trimmed = email.trim();
     if (trimmed.length === 0) {
-      fireToast({ kind: 'err', text: 'Enter an email.' });
+      fireToast({ tone: 'error', text: 'Enter an email.' });
       return;
     }
     startAddTransition(async () => {
@@ -104,7 +100,7 @@ export function MembersList({
         setEmail('');
         router.refresh();
       } catch (err) {
-        fireToast({ kind: 'err', text: mapError(err) });
+        fireToast({ tone: 'error', text: mapError(err) });
       }
     });
   }
@@ -128,14 +124,14 @@ export function MembersList({
         ];
       });
       fireToast({
-        kind: 'ok',
+        tone: 'success',
         text: `Added ${result.email} to this practice.`,
       });
       return;
     }
     if (result.kind === 'already_member') {
       fireToast({
-        kind: 'ok',
+        tone: 'success',
         text: `${result.email} is already in this practice.`,
       });
       return;
@@ -156,8 +152,9 @@ export function MembersList({
     });
     fireToast(
       {
-        kind: 'pending-note',
-        text: `Saved — ${result.email} will join automatically when they sign up.`,
+        tone: 'info',
+        text: 'Queued for signup',
+        body: `Saved — ${result.email} will join automatically when they sign up.`,
       },
       8000,
     );
@@ -173,11 +170,14 @@ export function MembersList({
       const supabase = getBrowserClient();
       const api = createPortalMembersApi(supabase);
       await api.removePendingMember(practiceId, row.email);
-      fireToast({ kind: 'ok', text: `Removed ${row.email} from pending.` });
+      fireToast({
+        tone: 'success',
+        text: `Removed ${row.email} from pending.`,
+      });
       router.refresh();
     } catch (err) {
       setPending(previous);
-      fireToast({ kind: 'err', text: mapError(err) });
+      fireToast({ tone: 'error', text: mapError(err) });
     }
   }
 
@@ -187,6 +187,11 @@ export function MembersList({
   ) {
     if (member.role === next) return;
     const previous = member.role;
+    // Optimistic flip — but the toast doesn't fire until the RPC has
+    // actually persisted (Wave 35: the W5+14 #15 symptom was the
+    // promote-to-owner change vanishing on refresh, so we now wait
+    // for the server before claiming success and we hard-refresh on
+    // RPC success so the next render reads fresh roster from DB).
     setMembers((prev) =>
       prev.map((m) =>
         m.trainerId === member.trainerId ? { ...m, role: next } : m,
@@ -196,8 +201,17 @@ export function MembersList({
       const supabase = getBrowserClient();
       const api = createPortalMembersApi(supabase);
       await api.setMemberRole(practiceId, member.trainerId, next);
+      // Belt-and-suspenders: re-pull the roster so the optimistic
+      // value is verified against the source of truth before the
+      // toast fires. If the row didn't actually flip (highly
+      // unlikely — the RPC is atomic and SECURITY DEFINER) the
+      // catch path below would have run, so we trust the post-RPC
+      // refetch to reflect reality.
+      const refreshed = await api.listMembersAndPending(practiceId);
+      setMembers(refreshed.members);
+      setPending(refreshed.pending);
       fireToast({
-        kind: 'ok',
+        tone: 'success',
         text: `${displayName(member)} is now a${next === 'owner' ? 'n owner' : ' practitioner'}.`,
       });
       router.refresh();
@@ -207,7 +221,7 @@ export function MembersList({
           m.trainerId === member.trainerId ? { ...m, role: previous } : m,
         ),
       );
-      fireToast({ kind: 'err', text: mapError(err) });
+      fireToast({ tone: 'error', text: mapError(err) });
     }
   }
 
@@ -218,11 +232,11 @@ export function MembersList({
       const supabase = getBrowserClient();
       const api = createPortalMembersApi(supabase);
       await api.removeMember(practiceId, member.trainerId);
-      fireToast({ kind: 'ok', text: `${displayName(member)} removed.` });
+      fireToast({ tone: 'success', text: `${displayName(member)} removed.` });
       router.refresh();
     } catch (err) {
       setMembers(previous);
-      fireToast({ kind: 'err', text: mapError(err) });
+      fireToast({ tone: 'error', text: mapError(err) });
     }
   }
 
@@ -233,7 +247,7 @@ export function MembersList({
       await api.leavePractice(practiceId);
       window.location.assign('/');
     } catch (err) {
-      fireToast({ kind: 'err', text: mapError(err) });
+      fireToast({ tone: 'error', text: mapError(err) });
     }
   }
 
@@ -445,50 +459,8 @@ export function MembersList({
         </section>
       )}
 
-      {toast && <ToastBanner toast={toast} onDismiss={() => setToast(null)} />}
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
     </>
-  );
-}
-
-function ToastBanner({
-  toast,
-  onDismiss,
-}: {
-  toast: Toast;
-  onDismiss: () => void;
-}) {
-  if (toast.kind === 'pending-note') {
-    return (
-      <div
-        role="status"
-        className="mt-6 flex flex-wrap items-start justify-between gap-3 rounded-md border border-brand/40 bg-brand/10 px-4 py-3 text-sm text-ink"
-      >
-        <div>
-          <p className="font-semibold text-brand">Queued for signup</p>
-          <p className="mt-1 text-xs text-ink-muted">{toast.text}</p>
-        </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="text-xs font-semibold uppercase text-ink-muted transition hover:text-ink"
-        >
-          Dismiss
-        </button>
-      </div>
-    );
-  }
-  return (
-    <div
-      role="status"
-      aria-live={toast.kind === 'err' ? 'assertive' : 'polite'}
-      className={
-        toast.kind === 'ok'
-          ? 'mt-6 rounded-md border border-success/40 bg-success/10 px-4 py-3 text-sm text-success'
-          : 'mt-6 rounded-md border border-error/40 bg-error/10 px-4 py-3 text-sm text-error'
-      }
-    >
-      {toast.text}
-    </div>
   );
 }
 

@@ -7,6 +7,13 @@ import { BrandHeader } from '@/components/BrandHeader';
 import { MembersList } from '@/components/MembersList';
 import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
 
+// Wave 35 — never cache this route. The /members page reads the current
+// roster + pending list on every render so role changes, removes, and
+// adds reflect immediately on F5 / Cmd-R. Without this, Next.js 15.x's
+// default RSC cache could replay a stale payload after `router.refresh()`
+// and confuse the practitioner into thinking the role flip didn't take.
+export const dynamic = 'force-dynamic';
+
 type SearchParams = { practice?: string };
 
 /**
