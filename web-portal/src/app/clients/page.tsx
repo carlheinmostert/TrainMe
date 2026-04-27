@@ -1,9 +1,11 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { ClientsList } from '@/components/ClientsList';
+import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
 
 type SearchParams = { practice?: string };
 
@@ -40,7 +42,14 @@ export default async function ClientsPage({
 
   const api = createPortalApi(supabase);
   const params = await searchParams;
-  const practiceId = params.practice ?? '';
+  // Resolution order: explicit `?practice=` (in-portal Link), then the
+  // `hf_active_practice` cookie set by middleware on the most recent
+  // app→portal handoff. Middleware 302-strips the param after setting
+  // the cookie, so without this fallback the dashboard tile click
+  // bounces here, finds no param, and redirects back to /dashboard.
+  const cookieStore = await cookies();
+  const cookiePractice = cookieStore.get(ACTIVE_PRACTICE_COOKIE)?.value ?? '';
+  const practiceId = params.practice ?? cookiePractice;
 
   // Membership gate — mirror the retired /sessions behaviour.
   if (!practiceId) {
