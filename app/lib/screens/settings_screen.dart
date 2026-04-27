@@ -1142,7 +1142,11 @@ class _NetworkSectionState extends State<_NetworkSection> {
   static const _portalNetworkPath = '/dashboard';
 
   Future<String>? _codeFuture;
-  Future<ReferralStats>? _statsFuture;
+  // Wave 35 — _statsFuture retired with the in-clinic _StatsRow. The
+  // referral_dashboard_stats RPC stays around and is used on the
+  // portal /network page; mobile no longer needs it because the
+  // single in-clinic affordance is the share-and-copy widget plus
+  // the portal hand-off button.
 
   /// Count of retry attempts for the code fetch. After two failures the
   /// widget surfaces a tappable "Couldn't load — tap to retry" row
@@ -1169,13 +1173,11 @@ class _NetworkSectionState extends State<_NetworkSection> {
     if (practiceId == null) {
       setState(() {
         _codeFuture = null;
-        _statsFuture = null;
       });
       return;
     }
     setState(() {
       _codeFuture = ApiClient.instance.ensureReferralCode(practiceId);
-      _statsFuture = ApiClient.instance.getReferralStats(practiceId);
     });
   }
 
@@ -1245,11 +1247,21 @@ class _NetworkSectionState extends State<_NetworkSection> {
           ),
         ),
         const _Divider(),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-          child: _StatsRow(statsFuture: _statsFuture),
-        ),
-        const _Divider(),
+        // Wave 35 — _StatsRow retired from mobile Settings.
+        //
+        // Carl's W5+14 #20 reinterpretation: keep the Network section
+        // (it's the entry point to the share affordance + portal hand-
+        // off) but trim the in-clinic stats row. The full numbers
+        // (network size, lifetime rebate credits, qualifying spend)
+        // belong on the portal /network page where the practitioner
+        // can actually act on them; in the in-the-clinic Settings
+        // surface they were noise. The section header + invite copy
+        // + share-and-copy widget + portal hand-off button stay.
+        //
+        // The `_statsFuture` and `referral_dashboard_stats` RPC
+        // wiring are preserved on the off-chance we want to surface
+        // a single-line summary (e.g. "2 in your network") later
+        // without a re-fetch round-trip; that's a Wave 36+ decision.
         // Wave 30 — the standalone "Share homefit.studio" template+PNG
         // screen retired in favour of the new NetworkShareSheet on Home
         // (top-left group_add_outlined icon). The lighter sheet covers
@@ -1566,125 +1578,10 @@ class _ShareButton extends StatelessWidget {
   }
 }
 
-/// Four-tile compact stats row. Inter font, small-caps labels, large
-/// coral numbers — matches the dashboard tile aesthetic used elsewhere.
-/// Lifetime column fades to 50% when zero so it reads as "nothing yet"
-/// without being a full empty-state.
-class _StatsRow extends StatelessWidget {
-  final Future<ReferralStats>? statsFuture;
-  const _StatsRow({required this.statsFuture});
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<ReferralStats>(
-      future: statsFuture,
-      builder: (context, snapshot) {
-        final loading = snapshot.connectionState == ConnectionState.waiting;
-        final stats = snapshot.data ?? ReferralStats.empty;
-        final hasError = snapshot.hasError;
-
-        if (hasError) {
-          // Stats error is low-stakes — render zeros rather than loud red.
-          // The share flow doesn't depend on these numbers.
-        }
-
-        String fmtInt(num v) => v.round().toString();
-        String fmtZar(num v) {
-          final i = v.round();
-          // Simple thousands separator without pulling intl.
-          final s = i.toString();
-          final buf = StringBuffer();
-          for (var k = 0; k < s.length; k++) {
-            if (k > 0 && (s.length - k) % 3 == 0) buf.write(',');
-            buf.write(s[k]);
-          }
-          return buf.toString();
-        }
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: _StatTile(
-                value: loading ? '—' : fmtInt(stats.rebateBalanceCredits),
-                // "Network rebate" disambiguates from the regular "Credit
-                // balance" shown in the Account section above. Same RPC
-                // contract as the portal's Network earnings card — this is
-                // the 5% lifetime rebate + signup bonus pool, NOT your
-                // main publishing credits.
-                label: 'Network rebate',
-              ),
-            ),
-            Expanded(
-              child: _StatTile(
-                value: loading ? '—' : fmtInt(stats.lifetimeRebateCredits),
-                label: 'Rebate lifetime',
-                dim: !loading && stats.lifetimeRebateCredits == 0,
-              ),
-            ),
-            Expanded(
-              child: _StatTile(
-                value: loading ? '—' : fmtInt(stats.refereeCount),
-                label: 'In network',
-              ),
-            ),
-            Expanded(
-              child: _StatTile(
-                value: loading ? '—' : 'R${fmtZar(stats.qualifyingSpendTotalZar)}',
-                label: 'Network spend',
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _StatTile extends StatelessWidget {
-  final String value;
-  final String label;
-  final bool dim;
-
-  const _StatTile({
-    required this.value,
-    required this.label,
-    this.dim = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final opacity = dim ? 0.5 : 1.0;
-    return Opacity(
-      opacity: opacity,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            value,
-            style: const TextStyle(
-              fontFamily: 'Montserrat',
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.4,
-              color: AppColors.primary,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label.toUpperCase(),
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 9,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
-              color: AppColors.textSecondaryOnDark,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
-    );
-  }
-}
+// Wave 35 — _StatsRow + _StatTile retired. The four-tile compact stats
+// row (Network rebate · Rebate lifetime · In network · Network spend)
+// no longer renders inside the in-clinic Settings → Network section.
+// Full numbers stay on the portal /network page, surfaced via the
+// "View full network on the portal" CTA below the share-and-copy
+// widget. ApiClient.getReferralStats stays in the data-access layer
+// for the portal twin and any future re-introduction.

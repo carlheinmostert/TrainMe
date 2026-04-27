@@ -92,6 +92,14 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
 class StudioExerciseCard extends StatefulWidget {
   final ExerciseCapture exercise;
   final bool isExpanded;
+
+  /// Wave 35 — Preview → Studio focus handoff marker. True for the card
+  /// the practitioner was last viewing in the media viewer ("Preview")
+  /// before they closed it. Adds a coral border + subtle elevation lift
+  /// — a "you were here" hint that clears on the next user interaction.
+  /// Visual only; doesn't change tap targets or behaviour.
+  final bool isFocused;
+
   final bool isInCircuit;
 
   /// Tap anywhere on the card row (except the thumbnail) → toggle expand.
@@ -127,6 +135,7 @@ class StudioExerciseCard extends StatefulWidget {
     super.key,
     required this.exercise,
     required this.isExpanded,
+    this.isFocused = false,
     this.isInCircuit = false,
     required this.onTap,
     required this.onUpdate,
@@ -290,6 +299,13 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
   @override
   Widget build(BuildContext context) {
     final customised = exerciseIsCustomised(widget.exercise);
+    // Wave 35 — focused-and-not-expanded gets the same coral perimeter
+    // as expanded plus a small elevation shadow ("you were here" hint).
+    // When isExpanded AND isFocused both fire, the expanded styling
+    // wins for the perimeter (already coral, already 2px) and the
+    // shadow is added on top — so the focused card always reads as
+    // "lifted slightly off the page" regardless of expansion state.
+    final showFocusedBorder = widget.isFocused || widget.isExpanded;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -307,12 +323,23 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
             // Expanded card carries a coral perimeter — a quiet signal
             // that this is the card currently being edited (item 32).
             // AnimatedContainer tweens width + color in AppMotion.fast.
+            // Wave 35 — focused (post-Preview-close) cards also get the
+            // coral perimeter + a subtle elevation lift via boxShadow.
             border: Border.all(
-              color: widget.isExpanded
+              color: showFocusedBorder
                   ? AppColors.primary
                   : AppColors.surfaceBorder,
-              width: widget.isExpanded ? 2 : 1,
+              width: showFocusedBorder ? 2 : 1,
             ),
+            boxShadow: widget.isFocused
+                ? [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.10),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
           ),
           child: Stack(
             children: [

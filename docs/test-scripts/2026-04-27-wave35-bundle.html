@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 35 Bundle (Portal toaster + role persistence + member remove + Settings stats + Preview focus)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 35 &middot; device QA</div>
+  <h1>Portal toaster top + role persistence + member remove + Settings stats + Preview focus</h1>
+
+  <p class="lede">
+    Five mixed-surface fixes from Wave 5+14 device QA results plus one new Studio handoff feature.
+    <strong>(A)</strong> Portal toaster moves to top-of-page across every surface (was bottom-6, getting clipped on mobile Safari + tall pages). New shared <code>Toast.tsx</code> component used by <code>/members</code> add-feedback; the rest of the portal got a className swap from <code>bottom-6</code> to <code>top-4</code>.
+    <strong>(B)</strong> Role-change dropdown now persists on refresh (W5+14 #15). <code>/members</code> page also pinned to <code>force-dynamic</code> so Next.js 15 can't replay a stale RSC payload after the RPC commits. Self-demote disabled + last-owner block now re-testable as a side-effect.
+    <strong>(C)</strong> Remove member no longer errors with <code>relation "public.practice_invite_codes" does not exist</code> (W5+14 #18). Wave 14 dropped the table; the Wave 35 migration (<code>schema_wave35_drop_invite_codes_ref.sql</code>) drops the dead UPDATE inside <code>remove_practice_member</code>.
+    <strong>(D)</strong> Settings &rarr; Network: stats row removed, Network section header + invite copy + share widget + portal hand-off CTA all kept (W5+14 #20 reinterpretation).
+    <strong>(E)</strong> NEW &mdash; Preview &rarr; Studio focus handoff. Closing the media viewer scrolls the just-viewed exercise into view + auto-expands the matching card + adds a subtle coral border / elevation lift. Clears on next interaction.
+  </p>
+
+  <h2>A &middot; Portal toaster top-of-page</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">1.</span>
+      <span class="text">Members &mdash; Add by email toast pops at TOP of page (was bottom).</span>
+      <ol class="steps">
+        <li data-sub="1.1">On <a href="https://manage.homefit.studio/members" target="_blank">manage.homefit.studio/members</a>, scroll the page down so the Add form is just barely visible at top.</li>
+        <li data-sub="1.2">Type any email in the Add field + click Add. (Use a never-seen address so it lands as <em>pending</em>.)</li>
+        <li data-sub="1.3">Toast slides DOWN from top-center with the "Queued for signup" headline + "Saved &mdash; will join automatically when they sign up." body. Auto-dismisses after ~8s. Same toast colour palette as before (coral border + raised surface), only position changed.</li>
+        <li data-sub="1.4">Re-test on iPhone Safari with the page scrolled fully down &mdash; toast still visible (was previously clipped off bottom).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">2.</span>
+      <span class="text">Other portal toasts also top-positioned (Clients delete, Sessions delete, practice rename, share-kit copy).</span>
+      <ol class="steps">
+        <li data-sub="2.1">On <code>/clients</code>, swipe-delete a client. Undo toast appears at TOP center.</li>
+        <li data-sub="2.2">On <code>/network</code> open share-kit and copy something. Confirmation toast at TOP center.</li>
+        <li data-sub="2.3">Anywhere with a "rename practice" / "rename client" affordance &mdash; rename. Confirmation toast at TOP center.</li>
+        <li data-sub="2.4">No surface still pops at the bottom. (If you find one, capture the URL in the note.)</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B &middot; Role-change persistence + cascading guards</h2>
+  <ul class="checklist">
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">3.</span>
+      <span class="text">Promote a practitioner to owner via the Role dropdown &mdash; change persists on refresh.</span>
+      <ol class="steps">
+        <li data-sub="3.1">On a practice with at least one practitioner besides yourself, open <code>/members</code>.</li>
+        <li data-sub="3.2">Click the Role dropdown for the practitioner. Pick OWNER.</li>
+        <li data-sub="3.3">Toast confirms "&lt;Name&gt; is now an owner." at top of page.</li>
+        <li data-sub="3.4">Cmd+R / hard refresh. Their role still reads OWNER. (Was the W5+14 #15 fail &mdash; UI showed change but reverted on refresh.)</li>
+        <li data-sub="3.5">Demote them back to practitioner. Toast + persist on refresh.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">4.</span>
+      <span class="text">Self-row Role dropdown is missing (you can't change your own role).</span>
+      <ol class="steps">
+        <li data-sub="4.1">On <code>/members</code>, find your own row (tagged "you").</li>
+        <li data-sub="4.2">The Role column shows the role as a STATIC chip ("OWNER" / "PRACTITIONER"), not a dropdown. The DB-level rejection ("cannot change your own role") doesn't need to fire because the UI never lets you try.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">5.</span>
+      <span class="text">Last-owner demote is blocked with a usable error toast.</span>
+      <ol class="steps">
+        <li data-sub="5.1">Set up a practice where you are the ONLY owner + at least one practitioner exists.</li>
+        <li data-sub="5.2">Promote a practitioner to owner. Verify role persists (item 3 covers).</li>
+        <li data-sub="5.3">Now demote the OTHER owner back to practitioner (you're not the last owner yet, you have 2). That should succeed.</li>
+        <li data-sub="5.4">Try to demote the OTHER owner again from owner &rarr; practitioner. Wait &mdash; you can't, they're already practitioner. Try yourself: there's no dropdown on your own row (item 4). So the last-owner block is implicit through the self-demote restriction.</li>
+        <li data-sub="5.5">If you ever DO get a last-owner block to fire (e.g. by promoting + demoting in sequence), confirm the toast reads "cannot demote the last owner" or similar PostgreSQL-message at TOP of page (red error tone), not a 500.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">6.</span>
+      <span class="text">Role change toast colour is success (coral) not error (red).</span>
+      <ol class="steps">
+        <li data-sub="6.1">Promote / demote a practitioner. Toast at top should have the coral / brand-accented border + heading, not the red error tone.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C &middot; Remove member no longer errors</h2>
+  <ul class="checklist">
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&times;</button></div>
+      <span class="num">7.</span>
+      <span class="text">Click Remove on a practitioner row &mdash; succeeds without a 500.</span>
+      <ol class="steps">
+        <li data-sub="7.1">On <code>/members</code>, find a practitioner you can remove (not yourself).</li>
+        <li data-sub="7.2">Click the Remove text button at the right of the row.</li>
+        <li data-sub="7.3">Row disappears optimistically. Top-of-page toast confirms "&lt;Name&gt; removed." (NOT a red error toast saying <code>relation "public.practice_invite_codes" does not exist</code>).</li>
+        <li data-sub="7.4">Cmd+R / hard refresh. Row stays gone.</li>
+        <li data-sub="7.5">If their session is still open in another tab/device, they get booted out of that practice on next portal action (covered by W5+14 #18 originally, this just verifies the Wave 14 regression is fixed.)</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>D &middot; Settings &rarr; Network stats row removed</h2>
+  <ul class="checklist">
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&times;</button></div>
+      <span class="num">8.</span>
+      <span class="text">Mobile Settings &rarr; Network section: stats row gone, rest intact.</span>
+      <ol class="steps">
+        <li data-sub="8.1">Open the trainer app &rarr; Settings.</li>
+        <li data-sub="8.2">Scroll to the "Network" section header.</li>
+        <li data-sub="8.3">Section now shows: header, "Your practitioner network" copy + invite tagline, share-and-copy widget (referral code pill + Share invite link button), and the "View full network on the portal &rarr;" CTA. THAT'S IT.</li>
+        <li data-sub="8.4">The 4-tile stats row (Network rebate / Rebate lifetime / In network / Network spend) is GONE. No stub, no empty placeholder, just clean &mdash; the divider above the portal CTA is also gone since there's nothing to separate from.</li>
+        <li data-sub="8.5">"View full network on the portal &rarr;" still taps through to <code>manage.homefit.studio/dashboard</code>.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>E &middot; Preview &rarr; Studio focus handoff (NEW)</h2>
+  <ul class="checklist">
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&times;</button></div>
+      <span class="num">9.</span>
+      <span class="text">Closing Preview scrolls the last-viewed exercise into view + auto-expands its card.</span>
+      <ol class="steps">
+        <li data-sub="9.1">Open a session with at least 8 exercises so the list is scrollable.</li>
+        <li data-sub="9.2">In Studio, scroll to the OLDEST exercise (top of the bottom-anchored reverse list). Tap its thumbnail to open the media viewer ("Preview").</li>
+        <li data-sub="9.3">Inside Preview, swipe RIGHT (or tap the next chevron) several times until you've moved to a NEW exercise that wasn't visible in your Studio scroll position.</li>
+        <li data-sub="9.4">Tap the &times; close button (top-right of Preview).</li>
+        <li data-sub="9.5">Studio re-appears with the just-viewed exercise's card scrolled into view (centered) AND auto-expanded (coral perimeter, 2px border, accordion ready).</li>
+        <li data-sub="9.6">A subtle coral elevation shadow surrounds the focused card &mdash; reads as "lifted" not "boxed in".</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="10" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&times;</button></div>
+      <span class="num">10.</span>
+      <span class="text">Auto-expand fires the SAME behaviour as tapping the card header (not a new mode).</span>
+      <ol class="steps">
+        <li data-sub="10.1">Repeat item 9. After Preview closes, the focused card is expanded.</li>
+        <li data-sub="10.2">Inside the expanded card, the DOSE / PACING / NOTES accordion groups are all CLOSED (the spec default for a freshly-expanded card). No PLAYBACK group either &mdash; W29 retired it.</li>
+        <li data-sub="10.3">Tap PACING in the focused card &mdash; it opens normally. Tap PACING again &mdash; closes.</li>
+        <li data-sub="10.4">Tap the card header itself &mdash; collapses the card (becomes the "I came back here, I'm done" gesture).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="11" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&times;</button></div>
+      <span class="num">11.</span>
+      <span class="text">Focus marker clears on next user interaction.</span>
+      <ol class="steps">
+        <li data-sub="11.1">Trigger the focus handoff (item 9). Card has the elevation shadow.</li>
+        <li data-sub="11.2">Scroll the list. Elevation shadow disappears (border collapse to 1px hairline once the card collapses on a different card's tap; or, if you just scroll without tapping, the shadow drops the moment the scroll moves more than ~4px).</li>
+        <li data-sub="11.3">Trigger again. Tap a different exercise card. Focus shadow drops. The newly-tapped card expands as usual.</li>
+        <li data-sub="11.4">Trigger again. Edit a field on the focused card (reps / sets / hold). Focus shadow drops; the card stays expanded so the edit can complete.</li>
+        <li data-sub="11.5">Open a fresh session. No stale focus marker on any card.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="12" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&check;</button><button class="fail" type="button" aria-label="Fail 12">&times;</button></div>
+      <span class="num">12.</span>
+      <span class="text">System back gesture (iOS swipe-from-left-edge) ALSO triggers the focus handoff.</span>
+      <ol class="steps">
+        <li data-sub="12.1">Trigger Preview as in item 9; swipe to a new exercise.</li>
+        <li data-sub="12.2">Instead of tapping the &times; close button, swipe from the LEFT screen edge inward (iOS back gesture).</li>
+        <li data-sub="12.3">Studio appears with the same scroll-into-view + auto-expand behaviour as the close-button path. Focus shadow visible.</li>
+        <li data-sub="12.4">If swipe-back isn't possible on this build (gesture intercepted by something), capture in note. The close-button path (item 9) is the canonical one and must always work.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope (skip if you see them)</h3>
+    <ul>
+      <li>Wave 34 carryover items not yet QA'd. Re-test only if a regression surfaces.</li>
+      <li>Anything in the wave 5/8/9/15/7 carryover queues.</li>
+      <li>Web-player surfaces (R-10 explicitly does NOT apply to <code>_MediaViewer</code> &mdash; it's the practitioner-only "stand next to the client and demo" surface).</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-27-wave35-bundle.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave35-bundle', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

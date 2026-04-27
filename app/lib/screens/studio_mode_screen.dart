@@ -119,6 +119,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// rather than a Future.
   int? _stickyCustomDurationPerRep;
 
+  /// Wave 35 — id of the exercise the practitioner was last viewing in
+  /// the media viewer ("Preview"). Set in `_applyFocusFromPreview`,
+  /// drives a coral border + subtle elevation lift on the matching
+  /// card. Cleared on the next user interaction (any tap on the list,
+  /// any save, any scroll past). Session-only — never persisted.
+  String? _focusedExerciseId;
+
+  /// Wave 35 — GlobalKeys for `Scrollable.ensureVisible`. One key per
+  /// row (data index keyed by exercise id) so the focus handoff can
+  /// scroll the focused card into view. Stale entries are pruned on
+  /// every list build via `_pruneRowKeys`.
+  final Map<String, GlobalKey> _rowKeys = {};
+
   @override
   void initState() {
     super.initState();
@@ -188,6 +201,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   void _pushSession(Session next) {
     _session = next;
     widget.onSessionChanged(next);
+  }
+
+  /// Wave 35 — drop the Preview-handoff focus marker on the next user
+  /// interaction (any field edit, save, or scroll). No-op when the
+  /// marker isn't set so call sites can fire it freely.
+  void _clearFocusOnInteraction() {
+    if (_focusedExerciseId == null) return;
+    setState(() {
+      _focusedExerciseId = null;
+    });
   }
 
   /// Wraps [_pushSession] and stamps [Session.lastContentEditAt] to
@@ -1213,7 +1236,27 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
   Widget _buildExerciseList() {
     final exercises = _session.exercises;
-    return GestureDetector(
+    // Wave 35 — prune row keys for exercises that no longer exist
+    // (handles delete + reorder gracefully). Cheap O(n) pass; the
+    // map only grows to the size of the session.
+    final liveIds = exercises.map((e) => e.id).toSet();
+    _rowKeys.removeWhere((id, _) => !liveIds.contains(id));
+
+    return NotificationListener<ScrollUpdateNotification>(
+      // Wave 35 — drop the Preview-handoff focus marker the moment
+      // the practitioner scrolls the list. We watch ScrollUpdate
+      // (not Start) so the focus stays through the in-flight
+      // ensureVisible animation that placed the focused card on
+      // screen in the first place; once the user takes over, the
+      // first reported delta past 4px clears the marker.
+      onNotification: (n) {
+        if (_focusedExerciseId != null && n.dragDetails != null &&
+            n.scrollDelta != null && n.scrollDelta!.abs() > 4) {
+          _clearFocusOnInteraction();
+        }
+        return false;
+      },
+      child: GestureDetector(
       // Tap outside the tray dismisses it.
       onTap: () {
         if (_activeInsertIndex != null) {
@@ -1240,6 +1283,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             child: _buildRowWithContext(dataIndex, visualIndex),
           );
         },
+      ),
       ),
     );
   }
@@ -1298,14 +1342,28 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // Dismissible below. Long-press on the thumbnail still opens the
     // Peek menu with an explicit Delete; both paths converge on
     // _deleteExercise.
+    // Wave 35 — focused-card state. The Preview → Studio handoff sets
+    // _focusedExerciseId after the viewer pops; the matching card gets
+    // a coral border + subtle elevation lift. Cleared on any tap on
+    // the list (the card's onTap handler) so the marker reads as a
+    // "you were here" hint, not a sticky highlight.
+    final isFocused =
+        _focusedExerciseId != null && _focusedExerciseId == exercise.id;
+
     final Widget cardContent;
     if (exercise.isRest) {
       cardContent = _buildRestRow(dataIndex);
     } else {
+      // Wave 35 — register a GlobalKey so `Scrollable.ensureVisible`
+      // can scroll the matching row into view after the viewer pops.
+      // One key per exercise id; stable across rebuilds.
+      final rowKey = _rowKeys.putIfAbsent(exercise.id, () => GlobalKey());
+
       final Widget cardBody = StudioExerciseCard(
-        key: ValueKey('card_${exercise.id}'),
+        key: rowKey,
         exercise: exercise,
         isExpanded: _expandedIndex == dataIndex,
+        isFocused: isFocused,
         isInCircuit: isInCircuit,
         // Wave 18.7 — the card reads the sticky per-rep default when
         // seeding DURATION PER REP's Manual mode. Null means "no sticky
@@ -1316,9 +1374,17 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             _expandedIndex =
                 _expandedIndex == dataIndex ? null : dataIndex;
             _activeInsertIndex = null;
+            // Wave 35 — any direct user interaction with the list
+            // clears the Preview-handoff focus marker. We treat tap
+            // on ANY card as the "you've moved on" signal, including
+            // the focused card itself (re-tap = collapse + clear).
+            _focusedExerciseId = null;
           });
         },
-        onUpdate: (u) => _updateExercise(dataIndex, u),
+        onUpdate: (u) {
+          _clearFocusOnInteraction();
+          _updateExercise(dataIndex, u);
+        },
         onThumbnailTap: () => _openMediaViewer(exercise),
         onReplaceMedia: () => _replaceMedia(dataIndex),
         onDelete: () => _deleteExercise(dataIndex),
@@ -2100,8 +2166,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     if (initialIndex < 0) return;
 
     if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
+    // Wave 35 — clear any stale exit-inbox id from a previous viewer
+    // pop that was already handled (defence-in-depth; the takeLast
+    // call after the await is the canonical clear).
+    _MediaViewerExitInbox.lastClosedExerciseId = null;
+    final result = await Navigator.of(context).push<Object?>(
+      MaterialPageRoute<Object?>(
         fullscreenDialog: true,
         builder: (_) => _MediaViewer(
           exercises: mediaList,
@@ -2133,6 +2203,55 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // before the next render.
     if (!mounted) return;
     await _refreshSession();
+    if (!mounted) return;
+    // Wave 35 — focus handoff. The viewer pops with the id of the
+    // exercise the practitioner was viewing at close-time. Two paths
+    // populate the id:
+    //   * Close × button → Navigator.pop returns the id directly.
+    //   * System back / iOS edge swipe → result is null; the viewer's
+    //     PopScope stamps the id into _MediaViewerExitInbox.
+    String? focusId;
+    if (result is String && result.isNotEmpty) {
+      focusId = result;
+    } else {
+      focusId = _MediaViewerExitInbox.takeLastClosedExerciseId();
+    }
+    if (focusId != null) {
+      _applyFocusFromPreview(focusId);
+    }
+  }
+
+  /// Wave 35 — Preview → Studio focus handoff. Sets the focused exercise
+  /// id in state, scrolls the matching card into view, and auto-expands
+  /// it via the same path the user's tap on the card header would fire.
+  /// Focus is session-only state; a `_clearFocus()` listener attached
+  /// to scroll + tap will drop it on the next interaction.
+  void _applyFocusFromPreview(String exerciseId) {
+    final exercises = _session.exercises;
+    final dataIndex = exercises.indexWhere((e) => e.id == exerciseId);
+    if (dataIndex < 0) return;
+    if (exercises[dataIndex].isRest) return;
+    setState(() {
+      _focusedExerciseId = exerciseId;
+      _expandedIndex = dataIndex;
+      _activeInsertIndex = null;
+    });
+    // Scroll the freshly-focused card into view AFTER the rebuild has
+    // wired up the GlobalKey for that row. ensureVisible no-ops if the
+    // key doesn't resolve to a Scrollable, so wrapping in addPostFrame
+    // is the lightest belt-and-suspenders we can do.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final key = _rowKeys[exerciseId];
+      final ctx = key?.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+        alignment: 0.5,
+      );
+    });
   }
 }
 
@@ -2250,6 +2369,37 @@ bool _isStillImageConversion(ExerciseCapture exercise) {
   return ext.endsWith('.jpg') ||
       ext.endsWith('.jpeg') ||
       ext.endsWith('.png');
+}
+
+/// Wave 35 — module-level inbox for the Preview → Studio focus handoff.
+///
+/// `_MediaViewer` ("Preview" in user-facing copy) returns the id of the
+/// exercise the practitioner was viewing at close-time so Studio can
+/// scroll-into-view + auto-expand the matching card.
+///
+/// Two paths populate it:
+///   1. The close × button calls `Navigator.pop(_focusIdForPop)` — the
+///      parent's `await Navigator.push(...)` receives the id directly.
+///   2. The system back gesture (iOS swipe-from-edge / Android back)
+///      doesn't go through the close button; the route pops with a
+///      null result. The viewer's `PopScope.onPopInvokedWithResult`
+///      detects that case and stamps the id here so Studio can read
+///      it after the await resolves to null.
+///
+/// Session-only state: never persisted, cleared every time the parent
+/// reads it (so a fresh open of any unrelated route never inherits a
+/// stale id).
+class _MediaViewerExitInbox {
+  static String? lastClosedExerciseId;
+
+  /// Read + clear the last-closed id atomically. Returns null when
+  /// the inbox is empty (the close button took care of the handoff
+  /// directly via `Navigator.pop(id)`).
+  static String? takeLastClosedExerciseId() {
+    final id = lastClosedExerciseId;
+    lastClosedExerciseId = null;
+    return id;
+  }
 }
 
 /// Full-screen media viewer — the practitioner's "stand next to the
@@ -3109,6 +3259,18 @@ class _MediaViewerState extends State<_MediaViewer> {
     _cycleTreatment(v < 0 ? 1 : -1);
   }
 
+  /// Wave 35 — id of the exercise the practitioner was viewing at the
+  /// moment they closed the viewer. Returned via `Navigator.pop(id)` so
+  /// the parent Studio screen can scroll-into-view + auto-expand the
+  /// matching card. Returning the id (not the index) keeps the handoff
+  /// stable against reorders that may have happened inside the viewer
+  /// (preferred-treatment writes don't reorder, but this is safer.)
+  String? get _focusIdForPop {
+    if (_exercises.isEmpty) return null;
+    if (_currentIndex < 0 || _currentIndex >= _exercises.length) return null;
+    return _exercises[_currentIndex].id;
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasArchive = _hasArchive(_current);
@@ -3116,7 +3278,30 @@ class _MediaViewerState extends State<_MediaViewer> {
     // (the editor stays portrait-locked). Both rotations + portraitUp;
     // upside-down stays excluded so the device-rotation animation feels
     // intentional instead of glitchy.
-    return OrientationLockGuard(
+    return PopScope<Object?>(
+      // canPop stays true — we don't want to block the gesture, only
+      // observe it so we can substitute the result when the system
+      // pops without going through the close button. Using
+      // onPopInvokedWithResult (Flutter 3.22+) so we can detect that
+      // the system pop already returned `null` and re-pop with the
+      // exercise id. The `didPop` guard prevents the catch from
+      // firing when the close button explicitly popped with the id.
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) return;
+        if (result != null) return;
+        final id = _focusIdForPop;
+        if (id == null) return;
+        // Re-push the id via the post-pop notification path. The
+        // route is already gone from the stack, so we can't call
+        // Navigator.pop again — instead, surface the id via the
+        // `RouteSettings.arguments` channel we registered when the
+        // viewer was pushed. We cheat slightly: the parent's
+        // `_openMediaViewer` reads `lastFocusedExerciseId` off a
+        // module-level inbox that this PopScope writes to.
+        _MediaViewerExitInbox.lastClosedExerciseId = id;
+      },
+      child: OrientationLockGuard(
       allowed: const {
         DeviceOrientation.portraitUp,
         DeviceOrientation.landscapeLeft,
@@ -3385,12 +3570,18 @@ class _MediaViewerState extends State<_MediaViewer> {
                     ),
                   ),
 
-                // Close X — top-right in both orientations.
+                // Close X — top-right in both orientations. Wave 35:
+                // pops with the current exercise id so Studio can scroll-
+                // into-view + auto-expand the matching card on return.
+                // Returning the id (not the index) keeps the handoff
+                // robust against any reorders that may have happened
+                // inside the viewer.
                 Positioned(
                   top: MediaQuery.of(context).padding.top + 8,
                   right: 8,
                   child: IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: () =>
+                        Navigator.of(context).pop(_focusIdForPop),
                     icon: const Icon(
                       Icons.close,
                       color: Colors.white,
@@ -3435,6 +3626,7 @@ class _MediaViewerState extends State<_MediaViewer> {
             );
           },
         ),
+      ),
       ),
     );
   }
