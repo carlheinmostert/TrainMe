@@ -150,7 +150,7 @@
   <div class="wrap">
     <div class="kicker">homefit.studio · device QA</div>
     <h1>Test scripts</h1>
-    <p class="lede">Active QA for 6 waves (Wave 35 fresh + 5 carryover from older work). Older waves were superseded by later work and have been moved out of the active queue (see Past waves below).</p>
+    <p class="lede">Active QA for 6 waves (Wave 36 fresh + 5 carryover from older work). Older waves were superseded by later work and have been moved out of the active queue (see Past waves below).</p>
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
@@ -165,11 +165,11 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
-        <a href="./2026-04-27-wave35-bundle.html">
+        <a href="./2026-04-27-wave36-bundle.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 35 — Portal toaster top + role persistence + member remove + Settings stats + Preview focus</div>
-              <div class="scope">Five mixed-surface fixes from Wave 5+14 device QA results plus one new Studio handoff feature. <strong>(A)</strong> Portal toaster moves to top-of-page across every surface (was <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">bottom-6</code>, getting clipped on mobile Safari + tall pages). New shared <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Toast.tsx</code> component used by <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/members</code> add-feedback; rest of the portal got a className swap. <strong>(B)</strong> Role-change dropdown now persists on refresh (W5+14 #15). <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/members</code> page pinned to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">force-dynamic</code> + post-RPC re-fetch on success. <strong>(C)</strong> Remove member no longer errors with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">relation "public.practice_invite_codes" does not exist</code> (W5+14 #18). New migration <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">schema_wave35_drop_invite_codes_ref.sql</code>. <strong>(D)</strong> Settings &rarr; Network: stats row removed, Network section header + invite copy + share widget + portal hand-off CTA all kept. <strong>(E)</strong> NEW &mdash; Preview &rarr; Studio focus handoff. Closing the media viewer scrolls the just-viewed exercise into view + auto-expands the matching card + adds a subtle coral border / elevation lift. Clears on next interaction. <strong>12 items in 5 sections.</strong></div>
+              <div class="name">1 · Wave 36 — Avatar EXIF orientation + 21&times;21 count badge + photo body-focus end-to-end</div>
+              <div class="scope">Three carry-over fixes from Wave 34 device QA. <strong>(A)</strong> Captured avatar PNG no longer rotated 90&deg; left &mdash; W34 pinned <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">videoOrientation</code> at session setup, but iOS can re-rotate connections during interface-orientation transitions. W36 force-pins portrait at every <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">capturePhoto</code> call (with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">os_log</code> diagnostics) AND bakes EXIF orientation into the pixel buffer in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">ClientAvatarProcessor</code> so Vision sees an upright source. <strong>(B)</strong> Count badge reverses W34's 15% shrink &mdash; 14&times;14 &rarr; 21&times;21 (+50%), font 9/7 &rarr; 13/10. <strong>(C)</strong> Photo Body Focus pill finally has a segmented JPG to swap to. New native <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">processPhotoBodyFocus</code> method + Wave 36 schema migration extends <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">get_plan_full</code> to emit segmented URLs for photos. Web player &rarr; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v68-photo-body-focus</code>. <strong>7 items in 3 sections.</strong></div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -247,10 +247,24 @@
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-04-27-wave35-bundle.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 35 — Portal toaster + role persist + member remove + Settings stats + Preview focus (awaiting QA — see results JSON)</div>
+              <div class="date">2026-04-27</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Complete</span>
+              <div class="results" id="wave35-results">Loading…</div>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-04-27-wave34-bundle.html">
           <div class="row">
             <div>
-              <div class="name">Wave 34 — Native AV avatar camera + W33 carryover (awaiting QA results)</div>
+              <div class="name">Wave 34 — Native AV avatar camera + W33 carryover (3 fails carried into Wave 36)</div>
               <div class="date">2026-04-27</div>
             </div>
             <div style="text-align: right;">
@@ -787,6 +801,7 @@
           .catch(function() { el.textContent = 'No results yet.'; });
       }
 
+      load('2026-04-27-wave35-bundle.results.json', 'wave35-results');
       load('2026-04-27-wave34-bundle.results.json', 'wave34-results');
       load('2026-04-26-wave33-bundle.results.json', 'wave33-results');
       load('2026-04-26-wave32-bundle.results.json', 'wave32-results');

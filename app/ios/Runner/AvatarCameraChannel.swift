@@ -313,11 +313,29 @@ final class AvatarCameraChannel: NSObject {
             return
         }
 
-        // Belt-and-braces — re-pin portrait on the connection right
-        // before capture in case the OS reset orientation when the app
-        // backgrounded + foregrounded.
-        if let conn = output.connection(with: .video), conn.isVideoOrientationSupported {
-            conn.videoOrientation = .portrait
+        // Wave 36 — diagnostic + force-pin portrait on the connection
+        // right before capture. W34 set videoOrientation at session
+        // setup time, but iOS can re-rotate connections during
+        // interface-orientation transitions (e.g. brief landscape kick
+        // on rotation that fires even when the screen is portrait-locked
+        // via OrientationLockGuard). The captured JPEG was coming out
+        // rotated 90° left while the live preview stayed correct
+        // because the preview-layer's connection orientation diverged
+        // from the photo-output's.
+        if let conn = output.connection(with: .video) {
+            let preRaw = conn.videoOrientation.rawValue
+            if conn.isVideoOrientationSupported {
+                conn.videoOrientation = .portrait
+            }
+            os_log(
+                "capturePhoto: connection videoOrientation pre=%{public}d post=%{public}d",
+                log: Self.log, type: .info,
+                Int(preRaw),
+                Int(conn.videoOrientation.rawValue)
+            )
+        } else {
+            os_log("capturePhoto: photoOutput has no .video connection",
+                   log: Self.log, type: .error)
         }
 
         let settings = AVCapturePhotoSettings(format: [

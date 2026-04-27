@@ -458,9 +458,13 @@ class _FailedConversionsPill extends StatelessWidget {
 /// both the icon and the card surface. Hidden when [count] == 0
 /// (pre-capture sessions).
 ///
-/// Wave 34: count badge shrinks ~15% (16×16 → 14×14, font 10 → 9 single,
-/// 8 → 7 multi-digit) so it reads as a glanceable accent against the
-/// now-larger icon rather than competing with it.
+/// Wave 34: count badge shrunk ~15% (16×16 → 14×14, font 10 → 9 single,
+/// 8 → 7 multi-digit) — but device QA found the smaller badge looked
+/// anemic against the +50% leading icon.
+///
+/// Wave 36: reverse direction — bump 14×14 → 21×21 (+50%), fonts 9/7 →
+/// 13/10. Anchor offset relaxed so the larger badge still feels
+/// pinned to the bottom-right corner rather than floating off it.
 class _LeadingIconBadge extends StatelessWidget {
   final IconData icon;
   final int count;
@@ -485,13 +489,13 @@ class _LeadingIconBadge extends StatelessWidget {
             child: Icon(icon, color: AppColors.primary, size: 33),
           ),
           if (count > 0)
-            // Sit the badge just outside the bottom-right corner. Slightly
-            // deeper offset than Wave 32 so the smaller (14×14) badge
-            // still feels anchored to the (now 60×60) icon rather than
-            // floating above it.
+            // Wave 36 — at 21×21 the badge body is meatier, so we sit it
+            // about a third outside the icon footprint (rather than
+            // hugging the corner). Tested: single-digit + 2-digit + "99+"
+            // all read as confidently anchored accents against the icon.
             Positioned(
-              right: -3,
-              bottom: -3,
+              right: -5,
+              bottom: -5,
               child: _CountBadge(count: count),
             ),
         ],
@@ -500,17 +504,19 @@ class _LeadingIconBadge extends StatelessWidget {
   }
 }
 
-/// Coral count pill — 14×14 circular, white digits, 1px dark border.
-/// Triple-digit counts widen to a stadium so "100+" still reads.
+/// Coral count pill — circular, white digits, 1px dark border.
+/// Triple-digit counts widen to a stadium so "99+" still reads.
 ///
 /// Wave 33: digits shrink at 2+ characters so the count fits without
 /// truncating inside the badge footprint. Carl flagged 10+ were running
 /// off the badge — dropping the font at width ≥ 2 chars solves that
 /// without changing the iconography.
 ///
-/// Wave 34: badge geometry shrinks ~15% (16 → 14, fonts 10/8 → 9/7)
-/// per Carl's "fits but needs 15% reduction to fit naturally" note
-/// against the new larger leading icon.
+/// Wave 34: badge geometry shrunk ~15% (16 → 14, fonts 10/8 → 9/7) —
+/// QA found the result anemic next to the +50% leading icon.
+///
+/// Wave 36: reverse direction. 14 → 21 (+50%), fonts 9/7 → 13/10. Pad
+/// for "99+" widened in lock-step so the stadium still hugs the glyphs.
 class _CountBadge extends StatelessWidget {
   final int count;
   const _CountBadge({required this.count});
@@ -520,12 +526,13 @@ class _CountBadge extends StatelessWidget {
     final label = count > 99 ? '99+' : '$count';
     final isMultiDigit = label.length >= 2;
     return Container(
-      constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+      constraints: const BoxConstraints(minWidth: 21, minHeight: 21),
       padding: EdgeInsets.symmetric(
-        // Triple-digit ("99+") still gets a touch of horizontal pad so
-        // the glyphs don't kiss the dark border. Two-digit fits inside
-        // 14px once the font drops to 7pt — no extra pad needed.
-        horizontal: count > 99 ? 3 : 0,
+        // "99+" gets enough horizontal pad that the glyphs don't kiss
+        // the dark border — three glyphs at 10pt need a bit of room.
+        // Two-digit fits inside 21px once the font drops to 10pt — no
+        // extra pad needed.
+        horizontal: count > 99 ? 4 : 0,
         vertical: 0,
       ),
       decoration: BoxDecoration(
@@ -539,7 +546,7 @@ class _CountBadge extends StatelessWidget {
         style: TextStyle(
           fontFamily: 'Inter',
           color: Colors.white,
-          fontSize: isMultiDigit ? 7 : 9,
+          fontSize: isMultiDigit ? 10 : 13,
           fontWeight: FontWeight.w700,
           height: 1.0,
         ),
