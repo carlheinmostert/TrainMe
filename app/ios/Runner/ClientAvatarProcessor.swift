@@ -47,15 +47,35 @@ import Flutter
 
 @available(iOS 15.0, *)
 final class ClientAvatarProcessor {
+    /// Output encoding mode for the composed result.
+    ///
+    /// `.png` (avatar surface, default): clean alpha edges around the
+    /// soft silhouette boundary; the avatar lens renders this as a
+    /// circle on a dark background and any quantisation halo is
+    /// visible. ~150-300 KB at 1600px long edge.
+    ///
+    /// `.jpg` (Wave 36 — exercise photo body-focus): cheaper to upload
+    /// to `raw-archive` and matches the existing `*.jpg` raw photo
+    /// pattern. The body silhouette inside the frame doesn't need
+    /// alpha — it's compositing into a uniform blurred plate, not
+    /// onto a transparent surface. Quality 90 keeps the body crisp
+    /// without the file-size penalty PNG would charge.
+    enum OutputFormat {
+        case png
+        case jpg
+    }
+
     /// Public entry. Reads the raw image from `rawPath`, runs the
-    /// segmentation + blur compose, writes a PNG to `outPath`. Returns
-    /// `outPath` on success or a FlutterError on any failure.
+    /// segmentation + blur compose, writes the output (PNG or JPG) to
+    /// `outPath`. Returns `outPath` on success or a FlutterError on any
+    /// failure.
     ///
     /// Mirrors the error-code style used by `convertVideo` so callers can
     /// pattern-match across pipelines (FILE_NOT_FOUND, JPEG_ENCODE_FAILED, etc.).
     static func process(
         rawPath: String,
         outPath: String,
+        format: OutputFormat = .png,
         result: @escaping FlutterResult
     ) {
         guard FileManager.default.fileExists(atPath: rawPath),
@@ -71,7 +91,7 @@ final class ClientAvatarProcessor {
         }
 
         guard let raw = UIImage(contentsOfFile: rawPath),
-              let cgImage = raw.cgImage else {
+              let rawCgImage = raw.cgImage else {
             DispatchQueue.main.async {
                 result(FlutterError(
                     code: "DECODE_FAILED",
@@ -81,6 +101,22 @@ final class ClientAvatarProcessor {
             }
             return
         }
+
+        // Wave 36 — bake EXIF orientation into the pixel buffer BEFORE
+        // any downstream Vision / vImage / compose pass. `UIImage(contentsOfFile:)`
+        // reads the JPEG's EXIF orientation into `imageOrientation`, but
+        // `.cgImage` always returns the RAW pixel buffer — un-rotated.
+        // Vision + vImage operate on raw pixels, and the PNG we write
+        // out has no orientation field, so any non-`.up` source produces
+        // a sideways avatar. The captured JPEG arrives upright in normal
+        // viewers (Photos / Finder both honour EXIF), but our pipeline
+        // doesn't — that's the W34 device-QA #1 fail.
+        //
+        // Fix: redraw the source through a CGContext sized for the
+        // *displayed* (post-orientation) dimensions, applying the
+        // orientation transform. The result is a true-upright CGImage
+        // suitable for direct ingestion by Vision + vImage.
+        let cgImage = redrawUpright(cgImage: rawCgImage, orientation: raw.imageOrientation)
 
         // Cap input dimension for predictable runtime on long-edge 4K stills
         // from the iPhone 15 Pro Max wide. Vision + vImage both scale ~O(n²)
@@ -114,15 +150,26 @@ final class ClientAvatarProcessor {
             return
         }
 
-        // PNG keeps the soft silhouette edge clean. JPEG would re-quantise
-        // the alpha-equivalent gradient and produce visible halos when the
-        // avatar is rendered as a circle on a dark surface.
+        // PNG keeps the soft silhouette edge clean for the avatar surface.
+        // JPEG (Wave 36) is fine for exercise-photo body-focus — the
+        // composite lands inside a frame on the player slide, not as a
+        // circle-clipped avatar, so the quantisation halo isn't visible.
         let uiImage = UIImage(cgImage: composed)
-        guard let pngData = uiImage.pngData() else {
+        let encodedData: Data?
+        let encodeErrorCode: String
+        switch format {
+        case .png:
+            encodedData = uiImage.pngData()
+            encodeErrorCode = "PNG_ENCODE_FAILED"
+        case .jpg:
+            encodedData = uiImage.jpegData(compressionQuality: 0.9)
+            encodeErrorCode = "JPEG_ENCODE_FAILED"
+        }
+        guard let outData = encodedData else {
             DispatchQueue.main.async {
                 result(FlutterError(
-                    code: "PNG_ENCODE_FAILED",
-                    message: "Could not encode avatar as PNG",
+                    code: encodeErrorCode,
+                    message: "Could not encode body-focus output",
                     details: nil
                 ))
             }
@@ -135,7 +182,7 @@ final class ClientAvatarProcessor {
                 at: outURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try pngData.write(to: outURL)
+            try outData.write(to: outURL)
             DispatchQueue.main.async {
                 result([
                     "success": true,
@@ -355,6 +402,50 @@ final class ClientAvatarProcessor {
         }
 
         return drawCtx.makeImage()
+    }
+
+    /// Bake `imageOrientation` into the raw pixel buffer so downstream
+    /// Vision + vImage + compose see an upright source.
+    ///
+    /// Wave 36 fix for W34 device-QA #1: captured avatar JPEG arrives with
+    /// EXIF orientation = right (top), which iOS Photos / Finder honour but
+    /// our pipeline did not — Vision saw a sideways frame, the segmented
+    /// PNG came out 90° left. By redrawing the source through a UIImage
+    /// (which honours `imageOrientation` at draw-time) we get a strictly
+    /// upright CGImage to feed forward.
+    ///
+    /// Returns the input unchanged when orientation is already `.up`
+    /// (nominal AVCapturePhotoOutput-with-portrait-connection case) so
+    /// the happy path adds zero overhead.
+    private static func redrawUpright(cgImage: CGImage, orientation: UIImage.Orientation) -> CGImage {
+        if orientation == .up { return cgImage }
+
+        // Compute the post-orientation size. Quarter / three-quarter
+        // rotations swap width <-> height; mirror-only orientations keep
+        // the dimensions intact.
+        let originalWidth = CGFloat(cgImage.width)
+        let originalHeight = CGFloat(cgImage.height)
+        let displayedSize: CGSize
+        switch orientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            displayedSize = CGSize(width: originalHeight, height: originalWidth)
+        default:
+            displayedSize = CGSize(width: originalWidth, height: originalHeight)
+        }
+
+        // UIGraphicsImageRenderer + .draw() applies the orientation at
+        // render time. The result's underlying CGImage is upright (the
+        // pixels themselves now match the displayed orientation, and
+        // the orientation is .up).
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: displayedSize, format: format)
+        let upright = renderer.image { _ in
+            UIImage(cgImage: cgImage, scale: 1, orientation: orientation)
+                .draw(in: CGRect(origin: .zero, size: displayedSize))
+        }
+        return upright.cgImage ?? cgImage
     }
 
     /// Downsample if the long edge exceeds [maxLongEdge]. Returns the

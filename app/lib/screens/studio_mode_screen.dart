@@ -3809,29 +3809,52 @@ class _MediaViewerState extends State<_MediaViewer> {
   ///     filter — same pattern videos use for B&W).
   ///   * [Treatment.original] → raw colour JPG.
   ///
-  /// The Body Focus pill is rendered for photos but currently has no
-  /// segmented-photo file to swap to — Wave 22 wired the cloud-side
-  /// `grayscale_segmented_url` for the WEB player; mobile preview reads
-  /// from local files only ("mobile preview plays local files only"
-  /// rule). The toggle still persists to SharedPreferences so the web
-  /// player picks up the practitioner's preference; on the mobile
-  /// preview it's a no-op for photos until the photo segmenter ships.
+  /// Wave 36 — Body Focus toggle finally affects photo preview. When
+  /// `_enhancedBackground` is on AND the active treatment is grayscale
+  /// or original AND a local segmented JPG exists at
+  /// `segmentedRawFilePath`, render that instead of the raw colour JPG.
+  /// Falls through to the raw original gracefully when the segmented
+  /// file is missing (legacy photo, segmentation failed during conversion,
+  /// etc.). Line treatment is unaffected — the line drawing already
+  /// abstracts the body, body-focus is meaningless there.
   Widget _buildPhotoFrame(ExerciseCapture ex, {required bool isCurrent}) {
     String resolvedPath = ex.displayFilePath;
     if (isCurrent && _treatment != Treatment.line) {
-      final raw = ex.absoluteRawFilePath;
-      // Only switch source when the raw file is itself an image. The
-      // exotic "video converted to a still" path (mediaType=video +
-      // convertedFilePath=*.jpg) leaves the raw as a .mov/.mp4 — try
-      // to Image.file that and we crash. In that case keep the line
-      // drawing rendered for all treatments.
-      final ext = raw.toLowerCase();
-      final rawIsImage = ext.endsWith('.jpg') ||
-          ext.endsWith('.jpeg') ||
-          ext.endsWith('.png') ||
-          ext.endsWith('.heic');
-      if (rawIsImage && raw.isNotEmpty && File(raw).existsSync()) {
-        resolvedPath = raw;
+      // Wave 36 — when body focus is on, prefer the segmented JPG
+      // produced by the on-device Vision pipeline. The local file lives
+      // alongside the raw colour JPG at `<exerciseId>.segmented.jpg`.
+      // Mobile preview plays local files only (standing rule) so we
+      // never reach for the cloud signed URL.
+      if (_enhancedBackground) {
+        final segAbs = ex.absoluteSegmentedRawFilePath;
+        if (segAbs != null && segAbs.isNotEmpty) {
+          final segExt = segAbs.toLowerCase();
+          final segIsImage = segExt.endsWith('.jpg') ||
+              segExt.endsWith('.jpeg') ||
+              segExt.endsWith('.png');
+          if (segIsImage && File(segAbs).existsSync()) {
+            resolvedPath = segAbs;
+          }
+        }
+      }
+      // Fallback when body focus is off OR the segmented file is
+      // missing — play the untouched raw colour JPG. Same rule as
+      // pre-Wave-36 (this branch was the only path before).
+      if (resolvedPath == ex.displayFilePath) {
+        final raw = ex.absoluteRawFilePath;
+        // Only switch source when the raw file is itself an image. The
+        // exotic "video converted to a still" path (mediaType=video +
+        // convertedFilePath=*.jpg) leaves the raw as a .mov/.mp4 — try
+        // to Image.file that and we crash. In that case keep the line
+        // drawing rendered for all treatments.
+        final ext = raw.toLowerCase();
+        final rawIsImage = ext.endsWith('.jpg') ||
+            ext.endsWith('.jpeg') ||
+            ext.endsWith('.png') ||
+            ext.endsWith('.heic');
+        if (rawIsImage && raw.isNotEmpty && File(raw).existsSync()) {
+          resolvedPath = raw;
+        }
       }
     }
     Widget image = Image.file(
@@ -3850,8 +3873,15 @@ class _MediaViewerState extends State<_MediaViewer> {
         child: image,
       );
     }
+    // Wave 36 — body-focus state is part of the key so toggling the
+    // pill rebuilds the photo frame even when the treatment hasn't
+    // changed. Without this, a flip from raw → segmented (or back)
+    // could leave the previous Image cached for a frame.
+    final keySuffix = isCurrent
+        ? '${_treatment.name}-${_enhancedBackground ? 'bf' : 'raw'}'
+        : 'line';
     return KeyedSubtree(
-      key: ValueKey('photo-frame-${ex.id}-${isCurrent ? _treatment.name : 'line'}'),
+      key: ValueKey('photo-frame-${ex.id}-$keySuffix'),
       child: image,
     );
   }

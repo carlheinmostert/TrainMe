@@ -312,15 +312,25 @@ class LocalPlayerServer {
     final lineUrl = e.mediaType == MediaType.video || e.mediaType == MediaType.photo
         ? '/local/${e.id}/line'
         : null;
+    // For videos the archive surface is the 720p H.264 archive file.
+    // For photos (Wave 36) the archive surface IS the raw colour JPG —
+    // there's no separate archive pipeline for photos. The /archive
+    // route below handles both via mediaType branching.
     final archiveUrl = e.mediaType == MediaType.video && e.archiveFilePath != null
         ? '/local/${e.id}/archive'
-        : null;
+        : (e.mediaType == MediaType.photo &&
+                e.rawFilePath.isNotEmpty
+            ? '/local/${e.id}/archive'
+            : null);
     // Body Focus variant — segmented body-pop file. Practitioner-only
-    // surface, so file-presence gating is sufficient.
-    final segmentedUrl =
-        e.mediaType == MediaType.video && e.segmentedRawFilePath != null
-            ? '/local/${e.id}/segmented'
-            : null;
+    // surface, so file-presence gating is sufficient. Wave 36 extends
+    // this to photos: an on-device JPG produced by ClientAvatarProcessor
+    // mirroring the avatar segmentation pipeline. Same column on the
+    // exercises table; route below detects extension to pick the
+    // right MIME.
+    final segmentedUrl = e.segmentedRawFilePath != null
+        ? '/local/${e.id}/segmented'
+        : null;
 
     return {
       'id': e.id,
@@ -404,10 +414,20 @@ class LocalPlayerServer {
         relativePath = exercise.convertedFilePath ?? exercise.rawFilePath;
         break;
       case _MediaKind.archive:
-        relativePath = exercise.archiveFilePath;
+        // Wave 36 — photos have no separate archive pipeline; the raw
+        // colour JPG IS the archive surface. Videos still use the 720p
+        // H.264 archive file produced by AVAssetExportSession.
+        if (exercise.mediaType == MediaType.photo) {
+          relativePath = exercise.rawFilePath;
+        } else {
+          relativePath = exercise.archiveFilePath;
+        }
         break;
       case _MediaKind.segmented:
-        // Body Focus variant — segmented body-pop file.
+        // Body Focus variant — segmented body-pop file. Same column
+        // for both videos (`.segmented.mp4`) and photos
+        // (`.segmented.jpg`); the streaming response derives content-
+        // type from the file extension, so no extra branching here.
         relativePath = exercise.segmentedRawFilePath;
         break;
     }

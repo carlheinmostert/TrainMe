@@ -175,9 +175,18 @@ class UnifiedPreviewSchemeBridge {
         }
         break;
       case 'archive':
-        relative = exercise.archiveFilePath;
+        // Wave 36 — photos have no separate archive pipeline; the raw
+        // colour JPG IS the archive surface. Videos still use the 720p
+        // H.264 archive.
+        if (exercise.mediaType == MediaType.photo) {
+          relative = exercise.rawFilePath;
+        } else {
+          relative = exercise.archiveFilePath;
+        }
         break;
       case 'segmented':
+        // Wave 36 — same column for video segmented mp4 and photo
+        // segmented JPG; consumer derives content-type from extension.
         relative = exercise.segmentedRawFilePath;
         break;
     }
@@ -234,16 +243,22 @@ class UnifiedPreviewSchemeBridge {
         e.mediaType == MediaType.video || e.mediaType == MediaType.photo
             ? '/local/${e.id}/line'
             : null;
+    // For videos the archive is the 720p H.264 file. For photos
+    // (Wave 36) it's the raw colour JPG — no separate archive pipeline
+    // for photos. The /archive route handler dispatches by mediaType.
     final archiveUrl = e.mediaType == MediaType.video && e.archiveFilePath != null
         ? '/local/${e.id}/archive'
+        : (e.mediaType == MediaType.photo &&
+                e.rawFilePath.isNotEmpty
+            ? '/local/${e.id}/archive'
+            : null);
+    // Body Focus variant — segmented body-pop file written by the
+    // converter. Practitioner is the viewer here, so consent is
+    // implicit; gating is strictly file-presence. Wave 36 extends to
+    // photos: same column, JPG suffix.
+    final segmentedUrl = e.segmentedRawFilePath != null
+        ? '/local/${e.id}/segmented'
         : null;
-    // Body Focus variant — segmented body-pop file written by the converter.
-    // Practitioner is the viewer here, so consent is implicit; gating is
-    // strictly file-presence.
-    final segmentedUrl =
-        e.mediaType == MediaType.video && e.segmentedRawFilePath != null
-            ? '/local/${e.id}/segmented'
-            : null;
 
     return {
       'id': e.id,

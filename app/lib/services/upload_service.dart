@@ -1105,11 +1105,25 @@ class UploadService {
         );
         continue;
       }
+      // Wave 36 — `segmented_raw_file_path` now spans BOTH videos
+      // (`.segmented.mp4`) AND photos (`.segmented.jpg`). The native
+      // pipeline writes whichever extension is appropriate; the upload
+      // path mirrors that suffix so `get_plan_full` can sign a URL
+      // against the right object. Pick MIME + storage suffix off the
+      // local file's actual extension rather than hard-coding `.mp4`.
+      final localExt = p.extension(absSeg).toLowerCase();
+      final isPhotoSegmented = localExt == '.jpg' || localExt == '.jpeg';
+      final segSuffix = isPhotoSegmented ? '.segmented.jpg' : '.segmented.mp4';
+      final segMime = isPhotoSegmented ? 'image/jpeg' : 'video/mp4';
       final segStoragePath =
-          '$practiceId/${session.id}/${exercise.id}.segmented.mp4';
+          '$practiceId/${session.id}/${exercise.id}$segSuffix';
       await loudSwallow<bool>(
         () async {
-          await _api.uploadRawArchive(path: segStoragePath, file: segFile);
+          await _api.uploadRawArchive(
+            path: segStoragePath,
+            file: segFile,
+            contentType: segMime,
+          );
           return true;
         },
         kind: 'raw_archive_segmented_upload_failed',

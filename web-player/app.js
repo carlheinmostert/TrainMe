@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v67-no-maximise-in-preview';
+const PLAYER_VERSION = 'v68-photo-body-focus';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -871,12 +871,22 @@ function buildMedia(exercise, index) {
   // `slideT` resolved above honours practitioner sticky `preferred_treatment`
   // AND the client-controlled "Show me" override. `resolvedUrl` is:
   //   line     → the line-drawing JPG (public `media` bucket — always)
-  //   bw       → the raw colour JPG (signed, consent-gated). The src is
-  //              the SAME object as `original`; we apply CSS
-  //              `filter: grayscale(1) contrast(1.05)` via .is-grayscale
-  //              instead of shipping a second file. Mirrors the
-  //              video.is-grayscale rule.
-  //   original → the raw colour JPG (signed, consent-gated).
+  //   bw       → grayscale_segmented_url || grayscale_url (signed, consent-
+  //              gated). When body-focus is ON (default), the segmented JPG
+  //              produced on-device by ClientAvatarProcessor is preferred —
+  //              same Vision body-pop look as videos. When OFF, falls back
+  //              to the untouched raw colour JPG. CSS .is-grayscale applies
+  //              the grayscale filter either way.
+  //   original → original_segmented_url || original_url (signed, consent-
+  //              gated). Same body-focus toggle behaviour as bw.
+  //
+  // Wave 36 — segmented JPG variant for photos. Up to W22 photos shared a
+  // single raw colour source; Wave 36 ships a body-focus segmented JPG
+  // alongside it (path: `<exerciseId>.segmented.jpg` in `raw-archive`),
+  // surfaced via `grayscale_segmented_url` / `original_segmented_url`.
+  // Legacy photos with only the raw colour still render correctly because
+  // resolveTreatmentUrl falls back to the untouched original when the
+  // segmented variant is null.
   //
   // Treatment swaps hot-swap the <img> src on the next render — no
   // crossfade needed (single frame, no motion artefact). Legacy photos

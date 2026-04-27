@@ -484,7 +484,85 @@ class ConversionService extends ChangeNotifier {
       final convertedPath =
           p.join(convertedDir, '${exercise.id}_line$ext');
       await _convertPhoto(exercise.absoluteRawFilePath, convertedPath);
-      return _ConvertResult(convertedPath: convertedPath);
+
+      // Wave 36 — body-focus segmented variant for exercise photos.
+      // Mirrors the dual-output story videos have had since Milestone P:
+      // a Vision person-segmentation + Gaussian-blur composite that
+      // preserves the body and dims the background. Best-effort — a
+      // failure here MUST NOT fail the line-drawing conversion (which
+      // is what gates publish).
+      //
+      // Output naming intentionally stays `.segmented.jpg` so
+      // `upload_service.dart` can route it to the same `raw-archive`
+      // bucket pattern videos use, and the schema's `segmented_url`
+      // signing logic in `get_plan_full` only has to learn one extra
+      // suffix per media type.
+      String? segmentedPhotoPath;
+      try {
+        final candidate =
+            p.join(convertedDir, '${exercise.id}.segmented.jpg');
+        await _convertPhotoBodyFocus(
+          exercise.absoluteRawFilePath,
+          candidate,
+        );
+        if (await File(candidate).exists()) {
+          segmentedPhotoPath = candidate;
+        }
+      } catch (e, stack) {
+        debugPrint(
+          'Photo body-focus segmentation failed for ${exercise.id}: $e — '
+          'line drawing already produced; falling through with segmented=null',
+        );
+        try {
+          final logDir = await getApplicationDocumentsDirectory();
+          final logFile = File(p.join(logDir.path, 'conversion_error.log'));
+          await logFile.writeAsString(
+            '${DateTime.now()} [_convertPhotoBodyFocus failed]\n$e\n$stack\n\n',
+            mode: FileMode.append,
+          );
+        } catch (_) {
+          // Sanctioned log-of-log swallow — see the video branch's
+          // matching site for the rationale.
+        }
+      }
+
+      return _ConvertResult(
+        convertedPath: convertedPath,
+        segmentedPath: segmentedPhotoPath,
+      );
+    }
+  }
+
+  /// Native body-focus segmentation pass for an exercise photo.
+  ///
+  /// Calls the iOS `processPhotoBodyFocus` channel method (Wave 36),
+  /// which reuses the same `ClientAvatarProcessor` Vision +
+  /// vImage-Gaussian-blur compose pipeline the avatar surface uses,
+  /// encoded as JPEG (compressionQuality 0.9).
+  ///
+  /// 30s timeout matches the line-drawing photo conversion timeout —
+  /// a hung Vision call would otherwise wedge the conversion queue
+  /// for new captures behind it. On timeout the outer `_convert`
+  /// catches and proceeds without a segmented variant.
+  Future<void> _convertPhotoBodyFocus(
+    String inputPath,
+    String outputPath,
+  ) async {
+    final dynamic resp = await _videoChannel.invokeMethod<Object?>(
+      'processPhotoBodyFocus',
+      <String, dynamic>{
+        'rawPath': inputPath,
+        'outPath': outputPath,
+      },
+    ).timeout(
+      const Duration(seconds: 30),
+      onTimeout: () => throw TimeoutException(
+        'Photo body-focus exceeded 30s — Vision likely hung '
+        '(inputPath=$inputPath)',
+      ),
+    );
+    if (resp is! Map || resp['success'] != true) {
+      throw StateError('processPhotoBodyFocus returned unexpected: $resp');
     }
   }
 

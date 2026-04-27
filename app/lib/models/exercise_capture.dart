@@ -105,11 +105,22 @@ class ExerciseCapture {
   /// Relative path (via [PathResolver]) to the dual-output segmented-color
   /// variant of the raw capture — same Vision body mask as the line drawing
   /// is reused to pop the body through pristine while dimming the background.
-  /// This file is uploaded to the private `raw-archive` Supabase bucket at
-  /// `{practice_id}/{plan_id}/{exercise_id}.segmented.mp4` and consumed by the
-  /// web player's Color + B&W treatments so they show the same body-pop effect
-  /// as the line drawing. Null for photos, rest periods, and legacy rows
-  /// pre-migration (v22). Best-effort — missing segmented files fall through
+  ///
+  /// Videos: `.segmented.mp4` produced by the AVFoundation third-output
+  /// pass during conversion; uploaded to the private `raw-archive` bucket
+  /// at `{practice_id}/{plan_id}/{exercise_id}.segmented.mp4`. Consumed by
+  /// the web player's Color + B&W treatments to deliver the body-pop
+  /// effect.
+  ///
+  /// Photos (Wave 36): `.segmented.jpg` produced on-device by the same
+  /// `ClientAvatarProcessor` pipeline (Vision person-segmentation +
+  /// vImage Gaussian blur composite) the avatar surface uses. Uploaded
+  /// to `raw-archive` at `{practice_id}/{plan_id}/{exercise_id}.segmented.jpg`.
+  /// Same treatment URLs (`grayscale_segmented_url` / `original_segmented_url`)
+  /// flow through `get_plan_full` for both photos and videos.
+  ///
+  /// Null for rest periods and legacy rows pre-migration (v22 for videos,
+  /// W36 for photos). Best-effort — missing segmented files fall through
   /// to the untouched original on both mobile + web.
   final String? segmentedRawFilePath;
 

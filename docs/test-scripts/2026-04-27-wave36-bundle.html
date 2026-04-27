@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 36 Bundle (Avatar EXIF + 21x21 badge + Photo body-focus end-to-end)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 36 &middot; device QA</div>
+  <h1>Avatar EXIF orientation + 21&times;21 count badge + photo body-focus end-to-end</h1>
+
+  <p class="lede">
+    Three carry-over fixes from Wave 34 device QA.
+    <strong>(A)</strong> Captured avatar PNG arrived 90&deg; rotated even though the live preview was upright. The W34 fix pinned <code>videoOrientation</code> at session setup, but iOS can re-rotate connections during interface-orientation transitions. Wave 36 force-pins portrait at every <code>capturePhoto</code> call (with <code>os_log</code> diagnostic for the pre/post values) AND bakes EXIF orientation into the pixel buffer inside <code>ClientAvatarProcessor</code> so Vision + vImage operate on an already-upright source. The output PNG no longer relies on EXIF metadata that PNG can't carry.
+    <strong>(B)</strong> Wave 34 shrunk the count badge 16&times;16 &rarr; 14&times;14 to fit "naturally" against the +50% leading icon &mdash; QA found the result anemic. Wave 36 reverses direction: 14&times;14 &rarr; 21&times;21 (+50%), font 9/7 &rarr; 13/10. Anchor offset moves <code>-3/-3</code> &rarr; <code>-5/-5</code> so the larger badge still feels pinned to the corner.
+    <strong>(C)</strong> Photo Body Focus pill went all the way to chrome but never had a segmented JPG to swap to. Wave 36 ships the full pipeline: native <code>processPhotoBodyFocus</code> method on <code>VideoConverterChannel</code> (reuses <code>ClientAvatarProcessor</code> as JPEG), conversion service writes <code>{exerciseId}.segmented.jpg</code> alongside the line drawing, publish uploads to <code>raw-archive</code>, <code>get_plan_full</code> emits <code>grayscale_segmented_url</code> + <code>original_segmented_url</code> for photos, web player flips between raw &amp; segmented when body-focus is on.
+  </p>
+
+  <h2>A &middot; Avatar still upright orientation</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">1.</span>
+      <span class="text">Capture an avatar in portrait &mdash; output is upright, head at top.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open any client without an avatar. Tap the avatar circle &rarr; "Take photo".</li>
+        <li data-sub="1.2">Frame the subject normally with the phone in PORTRAIT (default). Tap the shutter.</li>
+        <li data-sub="1.3">After the &sim;1s spinner, the body-focus PNG appears as the avatar circle. Subject's head is at TOP, feet at BOTTOM. NOT rotated 90&deg; left like W34 #1 fail. (Background should be Gaussian-blurred, body crisp &mdash; same look as before; only orientation changes here.)</li>
+        <li data-sub="1.4">Re-open the client &rarr; the avatar is still upright (no transient rotation that "fixes itself" later).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">2.</span>
+      <span class="text">Hold the phone landscape briefly during framing &mdash; output is STILL upright (portrait-locked).</span>
+      <ol class="steps">
+        <li data-sub="2.1">Open the avatar capture screen. The screen is portrait-locked via <code>OrientationLockGuard</code>; the live preview should NOT rotate when you tilt the phone.</li>
+        <li data-sub="2.2">Hold the phone in landscape for &sim;2s while pointed at a subject, then bring it back to portrait, then tap shutter.</li>
+        <li data-sub="2.3">The captured PNG is still upright (head at TOP). The connection re-pin at <code>capturePhoto</code>-time should defeat any landscape-kick the OS tried to apply mid-session.</li>
+        <li data-sub="2.4">If you have access to Console.app, filter on subsystem <code>com.raidme.raidme</code> + category <code>avatar.capture</code> &mdash; you should see a "<code>connection videoOrientation pre=N post=1</code>" log line at every capture. (1 = portrait.)</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B &middot; Count badge 21&times;21 (50% larger)</h2>
+  <ul class="checklist">
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">3.</span>
+      <span class="text">Session-card count badge reads as a confident accent next to the +50% icon &mdash; not anemic, not crowding.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Open a client with at least one published session. Look at the session card row.</li>
+        <li data-sub="3.2">Bottom-right of the leading list-alt icon: a coral pill with the exercise count. Single-digit (e.g. "3") sits centered with breathing room. 2-digit ("12") + the "99+" stadium variant both fit cleanly inside the new 21&times;21 footprint.</li>
+        <li data-sub="3.3">Compare against a session with 0 exercises: badge HIDDEN entirely (no empty pill).</li>
+        <li data-sub="3.4">Visual sanity &mdash; the badge feels pinned to the icon's bottom-right corner, not floating off it. Anchor offset is <code>-5/-5</code> at this size.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C &middot; Photo body-focus end-to-end</h2>
+  <ul class="checklist">
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">4.</span>
+      <span class="text">Capture a NEW photo &rarr; segmented JPG is generated locally during conversion.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Open Studio on any session. Tap a photo capture (NOT a video) for a person doing an exercise.</li>
+        <li data-sub="4.2">Wait for the conversion-status pill to clear ("&sim;1 converting..." disappears). On Pro-class iPhones this should be &lt; 1.5s additional vs the line-drawing alone.</li>
+        <li data-sub="4.3">If you have Xcode + Console.app access: there should be NO "<code>Photo body-focus segmentation failed</code>" log lines for this exercise. (A failure is non-fatal; the line drawing still ships, but body-focus would be empty for that exercise.)</li>
+        <li data-sub="4.4">Conversion succeeds &mdash; the line-drawing thumbnail renders normally on the Studio card.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">5.</span>
+      <span class="text">In-app Preview &mdash; Body Focus pill swaps source visibly on PHOTO slides.</span>
+      <ol class="steps">
+        <li data-sub="5.1">In the same Studio, tap the photo capture &rarr; opens the <code>_MediaViewer</code>. Per-exercise treatment defaults to Line.</li>
+        <li data-sub="5.2">Swipe to Original (or B&amp;W). The image swaps to the raw colour photo. Body Focus pill becomes ENABLED (not greyed).</li>
+        <li data-sub="5.3">Tap Body Focus pill &mdash; the photo swaps to the segmented variant: SUBJECT's body crisp, BACKGROUND visibly Gaussian-blurred. Same look as the avatar surface.</li>
+        <li data-sub="5.4">Tap Body Focus again &mdash; reverts to the untouched raw colour photo. (Toggle is sticky per device via <code>SharedPreferences</code>; stays on between sessions.)</li>
+        <li data-sub="5.5">Switch to B&amp;W &mdash; segmented variant + grayscale CSS filter both apply (body crisp &amp; B&amp;W, background blurred &amp; B&amp;W).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">6.</span>
+      <span class="text">Web player &mdash; Body Focus toggle on a photo slide swaps source over the wire.</span>
+      <ol class="steps">
+        <li data-sub="6.1">Confirm the linked client has consented to grayscale + original (Studio &rarr; client detail &rarr; consent toggles, or via the publish-time consent prompt).</li>
+        <li data-sub="6.2">Publish the session. Tap the share icon &rarr; copy the URL.</li>
+        <li data-sub="6.3">Open the URL on a different device or in Safari Private. Navigate to the photo slide.</li>
+        <li data-sub="6.4">Use the "Show me" segmented control to switch to Colour. The body-focus toggle in the gear popover is ON by default.</li>
+        <li data-sub="6.5">Toggle Body Focus OFF: image swaps to the untouched raw colour JPG (background un-blurred). Toggle back ON: returns to the segmented JPG. Web player version footer reads <code>v68-photo-body-focus</code>.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&times;</button></div>
+      <span class="num">7.</span>
+      <span class="text">Line treatment is unaffected &mdash; Body Focus toggle does NOTHING on Line (already abstract).</span>
+      <ol class="steps">
+        <li data-sub="7.1">On the photo slide (in-app Preview AND web player), switch to Line treatment.</li>
+        <li data-sub="7.2">Body Focus pill greys out (disabled). Tooltip / disabled state explains "Body focus applies to colour playback only."</li>
+        <li data-sub="7.3">Image renders the line-drawing JPG as before &mdash; black-and-white outline aesthetic, no Gaussian blur.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope &mdash; reminder</h3>
+    <ul>
+      <li>Backfill of segmented JPGs for legacy photos &mdash; only NEW captures (post-Wave-36) generate the segmented file. Old photos still play their raw + line-drawing only; the body-focus toggle is a no-op for them. Re-capturing the photo will produce a segmented variant on the next conversion.</li>
+      <li>Avatar EXIF fix is upstream of Vision &mdash; old wonky avatars stored before W36 are still rotated. Re-capture to get an upright PNG.</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-27-wave36-bundle.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave36-bundle', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

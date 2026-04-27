@@ -296,6 +296,7 @@ class VideoConverterChannel {
                     ClientAvatarProcessor.process(
                         rawPath: rawPath,
                         outPath: outPath,
+                        format: .png,
                         result: result
                     )
                 } else {
@@ -303,6 +304,44 @@ class VideoConverterChannel {
                         result(FlutterError(
                             code: "UNSUPPORTED_OS",
                             message: "Avatar processing requires iOS 15+",
+                            details: nil
+                        ))
+                    }
+                }
+            }
+
+        case "processPhotoBodyFocus":
+            // Wave 36 — body-focus segmented variant for exercise photos.
+            // Reuses the same `ClientAvatarProcessor` pipeline (Vision
+            // person-segmentation + vImage Gaussian blur composite) the
+            // avatar surface uses, encoded as JPEG (smaller files, no
+            // alpha halo concerns inside the player frame). Output sits
+            // alongside the line-drawing JPG and the raw colour JPG —
+            // uploaded to the private `raw-archive` bucket on publish.
+            // No-op on iOS < 15 (Vision person segmentation requires it).
+            guard let args = call.arguments as? [String: Any],
+                  let rawPath = args["rawPath"] as? String,
+                  let outPath = args["outPath"] as? String else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing required arguments for processPhotoBodyFocus",
+                    details: nil
+                ))
+                return
+            }
+            processingQueue.async {
+                if #available(iOS 15.0, *) {
+                    ClientAvatarProcessor.process(
+                        rawPath: rawPath,
+                        outPath: outPath,
+                        format: .jpg,
+                        result: result
+                    )
+                } else {
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "UNSUPPORTED_OS",
+                            message: "Photo body-focus requires iOS 15+",
                             details: nil
                         ))
                     }
