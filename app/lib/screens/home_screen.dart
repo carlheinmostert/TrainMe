@@ -1087,22 +1087,25 @@ class _ClientCard extends StatelessWidget {
               const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
-              // Leading person badge — coral on dark. Matches the camera
-              // badge on SessionCard (same 40×40, same coral-tint-bg,
-              // same glyph weight) so the two card types read as the
-              // same visual family on the Clients-as-Home spine.
+              // Leading person badge — coral on dark. Matches the
+              // session badge on SessionCard so the two card types read
+              // as the same visual family on the Clients-as-Home spine.
+              // Wave 34 bumped both in lock-step: 40×40 → 60×60, glyph
+              // 22 → 33, radius 10 → 14. The +50% size makes the icon
+              // a confident anchor on the row rather than the chip-
+              // sized footprint of Wave 30-33.
               Container(
-                width: 40,
-                height: 40,
+                width: 60,
+                height: 60,
                 decoration: BoxDecoration(
                   color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 alignment: Alignment.center,
                 child: const Icon(
                   Icons.person_outline,
                   color: AppColors.primary,
-                  size: 22,
+                  size: 33,
                 ),
               ),
               const SizedBox(width: 12),
