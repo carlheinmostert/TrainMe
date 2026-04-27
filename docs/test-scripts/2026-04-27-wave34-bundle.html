@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 34 Bundle (Native AV avatar camera + W33 carryover)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 34 &middot; device QA</div>
+  <h1>Native AV avatar camera + W33 carryover</h1>
+
+  <p class="lede">
+    <strong>(A)</strong> The avatar capture surface drops the Flutter <code>camera</code> plugin entirely. Native <code>AVCaptureSession</code> bound to <code>.builtInWideAngleCamera</code> directly &mdash; no virtual multi-cam device, no auto-lens-switch, no fish-eye. Live preview is a <code>UiKitView</code> hosting <code>AVCaptureVideoPreviewLayer</code> with <code>videoOrientation = .portrait</code> pinned. New channel <code>com.raidme.avatar_camera</code>; new <code>AvatarCameraChannel.swift</code> + <code>AvatarCameraPreviewFactory</code>. Diagnostics now via <code>os_log</code> (subsystem <code>com.raidme.raidme</code>, category <code>avatar.capture</code>) so they actually surface in Console.app under iOS Flutter profile builds.
+    <strong>(B)</strong> SessionCard count badge shrinks ~15% (16&times;16 &rarr; 14&times;14, fonts 10/8 &rarr; 9/7) so it reads as a glanceable accent against the now-larger leading icon.
+    <strong>(C)</strong> Photo preview controls: treatment switcher + Body Focus pill now render for photos (was video-only through W33). Audio + Rotate stay video-only.
+    <strong>(D)</strong> Client + SessionCard leading icons bumped +50% (40&times;40 &rarr; 60&times;60, glyph 22 &rarr; 33).
+  </p>
+
+  <h2>A &middot; Avatar camera native AV</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">1.</span>
+      <span class="text">Avatar capture opens portrait + standard wide lens (no fish-eye).</span>
+      <ol class="steps">
+        <li data-sub="1.1">Tap empty avatar slot on a client detail. Camera opens locked PORTRAIT.</li>
+        <li data-sub="1.2">Subject in centre frame looks proportional &mdash; no Ultra Wide warping. Compare with the Camera.app default rear-wide lens to sanity-check FOV.</li>
+        <li data-sub="1.3">Capture a still. The composite preview shows clean subject + blurred background.</li>
+        <li data-sub="1.4">Tap "Use this". Avatar lands on the client header upright, not sideways.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">2.</span>
+      <span class="text">Live preview stays portrait when you rotate the phone.</span>
+      <ol class="steps">
+        <li data-sub="2.1">Open avatar capture. Rotate the phone to landscape.</li>
+        <li data-sub="2.2">The preview frame stays upright &mdash; subject's head still points to the top of the screen, NOT to the side. (Wave 33 / 32 used to leak landscape.)</li>
+        <li data-sub="2.3">Rotate back to portrait. Preview unchanged.</li>
+        <li data-sub="2.4">Tap shutter while landscape. Composed PNG comes out upright (subject head at top).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">3.</span>
+      <span class="text">Background + foreground lifecycle works.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Open avatar capture. Swipe up to send the app to the background.</li>
+        <li data-sub="3.2">Wait ~3 seconds. Tap the homefit icon to return.</li>
+        <li data-sub="3.3">Live preview re-attaches without reopening the screen &mdash; no black frame, no "Camera unavailable" error. (If preview goes dark, log the time and capture in the note.)</li>
+        <li data-sub="3.4">Capture still works.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">4.</span>
+      <span class="text">Console.app: native diagnostics surface under <code>avatar.capture</code> category.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Plug iPhone into Mac. Open Console.app and select the iPhone in the sidebar.</li>
+        <li data-sub="4.2">Filter on subsystem <code>com.raidme.raidme</code> AND category <code>avatar.capture</code> (or just the substring <code>avatar.capture</code>).</li>
+        <li data-sub="4.3">Tap the empty avatar slot on a client. Console fills with <code>os_log</code> lines.</li>
+        <li data-sub="4.4">Expect <code>AvatarCameraChannel initialised</code> on first call (might have appeared earlier on app launch).</li>
+        <li data-sub="4.5">Expect <code>startSession: available back devices types=[...] names=[...]</code> &mdash; full device list.</li>
+        <li data-sub="4.6">Expect <code>startSession: started device=&lt;name&gt; uniqueID=&lt;...&gt; deviceType=AVCaptureDeviceTypeBuiltInWideAngleCamera minZoom=1.000000 maxZoom=...</code> &mdash; the load-bearing line. <strong>deviceType MUST be BuiltInWideAngleCamera</strong>; if it reads BuiltInDualWideCamera / BuiltInTripleCamera, AVFoundation gave us the virtual device and the fix didn't land. Capture the deviceType raw value in the note.</li>
+        <li data-sub="4.7">Tap shutter. Expect <code>capturePhoto: requesting capture outPath=...</code> followed by <code>capturePhoto: wrote ...</code>.</li>
+        <li data-sub="4.8">Close screen. Expect <code>stopSession: stopped</code>.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">5.</span>
+      <span class="text">Re-capture works (avatar is replaced cleanly).</span>
+      <ol class="steps">
+        <li data-sub="5.1">On a client that already has an avatar, tap the avatar (or the camera-pencil affordance) to re-capture.</li>
+        <li data-sub="5.2">Avatar capture screen opens. Take a different still + tap "Use this".</li>
+        <li data-sub="5.3">Header avatar updates immediately to the new still. The old PNG is replaced (not stacked, not stale).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B &middot; Count badge &minus;15%</h2>
+  <ul class="checklist">
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">6.</span>
+      <span class="text">Count badge fits naturally against the now-larger leading icon.</span>
+      <ol class="steps">
+        <li data-sub="6.1">Open a client with multiple sessions. Inspect SessionCard rows.</li>
+        <li data-sub="6.2">The little count badge bottom-right of the leading icon reads as a small accent &mdash; not visually competing with the icon. Single-digit (1-9) and 2-digit (10-99) both fit cleanly inside the smaller (14&times;14) footprint.</li>
+        <li data-sub="6.3">No truncation. No overflow into the icon body. Empty session (0 exercises) still hides the badge entirely.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C &middot; Photo preview controls</h2>
+  <ul class="checklist">
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&times;</button></div>
+      <span class="num">7.</span>
+      <span class="text">Photo preview shows treatment switcher + Body Focus pill.</span>
+      <ol class="steps">
+        <li data-sub="7.1">Open a session that has at least one PHOTO exercise (short-press the shutter in capture mode to add a photo if needed).</li>
+        <li data-sub="7.2">Tap the photo's thumbnail in Studio to open <code>_MediaViewer</code>.</li>
+        <li data-sub="7.3">Treatment pill (vertical book-spine, left edge) is visible &mdash; same widget videos use. Tap segments to switch Line / B&amp;W / Original.</li>
+        <li data-sub="7.4">Line treatment renders the on-device line drawing JPG. B&amp;W renders the raw colour photo with a grayscale CSS-style filter applied. Original renders the raw colour photo untouched.</li>
+        <li data-sub="7.5">Body Focus pill is visible bottom-left. Audio pill + Rotate pill ARE NOT visible (those stay video-only).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&times;</button></div>
+      <span class="num">8.</span>
+      <span class="text">Locked segments stay locked on legacy photos with no raw colour file.</span>
+      <ol class="steps">
+        <li data-sub="8.1">If you have an old photo exercise from a pre-Wave-22 capture (where the raw colour JPG was pruned), open it in <code>_MediaViewer</code>.</li>
+        <li data-sub="8.2">Treatment pill: B&amp;W and Original render with a lock glyph &mdash; tapping shows the "Older capture &mdash; re-record to enable." tooltip. Same gating videos use when the local archive mp4 is missing.</li>
+        <li data-sub="8.3">If you don't have a legacy photo: skip this item with a note &mdash; the gating logic is the same as the existing video gating, so it's covered by W22's prior verification.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>D &middot; Card icons +50%</h2>
+  <ul class="checklist">
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&times;</button></div>
+      <span class="num">9.</span>
+      <span class="text">Client + Session card leading icons read as confident anchors.</span>
+      <ol class="steps">
+        <li data-sub="9.1">On Home (clients list) inspect the leading person icon on a few <code>_ClientCard</code> rows. The coral-tint square is now 60&times;60 (was 40&times;40); the person glyph is ~33pt.</li>
+        <li data-sub="9.2">Open a client &rarr; sessions list. Inspect the leading list-alt icon on each <code>SessionCard</code>. Same 60&times;60 coral square + 33pt glyph.</li>
+        <li data-sub="9.3">Both card types feel visually consistent &mdash; the icons read as a confident left anchor, not chip-sized.</li>
+        <li data-sub="9.4">The count badge (bottom-right of SessionCard's icon) is anchored properly &mdash; doesn't float, doesn't overlap into the body of the icon.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope (skip if you see them)</h3>
+    <ul>
+      <li>Practitioner exercise capture (capture_mode_screen.dart) &mdash; unchanged. Still uses the Flutter camera plugin for video. We only swapped the camera glass on the avatar surface.</li>
+      <li>Wave 33 #1, #2, #3, #4, #5, #6 (carry-overs unrelated to Wave 33's avatar fail). Re-test only if a regression surfaces.</li>
+      <li>Wave 30 client-avatar core flow (already verified). This wave only swaps the camera engine + tightens the count-badge / icon sizing.</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-27-wave34-bundle.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave34-bundle', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

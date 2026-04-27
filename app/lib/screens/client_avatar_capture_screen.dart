@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:developer' as dev;
 import 'dart:io';
 
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -16,20 +14,36 @@ import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/orientation_lock_guard.dart';
 
-/// Wave 30 — single-shot, full-screen camera surface for the client
-/// avatar. Practitioner taps the avatar slot on `ClientSessionsScreen`,
-/// captures one still, native iOS pipeline produces a body-focus blurred
-/// PNG (subject crisp / background heavily Gaussian-blurred), and the
-/// result is committed locally + uploaded to the private `raw-archive`
-/// bucket at `<practiceId>/<clientId>/avatar.png`.
+/// Wave 30 / Wave 34 — single-shot, full-screen camera surface for the
+/// client avatar.
+///
+/// **Wave 34 rewrite:** the Flutter `camera` plugin is GONE on this
+/// surface. Wave 33 confirmed via Console.app that the plugin enumerates
+/// the iPhone's virtual multi-cam device (`.builtInDualWideCamera` /
+/// `.builtInTripleCamera`) under one name `"Back Camera"` — that virtual
+/// device auto-switches lenses based on subject distance, which is what
+/// produced the fish-eye Carl reported through Waves 31, 32, 33. No
+/// Dart-side picker can defeat the lens-switch (it's hidden behind the
+/// virtual device).
+///
+/// This screen now owns NOTHING camera-related. The native side runs an
+/// `AVCaptureSession` against the canonical 1× `.builtInWideAngleCamera`
+/// directly (see `AvatarCameraChannel.swift`). The live preview is a
+/// `UiKitView` hosting an `AVCaptureVideoPreviewLayer` whose connection
+/// is pinned to `.portrait`. The shutter goes through a platform-channel
+/// `avatarCameraCapture` call which writes JPEG to a temp path; the
+/// existing `processClientAvatar` channel call (unchanged) consumes that
+/// JPEG to produce the body-focus blurred PNG.
+///
+/// Diagnostic logging now lives in Swift via `os_log` against
+/// subsystem `com.raidme.raidme`, category `avatar.capture` — Carl
+/// filters Console.app on those exact strings. Dart-side
+/// `dart:developer.log()` doesn't surface in Console.app for iOS Flutter
+/// profile/release builds.
 ///
 /// Deliberately NOT a long-press-record / pinch / lens-pill / multi-shot
 /// surface — capture is a single still, retake/confirm preview, done.
-/// Reuses the camera plugin patterns from `capture_mode_screen.dart` but
-/// strips out plan / exercise / video machinery.
 ///
-/// Runs the full processing pass on the platform channel
-/// (`processClientAvatar`); the spinner stays up while that returns.
 /// Cloud upload + RPC are best-effort: a failure shows a SnackBar but
 /// the local cached path persists so the avatar still renders next time
 /// the practitioner opens the client.
@@ -45,10 +59,19 @@ class ClientAvatarCaptureScreen extends StatefulWidget {
 
 class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
     with WidgetsBindingObserver {
+  /// Channel for the existing avatar-processing pipeline (Vision body
+  /// segmentation + Gaussian blur compose). Unchanged in Wave 34.
   static const MethodChannel _processor =
       MethodChannel('com.raidme.video_converter');
 
-  CameraController? _controller;
+  /// Wave 34 — new dedicated channel for the native AVFoundation camera
+  /// glass. See `AvatarCameraChannel.swift`.
+  static const MethodChannel _camera = MethodChannel('com.raidme.avatar_camera');
+
+  /// Wave 34 — view-type identifier for the native preview UiKitView.
+  /// MUST match the registration in `AppDelegate.swift`.
+  static const String _previewViewType = 'homefit/avatar_camera_preview';
+
   bool _initialised = false;
   bool _initFailed = false;
   bool _processing = false;
@@ -61,186 +84,61 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initCamera();
+    _startCamera();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
+    // Fire-and-forget — the screen is going away regardless of whether
+    // the native side acknowledges. AvatarCameraChannel.stopSession is
+    // idempotent so a stray call after teardown is harmless.
+    unawaited(_camera.invokeMethod<void>('avatarCameraStop').catchError((_) {}));
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final ctrl = _controller;
-    if (ctrl == null) return;
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
-      ctrl.dispose();
+      // Drop the camera while backgrounded so iOS doesn't kill us for
+      // hogging hardware. The PlatformView re-attaches to the new
+      // session via `sessionDidStartNotification` when we resume.
+      unawaited(
+        _camera.invokeMethod<void>('avatarCameraStop').catchError((_) {}),
+      );
       if (mounted) setState(() => _initialised = false);
     } else if (state == AppLifecycleState.resumed) {
-      _initCamera();
+      _startCamera();
     }
   }
 
-  Future<void> _initCamera() async {
+  /// Boot (or re-boot) the native AVCaptureSession. Idempotent on the
+  /// native side — safe to invoke from both `initState` and the
+  /// app-lifecycle resume path.
+  Future<void> _startCamera() async {
     try {
-      final cams = await availableCameras();
-
-      // ALWAYS log every camera enumerated by the plugin, before any
-      // filtering. Wave 33 #6 device-QA item asks Carl to capture this
-      // in Console.app on `avatar.capture` subsystem — without the full
-      // dump there's nothing to diagnose against on his iPhone.
-      dev.log(
-        'availableCameras() returned ${cams.length} entries:\n'
-        '${cams.asMap().entries.map((e) => '  [${e.key}] '
-            'name="${e.value.name}" '
-            'lens=${e.value.lensDirection} '
-            'sensorOrientation=${e.value.sensorOrientation}').join('\n')}',
-        name: 'avatar.capture',
-      );
-
-      if (cams.isEmpty) {
-        setState(() => _initFailed = true);
-        return;
-      }
-
-      // Wave 33 — ask the native side for the canonical
-      // `.builtInWideAngleCamera` localizedName + uniqueID. The Flutter
-      // camera plugin maps multi-cam iPhones to VIRTUAL devices
-      // (`.builtInDualWideCamera` etc.) that auto-switch lens based on
-      // framing — `setZoomLevel(1.0)` on a virtual device doesn't
-      // reliably hold the wide lens, hence the fish-eye Carl reported
-      // through Wave 31 + 32. Native side resolves the canonical 1×
-      // back wide-angle device by `AVCaptureDeviceType` (not name) so
-      // we have an authoritative reference.
-      String? nativePreferredName;
-      String? nativePreferredUniqueId;
-      try {
-        final dynamic nativeInfo = await _processor
-            .invokeMethod<Object?>('getPreferredBackCameraName')
-            .timeout(const Duration(seconds: 2));
-        if (nativeInfo is Map) {
-          final m = Map<String, dynamic>.from(nativeInfo);
-          nativePreferredName = m['name'] as String?;
-          nativePreferredUniqueId = m['uniqueID'] as String?;
-          dev.log(
-            'native getPreferredBackCameraName: '
-            'name="$nativePreferredName" '
-            'uniqueID="$nativePreferredUniqueId" '
-            'minZoom=${m['minZoom']} maxZoom=${m['maxZoom']} '
-            'availableTypes=${m['availableTypes']} '
-            'availableNames=${m['availableNames']}',
-            name: 'avatar.capture',
-          );
-        }
-      } catch (e) {
-        dev.log(
-          'native getPreferredBackCameraName unavailable: $e — '
-          'falling back to substring filter',
-          name: 'avatar.capture',
+      final dynamic resp = await _camera
+          .invokeMethod<Object?>('avatarCameraStart')
+          .timeout(const Duration(seconds: 5));
+      if (resp is Map) {
+        debugPrint(
+          'AvatarCamera started: '
+          'device="${resp['deviceName']}" '
+          'uniqueID="${resp['deviceUniqueID']}" '
+          'type="${resp['deviceTypeRaw']}" '
+          'minZoom=${resp['minZoom']} maxZoom=${resp['maxZoom']}',
         );
       }
-
-      final back = cams
-          .where((c) => c.lensDirection == CameraLensDirection.back)
-          .toList();
-
-      // Strategy 1 — exact match against the native canonical device's
-      // localizedName / uniqueID. The Flutter `camera` plugin's
-      // `CameraDescription.name` IS the AVCaptureDevice.localizedName on
-      // iOS, so this is the authoritative pick.
-      CameraDescription? picked;
-      if (nativePreferredName != null && nativePreferredName.isNotEmpty) {
-        for (final c in back) {
-          if (c.name == nativePreferredName) {
-            picked = c;
-            break;
-          }
-        }
-      }
-      // Strategy 2 — substring filter excluding virtual multi-cam
-      // device hints AND ultra/tele names. The `Dual` / `Triple` virtual
-      // devices auto-switch between lenses based on subject distance,
-      // which is what produces the fish-eye when the practitioner
-      // frames a person at typical avatar-portrait distance.
-      if (picked == null) {
-        final wide = back.where((c) {
-          final n = c.name.toLowerCase();
-          return !n.contains('ultra') &&
-              !n.contains('tele') &&
-              !n.contains('dual') &&
-              !n.contains('triple');
-        }).toList();
-        if (wide.isNotEmpty) picked = wide.first;
-      }
-      // Strategy 3 — last resort, any back camera. Older single-lens
-      // iPhones have exactly one back entry with no qualifier.
-      picked ??= back.isNotEmpty ? back.first : null;
-
-      if (picked == null) {
-        setState(() => _initFailed = true);
-        return;
-      }
-
-      dev.log(
-        'avatar capture picked camera: name="${picked.name}" '
-        'lens=${picked.lensDirection} sensorOrient=${picked.sensorOrientation} '
-        'matchedNativeCanonical=${picked.name == nativePreferredName} '
-        '(back=${back.length})',
-        name: 'avatar.capture',
-      );
-
-      final controller = CameraController(
-        picked,
-        ResolutionPreset.high,
-        enableAudio: false,
-      );
-      await controller.initialize();
-      // Belt-and-braces against the camera plugin overriding the
-      // OrientationLockGuard. The plugin reads device orientation at
-      // capture time and bakes it into the still's EXIF; locking pins
-      // that to portrait so a sideways phone still produces an upright
-      // avatar. MUST run AFTER initialize() — earlier calls throw.
-      try {
-        await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
-      } catch (e) {
-        dev.log('lockCaptureOrientation failed: $e', name: 'avatar.capture');
-      }
-      // Even after picking the standard wide, iPhone virtual multi-cam
-      // devices can still report a sub-1.0× minZoom — snap explicitly
-      // so we land at the standard-wide native FOV. (Wave 31 baseline,
-      // verified still in place; do not remove.)
-      try {
-        final minZoom = await controller.getMinZoomLevel();
-        final maxZoom = await controller.getMaxZoomLevel();
-        final z = 1.0.clamp(minZoom, maxZoom).toDouble();
-        await controller.setZoomLevel(z);
-        dev.log(
-          'avatar capture zoom: min=$minZoom max=$maxZoom applied=$z '
-          '(uniqueIdHint="$nativePreferredUniqueId")',
-          name: 'avatar.capture',
-        );
-      } catch (e) {
-        // Some simulators / single-lens devices throw — log and proceed.
-        dev.log('setZoomLevel failed (non-fatal): $e',
-            name: 'avatar.capture');
-      }
-      if (!mounted) {
-        await controller.dispose();
-        return;
-      }
+      if (!mounted) return;
       setState(() {
-        _controller = controller;
         _initialised = true;
+        _initFailed = false;
       });
     } catch (e) {
-      debugPrint('ClientAvatarCaptureScreen camera init failed: $e');
-      dev.log('init failed: $e', name: 'avatar.capture');
-      if (mounted) {
-        setState(() => _initFailed = true);
-      }
+      debugPrint('AvatarCamera start failed: $e');
+      if (!mounted) return;
+      setState(() => _initFailed = true);
     }
   }
 
@@ -249,29 +147,34 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
   // ---------------------------------------------------------------------------
 
   Future<void> _capture() async {
-    final controller = _controller;
-    if (controller == null || !controller.value.isInitialized || _processing) {
-      return;
-    }
+    if (!_initialised || _processing) return;
     HapticFeedback.mediumImpact();
     setState(() => _processing = true);
 
     try {
-      final xFile = await controller.takePicture();
-      // Keep raw + composed under the same scratch directory; we delete
-      // the raw immediately after the composer succeeds — only the
-      // composed PNG sticks around (and only until the practitioner
-      // confirms Use this; we then move it to its persistent home).
       final tempDir = await getTemporaryDirectory();
-      final composedPath = p.join(
-        tempDir.path,
-        'avatar_${const Uuid().v4()}.png',
-      );
+      final captureId = const Uuid().v4();
+      final rawPath = p.join(tempDir.path, 'avatar_raw_$captureId.jpg');
+      final composedPath = p.join(tempDir.path, 'avatar_$captureId.png');
 
-      final dynamic resp = await _processor.invokeMethod<Object?>(
+      // --- Native AVFoundation capture ---
+      final dynamic capResp = await _camera.invokeMethod<Object?>(
+        'avatarCameraCapture',
+        <String, dynamic>{'outPath': rawPath},
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () =>
+            throw TimeoutException('Camera capture timed out after 10s'),
+      );
+      if (capResp is! Map || capResp['success'] != true) {
+        throw StateError('Unexpected camera response: $capResp');
+      }
+
+      // --- Body-focus blur compose (unchanged Wave 30 pipeline) ---
+      final dynamic procResp = await _processor.invokeMethod<Object?>(
         'processClientAvatar',
         <String, dynamic>{
-          'rawPath': xFile.path,
+          'rawPath': rawPath,
           'outPath': composedPath,
         },
       ).timeout(
@@ -283,17 +186,17 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
 
       // Best-effort cleanup of the raw camera capture — we don't keep it.
       try {
-        await File(xFile.path).delete();
+        await File(rawPath).delete();
       } catch (_) {}
 
-      if (resp is Map && resp['success'] == true) {
+      if (procResp is Map && procResp['success'] == true) {
         if (!mounted) return;
         setState(() {
           _composedPath = composedPath;
           _processing = false;
         });
       } else {
-        throw StateError('Unexpected processor response: $resp');
+        throw StateError('Unexpected processor response: $procResp');
       }
     } catch (e) {
       debugPrint('Avatar capture/process failed: $e');
@@ -426,20 +329,21 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
     if (_initFailed) {
       return _buildErrorState();
     }
-    if (!_initialised || _controller == null) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.primary),
-      );
-    }
     return Stack(
       fit: StackFit.expand,
       children: [
-        Center(
-          child: AspectRatio(
-            aspectRatio: _controller!.value.aspectRatio,
-            child: CameraPreview(_controller!),
+        // Native preview hosted via PlatformView. The session lives on
+        // the native side; this UIView re-attaches to it via the
+        // sessionDidStart notification.
+        if (_initialised)
+          const UiKitView(
+            viewType: _previewViewType,
+            creationParamsCodec: StandardMessageCodec(),
+          )
+        else
+          const Center(
+            child: CircularProgressIndicator(color: AppColors.primary),
           ),
-        ),
         // Top bar: close + caption.
         Positioned(
           top: 12,
@@ -498,7 +402,7 @@ class _ClientAvatarCaptureScreenState extends State<ClientAvatarCaptureScreen>
           bottom: 28,
           child: Center(
             child: GestureDetector(
-              onTap: _processing ? null : _capture,
+              onTap: (_processing || !_initialised) ? null : _capture,
               child: Container(
                 width: 80,
                 height: 80,

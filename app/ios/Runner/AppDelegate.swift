@@ -13,6 +13,12 @@ import AVFoundation
   // the moment the `didFinishLaunchingWithOptions` scope ends.
   private var unifiedPreviewAudio: UnifiedPreviewAudioChannel?
 
+  // Wave 34 — native AVFoundation camera glass for the client-avatar
+  // capture surface (only). Bypasses the Flutter `camera` plugin's
+  // virtual multi-cam device which produced fish-eyed avatars on
+  // multi-lens iPhones. See AvatarCameraChannel.swift for the why.
+  private var avatarCamera: AvatarCameraChannel?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -205,6 +211,17 @@ import AVFoundation
     // the config. See UnifiedPlayerSchemeHandler.swift.
     if #available(iOS 11.0, *) {
       UnifiedPreviewSchemeRegistrar.register(messenger: messenger)
+    }
+
+    // Wave 34 — register the native avatar camera channel + its
+    // PlatformView factory. AVFoundation is iOS 11+, no fallback needed.
+    if #available(iOS 11.0, *) {
+      avatarCamera = AvatarCameraChannel(messenger: messenger)
+      let avatarPreviewFactory = AvatarCameraPreviewFactory(messenger: messenger)
+      registrar.register(
+        avatarPreviewFactory,
+        withId: "homefit/avatar_camera_preview"
+      )
     }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)

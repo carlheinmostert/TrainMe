@@ -165,11 +165,11 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
-        <a href="./2026-04-26-wave33-bundle.html">
+        <a href="./2026-04-27-wave34-bundle.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 33 — W32 carryover fixes + Studio analytics row</div>
-              <div class="scope">Five carry-over fixes from Wave 32 device QA. <strong>(A)</strong> SessionCard lock-row copy <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Free to republish &rarr; Free Edits</code>. <strong>(B)</strong> SessionCard count badge: digit font shrinks at 2+ chars (10pt &rarr; 8pt) so 10+ exercises fit inside the 16&times;16 footprint. <strong>(C)</strong> NEW: Studio session panel grows a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">First opened &middot; Last opened</code> analytics row above the exercise list. New schema column <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plans.last_opened_at</code> + new SECURITY DEFINER RPC <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">record_plan_opened</code> stamped from web player on every session start. SQLite v31 &rarr; v32. <strong>(D)</strong> Circuit rail colour preservation (W32 #5 redo): clip band removed; rail runs continuously in coral. <strong>(E)</strong> Avatar capture lens (W32 #6 redo): native <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">getPreferredBackCameraName</code> platform method picks the canonical <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.builtInWideAngleCamera</code>; exhaustive Console.app diagnostics under <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">avatar.capture</code> subsystem. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v65 &rarr; v66-record-plan-opened</code>. <strong>8 items in 5 sections.</strong></div>
+              <div class="name">1 · Wave 34 — Native AV avatar camera + W33 carryover</div>
+              <div class="scope">Wave 33 confirmed via Console.app: the Flutter <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">camera</code> plugin enumerates one back entry on multi-lens iPhones &mdash; the iOS virtual multi-cam device that auto-switches Wide/UltraWide/Telephoto by subject distance. No Dart picker can defeat it. <strong>(A)</strong> Avatar capture surface drops the plugin entirely. New native channel <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">com.raidme.avatar_camera</code> (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">AvatarCameraChannel.swift</code>) runs <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">AVCaptureSession</code> bound to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.builtInWideAngleCamera</code> directly &mdash; no virtual device, no fish-eye. Live preview is a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">UiKitView</code> hosting <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">AVCaptureVideoPreviewLayer</code> with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">videoOrientation = .portrait</code> pinned. Diagnostics moved from Dart <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">dev.log</code> (doesn't surface in profile builds) to native <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">os_log</code> under subsystem <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">com.raidme.raidme</code> + category <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">avatar.capture</code>. Practitioner exercise capture (videos) untouched. <strong>(B)</strong> SessionCard count badge shrinks ~15% (16 &rarr; 14, font 10/8 &rarr; 9/7) so it reads as an accent, not a competing element. <strong>(C)</strong> Photo preview chrome: treatment switcher + Body Focus pill now render for photos (was video-only). <strong>(D)</strong> Client + SessionCard leading icons +50% (40&times;40 &rarr; 60&times;60, glyph 22 &rarr; 33). <strong>9 items in 4 sections.</strong></div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -402,6 +402,20 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-04-26-wave33-bundle.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 33 — W32 carryover fixes (6/8 pass; fails + new asks rolled into Wave 34)</div>
+              <div class="date">2026-04-26</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Closed</span>
+              <div class="results" id="wave33-results">Loading…</div>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-04-24-wave26-end-of-day-canonical.html">
           <div class="row">
@@ -758,6 +772,7 @@
           .catch(function() { el.textContent = 'No results yet.'; });
       }
 
+      load('2026-04-26-wave33-bundle.results.json', 'wave33-results');
       load('2026-04-24-wave26-end-of-day-canonical.results.json', 'wave26-results');
       load('2026-04-24-wave21-vertical-stack.results.json', 'wave21-results');
       load('2026-04-24-wave20-soft-trim.results.json', 'wave20-results');

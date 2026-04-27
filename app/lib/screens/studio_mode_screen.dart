@@ -2447,13 +2447,36 @@ class _MediaViewerState extends State<_MediaViewer> {
   bool _isVideo(ExerciseCapture e) =>
       e.mediaType == MediaType.video && !_isStillImageConversion(e);
 
-  /// True when the local raw archive exists for this exercise. The
-  /// pre-archive guard from the brief: B&W + Original segments stay
-  /// disabled until the practitioner re-records.
+  /// True when the local raw source exists for this exercise — gates
+  /// the B&W + Original treatment segments. For VIDEOS this is the
+  /// 720p H.264 archive mp4 written by `compressVideo`. For PHOTOS
+  /// (Wave 34) it's the raw color JPG (the color photo always exists
+  /// on a fresh capture; "no archive" only happens for legacy photo
+  /// rows whose raw file got pruned). Same binary contract as before:
+  /// when this is false, the segmented control locks B&W + Original.
   bool _hasArchive(ExerciseCapture e) {
-    final path = e.absoluteArchiveFilePath;
-    if (path == null) return false;
-    return File(path).existsSync();
+    if (_isVideo(e)) {
+      final path = e.absoluteArchiveFilePath;
+      if (path == null) return false;
+      return File(path).existsSync();
+    }
+    // Photo path — Wave 34 unlocks treatment switching for photos.
+    // The raw colour JPG is the source for both "Original" and "B&W"
+    // treatments (B&W applies a `ColorFiltered` grayscale on top, no
+    // separate file). Defensive `existsSync` so a pruned-on-disk
+    // photo still falls back to line drawing rather than crashing.
+    // Also defensive against the exotic "video converted to a still"
+    // case where rawFilePath points at a .mov — those rows have no
+    // colour photo to swap to, so leave the segments locked.
+    final raw = e.absoluteRawFilePath;
+    if (raw.isEmpty) return false;
+    final ext = raw.toLowerCase();
+    final rawIsImage = ext.endsWith('.jpg') ||
+        ext.endsWith('.jpeg') ||
+        ext.endsWith('.png') ||
+        ext.endsWith('.heic');
+    if (!rawIsImage) return false;
+    return File(raw).existsSync();
   }
 
   bool _isTreatmentAvailable(Treatment t) {
@@ -3134,15 +3157,7 @@ class _MediaViewerState extends State<_MediaViewer> {
                                     child: _buildVideoFrame(),
                                   )
                                 : const _VideoPagePlaceholder())
-                            : Image.file(
-                                File(ex.displayFilePath),
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, e, s) => const Icon(
-                                  Icons.broken_image_outlined,
-                                  size: 64,
-                                  color: Colors.white54,
-                                ),
-                              ),
+                            : _buildPhotoFrame(ex, isCurrent: isCurrent),
                       ),
                     );
                   },
@@ -3152,7 +3167,12 @@ class _MediaViewerState extends State<_MediaViewer> {
                 // portrait (mirrors the vertical-swipe gesture); flat
                 // horizontal pill at top-center under the name pill in
                 // landscape (matches the wider canvas ergonomics).
-                if (_isVideo(_current))
+                //
+                // Wave 34 — also rendered for PHOTOS (was video-only
+                // through Wave 33). The cloud already shipped photos in
+                // three treatments via Wave 22; the mobile preview chrome
+                // was the missing piece.
+                if (!_current.isRest)
                   isLandscape
                       ? Positioned(
                           top: MediaQuery.of(context).padding.top + 64,
@@ -3307,7 +3327,14 @@ class _MediaViewerState extends State<_MediaViewer> {
                 // above); landscape stacks them in a single horizontal
                 // row to recover vertical canvas. Rotate-90 is the new
                 // pill — videos only.
-                if (_isVideo(_current) && _videoInitialized)
+                //
+                // Wave 34 — photos render the cluster with ONLY the
+                // body-focus pill (mute + rotate stay video-only).
+                // Photos still get a visible Body Focus toggle so the
+                // practitioner can mark a per-plan preference that the
+                // web player honours via Wave 22's segmented URL.
+                if (!_current.isRest &&
+                    (_isVideo(_current) ? _videoInitialized : true))
                   Positioned(
                     left: 20,
                     bottom: MediaQuery.of(context).padding.bottom +
@@ -3421,6 +3448,10 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// caller; photos by the inner `_isVideo` check). Long-press resets
   /// rotation_quarters to 0; tap advances by one quarter clockwise.
   Widget _buildBottomLeftChromeCluster({required bool isLandscape}) {
+    // Wave 34 — photos render only the Body Focus pill. Mute (no audio
+    // on a photo) and Rotate (rotation is a video-only EXIF concern,
+    // photos are already correct on capture) are video-only.
+    final isVideo = _isVideo(_current);
     final mute = _TogglePill(
       iconWhenActive: Icons.volume_off_rounded,
       iconWhenInactive: Icons.volume_up_rounded,
@@ -3447,6 +3478,11 @@ class _MediaViewerState extends State<_MediaViewer> {
       onTap: _onRotateTap,
       onLongPress: _onRotateReset,
     );
+
+    if (!isVideo) {
+      // Photo path — body focus only.
+      return bodyFocus;
+    }
 
     if (isLandscape) {
       // Single row, oldest-to-newest left-to-right.
@@ -3568,6 +3604,66 @@ class _MediaViewerState extends State<_MediaViewer> {
   /// are in the tree, the inactive one is opacity 0; the
   /// AnimatedOpacity duration uses the live `crossfadeFadeMs` so a
   /// slider drag reflows the next swap immediately.
+  /// Wave 34 — photo render with three-treatment support. The pager's
+  /// non-current pages always draw the line drawing (cheaper, avoids
+  /// re-decoding the raw on every swipe); only the current page reflects
+  /// the active [_treatment].
+  ///
+  /// Source picks:
+  ///   * [Treatment.line] → `displayFilePath` (the on-device line
+  ///     drawing JPG, always present once conversion completes).
+  ///   * [Treatment.grayscale] → raw colour JPG wrapped in a
+  ///     `ColorFiltered` grayscale matrix (single source, CSS-style
+  ///     filter — same pattern videos use for B&W).
+  ///   * [Treatment.original] → raw colour JPG.
+  ///
+  /// The Body Focus pill is rendered for photos but currently has no
+  /// segmented-photo file to swap to — Wave 22 wired the cloud-side
+  /// `grayscale_segmented_url` for the WEB player; mobile preview reads
+  /// from local files only ("mobile preview plays local files only"
+  /// rule). The toggle still persists to SharedPreferences so the web
+  /// player picks up the practitioner's preference; on the mobile
+  /// preview it's a no-op for photos until the photo segmenter ships.
+  Widget _buildPhotoFrame(ExerciseCapture ex, {required bool isCurrent}) {
+    String resolvedPath = ex.displayFilePath;
+    if (isCurrent && _treatment != Treatment.line) {
+      final raw = ex.absoluteRawFilePath;
+      // Only switch source when the raw file is itself an image. The
+      // exotic "video converted to a still" path (mediaType=video +
+      // convertedFilePath=*.jpg) leaves the raw as a .mov/.mp4 — try
+      // to Image.file that and we crash. In that case keep the line
+      // drawing rendered for all treatments.
+      final ext = raw.toLowerCase();
+      final rawIsImage = ext.endsWith('.jpg') ||
+          ext.endsWith('.jpeg') ||
+          ext.endsWith('.png') ||
+          ext.endsWith('.heic');
+      if (rawIsImage && raw.isNotEmpty && File(raw).existsSync()) {
+        resolvedPath = raw;
+      }
+    }
+    Widget image = Image.file(
+      File(resolvedPath),
+      key: ValueKey('photo-$resolvedPath'),
+      fit: BoxFit.contain,
+      errorBuilder: (_, e, s) => const Icon(
+        Icons.broken_image_outlined,
+        size: 64,
+        color: Colors.white54,
+      ),
+    );
+    if (isCurrent && _treatment == Treatment.grayscale) {
+      image = ColorFiltered(
+        colorFilter: grayscaleColorFilter,
+        child: image,
+      );
+    }
+    return KeyedSubtree(
+      key: ValueKey('photo-frame-${ex.id}-${isCurrent ? _treatment.name : 'line'}'),
+      child: image,
+    );
+  }
+
   Widget _buildVideoFrame() {
     final a = _videoControllerA;
     final b = _videoControllerB;
