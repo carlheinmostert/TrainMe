@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v68-photo-body-focus';
+const PLAYER_VERSION = 'v69-photo-treatment-override-fix';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -2935,13 +2935,15 @@ function rebindVideoSources() {
     }
   });
 
-  // Wave 22 — photo slides need the same treatment-flip handling. The
-  // <img> render emits no IDs, so we filter to the cards (one direct
-  // child .card-media > img) and skip thumbnails / decorative imagery
-  // elsewhere in the player chrome. Hot-swap is trivial: change src +
-  // toggle the `.is-grayscale` class. Single frame, no playback state
-  // to preserve.
-  const photoImgs = $cardTrack.querySelectorAll('.card-media > img');
+  // Wave 22 — photo slides need the same treatment-flip handling. Wave 28
+  // wrapped photos in a `.media-rotation-wrap` div so the rotation pattern
+  // matches videos; the previous `.card-media > img` selector silently
+  // returned zero matches once that wrapper landed, leaving photo `src`
+  // attributes stuck on whatever buildCard() rendered initially (typically
+  // line drawing). Use the descendant path through the rotation wrapper.
+  // Hot-swap is trivial: change src + toggle the `.is-grayscale` class.
+  // Single frame, no playback state to preserve.
+  const photoImgs = $cardTrack.querySelectorAll('.card-media .media-rotation-wrap > img');
   photoImgs.forEach((imgEl) => {
     const card = imgEl.closest('.exercise-card');
     if (!card) return;

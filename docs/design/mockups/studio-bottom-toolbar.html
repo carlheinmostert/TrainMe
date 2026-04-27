@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Studio · bottom-toolbar refactor — Wave 38 mockup</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --raised-2: #1F2230;
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.14);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --coral-soft: rgba(255,107,53,0.18);
+    --sage: #86EFAC;
+    --sage-soft: rgba(134,239,172,0.18);
+    --amber: #F59E0B;
+    --amber-soft: rgba(245,158,11,0.18);
+    --red: #EF4444;
+    --red-soft: rgba(239,68,68,0.18);
+    --light-coral: #FDA68A;
+    --light-coral-soft: rgba(253,166,138,0.20);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: #060708; color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 40px 32px 80px; }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 0.2px; margin: 36px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  h3 { font-family: Inter, sans-serif; font-weight: 600; font-size: 13px; color: var(--coral); margin: 0 0 10px; letter-spacing: 0.2px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); max-width: 840px; }
+  .lede strong { color: var(--text); }
+  .lede code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+
+  /* -- iPhone frames ----------------------------------------------- */
+  .frames-row {
+    display: flex; flex-wrap: wrap; gap: 28px;
+    align-items: flex-start; margin-bottom: 28px;
+  }
+  .frame-wrap { flex: 1 1 360px; min-width: 320px; max-width: 380px; }
+  .frame-wrap .label {
+    display: block; font-size: 12px; font-weight: 600;
+    color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 10px; padding-left: 4px;
+  }
+  .iphone {
+    background: var(--bg); border: 1.5px solid var(--border-strong);
+    border-radius: 36px; overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+    width: 100%; height: 720px;
+    display: flex; flex-direction: column;
+    position: relative;
+  }
+  .status-bar {
+    height: 24px; padding: 0 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; color: var(--text);
+    flex-shrink: 0;
+  }
+  .status-bar .time { font-weight: 600; }
+
+  /* Top: pure exercise list — no AppBar, no chrome */
+  .studio-list {
+    flex: 1; overflow-y: auto;
+    padding: 12px 16px 0;
+  }
+  .ex-card {
+    background: var(--raised); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .ex-card .gutter { width: 6px; height: 100%; min-height: 56px; background: var(--coral-soft); border-radius: 3px; }
+  .ex-card .thumb { width: 56px; height: 56px; border-radius: 8px; background: linear-gradient(135deg, #2a2f3d, #1a1d27); flex-shrink: 0; }
+  .ex-card .meta { flex: 1; min-width: 0; }
+  .ex-card .meta .name { font-size: 14px; font-weight: 600; color: var(--text); }
+  .ex-card .meta .sub { font-size: 11px; color: var(--text-mute); margin-top: 2px; }
+  .ex-card .chev { color: var(--text-dim); font-size: 18px; }
+  .rest-row { font-size: 11px; color: var(--text-mute); padding: 6px 14px 10px; text-align: center; }
+
+  /* Bottom stack: stats + subtitle + toolbar */
+  .bottom-stack {
+    flex-shrink: 0;
+    background: linear-gradient(to bottom, transparent, var(--bg) 14%);
+    padding: 8px 0 14px;
+    border-top: 1px solid var(--border);
+  }
+  .stats-strip {
+    padding: 6px 18px;
+    font-size: 11.5px; color: var(--text-mute); line-height: 1.45;
+  }
+  .stats-strip .row { display: flex; justify-content: space-between; align-items: center; }
+  .stats-strip .lock-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .stats-strip .lock-dot.sage { background: var(--sage); }
+  .stats-strip .lock-dot.amber { background: var(--amber); }
+  .stats-strip .lock-dot.coral { background: var(--coral); }
+  .stats-strip .lock-dot.red { background: var(--red); }
+  .stats-strip .lock-dot.light-coral { background: var(--light-coral); }
+  .stats-strip .lock-state {
+    color: var(--text);
+  }
+  .stats-strip .lock-state.locked { color: var(--text); font-weight: 600; }
+
+  .subtitle-row {
+    padding: 4px 18px 8px;
+    font-size: 12px; color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .toolbar {
+    padding: 10px 14px 6px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .toolbar-btn {
+    width: 44px; height: 44px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--raised); border: 1px solid var(--border);
+    border-radius: 10px; cursor: pointer;
+    color: var(--text); font-size: 16px;
+  }
+  .toolbar-btn.primary {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .toolbar-spacer { flex: 1; }
+  .unlock-pill {
+    height: 44px; padding: 0 16px;
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--coral-bg); border: 1.5px solid var(--coral);
+    border-radius: 999px;
+    color: var(--coral); font-weight: 600; font-size: 13px;
+    cursor: pointer;
+  }
+  .unlock-pill::before { content: "🔒"; font-size: 14px; }
+  .unlocked-pill {
+    height: 44px; padding: 0 16px;
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--light-coral-soft); border: 1.5px solid var(--light-coral);
+    border-radius: 999px;
+    color: var(--light-coral); font-weight: 600; font-size: 12.5px;
+  }
+
+  /* Notes / annotations between frames */
+  .annotation {
+    margin: 16px 0; padding: 14px 18px;
+    background: var(--raised); border-radius: 10px; border: 1px solid var(--border);
+    color: var(--text-mute); font-size: 13px;
+  }
+  .annotation strong { color: var(--text); }
+  .annotation code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--coral); }
+  .annotation ul { margin: 8px 0 0 0; padding-left: 22px; }
+  .annotation li { margin: 4px 0; }
+
+  .deltas { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+  .delta { background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .delta .delta-label { color: var(--coral); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .delta h4 { font-family: Inter, sans-serif; font-weight: 600; font-size: 14px; margin: 6px 0; }
+  .delta p { font-size: 13px; color: var(--text-mute); margin: 0 0 6px; }
+  .delta .diff { font-size: 12.5px; line-height: 1.6; }
+  .diff .before { color: var(--text-dim); }
+  .diff .before::before { content: "− "; color: var(--red); }
+  .diff .after { color: var(--text); }
+  .diff .after::before { content: "+ "; color: var(--sage); }
+
+  .session-card-mock {
+    background: var(--raised); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 14px; max-width: 380px;
+    display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;
+  }
+  .session-card-mock .leading {
+    width: 60px; height: 60px; flex-shrink: 0;
+    border-radius: 14px; background: var(--coral-bg);
+    border: 1px solid var(--coral-soft);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--coral); font-size: 24px; position: relative;
+  }
+  .session-card-mock .leading .badge-overlay {
+    position: absolute; bottom: -5px; right: -5px;
+    width: 21px; height: 21px;
+    background: var(--coral); border: 1.5px solid var(--bg);
+    border-radius: 999px;
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 13px; font-weight: 700;
+  }
+  .session-card-mock .body { flex: 1; min-width: 0; }
+  .session-card-mock .body .title { font-size: 14px; font-weight: 600; }
+  .session-card-mock .body .title.editable {
+    border-bottom: 1px dashed var(--text-dim); padding-bottom: 1px;
+    cursor: text;
+  }
+  .session-card-mock .body .title.editable.active {
+    border-bottom-color: var(--coral); border-bottom-style: solid;
+    color: var(--coral);
+  }
+  .session-card-mock .body .meta { font-size: 11px; color: var(--text-mute); margin-top: 2px; }
+  .session-card-mock .body .lock { font-size: 11px; color: var(--text-mute); margin-top: 4px; }
+  .lock-state-row { display: flex; align-items: center; gap: 6px; }
+
+  .legend { font-size: 12px; color: var(--text-dim); padding-top: 6px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 38 · design mockup</div>
+  <h1>Studio · bottom-toolbar refactor</h1>
+
+  <p class="lede">
+    <strong>Reachability play.</strong> Studio is the practitioner's primary work surface; today all its chrome lives at the top, away from the thumb. Three changes:<br><br>
+    <strong>(1)</strong> Session name <strong>relocates</strong> from top of Studio to a muted subtitle near the bottom toolbar — practitioner can verify "what am I editing?" without backing out.<br>
+    <strong>(2)</strong> Session name becomes <strong>inline-editable on the SessionCard</strong> on the client detail page (mirror the client-name pattern: dashed underline, tap to edit, <code>onSubmitted</code> fires the rename RPC, no modals).<br>
+    <strong>(3)</strong> Toolbar + stats <strong>move to a fixed bottom bar</strong>. Same items as today's top toolbar (back, preview, publish). When the plan is locked, the unlock pill appears <strong>right-aligned on the toolbar line</strong>.
+  </p>
+
+  <h2>Layout · canonical (Free Edits state)</h2>
+
+  <div class="frames-row">
+    <div class="frame-wrap">
+      <span class="label">Studio · in grace (≤14d post-open)</span>
+      <div class="iphone">
+        <div class="status-bar"><span class="time">11:09</span><span>● 5G</span></div>
+        <div class="studio-list">
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Bird-dog</div><div class="sub">3 sets · 10 reps · 15s</div></div>
+            <div class="chev">›</div>
+          </div>
+          <div class="rest-row">— rest 30s —</div>
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Glute bridge</div><div class="sub">3 sets · 12 reps · 15s</div></div>
+            <div class="chev">›</div>
+          </div>
+          <div class="rest-row">— rest 30s —</div>
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Plank hold</div><div class="sub">3 sets · 30s hold</div></div>
+            <div class="chev">›</div>
+          </div>
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Side step</div><div class="sub">3 sets · 8 reps each side</div></div>
+            <div class="chev">›</div>
+          </div>
+        </div>
+        <div class="bottom-stack">
+          <div class="stats-strip">
+            <div class="row">
+              <span>First opened 22 Apr · Last opened 26 Apr</span>
+            </div>
+            <div class="row" style="margin-top: 2px;">
+              <span class="lock-state"><span class="lock-dot sage"></span>Free Edits · 11d 4h left</span>
+            </div>
+          </div>
+          <div class="subtitle-row">26 Apr 2026 · New client f068</div>
+          <div class="toolbar">
+            <div class="toolbar-btn">‹</div>
+            <div class="toolbar-spacer"></div>
+            <div class="toolbar-btn">▶</div>
+            <div class="toolbar-btn primary">⤴</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame-wrap">
+      <span class="label">Studio · locked (past 14d)</span>
+      <div class="iphone">
+        <div class="status-bar"><span class="time">11:09</span><span>● 5G</span></div>
+        <div class="studio-list">
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Bird-dog</div><div class="sub">3 sets · 10 reps · 15s</div></div>
+            <div class="chev">›</div>
+          </div>
+          <div class="rest-row">— rest 30s —</div>
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Glute bridge</div><div class="sub">3 sets · 12 reps · 15s</div></div>
+            <div class="chev">›</div>
+          </div>
+          <div class="rest-row">— rest 30s —</div>
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Plank hold</div><div class="sub">3 sets · 30s hold</div></div>
+            <div class="chev">›</div>
+          </div>
+        </div>
+        <div class="bottom-stack">
+          <div class="stats-strip">
+            <div class="row">
+              <span>First opened 19 Apr · Last opened 25 Apr</span>
+            </div>
+            <div class="row" style="margin-top: 2px;">
+              <span class="lock-state locked"><span class="lock-dot red"></span>Republish costs 1 credit</span>
+            </div>
+          </div>
+          <div class="subtitle-row">19 Apr 2026 · Lauren 2</div>
+          <div class="toolbar">
+            <div class="toolbar-btn">‹</div>
+            <div class="toolbar-btn">▶</div>
+            <div class="toolbar-spacer"></div>
+            <div class="unlock-pill">Unlock (1 credit)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame-wrap">
+      <span class="label">Studio · prepaid unlocked</span>
+      <div class="iphone">
+        <div class="status-bar"><span class="time">11:09</span><span>● 5G</span></div>
+        <div class="studio-list">
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Bird-dog</div><div class="sub">3 sets · 10 reps · 15s</div></div>
+            <div class="chev">›</div>
+          </div>
+          <div class="rest-row">— rest 30s —</div>
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Glute bridge</div><div class="sub">3 sets · 12 reps · 15s</div></div>
+            <div class="chev">›</div>
+          </div>
+          <div class="rest-row">— rest 30s —</div>
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Plank hold</div><div class="sub">3 sets · 30s hold</div></div>
+            <div class="chev">›</div>
+          </div>
+        </div>
+        <div class="bottom-stack">
+          <div class="stats-strip">
+            <div class="row">
+              <span>First opened 19 Apr · Last opened 25 Apr</span>
+            </div>
+            <div class="row" style="margin-top: 2px;">
+              <span class="lock-state"><span class="lock-dot light-coral"></span>Unlocked · republish free</span>
+            </div>
+          </div>
+          <div class="subtitle-row">19 Apr 2026 · Lauren 2</div>
+          <div class="toolbar">
+            <div class="toolbar-btn">‹</div>
+            <div class="toolbar-spacer"></div>
+            <div class="toolbar-btn">▶</div>
+            <div class="toolbar-btn primary">⤴</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="annotation">
+    <strong>Bottom stack reads bottom-up</strong> (toolbar → subtitle → stats):
+    <ul>
+      <li><strong>Toolbar (44pt height)</strong> — fixed bottom. Back ‹ left, preview ▶ + publish ⤴ right. When locked, unlock pill replaces the publish button on the right and pushes preview to the left of the gap. Tap targets respect the 44×44 minimum.</li>
+      <li><strong>Subtitle row (28pt strip)</strong> — `{DD MMM YYYY} · {client name}` muted at <code>--text-dim</code>. One line, ellipsised if needed. Replaces the AppBar title that gets removed from the top.</li>
+      <li><strong>Stats strip (≈40pt)</strong> — line 1: First/Last opened analytics (W33). Line 2: Lock-state with colour-coded dot (matches W32 SessionCard). Both muted; line 2 promotes to <code>color: --text</code> + 600 weight when state == "locked" so the urgency reads.</li>
+    </ul>
+  </div>
+
+  <h2>Variant · drafts &amp; never-opened</h2>
+
+  <div class="frames-row">
+    <div class="frame-wrap">
+      <span class="label">Draft (never published)</span>
+      <div class="iphone">
+        <div class="status-bar"><span class="time">11:09</span><span>● 5G</span></div>
+        <div class="studio-list">
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Bird-dog</div><div class="sub">3 sets · 10 reps · 15s</div></div>
+            <div class="chev">›</div>
+          </div>
+        </div>
+        <div class="bottom-stack">
+          <div class="subtitle-row" style="border-bottom: none; padding-top: 8px;">26 Apr 2026 · New client f068</div>
+          <div class="toolbar">
+            <div class="toolbar-btn">‹</div>
+            <div class="toolbar-spacer"></div>
+            <div class="toolbar-btn">▶</div>
+            <div class="toolbar-btn primary">⤴</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="frame-wrap">
+      <span class="label">Published, never opened</span>
+      <div class="iphone">
+        <div class="status-bar"><span class="time">11:09</span><span>● 5G</span></div>
+        <div class="studio-list">
+          <div class="ex-card">
+            <div class="thumb"></div>
+            <div class="meta"><div class="name">Bird-dog</div><div class="sub">3 sets · 10 reps · 15s</div></div>
+            <div class="chev">›</div>
+          </div>
+        </div>
+        <div class="bottom-stack">
+          <div class="stats-strip">
+            <div class="row"><span>Not yet opened</span></div>
+          </div>
+          <div class="subtitle-row">26 Apr 2026 · New client f068</div>
+          <div class="toolbar">
+            <div class="toolbar-btn">‹</div>
+            <div class="toolbar-spacer"></div>
+            <div class="toolbar-btn">▶</div>
+            <div class="toolbar-btn primary">⤴</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="frame-wrap">
+      <span class="label">Inline rename · SessionCard (client page)</span>
+      <div class="iphone" style="padding: 16px;">
+        <div class="status-bar"><span class="time">11:09</span><span>● 5G</span></div>
+        <div style="padding: 24px 16px 0; flex: 1;">
+          <h3 style="color: var(--text); font-size: 16px; margin: 0 0 16px;">New client f068</h3>
+          <div class="session-card-mock">
+            <div class="leading">📋<span class="badge-overlay">3</span></div>
+            <div class="body">
+              <div class="title editable">26 Apr 2026 11:09</div>
+              <div class="meta">v3 · 25 Apr</div>
+              <div class="lock"><span class="lock-state-row"><span class="lock-dot sage" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--sage);"></span>Free Edits · 11d 4h left</span></div>
+            </div>
+          </div>
+          <div class="session-card-mock" style="border-color: var(--coral-soft);">
+            <div class="leading">📋<span class="badge-overlay">5</span></div>
+            <div class="body">
+              <div class="title editable active">Lower body recovery</div>
+              <div class="meta">v2 · 22 Apr</div>
+              <div class="lock"><span class="lock-state-row"><span class="lock-dot amber" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--amber);"></span>Free Edits · 2d 4h left</span></div>
+            </div>
+          </div>
+          <div class="legend"><strong style="color: var(--coral);">↑ active rename in progress</strong> — solid coral underline, tappable, <code style="background: var(--coral-bg); color: var(--coral); padding: 1px 5px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11px;">onSubmitted</code> fires <code style="background: var(--coral-bg); color: var(--coral); padding: 1px 5px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11px;">rename_session</code> RPC.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Deltas vs current Studio</h2>
+  <div class="deltas">
+    <div class="delta">
+      <span class="delta-label">Removed from top</span>
+      <h4>AppBar (entire)</h4>
+      <p>Top of Studio becomes pure exercise list. No back button, no title, no padlock chip, no preview/publish actions, no stats row.</p>
+      <div class="diff">
+        <div class="before">AppBar(title: session.title, actions: [padlock, preview, publish])</div>
+        <div class="after">Scaffold body starts at top with exercise list directly.</div>
+      </div>
+    </div>
+    <div class="delta">
+      <span class="delta-label">Added at bottom</span>
+      <h4>BottomNavigationBar (custom)</h4>
+      <p>Three-row stack: stats analytics, session subtitle, action toolbar with conditional unlock pill.</p>
+      <div class="diff">
+        <div class="after">SafeArea wraps a Column: [StatsStrip, SubtitleRow, Toolbar]</div>
+        <div class="after">Toolbar conditionally renders &lt;UnlockPill /&gt; when isLocked &amp;&amp; !isPrepaidUnlocked.</div>
+      </div>
+    </div>
+    <div class="delta">
+      <span class="delta-label">SessionCard (client page)</span>
+      <h4>Inline-editable title</h4>
+      <p>Today the title is read-only text + a chevron to open Studio. After: title becomes a tap-to-edit inline editor. Tapping the title cell enters edit mode without navigating; tapping anywhere else (badge, lock state, surrounding card) still navigates to Studio.</p>
+      <div class="diff">
+        <div class="before">Text(session.title)</div>
+        <div class="after">InlineEditableText(session.title, onSubmit: rename_session_rpc)</div>
+      </div>
+    </div>
+    <div class="delta">
+      <span class="delta-label">Edit-mode visual</span>
+      <h4>Dashed underline → solid coral on focus</h4>
+      <p>Reuse the client-name R-11 pattern. Dashed grey underline at rest signals "I'm editable"; tap → solid coral underline + IME caret. <code style="background: var(--coral-bg); color: var(--coral); padding: 1px 5px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11px;">onSubmitted</code> commits + reverts to dashed underline. <code style="background: var(--coral-bg); color: var(--coral); padding: 1px 5px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11px;">onTapOutside</code> auto-submits.</p>
+    </div>
+  </div>
+
+  <h2>Open questions</h2>
+  <div class="annotation">
+    <strong>1. Where does the unlock pill go in the toolbar layout?</strong> In the locked mockup it sits right-aligned, replacing the publish button (since publish costs a credit when locked, the unlock CTA logically gates the publish path). Alternative: keep publish visible AND add unlock to its right, so the user can see both. Pick a behaviour.<br><br>
+    <strong>2. Padlock indicator separate from the unlock pill?</strong> Today the AppBar has a padlock chip + an unlock CTA inside its sheet. In this mockup the lock state is communicated via the colour-coded dot in the stats strip + the unlock pill in the toolbar. Padlock chip is retired. Confirm this matches your intent.<br><br>
+    <strong>3. Top-of-list spacing.</strong> With no AppBar above, the first exercise card sits at the very top edge of the safe area. Want a small (~12pt) breathing space, or full-bleed against the status bar's bottom edge?<br><br>
+    <strong>4. Auto-hide on scroll?</strong> Iconic Apple-canon pattern (Safari, Notes) hides the bottom bar on scroll-down + reveals on scroll-up. Adds polish but more state to manage. Default-fixed is simpler. Pick one.<br><br>
+    <strong>5. Session subtitle truncation.</strong> "26 Apr 2026 · New client f068" fits on a 6.1" iPhone width but a renamed session ("Lower body recovery — Lauren post-knee-op week 4") will overflow. Ellipsise from the right, drop the date, or wrap to two lines? Simplest: ellipsise (single line stays clean).
+  </div>
+
+  <p class="legend" style="margin-top: 24px;">
+    Mockup uses the canonical brand tokens (coral <code style="background: var(--coral-bg); color: var(--coral); padding: 1px 5px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11px;">#FF6B35</code>, surface <code style="background: var(--coral-bg); color: var(--coral); padding: 1px 5px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11px;">#0F1117</code>, raised <code style="background: var(--coral-bg); color: var(--coral); padding: 1px 5px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11px;">#171923</code>). Toolbar buttons sized to 44pt minimum tap targets per Apple HIG. Iconography is placeholder; final glyphs pulled from the existing AppBar.
+  </p>
+</div>
+</body>
+</html>
