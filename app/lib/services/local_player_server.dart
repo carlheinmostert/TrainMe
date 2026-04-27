@@ -348,7 +348,17 @@ class LocalPlayerServer {
       'include_audio': e.includeAudio,
       'custom_duration_seconds': e.customDurationSeconds,
       'prep_seconds': e.prepSeconds,
-      'inter_set_rest_seconds': e.interSetRestSeconds,
+      // Wave 37 — coerce null to the canonical 15s breather default at
+      // the bridge boundary. Pre-Milestone-Q exercises (created before
+      // 2026-04-23 when `withPersistenceDefaults()` started seeding 15s)
+      // have `interSetRestSeconds == null` in local SQLite. The web
+      // player's `getInterSetRestSeconds` treats null as 0, which causes
+      // the rep-block stack to skip the rest blocks between sets in the
+      // in-app Preview. The live web player works because cloud-side
+      // freshly-published rows do carry 15s — only legacy local rows
+      // hit the null path. Mirror `StudioDefaults.interSetRestSeconds`
+      // here so Preview matches what gets published.
+      'inter_set_rest_seconds': e.interSetRestSeconds ?? 15,
       'preferred_treatment': e.preferredTreatment?.wireValue,
       // Soft-trim window (Wave 20 / Milestone X). Both null = no trim,
       // full clip plays. Both set = the embedded web-player bundle
