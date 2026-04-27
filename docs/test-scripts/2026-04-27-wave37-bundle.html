@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 37 Bundle (Inter-set rest in Preview + chevron + photo segmentation bands + Home avatar + badge font −10%)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 37 &middot; device QA</div>
+  <h1>Inter-set rest in Preview + Studio chevron + photo segmentation no-bands + Home avatar + badge font &minus;10%</h1>
+
+  <p class="lede">
+    Five mixed-surface follow-ups.
+    <strong>(A)</strong> The rep-block stack in the in-app Preview was missing the rest blocks between sets for any pre-Milestone-Q exercise (i.e. those captured before 2026-04-23 when <code>withPersistenceDefaults()</code> started seeding 15s). The bridge passed <code>interSetRestSeconds</code> raw; <code>web-player/app.js</code> treats null as 0 and the stack collapses sets together. One-liner fix at the <code>local_player_server</code> boundary coerces null → 15s so Preview matches the canonical default. Cloud RPC <code>replace_plan_exercises</code> already includes the column (verified live) &mdash; no migration.
+    <strong>(B)</strong> Studio exercise card now has a chevron at the top-right of its header. Right-pointing &rsaquo; collapsed &rarr; down-pointing &mdash; rotates 90&deg; clockwise on expand, 200ms ease, coral when active. Whole header row stays the toggle target (R-04 thumb-reach).
+    <strong>(C)</strong> Photo body-focus output had ~5 horizontal bands behind the subject on portrait (9:16) photos. Hypothesis was stride / in-place-blur. Root cause: second tent-convolve pass was reading and writing <em>plate</em> in-place without a temp buffer, which <code>vImageTentConvolve_ARGB8888</code> does not reliably support &mdash; bands are half-updated rows. Fix: split into a true ping-pong with a separate <code>scratch</code> buffer; pass1 source&rarr;plate, pass2 plate&rarr;scratch, composite reads scratch. Same kernel + edge mode. Diagnostic <code>os_log</code> lines added at <code>category:avatar.capture</code> for input dim, stride, kernel, mask state &mdash; if bands persist Carl can capture under Console.app and we have data.
+    <strong>(D)</strong> Home client cards now render the body-focus avatar PNG when the client has one. Same <code>ClientAvatarGlyph</code> three-tier fallback (local PNG &rarr; signed URL &rarr; initials). Cards without an avatar look exactly as before (coral person glyph).
+    <strong>(E)</strong> Session-card count badge: font &minus;10% from W36's 13/10 to 12/9. Container stays 21&times;21.
+  </p>
+
+  <h2>A &middot; Inter-set rest blocks render in in-app Preview</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">1.</span>
+      <span class="text">Pre-Milestone-Q exercise &mdash; rep-block stack shows rest blocks between sets in Preview.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Find a session whose first capture predates 2026-04-23 (Milestone Q). Easy heuristic: any session that's been in the recycle for &gt; 4 days, or older sessions in the cache. The exercise's local SQLite row will have <code>inter_set_rest_seconds = NULL</code>.</li>
+        <li data-sub="1.2">Open the session &rarr; tap any video / hold exercise card thumbnail &rarr; opens <code>_MediaViewer</code> in Preview mode.</li>
+        <li data-sub="1.3">In the rep-block stack at the bottom, count blocks. With sets=3 you should see three set-rows (S1, S2, S3) AND two intervening rest blocks (R) labelled in the left gutter. Trailing rest after S3 is also rendered (Wave 21 spec).</li>
+        <li data-sub="1.4">Compare against the same session opened in the live web player at <code>session.homefit.studio/p/{id}</code> &mdash; rest blocks also visible there. Both surfaces show the same shape now.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">2.</span>
+      <span class="text">Fresh capture (post-Milestone-Q) &mdash; rep-block stack still renders rest blocks correctly.</span>
+      <ol class="steps">
+        <li data-sub="2.1">Capture a NEW video on a session right now. New rows always carry <code>inter_set_rest_seconds = 15</code>, so this is a regression check &mdash; the null-coerce shouldn't override an explicit value.</li>
+        <li data-sub="2.2">Studio &rarr; tap thumbnail &rarr; Preview. Rep-block stack shows the same set + rest pattern as in #1.</li>
+        <li data-sub="2.3">Bonus: edit the breather to 30s in PACING. Reopen Preview. Rest-block visual width is proportionally larger (each rest block scales with its seconds vs the rep blocks).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B &middot; Chevron toggle on Studio exercise card</h2>
+  <ul class="checklist">
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">3.</span>
+      <span class="text">Chevron visible at rest, rotates on tap, full-row tappable.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Open Studio for any session with at least 2 exercises so we have a collapsed card to start from.</li>
+        <li data-sub="3.2">Top-right corner of each card header (next to the exercise name + summary): a muted chevron pointing right (&rsaquo;). 70% opacity at rest reads as an affordance, not a primary action.</li>
+        <li data-sub="3.3">Tap anywhere along the header row &mdash; not just on the chevron. The card expands AND the chevron rotates 90&deg; clockwise to point down (&darr;), tinting coral. 200ms ease, no jank.</li>
+        <li data-sub="3.4">Tap again &mdash; collapses, chevron rotates back to right-pointing, tint returns to muted grey.</li>
+        <li data-sub="3.5">Verify thumbnail tap is unaffected: tap the 88pt thumbnail &mdash; opens <code>_MediaViewer</code>; chevron does NOT rotate (thumbnail owns its own gesture zone).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C &middot; Photo segmentation no longer banded</h2>
+  <ul class="checklist">
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">4.</span>
+      <span class="text">Capture a fresh portrait photo &mdash; body-focus variant has clean Gaussian blur, no horizontal bands.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Open a Studio session, tap the camera FAB, capture a PHOTO (short tap) of someone in PORTRAIT framing (typical 9:16 result). Conversion runs after the shutter.</li>
+        <li data-sub="4.2">Wait for the conversion to finish (~1.5s). Open the photo's Studio card &rarr; thumbnail tap &rarr; <code>_MediaViewer</code>.</li>
+        <li data-sub="4.3">Switch to Original (or B&amp;W). Tap Body Focus pill ON.</li>
+        <li data-sub="4.4">Inspect the background: should be smoothly Gaussian-blurred, NO horizontal bands of stale / un-blurred pixels. The subject's body remains crisp.</li>
+        <li data-sub="4.5">Try one landscape photo too (16:9 framing). Same expectation: clean blur, no bands.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">5.</span>
+      <span class="text">Console.app diagnostic capture &mdash; verify the os_log lines fire on photo body-focus.</span>
+      <ol class="steps">
+        <li data-sub="5.1">If you have Xcode + Console.app: filter by <code>subsystem:com.raidme.raidme</code> and <code>category:avatar.capture</code>.</li>
+        <li data-sub="5.2">Capture a new photo on device. Watch for these log lines (in order, all per-capture):</li>
+        <li data-sub="5.3"><code>composeAvatar: input width=… height=… aspect=…</code> &mdash; aspect should be ~0.56 for portrait, ~1.78 for landscape, ~1.33 for 4:3.</li>
+        <li data-sub="5.4"><code>composeAvatar: bytesPerRow=… width*4=… pad=…</code> &mdash; pad will be 0 for widths that are 16-byte aligned, 32 for some others. NOT load-bearing for the fix; just confirms stride math.</li>
+        <li data-sub="5.5"><code>composeAvatar: mask=ok</code> (if Vision found a person) or <code>mask=nil (no person)</code>.</li>
+        <li data-sub="5.6"><code>composeAvatar: blur kernel=… (longEdge=…)</code> &mdash; kernel typically 101 for ~1600px long edge.</li>
+        <li data-sub="5.7">If bands STILL show, screenshot the full Console output for that capture and attach in notes &mdash; we need it to rule out alternative root causes (e.g. mask stride mismatch from Vision).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>D &middot; Client avatar on Home cards</h2>
+  <ul class="checklist">
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">6.</span>
+      <span class="text">Home client cards: avatar PNG renders when present; placeholder icon falls back gracefully when absent.</span>
+      <ol class="steps">
+        <li data-sub="6.1">From Home (clients list), find a client WITHOUT an avatar yet. Card should look identical to before this build &mdash; coral rounded-square 60&times;60 with a person glyph (no regression).</li>
+        <li data-sub="6.2">Open that client &rarr; tap the avatar disc on the detail header &rarr; "Take photo" &rarr; capture an avatar (W36 fixed orientation, should be upright).</li>
+        <li data-sub="6.3">Pop back to Home. The card for that client now shows the body-focus avatar PNG in a 60dp circle. Same three-tier fallback as the detail header (local file first &mdash; instant; cloud signed URL only if local missing; initials only if neither).</li>
+        <li data-sub="6.4">Force-quit + relaunch the app. Avatar still renders on Home (local PNG cache survives).</li>
+        <li data-sub="6.5">Verify the SessionCard leading icon on <code>ClientSessionsScreen</code> (one level deeper) is unchanged &mdash; that's a different visual anchor, only Home cards use the avatar.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>E &middot; Badge font &minus;10%</h2>
+  <ul class="checklist">
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&times;</button></div>
+      <span class="num">7.</span>
+      <span class="text">Session-card count badge font shrinks 10% &mdash; container size unchanged.</span>
+      <ol class="steps">
+        <li data-sub="7.1">Drill into a client with at least one published session that has a single-digit count (e.g. 3 exercises). Look at the leading list-alt icon's bottom-right badge.</li>
+        <li data-sub="7.2">"3" reads as a 12pt bold glyph centered in the 21&times;21 pill (was 13pt before). Subjective: less crowded.</li>
+        <li data-sub="7.3">Compare a 2-digit session ("12" exercises). Glyph is now 9pt; both digits fit cleanly inside the pill.</li>
+        <li data-sub="7.4">If you have a session with &gt;99 exercises (or stage one), the "99+" stadium-shape variant scales proportionally too &mdash; horizontal pad still keeps the glyphs off the dark border.</li>
+        <li data-sub="7.5">Container size is still 21&times;21 (don't expect any geometry change other than the inner glyph).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope &mdash; reminder</h3>
+    <ul>
+      <li>Item C diagnostic logs are intentionally chatty &mdash; we'll trim them once the bands are confirmed gone. Don't worry about volume on Console.app for now.</li>
+      <li>Item A only fixes Preview &mdash; the live web player at <code>session.homefit.studio</code> already worked because cloud-side rows carry an explicit 15s. No web-player changes shipped.</li>
+      <li>Item D applies to Home (clients list). The downstream <code>ClientSessionsScreen</code> already uses the avatar in its detail header from Wave 30; no twin-surface change needed.</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-27-wave37-bundle.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave37-bundle', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

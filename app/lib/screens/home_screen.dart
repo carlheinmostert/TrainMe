@@ -11,6 +11,7 @@ import '../services/local_storage_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import '../widgets/bootstrap_error_banner.dart';
+import '../widgets/client_avatar_glyph.dart';
 import '../widgets/home_credits_chip.dart';
 import '../widgets/homefit_logo.dart';
 import '../widgets/network_share_sheet.dart';
@@ -1087,27 +1088,37 @@ class _ClientCard extends StatelessWidget {
               const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
-              // Leading person badge — coral on dark. Matches the
-              // session badge on SessionCard so the two card types read
-              // as the same visual family on the Clients-as-Home spine.
-              // Wave 34 bumped both in lock-step: 40×40 → 60×60, glyph
-              // 22 → 33, radius 10 → 14. The +50% size makes the icon
-              // a confident anchor on the row rather than the chip-
-              // sized footprint of Wave 30-33.
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
+              // Leading visual anchor. When the client has captured an
+              // avatar (Wave 30 body-focus PNG), render it through the
+              // shared `ClientAvatarGlyph` — same three-tier fallback
+              // (local file → signed URL → initials monogram) the
+              // client-detail header uses, keeping the two surfaces
+              // consistent. When there's no avatar, fall back to the
+              // coral person glyph that's lived here since Wave 34.
+              //
+              // Footprint stays 60×60 to keep visual continuity with
+              // the SessionCard leading icon on ClientSessionsScreen
+              // (R-04 — "the two card types read as the same visual
+              // family on the Clients-as-Home spine"). The glyph is
+              // circular; the rounded-square placeholder is for the
+              // initials/icon-only state.
+              if (client.avatarPath != null && client.avatarPath!.isNotEmpty)
+                ClientAvatarGlyph(client: client, diameter: 60)
+              else
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.person_outline,
+                    color: AppColors.primary,
+                    size: 33,
+                  ),
                 ),
-                alignment: Alignment.center,
-                child: const Icon(
-                  Icons.person_outline,
-                  color: AppColors.primary,
-                  size: 33,
-                ),
-              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

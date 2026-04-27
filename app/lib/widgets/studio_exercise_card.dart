@@ -505,6 +505,39 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
                 ],
               ),
             ),
+            // Wave 37 — chevron affordance at the top-right of the
+            // header. Pure visual signal that the card is expandable;
+            // the underlying tap target stays the WHOLE card row (the
+            // outer InkWell at line 312) so thumb reach isn't degraded.
+            // Standard accordion idiom: › collapsed (right-pointing) →
+            // ⌄ expanded (down-pointing). Implemented as a 0 → 0.25
+            // turn rotation of `chevron_right`. Resting muted at 70%
+            // opacity (reads as affordance, not primary action); coral
+            // tint when expanded so the active card "lights up"
+            // alongside the focus border. 200ms ease matches the rest
+            // of the card's expand animation.
+            const SizedBox(width: 8),
+            AnimatedRotation(
+              turns: widget.isExpanded ? 0.25 : 0,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              child: IgnorePointer(
+                child: TweenAnimationBuilder<Color?>(
+                  tween: ColorTween(
+                    end: widget.isExpanded
+                        ? AppColors.primary
+                        : AppColors.textSecondaryOnDark.withValues(alpha: 0.7),
+                  ),
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                  builder: (context, color, _) => Icon(
+                    Icons.chevron_right_rounded,
+                    size: 24,
+                    color: color,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ],

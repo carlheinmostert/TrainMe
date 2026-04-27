@@ -529,8 +529,8 @@ class _CountBadge extends StatelessWidget {
       constraints: const BoxConstraints(minWidth: 21, minHeight: 21),
       padding: EdgeInsets.symmetric(
         // "99+" gets enough horizontal pad that the glyphs don't kiss
-        // the dark border — three glyphs at 10pt need a bit of room.
-        // Two-digit fits inside 21px once the font drops to 10pt — no
+        // the dark border — three glyphs at 9pt need a bit of room.
+        // Two-digit fits inside 21px once the font drops to 9pt — no
         // extra pad needed.
         horizontal: count > 99 ? 4 : 0,
         vertical: 0,
@@ -546,7 +546,11 @@ class _CountBadge extends StatelessWidget {
         style: TextStyle(
           fontFamily: 'Inter',
           color: Colors.white,
-          fontSize: isMultiDigit ? 10 : 13,
+          // Wave 37 — −10% from W36's 13/10. Single-digit 13 → 12,
+          // two-digit 10 → 9. Container size stays 21×21; the smaller
+          // glyph reads as a confident accent without crowding the
+          // pill border.
+          fontSize: isMultiDigit ? 9 : 12,
           fontWeight: FontWeight.w700,
           height: 1.0,
         ),

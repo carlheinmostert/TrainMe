@@ -4,6 +4,7 @@ import CoreImage
 import Vision
 import Accelerate
 import CoreVideo
+import os.log
 
 // MARK: - ClientAvatarProcessor (Wave 30)
 //
@@ -47,6 +48,15 @@ import Flutter
 
 @available(iOS 15.0, *)
 final class ClientAvatarProcessor {
+    /// Diagnostic log channel. Subsystem matches the rest of the iOS
+    /// runtime (`com.raidme.raidme`); `avatar.capture` keeps the
+    /// avatar + photo body-focus pipelines on the same Console.app
+    /// filter so Carl can capture both with one query.
+    private static let log = OSLog(
+        subsystem: "com.raidme.raidme",
+        category: "avatar.capture"
+    )
+
     /// Output encoding mode for the composed result.
     ///
     /// `.png` (avatar surface, default): clean alpha edges around the
@@ -211,6 +221,23 @@ final class ClientAvatarProcessor {
         let width = cgImage.width
         let height = cgImage.height
 
+        // Wave 37 — diagnostic for the W36 #6 photo banding bug. Logs
+        // the working dimensions and the BGRA stride so Carl can
+        // capture under Console.app filter `subsystem:com.raidme.raidme
+        // category:avatar.capture`. Square avatars work fine; portrait
+        // (9:16) photos have shown horizontal-band artefacts which we
+        // suspect are stride / in-place-blur related. Keep this log
+        // through QA — it's cheap and lets us correlate Console.app
+        // output against a specific capture's geometry.
+        os_log(
+            "composeAvatar: input width=%{public}d height=%{public}d aspect=%{public}.3f",
+            log: log,
+            type: .info,
+            width,
+            height,
+            Double(width) / Double(max(height, 1))
+        )
+
         // --- Render source into a BGRA CVPixelBuffer (Vision-friendly). ---
         let attrs: [CFString: Any] = [
             kCVPixelBufferCGImageCompatibilityKey: true,
@@ -236,6 +263,20 @@ final class ClientAvatarProcessor {
             return nil
         }
         let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        // Wave 37 — log the actual stride. CVPixelBufferCreate pads
+        // bytesPerRow up to a 64-byte boundary on most iOS hardware,
+        // so for non-square widths bytesPerRow > width * 4. Any stride
+        // assumption that uses `width * 4` instead of bytesPerRow will
+        // mis-walk pixels; this log lets us confirm the pad lands as
+        // expected for the failing aspect ratios.
+        os_log(
+            "composeAvatar: bytesPerRow=%{public}d width*4=%{public}d pad=%{public}d",
+            log: log,
+            type: .info,
+            bytesPerRow,
+            width * 4,
+            bytesPerRow - (width * 4)
+        )
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo: UInt32 =
             CGBitmapInfo.byteOrder32Little.rawValue |
@@ -266,14 +307,35 @@ final class ClientAvatarProcessor {
         // background" (whole image blurred). Keeps the avatar surface alive
         // even when Vision misses the subject; the practitioner can always
         // retake.
+        os_log(
+            "composeAvatar: mask=%{public}@",
+            log: log,
+            type: .info,
+            maskPtr != nil ? "ok" : "nil (no person)"
+        )
 
         // --- Build the blurred background plate via vImage Gaussian. ---
-        // Allocate a scratch BGRA buffer to receive the blurred pixels,
-        // then blur in-place from the source BGRA into the scratch. The
-        // composite loop reads both at the same offsets.
+        // Two-pass tent convolve approximates a Gaussian. The two
+        // intermediate buffers ping-pong: pass 1 reads the source BGRA
+        // (still inside `pixelBuffer.base`) → writes plate. Pass 2 reads
+        // plate → writes scratch. We then alias `plate` to whichever of
+        // the two holds the final output (`finalBlurredPtr`) before the
+        // compositing loop runs.
+        //
+        // Wave 37 — split the previous "in-place on plate" second pass
+        // into a real scratch buffer. `vImageTentConvolve_ARGB8888` does
+        // NOT reliably support in-place operation when `tempBuffer` is
+        // nil; the prior code path could leave bands of half-updated
+        // rows on non-square inputs (W36 #6: 9:16 portrait photos
+        // showed ~5 horizontal bands behind the subject). True-square
+        // avatar captures dodged the failure mode often enough that it
+        // shipped. Same kernel + edge mode as before; only the
+        // ping-pong topology changes.
         let plateSize = bytesPerRow * height
         let plate = UnsafeMutablePointer<UInt8>.allocate(capacity: plateSize)
         defer { plate.deallocate() }
+        let scratch = UnsafeMutablePointer<UInt8>.allocate(capacity: plateSize)
+        defer { scratch.deallocate() }
 
         // Heavy blur: kernel chosen to be ~6% of the long edge, which
         // produces the unmistakable "portrait-mode" background look without
@@ -285,46 +347,84 @@ final class ClientAvatarProcessor {
         if kernel >= height { kernel = (height - 1) | 1 }
         if kernel < 3 { kernel = 3 }
 
+        os_log(
+            "composeAvatar: blur kernel=%{public}d (longEdge=%{public}d)",
+            log: log,
+            type: .info,
+            kernel,
+            longEdge
+        )
+
         let srcBgraPtr = base.assumingMemoryBound(to: UInt8.self)
-        var srcBuf = vImage_Buffer(
+        // Pass 1: source(BGRA) → plate.
+        var pass1Src = vImage_Buffer(
             data: UnsafeMutableRawPointer(srcBgraPtr),
             height: vImagePixelCount(height),
             width: vImagePixelCount(width),
             rowBytes: bytesPerRow
         )
-        var dstBuf = vImage_Buffer(
+        var pass1Dst = vImage_Buffer(
             data: UnsafeMutableRawPointer(plate),
             height: vImagePixelCount(height),
             width: vImagePixelCount(width),
             rowBytes: bytesPerRow
         )
-        // Two-pass tent convolve approximates a Gaussian and stays cheap on
-        // BGRA (vImage's true Gaussian for ARGB8888 uses larger kernels at
-        // higher cost; tent is good enough for avatar-scale defocus).
-        for _ in 0..<2 {
-            let err = vImageTentConvolve_ARGB8888(
-                &srcBuf,
-                &dstBuf,
-                nil,
-                0, 0,
-                UInt32(kernel),
-                UInt32(kernel),
-                nil,
-                vImage_Flags(kvImageEdgeExtend)
+        let err1 = vImageTentConvolve_ARGB8888(
+            &pass1Src,
+            &pass1Dst,
+            nil,
+            0, 0,
+            UInt32(kernel),
+            UInt32(kernel),
+            nil,
+            vImage_Flags(kvImageEdgeExtend)
+        )
+        if err1 != kvImageNoError {
+            os_log(
+                "composeAvatar: vImageTentConvolve pass1 failed err=%{public}d",
+                log: log,
+                type: .error,
+                Int(err1)
             )
-            if err != kvImageNoError {
-                NSLog("ClientAvatarProcessor: vImageTentConvolve_ARGB8888 failed \(err)")
-                return nil
-            }
-            // Pipe the output back as the next pass's input — second pass
-            // tightens the falloff.
-            srcBuf = vImage_Buffer(
-                data: UnsafeMutableRawPointer(plate),
-                height: vImagePixelCount(height),
-                width: vImagePixelCount(width),
-                rowBytes: bytesPerRow
-            )
+            return nil
         }
+
+        // Pass 2: plate → scratch (NOT in-place — see Wave 37 note above).
+        var pass2Src = vImage_Buffer(
+            data: UnsafeMutableRawPointer(plate),
+            height: vImagePixelCount(height),
+            width: vImagePixelCount(width),
+            rowBytes: bytesPerRow
+        )
+        var pass2Dst = vImage_Buffer(
+            data: UnsafeMutableRawPointer(scratch),
+            height: vImagePixelCount(height),
+            width: vImagePixelCount(width),
+            rowBytes: bytesPerRow
+        )
+        let err2 = vImageTentConvolve_ARGB8888(
+            &pass2Src,
+            &pass2Dst,
+            nil,
+            0, 0,
+            UInt32(kernel),
+            UInt32(kernel),
+            nil,
+            vImage_Flags(kvImageEdgeExtend)
+        )
+        if err2 != kvImageNoError {
+            os_log(
+                "composeAvatar: vImageTentConvolve pass2 failed err=%{public}d",
+                log: log,
+                type: .error,
+                Int(err2)
+            )
+            return nil
+        }
+        // Final blurred plate lives in `scratch`. Alias the variable
+        // the compositing loop reads to it; `plate` becomes a one-pass
+        // intermediate that gets freed by its `defer`.
+        let finalBlurredPtr = scratch
 
         // --- Soften the mask via tent convolve to feather the body edge. ---
         let maskByteCount = width * height
@@ -365,7 +465,9 @@ final class ClientAvatarProcessor {
 
         // --- Composite: source where mask says "body", plate elsewhere. ---
         // BGRA layout: B at +0, G at +1, R at +2, A at +3. We blend BGR and
-        // leave alpha at source (typically 255).
+        // leave alpha at source (typically 255). `finalBlurredPtr`
+        // points to whichever ping-pong buffer holds the two-pass
+        // blurred plate (Wave 37: now `scratch`, not `plate`).
         let dstPtr = base.assumingMemoryBound(to: UInt8.self)
         if let mask = softMaskPtr {
             for y in 0..<height {
@@ -377,7 +479,7 @@ final class ClientAvatarProcessor {
                     let p = row + x * 4
                     for c in 0..<3 {
                         let s = Int(dstPtr[p + c])
-                        let bgnd = Int(plate[p + c])
+                        let bgnd = Int(finalBlurredPtr[p + c])
                         // Round-half-up integer lerp.
                         let blended = (s * w + bgnd * inv + 127) / 255
                         dstPtr[p + c] = UInt8(blended)
@@ -393,9 +495,9 @@ final class ClientAvatarProcessor {
                 let row = y * bytesPerRow
                 for x in 0..<width {
                     let p = row + x * 4
-                    dstPtr[p + 0] = plate[p + 0]
-                    dstPtr[p + 1] = plate[p + 1]
-                    dstPtr[p + 2] = plate[p + 2]
+                    dstPtr[p + 0] = finalBlurredPtr[p + 0]
+                    dstPtr[p + 1] = finalBlurredPtr[p + 1]
+                    dstPtr[p + 2] = finalBlurredPtr[p + 2]
                     // alpha unchanged
                 }
             }

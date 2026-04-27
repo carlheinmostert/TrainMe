@@ -150,7 +150,7 @@
   <div class="wrap">
     <div class="kicker">homefit.studio · device QA</div>
     <h1>Test scripts</h1>
-    <p class="lede">Active QA for 6 waves (Wave 36 fresh + 5 carryover from older work). Older waves were superseded by later work and have been moved out of the active queue (see Past waves below).</p>
+    <p class="lede">Active QA for 6 waves (Wave 37 fresh + 5 carryover from older work). Older waves were superseded by later work and have been moved out of the active queue (see Past waves below).</p>
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
@@ -165,11 +165,11 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
-        <a href="./2026-04-27-wave36-bundle.html">
+        <a href="./2026-04-27-wave37-bundle.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 36 — Avatar EXIF orientation + 21&times;21 count badge + photo body-focus end-to-end</div>
-              <div class="scope">Three carry-over fixes from Wave 34 device QA. <strong>(A)</strong> Captured avatar PNG no longer rotated 90&deg; left &mdash; W34 pinned <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">videoOrientation</code> at session setup, but iOS can re-rotate connections during interface-orientation transitions. W36 force-pins portrait at every <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">capturePhoto</code> call (with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">os_log</code> diagnostics) AND bakes EXIF orientation into the pixel buffer in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">ClientAvatarProcessor</code> so Vision sees an upright source. <strong>(B)</strong> Count badge reverses W34's 15% shrink &mdash; 14&times;14 &rarr; 21&times;21 (+50%), font 9/7 &rarr; 13/10. <strong>(C)</strong> Photo Body Focus pill finally has a segmented JPG to swap to. New native <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">processPhotoBodyFocus</code> method + Wave 36 schema migration extends <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">get_plan_full</code> to emit segmented URLs for photos. Web player &rarr; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v68-photo-body-focus</code>. <strong>7 items in 3 sections.</strong></div>
+              <div class="name">1 · Wave 37 — Inter-set rest in Preview + Studio chevron + photo segmentation no-bands + Home avatar + badge font &minus;10%</div>
+              <div class="scope">Five mixed-surface follow-ups. <strong>(A)</strong> Rep-block stack in in-app Preview now renders rest blocks for pre-Milestone-Q exercises &mdash; one-liner null-coerce at the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">local_player_server</code> bridge. Cloud RPC verified live (no migration). <strong>(B)</strong> Studio exercise card gets a top-right chevron: muted &rsaquo; collapsed, rotates 90&deg; clockwise + tints coral on expand. Whole header row stays the toggle target. <strong>(C)</strong> Photo body-focus segmentation &mdash; root cause of W36 #6 horizontal bands was an in-place second tent-convolve pass without a temp buffer; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">vImageTentConvolve_ARGB8888</code> doesn't reliably support that. Fix: split into a true ping-pong with a separate <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">scratch</code> buffer. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">os_log</code> diagnostics added on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">category:avatar.capture</code> for stride / kernel / mask state. <strong>(D)</strong> Home client cards now render the body-focus avatar (reuses <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">ClientAvatarGlyph</code>); cards without an avatar look unchanged. <strong>(E)</strong> Session-card count badge font &minus;10%: 13/10 &rarr; 12/9, container stays 21&times;21. <strong>7 items in 5 sections.</strong></div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -246,6 +246,20 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-04-27-wave36-bundle.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 36 — Avatar EXIF orientation + 21&times;21 count badge + photo body-focus end-to-end (6/7 pass; 1 fail + new asks rolled into Wave 37)</div>
+              <div class="date">2026-04-27</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Complete</span>
+              <div class="results" id="wave36-results">Loading…</div>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-04-27-wave35-bundle.html">
           <div class="row">
@@ -801,6 +815,7 @@
           .catch(function() { el.textContent = 'No results yet.'; });
       }
 
+      load('2026-04-27-wave36-bundle.results.json', 'wave36-results');
       load('2026-04-27-wave35-bundle.results.json', 'wave35-results');
       load('2026-04-27-wave34-bundle.results.json', 'wave34-results');
       load('2026-04-26-wave33-bundle.results.json', 'wave33-results');
