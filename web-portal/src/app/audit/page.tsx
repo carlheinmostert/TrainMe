@@ -253,6 +253,7 @@ function AuditTable({ rows }: { rows: AuditRow[] }) {
               <th scope="col" className="px-4 py-3">Actor</th>
               <th scope="col" className="px-4 py-3">Kind</th>
               <th scope="col" className="px-4 py-3">Description</th>
+              <th scope="col" className="px-4 py-3">Client</th>
               <th scope="col" className="px-4 py-3 text-right">Credits &Delta;</th>
               <th scope="col" className="px-4 py-3 text-right">Balance after</th>
               <th scope="col" className="px-4 py-3">Link</th>
@@ -288,18 +289,24 @@ function AuditTableRow({
   //   2. credit.consumption + title='unlock_plan_for_edit' →
   //        "Used at {publish date}" or "Awaiting republish"
   const subtitle = buildSubtitle(row, publishTsForUnlock);
-  // Wave 39 — anon plan.opened rows from the web player carry a NULL
-  // actor. Render them as "Client" instead of "—" so the engagement
-  // signal is unambiguous in the actor column.
-  const isClientActor =
-    row.kind === 'plan.opened' && !row.email && !row.trainerId;
+  // Wave 40.1 — `plan.opened` rows now derive the practitioner who LAST
+  // published the plan via plan_issuances.trainer_id (see
+  // `list_practice_audit`). The actor email is no longer NULL for the
+  // anon-web-player path. We surface a discreet tooltip on the actor cell
+  // explaining that the actor for `plan.opened` rows is the plan owner —
+  // an anonymous client triggered the open. Least-cluttered UI hint per
+  // Wave 40.1 brief.
+  const actorTooltip =
+    row.kind === 'plan.opened'
+      ? 'Plan owner — opened by anonymous client'
+      : undefined;
 
   return (
     <tr>
       <td className="whitespace-nowrap px-4 py-3 text-ink-muted">
         <ClientTime ts={row.ts} />
       </td>
-      <td className="px-4 py-3">
+      <td className="px-4 py-3" title={actorTooltip}>
         {row.email ? (
           <div className="flex flex-col">
             <span className="text-sm text-ink">{row.email}</span>
@@ -307,8 +314,6 @@ function AuditTableRow({
               <span className="text-xs text-ink-dim">{row.fullName}</span>
             ) : null}
           </div>
-        ) : isClientActor ? (
-          <span className="text-sm text-ink-muted">Client</span>
         ) : (
           <span className="text-ink-dim">&mdash;</span>
         )}
@@ -321,6 +326,9 @@ function AuditTableRow({
         {subtitle ? (
           <div className="mt-1 text-xs text-ink-dim">{subtitle}</div>
         ) : null}
+      </td>
+      <td className="px-4 py-3">
+        <ClientCell clientId={row.clientId} clientName={row.clientName} />
       </td>
       <td
         className={`whitespace-nowrap px-4 py-3 text-right font-mono text-xs ${creditsClass(row.creditsDelta)}`}
@@ -345,6 +353,30 @@ function AuditTableRow({
         )}
       </td>
     </tr>
+  );
+}
+
+/** Wave 40.1 — Client column cell. Plan-shaped + client-shaped rows show
+ *  a `<Link>` to the client detail page; practice-shaped rows show "—".
+ *  Tombstoned clients still surface their last-known name (the link still
+ *  resolves — the detail page handles deleted clients gracefully). */
+function ClientCell({
+  clientId,
+  clientName,
+}: {
+  clientId: string | null;
+  clientName: string | null;
+}) {
+  if (!clientId || !clientName) {
+    return <span className="text-ink-dim">&mdash;</span>;
+  }
+  return (
+    <Link
+      href={`/clients/${clientId}`}
+      className="text-brand hover:underline"
+    >
+      {clientName}
+    </Link>
   );
 }
 

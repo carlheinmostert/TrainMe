@@ -1235,7 +1235,13 @@ export function auditChipTone(kind: string): AuditChipTone {
 }
 
 /** A single row emitted by `list_practice_audit`. The jsonb `meta` bag is
- *  kind-specific; callers key into it defensively. */
+ *  kind-specific; callers key into it defensively.
+ *
+ *  Wave 40.1: `clientId` + `clientName` surface the client this row is
+ *  about. Plan-shaped rows derive via plans.client_id; client-shaped rows
+ *  surface their own id + name (tombstoned clients still emit a name);
+ *  practice-shaped rows (member.join, credit.purchase, referral.rebate, …)
+ *  carry NULL on both. */
 export type AuditRow = {
   ts: string;
   kind: string;
@@ -1247,6 +1253,8 @@ export type AuditRow = {
   balanceAfter: number | null;
   refId: string | null;
   meta: Record<string, unknown> | null;
+  clientId: string | null;
+  clientName: string | null;
 };
 
 /** Page of audit rows + total matching-filter count (same value on every
@@ -1354,6 +1362,8 @@ function mapAuditRow(r: Record<string, unknown>): AuditRow {
       meta && typeof meta === 'object' && !Array.isArray(meta)
         ? (meta as Record<string, unknown>)
         : null,
+    clientId: r.client_id ? String(r.client_id) : null,
+    clientName: r.client_name ? String(r.client_name) : null,
   };
 }
 
