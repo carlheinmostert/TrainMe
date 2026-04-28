@@ -8,6 +8,10 @@ import AVFoundation
   // the instance from being released and losing its method-call handler.
   private var videoConverter: VideoConverterChannel?
 
+  // Wave 40.5 — native haptic feedback channel. Bypasses iOS's suppression
+  // of Flutter HapticFeedback.* while AVCaptureSession holds the audio engine.
+  private var haptics: HomefitHapticsChannel?
+
   // Wave 4 Phase 2 — iOS AVAudioSession owner for the embedded
   // web-player WebView. Stored here so the handler isn't deallocated
   // the moment the `didFinishLaunchingWithOptions` scope ends.
@@ -197,6 +201,10 @@ import AVFoundation
     // Register the full video converter channel using the same messenger.
     // Stored on self so the handler registration persists for the app lifetime.
     videoConverter = VideoConverterChannel(messenger: messenger)
+
+    // Wave 40.5 — native haptics channel. UIImpactFeedbackGenerator fires
+    // even while the camera mic is hot, unlike Flutter's HapticFeedback.
+    haptics = HomefitHapticsChannel(messenger: messenger)
 
     // Wave 4 Phase 2 — audio-session owner for the unified preview
     // WebView. Without this, Silent-mode phones mute the embedded
