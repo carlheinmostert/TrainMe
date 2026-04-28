@@ -238,12 +238,15 @@ class ConversionService extends ChangeNotifier {
               done = done.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
 
               // Color thumbnail (used for original treatment).
+              // autoPick: false, grayscale: false — plain color frame, no
+              // body-focus segmentation. The "original" treatment means the
+              // unprocessed source. timeMs=500 to skip any black lead-in.
               final colorPath = p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
               await _thumbChannel.invokeMethod<String>('extractFrame', {
                 'inputPath': sourcePath,
                 'outputPath': colorPath,
-                'timeMs': 0,
-                'autoPick': true,
+                'timeMs': 500,
+                'autoPick': false,
                 'grayscale': false,
               }).timeout(const Duration(seconds: 30));
 
