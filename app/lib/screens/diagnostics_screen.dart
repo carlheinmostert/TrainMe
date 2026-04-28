@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config.dart';
 import '../services/auth_service.dart';
+import '../services/homefit_haptics.dart';
 import '../services/loud_swallow.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -347,6 +348,13 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   subtitle: 'Dump every pending op to the clipboard for debug',
                   onTap: () => _copyQueueContents(context),
                 ),
+                _Divider(),
+                _ActionRow(
+                  icon: Icons.vibration_rounded,
+                  label: 'Test haptics',
+                  subtitle: 'Fire each haptic type + report native engine state',
+                  onTap: () => _runHapticDiag(context),
+                ),
               ],
             ),
           ],
@@ -393,6 +401,49 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
       );
     // Re-run the probe so the Pending-ops row reflects the new depth.
     unawaited(_runPendingOpsProbe());
+  }
+
+  Future<void> _runHapticDiag(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final buf = StringBuffer();
+
+    // Run the native-side diagnostic (engine state + test fire).
+    buf.writeln('=== Native diagnose ===');
+    final diag = await HomefitHaptics.diagnose();
+    buf.writeln(diag);
+
+    // Fire each haptic type and report the result.
+    buf.writeln('\n=== Individual fires ===');
+    buf.writeln('selection: ${await HomefitHaptics.selection()}');
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    buf.writeln('light: ${await HomefitHaptics.light()}');
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    buf.writeln('medium: ${await HomefitHaptics.medium()}');
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    buf.writeln('heavy: ${await HomefitHaptics.heavy()}');
+
+    final report = buf.toString();
+    // Copy to clipboard so Carl can paste it.
+    await Clipboard.setData(ClipboardData(text: report));
+
+    if (!context.mounted) return;
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'Haptic report copied to clipboard.\n\n$report',
+            style: const TextStyle(
+              fontFamily: 'JetBrains Mono',
+              fontSize: 11,
+              color: AppColors.textOnDark,
+            ),
+          ),
+          backgroundColor: AppColors.surfaceRaised,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 12),
+        ),
+      );
   }
 
   /// Dump every pending op to the clipboard as human-readable text so

@@ -29,6 +29,7 @@ import CoreHaptics
 class HomefitHapticsChannel {
     private let channel: FlutterMethodChannel
     private var engine: CHHapticEngine?
+    private var lastError: String?
 
     init(messenger: FlutterBinaryMessenger) {
         channel = FlutterMethodChannel(
@@ -46,20 +47,23 @@ class HomefitHapticsChannel {
 
             switch call.method {
             case "lightImpact":
-                self.playTransient(intensity: 0.4, sharpness: 0.5)
-                result(nil)
+                let ok = self.playTransient(intensity: 0.4, sharpness: 0.5)
+                result(ok ? "ok" : self.lastError ?? "unknown")
 
             case "mediumImpact":
-                self.playTransient(intensity: 0.65, sharpness: 0.6)
-                result(nil)
+                let ok = self.playTransient(intensity: 0.65, sharpness: 0.6)
+                result(ok ? "ok" : self.lastError ?? "unknown")
 
             case "heavyImpact":
-                self.playTransient(intensity: 1.0, sharpness: 0.8)
-                result(nil)
+                let ok = self.playTransient(intensity: 1.0, sharpness: 0.8)
+                result(ok ? "ok" : self.lastError ?? "unknown")
 
             case "selectionClick":
-                self.playTransient(intensity: 0.3, sharpness: 0.9)
-                result(nil)
+                let ok = self.playTransient(intensity: 0.3, sharpness: 0.9)
+                result(ok ? "ok" : self.lastError ?? "unknown")
+
+            case "diagnose":
+                result(self.diagnose())
 
             default:
                 result(FlutterMethodNotImplemented)
@@ -70,7 +74,10 @@ class HomefitHapticsChannel {
     /// Create and start the CHHapticEngine. Called once at init and
     /// again if the engine stops (e.g. app backgrounding).
     private func startEngine() {
-        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else {
+        let hw = CHHapticEngine.capabilitiesForHardware()
+        guard hw.supportsHaptics else {
+            lastError = "hardware does not support haptics"
+            NSLog("[HomefitHaptics] supportsHaptics=false — device has no Taptic Engine")
             return
         }
 
@@ -78,33 +85,47 @@ class HomefitHapticsChannel {
             let eng = try CHHapticEngine()
             eng.playsHapticsOnly = true
 
-            // Auto-restart if the engine stops (backgrounding, etc.)
             eng.stoppedHandler = { [weak self] reason in
-                // Re-start on next play attempt.
+                NSLog("[HomefitHaptics] engine stopped: reason=%d", reason.rawValue)
                 self?.engine = nil
+                self?.lastError = "engine stopped (reason \(reason.rawValue))"
             }
             eng.resetHandler = { [weak self] in
+                NSLog("[HomefitHaptics] engine reset — restarting")
                 do {
                     try self?.engine?.start()
+                    NSLog("[HomefitHaptics] engine restarted OK")
                 } catch {
+                    NSLog("[HomefitHaptics] engine restart failed: %@", error.localizedDescription)
                     self?.engine = nil
+                    self?.lastError = "restart failed: \(error.localizedDescription)"
                 }
             }
 
             try eng.start()
             self.engine = eng
+            self.lastError = nil
+            NSLog("[HomefitHaptics] CHHapticEngine started OK")
         } catch {
             self.engine = nil
+            self.lastError = "engine start failed: \(error.localizedDescription)"
+            NSLog("[HomefitHaptics] engine start FAILED: %@", error.localizedDescription)
         }
     }
 
-    /// Fire a single transient haptic event.
-    private func playTransient(intensity: Float, sharpness: Float) {
-        // Lazy re-start if the engine was torn down.
+    /// Fire a single transient haptic event. Returns true if the event
+    /// was delivered to the engine without error.
+    @discardableResult
+    private func playTransient(intensity: Float, sharpness: Float) -> Bool {
         if engine == nil {
+            NSLog("[HomefitHaptics] engine nil — attempting restart")
             startEngine()
         }
-        guard let engine = engine else { return }
+        guard let engine = engine else {
+            lastError = lastError ?? "engine is nil after restart attempt"
+            NSLog("[HomefitHaptics] playTransient BAIL — engine still nil")
+            return false
+        }
 
         do {
             let event = CHHapticEvent(
@@ -118,8 +139,29 @@ class HomefitHapticsChannel {
             let pattern = try CHHapticPattern(events: [event], parameters: [])
             let player = try engine.makePlayer(with: pattern)
             try player.start(atTime: CHHapticTimeImmediate)
+            NSLog("[HomefitHaptics] playTransient OK (intensity=%.2f)", intensity)
+            lastError = nil
+            return true
         } catch {
-            // Non-fatal — haptic just doesn't fire this time.
+            lastError = "play failed: \(error.localizedDescription)"
+            NSLog("[HomefitHaptics] playTransient FAILED: %@", error.localizedDescription)
+            return false
         }
+    }
+
+    /// Diagnostic report — called from the Diagnostics screen via
+    /// the `diagnose` method channel call.
+    private func diagnose() -> String {
+        let hw = CHHapticEngine.capabilitiesForHardware()
+        var lines: [String] = []
+        lines.append("supportsHaptics: \(hw.supportsHaptics)")
+        lines.append("engine: \(engine != nil ? "alive" : "nil")")
+        lines.append("lastError: \(lastError ?? "none")")
+
+        // Try a test fire.
+        let testOk = playTransient(intensity: 1.0, sharpness: 0.8)
+        lines.append("testFire(heavy): \(testOk ? "OK" : "FAILED — \(lastError ?? "?")")")
+
+        return lines.joined(separator: "\n")
     }
 }

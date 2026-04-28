@@ -16,46 +16,58 @@ import 'package:flutter/services.dart';
 class HomefitHaptics {
   static const _channel = MethodChannel('homefit/haptics');
 
-  /// Light impact — subtle tap. Used for threshold cues (lock-zone
-  /// enter/exit) and stop-recording confirmation.
-  static Future<void> light() async {
-    if (kDebugMode) debugPrint('HomefitHaptics: firing lightImpact');
+  /// Light impact — subtle tap.
+  static Future<String> light() async {
     try {
-      await _channel.invokeMethod('lightImpact');
-    } catch (_) {
-      // Fallback for platforms without the native channel.
+      final r = await _channel.invokeMethod<String>('lightImpact');
+      return r ?? 'no-result';
+    } catch (e) {
       HapticFeedback.lightImpact();
+      return 'fallback: $e';
     }
   }
 
-  /// Medium impact — standard tap. Used for per-second recording ticks.
-  static Future<void> medium() async {
-    if (kDebugMode) debugPrint('HomefitHaptics: firing mediumImpact');
+  /// Medium impact — standard tap.
+  static Future<String> medium() async {
     try {
-      await _channel.invokeMethod('mediumImpact');
-    } catch (_) {
+      final r = await _channel.invokeMethod<String>('mediumImpact');
+      return r ?? 'no-result';
+    } catch (e) {
       HapticFeedback.mediumImpact();
+      return 'fallback: $e';
     }
   }
 
-  /// Heavy impact — strong thud. Used for recording-start and lock-engage.
-  static Future<void> heavy() async {
-    if (kDebugMode) debugPrint('HomefitHaptics: firing heavyImpact');
+  /// Heavy impact — strong thud.
+  static Future<String> heavy() async {
     try {
-      await _channel.invokeMethod('heavyImpact');
-    } catch (_) {
+      final r = await _channel.invokeMethod<String>('heavyImpact');
+      return r ?? 'no-result';
+    } catch (e) {
       HapticFeedback.heavyImpact();
+      return 'fallback: $e';
     }
   }
 
-  /// Selection click — crisp micro-tap. Used for shutter touch-down and
-  /// toolbar button taps.
-  static Future<void> selection() async {
-    if (kDebugMode) debugPrint('HomefitHaptics: firing selectionClick');
+  /// Selection click — crisp micro-tap.
+  static Future<String> selection() async {
     try {
-      await _channel.invokeMethod('selectionClick');
-    } catch (_) {
+      final r = await _channel.invokeMethod<String>('selectionClick');
+      return r ?? 'no-result';
+    } catch (e) {
       HapticFeedback.selectionClick();
+      return 'fallback: $e';
+    }
+  }
+
+  /// Full diagnostic — returns a multi-line report from the native side
+  /// including engine state + a test fire.
+  static Future<String> diagnose() async {
+    try {
+      final r = await _channel.invokeMethod<String>('diagnose');
+      return r ?? 'no-result';
+    } catch (e) {
+      return 'channel error: $e';
     }
   }
 }
