@@ -180,6 +180,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   // on auth.users INSERT drains it on first sign-in.
                   // New practices simply appear in the practice-switcher
                   // on the next Home render.
+                  // Legal — Privacy Policy + Terms of Service. Apple
+                  // App Review specifically rejects apps where the
+                  // privacy URL is only on the App Store listing —
+                  // there must be an in-app path too. Both rows open
+                  // the relevant page on `manage.homefit.studio` in
+                  // an in-app browser (Safari View Controller on iOS
+                  // via `LaunchMode.inAppBrowserView`) so the user
+                  // doesn't lose their app context. R-09: defaults
+                  // are obvious — the icon + label make the
+                  // destination clear without a subtitle.
+                  const SizedBox(height: 24),
+                  _SectionHeader(label: 'Legal'),
+                  _SettingsGroup(
+                    children: [
+                      _ActionRow(
+                        icon: Icons.shield_outlined,
+                        label: 'Privacy Policy',
+                        onTap: _signOutPending ? null : _openPrivacy,
+                      ),
+                      _Divider(),
+                      _ActionRow(
+                        icon: Icons.description_outlined,
+                        label: 'Terms of Service',
+                        onTap: _signOutPending ? null : _openTerms,
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 24),
                   _SectionHeader(label: 'About'),
                   _SettingsGroup(
@@ -389,6 +416,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SnackBar(
             content: const Text(
               "Couldn't open the portal. Try again shortly.",
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                color: AppColors.textOnDark,
+              ),
+            ),
+            backgroundColor: AppColors.surfaceRaised,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+    }
+  }
+
+  /// Opens the privacy policy in an in-app browser (Safari View
+  /// Controller on iOS). `inAppBrowserView` keeps the app in the
+  /// foreground so the practitioner doesn't lose context returning
+  /// from a privacy / terms read. Apple App Review explicitly
+  /// requires an in-app privacy URL; routing through the App Store
+  /// listing alone is not sufficient.
+  Future<void> _openPrivacy() async {
+    HapticFeedback.selectionClick();
+    await _openLegalUrl(
+      Uri.parse('https://manage.homefit.studio/privacy'),
+    );
+  }
+
+  Future<void> _openTerms() async {
+    HapticFeedback.selectionClick();
+    await _openLegalUrl(
+      Uri.parse('https://manage.homefit.studio/terms'),
+    );
+  }
+
+  /// Shared launcher for the two Legal rows. Tries the in-app
+  /// browser view first; on failure (no SFSafariViewController
+  /// available, mock plugin in tests) falls back to the external
+  /// browser. Surfaces the same SnackBar copy as the credits / portal
+  /// hand-offs for consistency.
+  Future<void> _openLegalUrl(Uri uri) async {
+    bool launched = false;
+    try {
+      launched = await launchUrl(
+        uri,
+        mode: LaunchMode.inAppBrowserView,
+      );
+    } catch (_) {
+      launched = false;
+    }
+    if (!launched) {
+      try {
+        launched = await launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,
+        );
+      } catch (_) {
+        launched = false;
+      }
+    }
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text(
+              "Couldn't open the page. Try again shortly.",
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 14,
