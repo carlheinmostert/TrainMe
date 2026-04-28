@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Device QA — Wave 39 Bundle (sticky defaults + photo refresh + audit prepaid + plan opens)</title>
+<title>Device QA — Wave 39 Bundle (sticky defaults + photo refresh + audit prepaid + plan opens + reachability)</title>
 <style>
   :root {
     --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
@@ -177,6 +177,77 @@
         <li data-sub="9.2">Actor column for the row reads <strong>&quot;Client&quot;</strong> in muted text (not &quot;&mdash;&quot;, not blank). Anon web-player calls have no auth.uid().</li>
         <li data-sub="9.3">The Link column for the row points to the Player URL (same as <code>plan.publish</code> rows).</li>
         <li data-sub="9.4">Filter chip group: in the audit filter bar, expand &quot;Credits in&quot; (the sage group). <code>plan.opened</code> appears in that group&apos;s chip list. Toggle it on &mdash; only the engagement rows surface.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>E &middot; Reachability drop-pill (Item 5)</h2>
+  <ul class="checklist">
+    <li data-num="10" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&times;</button></div>
+      <span class="num">10.</span>
+      <span class="text">Pill appears in Studio when the list scrolls (3+ exercises). Bottom-right, above the toolbar, coral 36&times;36pt.</span>
+      <ol class="steps">
+        <li data-sub="10.1">Open a session with 3+ exercises (or capture enough to overflow the viewport). Studio mode visible.</li>
+        <li data-sub="10.2">Look at the bottom-right of the exercise list area. A coral 36&times;36pt circular pill is visible, with a downward arrow glyph in white. ~12pt clearance above the bottom toolbar.</li>
+        <li data-sub="10.3">Pill does NOT overlap the toolbar buttons (Back / Preview / Publish / Share). Pill sits cleanly above.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="11" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&times;</button></div>
+      <span class="num">11.</span>
+      <span class="text">Pill does NOT appear when the list fits without scroll (1-2 exercises).</span>
+      <ol class="steps">
+        <li data-sub="11.1">Open a session with just 1 or 2 exercises (or delete cards until the list fits the viewport with no scroll).</li>
+        <li data-sub="11.2">Bottom-right area has NO pill. Reachability is irrelevant when everything is already visible.</li>
+        <li data-sub="11.3">Add a third exercise (or whatever pushes the list past the viewport). Pill appears within a frame or two of the new card landing.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="12" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&check;</button><button class="fail" type="button" aria-label="Fail 12">&times;</button></div>
+      <span class="num">12.</span>
+      <span class="text">Tap pill &mdash; list slides down ~50% of screen, ease-out, ~200ms.</span>
+      <ol class="steps">
+        <li data-sub="12.1">With pill visible, tap it once.</li>
+        <li data-sub="12.2">The whole exercise list slides DOWN by roughly half the available viewport height. Animation is smooth ease-out, ~200ms duration. No jank.</li>
+        <li data-sub="12.3">Pill glyph swaps from down-arrow to UP-arrow (it now reads "ready to reset"). Pill itself stays anchored bottom-right (does NOT move with the list).</li>
+        <li data-sub="12.4">Top-of-list cards (item 1, item 2) are now in the lower half of the screen &mdash; in thumb-zone reach.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="13" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&check;</button><button class="fail" type="button" aria-label="Fail 13">&times;</button></div>
+      <span class="num">13.</span>
+      <span class="text">Tap pill again &mdash; list resets up.</span>
+      <ol class="steps">
+        <li data-sub="13.1">From the latched-down state in item 12, tap the pill again.</li>
+        <li data-sub="13.2">List slides back UP to its default position. Same 200ms ease-out.</li>
+        <li data-sub="13.3">Pill glyph swaps back to the DOWN-arrow.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="14" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&check;</button><button class="fail" type="button" aria-label="Fail 14">&times;</button></div>
+      <span class="num">14.</span>
+      <span class="text">With pill latched: tapping any exercise card resets the position before the card opens.</span>
+      <ol class="steps">
+        <li data-sub="14.1">Latch the list down via the pill (tap once).</li>
+        <li data-sub="14.2">Tap any exercise card body. The list slides BACK UP simultaneously with the card's expand animation. The card opens to its expanded state in its DEFAULT position (not in thumb zone).</li>
+        <li data-sub="14.3">Pill glyph is back to the DOWN-arrow.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="15" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 15">&check;</button><button class="fail" type="button" aria-label="Fail 15">&times;</button></div>
+      <span class="num">15.</span>
+      <span class="text">With pill latched: scrolling up by even a small amount resets the position.</span>
+      <ol class="steps">
+        <li data-sub="15.1">Latch the list down via the pill.</li>
+        <li data-sub="15.2">Scroll the list with a small upward flick or drag (~30pt). The list snaps back to its default position. Pill glyph swaps to DOWN-arrow.</li>
+        <li data-sub="15.3">Bonus: lock + foreground the app from background (home button + reopen Homefit). After resume, the list is at default position regardless of where it was when backgrounded.</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
