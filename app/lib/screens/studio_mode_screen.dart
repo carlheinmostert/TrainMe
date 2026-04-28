@@ -481,6 +481,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       final seqAtEvent = _conversionSeq;
       final exercises = List<ExerciseCapture>.from(_session.exercises);
       final idx = exercises.indexWhere((e) => e.id == updated.id);
+      // DIAGNOSTIC: show which path fires for the last exercise.
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(SnackBar(
+            content: Text(
+              'Conv[${updated.id.substring(0, 6)}]: idx=$idx, list=${exercises.length}, status=${updated.conversionStatus}',
+              style: const TextStyle(fontFamily: 'JetBrains Mono', fontSize: 11),
+            ),
+            duration: const Duration(seconds: 5),
+            behavior: SnackBarBehavior.floating,
+          ));
+      }
       if (idx >= 0) {
         exercises[idx] = updated;
         setState(() {
@@ -488,11 +501,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         });
         unawaited(_reconcileFromStorage(updated, seqAtEvent));
       } else {
-        // Exercise not in our list yet — the parent's async refresh
-        // hasn't pushed it. Fast photo conversions (~200ms) outrace
-        // the parent's SQLite read. Fix: read the session from SQLite
-        // ourselves (the exercise IS there — capture mode saved it)
-        // and append it with the fresh conversion state.
         unawaited(_fetchAndAppendMissing(updated));
       }
     });
