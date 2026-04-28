@@ -145,6 +145,16 @@ export type PracticeClient = {
   videoConsent: ClientVideoConsent;
   /** ISO timestamp of the client's most recent plan activity. Null when none. */
   lastPlanAt: string | null;
+  /**
+   * Wave 40.4 — short-lived signed URL for the body-focus avatar JPG
+   * stored in the private `raw-archive` bucket at
+   * `{practice_id}/{client_id}/avatar.png`. Minted server-side via
+   * `sign_storage_url('raw-archive', avatar_path, 3600)`. Null when the
+   * client has no avatar (UI falls back to initials) or when vault
+   * secrets are absent. Treat as opaque — DO NOT cache across renders;
+   * the URL expires in 1 hour.
+   */
+  avatarUrl: string | null;
 };
 
 /**
@@ -157,6 +167,8 @@ export type ClientDetail = {
   id: string;
   name: string;
   videoConsent: ClientVideoConsent;
+  /** Wave 40.4 — see `PracticeClient.avatarUrl`. Same shape, same caveats. */
+  avatarUrl: string | null;
 };
 
 /**
@@ -463,6 +475,14 @@ export class PortalApi {
       name: String(r.name ?? ''),
       videoConsent: normaliseConsent(r.video_consent),
       lastPlanAt: r.last_plan_at ? String(r.last_plan_at) : null,
+      // Wave 40.4 — signed URL minted by the RPC. NULL when the client has
+      // no avatar yet, or when the vault secrets that back sign_storage_url
+      // are absent. Don't fall back to a constructed public URL — the
+      // bucket is private by design.
+      avatarUrl:
+        typeof r.avatar_url === 'string' && r.avatar_url.length > 0
+          ? r.avatar_url
+          : null,
     }));
   }
 
@@ -483,6 +503,11 @@ export class PortalApi {
       id: String(row.id ?? ''),
       name: String(row.name ?? ''),
       videoConsent: normaliseConsent(row.video_consent),
+      // Wave 40.4 — see `listPracticeClients` for the contract.
+      avatarUrl:
+        typeof row.avatar_url === 'string' && row.avatar_url.length > 0
+          ? row.avatar_url
+          : null,
     };
   }
 
