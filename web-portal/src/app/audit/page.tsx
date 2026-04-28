@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -17,6 +18,7 @@ import {
   type KindOption,
 } from '@/components/AuditFilterBar';
 import { AuditCsvButton } from '@/components/AuditCsvButton';
+import { ClientTime } from '@/components/ClientTime';
 import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
 
 /**
@@ -289,7 +291,7 @@ function AuditTableRow({
   return (
     <tr>
       <td className="whitespace-nowrap px-4 py-3 text-ink-muted">
-        {fmtDate(row.ts)}
+        <ClientTime ts={row.ts} />
       </td>
       <td className="px-4 py-3">
         {row.email ? (
@@ -349,15 +351,24 @@ function AuditTableRow({
  *    2. credit.consumption + title='unlock_plan_for_edit':
  *         - matched publish in this page → "Used at {publish ts}"
  *         - no match → "Awaiting republish"
- *    Returns null otherwise. */
+ *    Returns null otherwise.
+ *
+ *  Wave 39.4 — return type widened to ReactNode so the embedded timestamp
+ *  can render via <ClientTime> (browser-local TZ post-hydration) instead
+ *  of a UTC-pinned string. The single caller renders the result as a JSX
+ *  child, which accepts ReactNode natively. */
 function buildSubtitle(
   row: AuditRow,
   publishTsForUnlock: string | null,
-): string | null {
+): ReactNode {
   if (row.kind === 'plan.publish') {
     const prepaid = row.meta?.prepaid_unlock_at;
     if (typeof prepaid === 'string' && prepaid.length > 0) {
-      return `Prepaid via unlock at ${fmtDate(prepaid)}`;
+      return (
+        <>
+          Prepaid via unlock at <ClientTime ts={prepaid} />
+        </>
+      );
     }
     return null;
   }
@@ -367,7 +378,11 @@ function buildSubtitle(
     row.title === 'unlock_plan_for_edit'
   ) {
     if (publishTsForUnlock) {
-      return `Used at ${fmtDate(publishTsForUnlock)}`;
+      return (
+        <>
+          Used at <ClientTime ts={publishTsForUnlock} />
+        </>
+      );
     }
     return 'Awaiting republish';
   }
@@ -545,24 +560,6 @@ function buildOffsetHref(baseQs: string, offset: number): string {
   if (offset > 0) p.set('offset', String(offset));
   else p.delete('offset');
   return `?${p.toString()}`;
-}
-
-function fmtDate(iso: string): string {
-  // Wave 39.2 — render in UTC for predictability. The earlier
-  // Africa/Johannesburg pin was reverted because Carl's iPhone (which
-  // emits the publish/issued_at timestamps via Dart) appears to be on
-  // UTC, so SA-pinned rendering produced wall times 2h ahead of his
-  // device clock. Until per-viewer-TZ rendering ships (client component
-  // + browser-local Intl), UTC is the least-confusing common ground.
-  try {
-    return new Date(iso).toLocaleString('en-ZA', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-      timeZone: 'UTC',
-    });
-  } catch {
-    return iso;
-  }
 }
 
 function fmtCreditDelta(n: number): string {
