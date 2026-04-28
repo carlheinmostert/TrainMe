@@ -2,41 +2,48 @@
 """
 Render the homefit.studio iOS app icon set.
 
-Design (v6): same 3×3 grid + sage centre as v5, but with looser
-vertical spacing so the matrix bounding box reads as a square block
-on a phone home screen instead of a horizontal stripe.
+Design (v7): 3×3 grid + sage centre, with SQUARE pills (5×5) so the
+bounding box is a true 1:1 block on a phone home screen.
 
-Why v6: pills are canonical 5×3 (5 wide, 3 tall). v5 kept the
-canonical row spacing dy=4.5, which gives a bounding box of 18 wide
-× 12 tall — a 3:2 horizontal stripe that, at icon scale on iOS,
-reads as "wider than it is high". v6 bumps dy from 4.5 → 5.5,
-giving an 18 × 14 box (1.29:1) — still slightly wider than tall but
-close enough to square that the matrix reads as a balanced block.
-Three-way preview comparison ruled out alternatives: dy=7.5 was too
-airy (pills swam in vertical white space), and dx=5.5 + dy=6.5
-collapsed pills into bars. The "mid" variant (dy=5.5, everything
-else unchanged) was selected.
+Why v7 — and the deliberate brand divergence: pills are canonical
+5×3 (5 wide, 3 tall) in the matrix logo across web and mobile. With
+canonical pills, a 3×3 grid can never form a square bounding box at
+any reasonable spacing — v5 (dy=4.5) gave an 18×12 stripe (3:2),
+and v6 (dy=5.5) bumped that to 18×14 (1.29:1). Carl tested v6 on
+his iPhone home screen and reported it STILL read wider than tall.
+Comparing four candidates (square via vertical gaps, square pills,
+square + bigger pills, rotate to vertical pills), Carl picked
+"square pills, bigger" — break the canonical 5:3 aspect ratio in
+the icon surface ONLY so the grid is a clean 1:1 block.
 
-Centre pill stays sage `#86EFAC` — the centre-sage composition from
-v5 mirrors the matrix logo's "circuit + rest" rhythm cue inside a
+This is a deliberate, scoped brand divergence: the matrix logo
+elsewhere (Flutter app, web portal, web player) keeps its canonical
+5:3 pills. The icon surface gets square pills because a square
+bounding box is load-bearing for an iOS app icon. Standard practice
+for app icons — geometry adapts to the square frame; the rest of
+the brand system stays intact.
+
+v7 geometry: PILL_H raised 3.0 → 5.0 (square 5×5), and ROW_YS
+spaced dy=6.5 (was dy=5.5) so the vertical gap between pills
+matches the horizontal gap. Bounding box becomes 18 wide × 18 tall
+— a true 1:1 square block. Horizontal cadence dx=6.5 unchanged.
+
+Centre pill stays sage `#86EFAC` — the centre-sage composition
+mirrors the matrix logo's "circuit + rest" rhythm cue inside a
 square footprint. Centre placement is the most balanced, iconic
-choice; bottom-right would read as a sequential narrative (works in
-the wide matrix logo, not in a square icon).
+choice; bottom-right would read as a sequential narrative (works
+in the wide matrix logo, not in a square icon).
 
-Everything else identical to v5: pill geometry (5×3, rx=1),
-horizontal spacing (dx=6.5), dark surface `#0F1117`, ~75% canvas
-target width.
+Unchanged from v6: pill colours (coral + sage), pill rx=1, dark
+surface `#0F1117`, ~75% canvas target width, dx=6.5 horizontal
+cadence, COL_XS unchanged.
 
-Geometry extends the canonical 2×2 from the matrix logo by adding a
-third aligned row and column. The 2×2 lives at x ∈ {15, 21.5} and
-y ∈ {2, 6.5}; v6 places the third column at x = 28.0 and the third
-row at y = 13.0 (v5 had y = 11.0). Horizontal cadence is canonical
-(dx = 6.5); vertical cadence is loosened to dy = 5.5 for icon
-proportion.
 Source-of-truth canonical spacing is documented in:
   - app/lib/widgets/homefit_logo.dart            (Flutter)
   - web-portal/src/components/HomefitLogo.tsx    (TS)
   - web-player/app.js  buildHomefitLogoSvg()     (web)
+Those three sites keep canonical 5:3 pills; the divergence is
+scoped to this renderer / the iOS icon set only.
 Brand tokens copied from docs/design/project/tokens.json.
 
 Outputs:
@@ -64,28 +71,35 @@ SURFACE_BG = (0x0F, 0x11, 0x17)   # surface.dark.bg
 
 
 # ---------------------------------------------------------------------------
-# 3×3 grid geometry (extends canonical 2×2 by one row + one column)
+# 3×3 grid geometry (icon-only divergence: square pills, true 1:1 block)
 # ---------------------------------------------------------------------------
-# Pill geometry verbatim from homefit_logo.dart / HomefitLogo.tsx /
-# buildHomefitLogoSvg(): w=5.0, h=3.0, rx=1.0. Horizontal cadence is
-# the canonical aligned-grid spacing dx=6.5 across columns. The 2×2
-# block sits at x ∈ {15.0, 21.5}, y ∈ {2.0, 6.5}; the third column
-# lives at x=28.0.
+# v7: PILL_H raised 3.0 → 5.0 — square pills, breaking the canonical
+# 5:3 aspect ratio ON THE ICON SURFACE ONLY. The matrix logo on web
+# and mobile keeps the canonical 5×3 pills (homefit_logo.dart /
+# HomefitLogo.tsx / buildHomefitLogoSvg()); a 3×3 grid of those can't
+# form a 1:1 bounding box at reasonable spacing, and Carl tested v6
+# (dy=5.5, 1.29:1 box) on device — it still read wider than tall.
+# Square pills give a clean 1:1 grid block, which is load-bearing for
+# an iOS app icon.
 #
-# v6: row spacing loosened from canonical dy=4.5 to dy=5.5 so the
-# 18×14 bounding box reads as a square block at icon scale (the
-# canonical dy=4.5 gave an 18×12 stripe that read as "wider than it
-# is high" on a phone home screen). Third row therefore sits at
-# y=13.0 (was 11.0 in v5). Horizontal cadence stays canonical.
+# Horizontal cadence dx=6.5 unchanged, so COL_XS is also unchanged.
+# Vertical cadence raised dy=5.5 → 6.5 so the inter-row gap matches
+# the inter-column gap (1.5 source units in both axes with 5×5
+# pills). Third row therefore sits at y=15.0 (was 13.0 in v6, 11.0
+# in v5).
 #
-# v5/v6: the centre cell — (COL_XS[1], ROW_YS[1]) — is rendered sage
-# to echo the matrix logo's circuit+rest rhythm.
+# Bounding box: 18 wide (3×dx + pill_w − dx = 3·6.5 + 5 − 6.5 = 18)
+#             × 18 tall (3×dy + pill_h − dy = 3·6.5 + 5 − 6.5 = 18)
+# — a true 1:1 square.
+#
+# Centre cell (COL_XS[1], ROW_YS[1]) is rendered sage to echo the
+# matrix logo's circuit+rest rhythm.
 
 PILL_W = 5.0
-PILL_H = 3.0
+PILL_H = 5.0                   # v7: square pills (was 3.0) — icon-only divergence from canonical 5:3
 PILL_RX = 1.0
-COL_XS = [15.0, 21.5, 28.0]   # dx = 6.5 (canonical)
-ROW_YS = [2.0, 7.5, 13.0]     # dy = 5.5 (v6: loosened from canonical 4.5)
+COL_XS = [15.0, 21.5, 28.0]    # dx = 6.5 (canonical, unchanged)
+ROW_YS = [2.0, 8.5, 15.0]      # dy = 6.5 (v7: raised from 5.5 so vertical gap matches horizontal)
 
 # Centre of 3×3 — middle row, middle column.
 SAGE_CELL = (COL_XS[1], ROW_YS[1])
@@ -106,15 +120,17 @@ ICON_PX = 1024
 
 
 def render_master() -> Image.Image:
-    """Render the canonical 1024×1024 master icon — 3×3 grid with centre sage (v6)."""
+    """Render the canonical 1024×1024 master icon — 3×3 grid with centre sage (v7)."""
     img = Image.new("RGB", (ICON_PX, ICON_PX), SURFACE_BG)
     draw = ImageDraw.Draw(img)
 
-    # v6 — same 3×3 grid + centre-sage as v5, but row spacing dy is
-    # loosened from canonical 4.5 to 5.5 so the bounding box reads as
-    # a near-square block (18×14, 1.29:1) instead of the 3:2 stripe
-    # that v5 produced. Same target frac (~75% of canvas width), same
-    # pill geometry, same horizontal dx=6.5.
+    # v7 — square 5×5 pills give a true 1:1 bounding box (18×18 in
+    # source units). Carl's v6 device test still read wider-than-tall
+    # because canonical 5:3 pills can't form a square grid at any
+    # reasonable spacing; v7 abandons the canonical pill aspect on
+    # this icon surface only so the matrix lands as a clean square
+    # block. Same target frac (~75% of canvas width), same horizontal
+    # dx=6.5, same coral / sage / dark surface tokens.
     #
     # Centre on the actual pill bounding box, not any source-viewbox
     # window — the bounding box IS the composition.
@@ -124,7 +140,7 @@ def render_master() -> Image.Image:
     pill_y_min = min(p[1] for p in PILLS)
     pill_y_max = max(p[1] + p[3] for p in PILLS)
     pill_w = pill_x_max - pill_x_min  # 18.0 source units (3 cols × dx 6.5 + pill 5.0 - dx)
-    pill_h = pill_y_max - pill_y_min  # 14.0 source units (v6: 2 × dy 5.5 + pill 3.0)
+    pill_h = pill_y_max - pill_y_min  # 18.0 source units (v7: 2 × dy 6.5 + pill 5.0 — square)
 
     target_frac = 0.75
     target_w_px = ICON_PX * target_frac
