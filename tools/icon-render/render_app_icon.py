@@ -100,22 +100,47 @@ def render_master() -> Image.Image:
     img = Image.new("RGBA", (ICON_PX, ICON_PX), (*SURFACE_BG, 255))
     draw = ImageDraw.Draw(img)
 
-    # Crop window in source units (centre slice of the canonical matrix).
-    crop_x0, crop_y0, crop_x1, crop_y1 = 9.0, 1.0, 39.0, 9.5
+    # Horizontal crop window in source units (centre slice of the canonical
+    # matrix). We crop to source x ∈ [9, 39] which keeps inner ghost pill →
+    # 2×2 coral circuit → sage rest → inner ghost pill. The full 48-wide
+    # matrix is too wide (~5:1) for a square icon; this slice reads as the
+    # brand promise. Vertical placement is driven by the pill bounding box
+    # (see below), not a y-crop, so the matrix sits on the optical centre.
+    crop_x0, crop_x1 = 9.0, 39.0
     crop_w = crop_x1 - crop_x0
-    crop_h = crop_y1 - crop_y0
 
-    # Target the matrix to fill ~84% of the icon width. The home-screen
-    # rounded-square mask trims roughly the outer 8% per side, so 84%
-    # keeps the inner ghost pills (x=9, x=34.5) safely inside the visible
-    # area while letting the coral 2×2 + sage rest dominate the icon.
-    target_frac = 0.84
+    # v2 — Carl feedback on the v1 render (target_frac=0.84, vertical
+    # offset using crop-window centring): pills read as "tiny dots" at
+    # the 60×60 home-screen size, and the matrix sat noticeably below
+    # optical centre. Two changes:
+    #
+    #   1. Scale up. Carl's Option A targets ~70% canvas WIDTH, with an
+    #      explicit escalation rule: bump to 80% if pills still read tiny
+    #      at 60×60. At 70% the home-screen variant still reads as faint
+    #      dots so we ship at 80% — leaves the safe-area margin Apple's
+    #      home-screen mask wants while putting visible mass behind the
+    #      matrix at every size.
+    #   2. Recentre vertically using the PILL bounding box, not the crop
+    #      window. The crop window y∈[1, 9.5] has empty padding at the top
+    #      that the pills don't fill (topmost pill row starts at y=2.0).
+    #      Centring the crop window therefore pushes the pills below the
+    #      optical axis. We compute the actual pill y-extent of pills that
+    #      survive the x-crop and centre on that — so visual mass sits on
+    #      the canvas midline.
+    target_frac = 0.80
     target_w_px = ICON_PX * target_frac
     scale = target_w_px / crop_w  # source-unit → px
 
-    rendered_h = crop_h * scale
+    visible_pills = [
+        p for p in PILLS if not (p[0] + p[2] <= crop_x0 or p[0] >= crop_x1)
+    ]
+    pill_y_min = min(p[1] for p in visible_pills)
+    pill_y_max = max(p[1] + p[3] for p in visible_pills)
+    pill_h = pill_y_max - pill_y_min
+    rendered_pill_h = pill_h * scale
+
     offset_x = (ICON_PX - target_w_px) / 2 - crop_x0 * scale
-    offset_y = (ICON_PX - rendered_h) / 2 - crop_y0 * scale
+    offset_y = (ICON_PX - rendered_pill_h) / 2 - pill_y_min * scale
 
     def to_px(x: float, y: float) -> tuple[float, float]:
         return (offset_x + x * scale, offset_y + y * scale)
