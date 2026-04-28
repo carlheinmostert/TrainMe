@@ -276,6 +276,24 @@ class UnifiedPreviewSchemeBridge {
       'include_audio': e.includeAudio,
       'custom_duration_seconds': e.customDurationSeconds,
       'prep_seconds': e.prepSeconds,
+      // Wave 37 hotfix — coerce null to the canonical 15s breather default
+      // here the same as `local_player_server.dart` does. Pre-Milestone-Q
+      // exercises (created before 2026-04-23 when `withPersistenceDefaults`
+      // started seeding 15s) carry a null in local SQLite; the web player
+      // treats null as 0, which makes the rep-block stack skip rest blocks
+      // entirely. This bridge is the active path (`kUseShelfFallback=false`),
+      // so the original W37 fix in the shelf server was a no-op for the
+      // Preview Plan button — Carl's flagged regression. Mirror the
+      // canonical default here so the active path matches.
+      'inter_set_rest_seconds': e.interSetRestSeconds ?? 15,
+      // Wave 20 / Milestone X — soft-trim window. Both null = no trim,
+      // full clip plays. Both set = the bundle clamps `<video>.currentTime`
+      // to [start, end] and loops within that window.
+      'start_offset_ms': e.startOffsetMs,
+      'end_offset_ms': e.endOffsetMs,
+      // Wave 28 — landscape orientation metadata.
+      'aspect_ratio': e.aspectRatio,
+      'rotation_quarters': e.rotationQuarters,
       'preferred_treatment': e.preferredTreatment?.wireValue,
       'line_drawing_url': lineUrl,
       'grayscale_url':
