@@ -807,7 +807,22 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // immediately, even if the controller takes a moment to actually
     // start writing. Use heavy impact via native channel — Flutter's
     // HapticFeedback is suppressed while AVCaptureSession holds the mic.
-    HomefitHaptics.heavy();
+    //
+    // DIAGNOSTIC (Wave 40.6 debug): await the result and surface it
+    // so Carl can see if the native channel reports "ok" or an error
+    // specifically during camera use. Remove after diagnosis.
+    final hapticResult = await HomefitHaptics.heavy();
+    debugPrint('HAPTIC_DIAG _startVideoRecording heavy => $hapticResult');
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: Text('Haptic: $hapticResult',
+            style: const TextStyle(fontFamily: 'Inter', fontSize: 13)),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
 
     // Snapshot orientation at the first frame and lock the surface to
     // it. AVFoundation embeds `videoOrientation` once at recording
