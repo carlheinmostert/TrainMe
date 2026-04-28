@@ -75,10 +75,13 @@ class StudioModeScreen extends StatefulWidget {
 }
 
 class _StudioModeScreenState extends State<StudioModeScreen>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   late Session _session;
   late ConversionService _conversionService;
   StreamSubscription<ExerciseCapture>? _conversionSub;
+  Timer? _conversionPollTimer;
   final ImagePicker _picker = ImagePicker();
 
   /// Shared ticker that drives the coral-halo breathing on every idle
@@ -481,19 +484,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       final seqAtEvent = _conversionSeq;
       final exercises = List<ExerciseCapture>.from(_session.exercises);
       final idx = exercises.indexWhere((e) => e.id == updated.id);
-      // DIAGNOSTIC: show which path fires for the last exercise.
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(SnackBar(
-            content: Text(
-              'Conv[${updated.id.substring(0, 6)}]: idx=$idx, list=${exercises.length}, status=${updated.conversionStatus}',
-              style: const TextStyle(fontFamily: 'JetBrains Mono', fontSize: 11),
-            ),
-            duration: const Duration(seconds: 5),
-            behavior: SnackBarBehavior.floating,
-          ));
-      }
       if (idx >= 0) {
         exercises[idx] = updated;
         setState(() {
@@ -1286,6 +1276,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin
     // R-09: Studio is portrait-only — bottom-anchored one-handed reach.
     //
     // Wave 38 — AppBar retired. Top of Studio is the exercise list with
