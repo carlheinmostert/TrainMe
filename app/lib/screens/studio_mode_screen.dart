@@ -2161,9 +2161,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       );
     } else if (response['reason'] == 'insufficient_credits') {
       final balance = response['balance'];
+      // Apple Reader-App compliance (Guideline 3.1.1): the previous
+      // copy ended with "Buy more via manage.homefit.studio." which
+      // points at the web purchase page from inside the app. Reviewers
+      // treat that as a 3.1.1 nudge. The shorter line below states the
+      // shortfall and stops there.
       _showPublishErrorSnackBar(
-        'Not enough credits to unlock. Balance: ${balance ?? 0}. '
-        'Buy more via manage.homefit.studio.',
+        'Not enough credits to unlock. Balance: ${balance ?? 0}.',
       );
     } else {
       _showPublishErrorSnackBar('Unlock failed: ${response['reason'] ?? 'unknown'}');

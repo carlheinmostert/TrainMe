@@ -214,8 +214,14 @@ class PublishResult {
       final names = missingFiles!.join(', ');
       s = 'Missing local file(s) for exercise(s): $names';
     } else if (isInsufficientCredits) {
-      s = 'Practice has $balance credits, need $required. '
-          'Buy more via manage.homefit.studio.';
+      // Apple Reader-App compliance (Guideline 3.1.1): error copy may
+      // not direct the practitioner to an external purchase flow.
+      // Previously read "...Buy more via manage.homefit.studio." which
+      // a reviewer could fairly read as steering toward web payment.
+      // The shorter line below states the fact and stops there; the
+      // zero-balance hint on Home carries the only mention of the
+      // top-up URL, as plain text.
+      s = 'Practice has $balance credits, need $required.';
     } else if (isUnconsentedTreatments) {
       final u = unconsented!;
       s = '${u.clientName} has not consented to '

@@ -520,8 +520,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   // they read as peers on the identity line.
                   Spacer(),
                   // Wave 29 — credit balance for the active practice.
-                  // Tap → opens manage.homefit.studio/credits with
-                  // ?practice=<uuid> so the portal lands in context.
+                  // Apple Reader-App compliance: this chip is
+                  // informational only; it never opens a payment page.
+                  // At zero balance it expands inline to a plain-text
+                  // "you're out of credits, top up at manage.homefit.studio
+                  // when you're at your computer" sentence (no
+                  // hyperlink). See [HomeCreditsChip] for the rationale.
                   HomeCreditsChip(),
                 ],
               ),
