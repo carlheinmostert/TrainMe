@@ -75,7 +75,7 @@ class StudioModeScreen extends StatefulWidget {
 }
 
 class _StudioModeScreenState extends State<StudioModeScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late Session _session;
   late ConversionService _conversionService;
   StreamSubscription<ExerciseCapture>? _conversionSub;
@@ -131,6 +131,31 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// every list build via `_pruneRowKeys`.
   final Map<String, GlobalKey> _rowKeys = {};
 
+  /// Wave 39 (Item 5) — reachability drop-pill state.
+  ///
+  /// One-handed-reach affordance: a coral pill bottom-right of the list
+  /// pulls the entire list down ~50% so the top-of-list cards land in
+  /// the practitioner's thumb zone. Latched by tap; resets on a second
+  /// tap, any card tap, an upward scroll, or a foreground cycle.
+  ///
+  /// `_scrollController` is the ReorderableListView's controller. We
+  /// own it here so the scroll listener can both (a) detect when the
+  /// list has anything to scroll (gates pill visibility) and (b) detect
+  /// the >20pt upward scroll that resets a latched drop.
+  ///
+  /// `_canShowReachabilityPill` mirrors `position.maxScrollExtent > 0`,
+  /// updated via the scroll listener and a post-frame callback after
+  /// every build (the list's content can grow / shrink as the
+  /// practitioner adds and deletes cards).
+  ///
+  /// `_lastReachabilityScrollPx` tracks the last seen pixel offset so
+  /// the listener can compute deltas without misfiring on the
+  /// post-latch jump that may be queued by the list's own physics.
+  final ScrollController _scrollController = ScrollController();
+  bool _isReachabilityLatched = false;
+  bool _canShowReachabilityPill = false;
+  double _lastReachabilityScrollPx = 0;
+
   @override
   void initState() {
     super.initState();
@@ -145,6 +170,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
+    // Wave 39 (Item 5) — observe lifecycle so a foreground cycle
+    // resets the reachability drop. Scroll listener gates pill
+    // visibility + watches for the >20pt upward scroll reset trigger.
+    WidgetsBinding.instance.addObserver(this);
+    _scrollController.addListener(_onReachabilityScroll);
     // Wave 18.7 — prime the sticky per-rep cache for this session's
     // client so the DURATION PER REP control can seed Manual from the
     // client's last-used value (not just the hard-coded 5s).
@@ -194,7 +224,73 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     _conversionSub?.cancel();
     _lockTimer?.cancel();
     _pulseController.dispose();
+    // Wave 39 (Item 5) — unwire reachability hooks before super.
+    WidgetsBinding.instance.removeObserver(this);
+    _scrollController.removeListener(_onReachabilityScroll);
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Wave 39 (Item 5) — reset the reachability latch when the app
+  /// returns from background. Any state that survived suspension is
+  /// stale relative to the practitioner's new mental model: they
+  /// re-enter Studio expecting the list to be at its default position.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed && _isReachabilityLatched) {
+      setState(() => _isReachabilityLatched = false);
+    }
+  }
+
+  /// Wave 39 (Item 5) — single scroll listener wired to
+  /// `_scrollController`. Two responsibilities:
+  ///
+  ///   1. Gate the pill's visibility — show it only when the list has
+  ///      something to scroll. `maxScrollExtent <= 0` means everything
+  ///      already fits; reachability is irrelevant.
+  ///   2. Detect upward-scroll reset of an active latch. While
+  ///      latched, any drop in `pixels` greater than 20pt unlatches.
+  ///      The 20pt threshold filters out tiny physics-driven settle
+  ///      jitter without missing a deliberate flick.
+  void _onReachabilityScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    final canScroll = pos.maxScrollExtent > 0;
+    if (canScroll != _canShowReachabilityPill) {
+      setState(() => _canShowReachabilityPill = canScroll);
+    }
+    final px = pos.pixels;
+    if (_isReachabilityLatched && (_lastReachabilityScrollPx - px) > 20) {
+      setState(() => _isReachabilityLatched = false);
+    }
+    _lastReachabilityScrollPx = px;
+  }
+
+  /// Wave 39 (Item 5) — reset the latch from any "user interacted with
+  /// the list" path: a card tap. Idempotent so call sites can fire it
+  /// freely.
+  void _resetReachability() {
+    if (!_isReachabilityLatched) return;
+    setState(() => _isReachabilityLatched = false);
+  }
+
+  /// Wave 39 (Item 5) — toggle the reachability latch from a pill tap.
+  void _toggleReachability() {
+    setState(() => _isReachabilityLatched = !_isReachabilityLatched);
+  }
+
+  /// Wave 39 (Item 5) — recompute `_canShowReachabilityPill` after a
+  /// build settles. The scroll listener only fires while the user is
+  /// scrolling; when the practitioner adds / deletes cards we need an
+  /// explicit poke so the pill appears or hides without requiring a
+  /// scroll gesture first.
+  void _recomputeReachabilityVisibility() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final canScroll = _scrollController.position.maxScrollExtent > 0;
+    if (canScroll != _canShowReachabilityPill) {
+      setState(() => _canShowReachabilityPill = canScroll);
+    }
   }
 
   void _pushSession(Session next) {
@@ -1031,9 +1127,69 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
     // Wave 38 — 12pt breather above the first card. The list's own
     // padding (bottom: 8) already cushions below.
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: _buildExerciseList(),
+    //
+    // Wave 39 (Item 5) — wrap the list in a LayoutBuilder + Stack so
+    // the reachability drop-pill can sit bottom-right, above the
+    // bottom toolbar. The `Transform.translate` on the list itself
+    // shifts the WHOLE column down (including any sticky header) when
+    // latched — `Curves.easeOut` over 200ms via TweenAnimationBuilder.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Compute drop offset: half the available viewport, but never
+        // more than what we'd need to put item 1 squarely in thumb
+        // zone (~40% of viewport from the top). Math.min on two finite
+        // doubles — both are derived from `constraints.maxHeight`,
+        // which LayoutBuilder guarantees is finite. NaN-safe by
+        // construction; no fallback needed.
+        final viewportH = constraints.maxHeight;
+        final halfDrop = viewportH * 0.5;
+        final thumbZoneDrop = viewportH * 0.4;
+        final dropTarget =
+            halfDrop < thumbZoneDrop ? halfDrop : thumbZoneDrop;
+        final dy = _isReachabilityLatched ? dropTarget : 0.0;
+
+        // Schedule a post-frame visibility recompute so the pill
+        // appears / hides correctly after add / delete (the scroll
+        // listener only fires during scrolls; layout-only changes
+        // need an explicit poke).
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _recomputeReachabilityVisibility();
+        });
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            // The list — translated when latched.
+            TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: dy, end: dy),
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              builder: (context, value, child) {
+                return Transform.translate(
+                  offset: Offset(0, value),
+                  child: child,
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: _buildExerciseList(),
+              ),
+            ),
+            // Reachability pill — bottom-right, ~12pt clearance above
+            // the StudioBottomBar (which lives outside this Stack, so
+            // 12pt off the bottom of THIS box already clears it).
+            if (_canShowReachabilityPill)
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: _ReachabilityDropPill(
+                  latched: _isReachabilityLatched,
+                  onTap: _toggleReachability,
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -1122,6 +1278,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       // produced viewport-height rows on device. reverse:true keeps the
       // bottom-anchored feel (newest at the bottom).
       child: ReorderableListView.builder(
+        // Wave 39 (Item 5) — owned by `_StudioModeScreenState` so the
+        // reachability drop-pill can listen for upward scrolls and
+        // gate its visibility on `maxScrollExtent > 0`.
+        scrollController: _scrollController,
         reverse: true,
         padding: const EdgeInsets.only(bottom: 8),
         itemCount: exercises.length,
@@ -1223,6 +1383,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         // default for this client; fall back to 5s".
         stickyCustomDurationPerRep: _stickyCustomDurationPerRep,
         onTap: () {
+          // Wave 39 (Item 5) — tap on any card resets the reachability
+          // latch BEFORE the expand toggle fires, so the list slides
+          // back up as the practitioner engages with the card they
+          // just dragged into thumb-zone.
+          _resetReachability();
           setState(() {
             _expandedIndex =
                 _expandedIndex == dataIndex ? null : dataIndex;
@@ -4863,4 +5028,56 @@ class _TunerSliderRow extends StatelessWidget {
   }
 }
 
+/// Wave 39 (Item 5) — Studio reachability drop-pill.
+///
+/// 36×36 coral circular pill. Glyph swaps between
+/// `arrow_downward_rounded` (latched-up, ready to drop) and
+/// `arrow_upward_rounded` (already dropped, ready to reset). Tap fires
+/// `onTap` — owner toggles the latched state.
+///
+/// Brand: coral fill, white glyph, soft shadow at 0.25 opacity for
+/// just-enough lift off the dark list background. Matches the chrome
+/// of `practice_chip.dart` and `inline_action_tray.dart` (coral over
+/// surface, no inner stroke).
+class _ReachabilityDropPill extends StatelessWidget {
+  final bool latched;
+  final VoidCallback onTap;
 
+  const _ReachabilityDropPill({
+    required this.latched,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: AppColors.primary,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Icon(
+            latched
+                ? Icons.arrow_upward_rounded
+                : Icons.arrow_downward_rounded,
+            size: 20,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+}
