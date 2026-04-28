@@ -548,16 +548,17 @@ function buildOffsetHref(baseQs: string, offset: number): string {
 }
 
 function fmtDate(iso: string): string {
+  // Wave 39.2 — render in UTC for predictability. The earlier
+  // Africa/Johannesburg pin was reverted because Carl's iPhone (which
+  // emits the publish/issued_at timestamps via Dart) appears to be on
+  // UTC, so SA-pinned rendering produced wall times 2h ahead of his
+  // device clock. Until per-viewer-TZ rendering ships (client component
+  // + browser-local Intl), UTC is the least-confusing common ground.
   try {
-    // Wave 39.2 — pin to Africa/Johannesburg so the rendered time matches
-    // the practitioner's wall clock. Without this the server component
-    // renders in the Vercel UTC timezone and a SA practitioner sees their
-    // events two hours earlier than expected (e.g. a 13:38 SA open shows
-    // up as "11:38", and gets mistaken for missing data).
     return new Date(iso).toLocaleString('en-ZA', {
       dateStyle: 'medium',
       timeStyle: 'short',
-      timeZone: 'Africa/Johannesburg',
+      timeZone: 'UTC',
     });
   } catch {
     return iso;
