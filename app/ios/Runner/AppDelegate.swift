@@ -124,23 +124,26 @@ import AVFoundation
           // recoloured to luminance — practitioner-facing surfaces use
           // this path so the client reads clearly at small sizes.
           var finalImage: CGImage = cgImage
-          if #available(iOS 15.0, *) {
-            if let masked = VideoConverterChannel.applySegmentationToThumbnail(
-              cgImage: cgImage,
-              cropToPerson: autoPick,
-              grayscale: grayscale
-            ) {
-              finalImage = masked
+          // Only apply segmentation (body-focus + crop) when autoPick is
+          // true. When false, the caller wants a plain unprocessed frame
+          // (e.g. the "original" treatment thumbnail).
+          if autoPick || grayscale {
+            if #available(iOS 15.0, *) {
+              if let masked = VideoConverterChannel.applySegmentationToThumbnail(
+                cgImage: cgImage,
+                cropToPerson: autoPick,
+                grayscale: grayscale
+              ) {
+                finalImage = masked
+              } else if grayscale {
+                if let gray = VideoConverterChannel.grayscaleCGImage(cgImage) {
+                  finalImage = gray
+                }
+              }
             } else if grayscale {
-              // Segmentation bailed (no person detected) but the caller
-              // still asked for B&W — honour the contract.
               if let gray = VideoConverterChannel.grayscaleCGImage(cgImage) {
                 finalImage = gray
               }
-            }
-          } else if grayscale {
-            if let gray = VideoConverterChannel.grayscaleCGImage(cgImage) {
-              finalImage = gray
             }
           }
           let uiImage = UIImage(cgImage: finalImage)
