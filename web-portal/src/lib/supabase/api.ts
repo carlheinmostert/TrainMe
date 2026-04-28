@@ -1205,9 +1205,10 @@ export async function createAdminApi(): Promise<AdminApi> {
 // window `total_count` on every row so pagination doesn't need a second
 // round-trip.
 //
-// SCHEMA NOTE: credit_ledger has no trainer_id column, so credit rows surface
-// with `trainerId`/`email`/`fullName` all null. The portal renders those as
-// "—". Plan publishes and member joins DO carry the actor.
+// SCHEMA NOTE (updated Wave 40.5): credit_ledger now has a trainer_id column
+// (nullable for historical rows). New credit rows carry the acting practitioner;
+// historical rows fall back to the practice owner at query time. All audit
+// kinds should now resolve a non-null actor.
 
 /** Canonical event kinds emitted by the RPC. Kept in sync with the SQL
  *  `CASE` branches in `schema_milestone_t_audit_expansion.sql`. The portal

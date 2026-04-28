@@ -315,7 +315,7 @@ function AuditTableRow({
             ) : null}
           </div>
         ) : (
-          <span className="text-ink-dim">&mdash;</span>
+          <ActorFallback kind={row.kind} />
         )}
       </td>
       <td className="px-4 py-3">
@@ -354,6 +354,20 @@ function AuditTableRow({
       </td>
     </tr>
   );
+}
+
+/** Wave 40.5 — NULL-actor fallback. Post-40.5 schema, every audit row
+ *  should resolve a practitioner. If we still see a NULL actor, log a
+ *  warning so regressions surface in the browser console, and render a
+ *  discreet dash as the defensive fallback. */
+function ActorFallback({ kind }: { kind: string }) {
+  if (typeof globalThis.console !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[Audit] NULL actor on kind="${kind}". Post Wave 40.5 this should not happen — check the list_practice_audit RPC.`,
+    );
+  }
+  return <span className="text-ink-dim">&mdash;</span>;
 }
 
 /** Wave 40.1 — Client column cell. Plan-shaped + client-shaped rows show
