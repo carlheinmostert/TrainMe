@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>What we share - homefit.studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --c-brand: #FF6B35;
+    --c-brand-dark: #E85A24;
+    --c-brand-tint-bg: rgba(255, 107, 53, 0.12);
+    --c-brand-tint-border: rgba(255, 107, 53, 0.30);
+    --c-surface-bg: #0F1117;
+    --c-surface-base: #1A1D27;
+    --c-surface-raised: #242733;
+    --c-surface-border: #2E3140;
+    --c-ink-primary: #F0F0F5;
+    --c-ink-secondary: #9CA3AF;
+    --c-ink-muted: #6B7280;
+    --c-ink-disabled: #4B5563;
+    --c-success: #22C55E;
+    --c-error: #EF4444;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --f-display: 'Montserrat', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --f-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  html, body {
+    background: var(--c-surface-bg);
+    color: var(--c-ink-primary);
+    font-family: var(--f-body);
+    font-size: 15px;
+    line-height: 1.65;
+    min-height: 100vh;
+  }
+
+  .wrap {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 48px 28px 80px;
+  }
+
+  .kicker {
+    color: var(--c-brand);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: 24px;
+    letter-spacing: -0.3px;
+    margin-bottom: 8px;
+    line-height: 1.3;
+  }
+
+  #greeting {
+    color: var(--c-ink-secondary);
+    font-size: 14px;
+    margin-bottom: 32px;
+  }
+
+  h2 {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: 17px;
+    margin: 32px 0 10px;
+    color: var(--c-ink-primary);
+    letter-spacing: -0.2px;
+  }
+
+  h2 .num {
+    color: var(--c-brand);
+    font-size: 14px;
+    font-weight: 600;
+    margin-right: 8px;
+  }
+
+  p, li {
+    color: var(--c-ink-secondary);
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  ul.nope-list {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0;
+  }
+
+  ul.nope-list li {
+    position: relative;
+    padding-left: 24px;
+    margin: 4px 0;
+  }
+
+  ul.nope-list li::before {
+    content: "\2717";
+    position: absolute;
+    left: 0;
+    color: var(--c-ink-disabled);
+    font-weight: 700;
+  }
+
+  .section-card {
+    background: var(--c-surface-base);
+    border: 1px solid var(--c-surface-border);
+    border-radius: var(--radius-md);
+    padding: 20px 24px;
+    margin: 12px 0 24px;
+  }
+
+  .stop-section {
+    margin-top: 40px;
+    padding-top: 32px;
+    border-top: 1px solid var(--c-surface-border);
+  }
+
+  #stop-btn {
+    display: inline-block;
+    font-family: var(--f-body);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 24px;
+    border-radius: var(--radius-sm);
+    border: 1.5px solid var(--c-error);
+    background: rgba(239, 68, 68, 0.08);
+    color: var(--c-error);
+    cursor: pointer;
+    transition: all 150ms;
+    margin-top: 12px;
+  }
+
+  #stop-btn:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.15);
+  }
+
+  #stop-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  #stop-hint {
+    display: block;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--c-ink-muted);
+  }
+
+  #stop-confirm {
+    display: none;
+    margin-top: 16px;
+    padding: 16px 20px;
+    background: rgba(34, 197, 94, 0.08);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: var(--radius-sm);
+    color: var(--c-success);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--c-surface-border);
+    text-align: center;
+  }
+
+  .footer-brand {
+    color: var(--c-ink-disabled);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  .footer-brand a {
+    color: var(--c-ink-muted);
+    text-decoration: none;
+  }
+
+  .footer-brand a:hover {
+    color: var(--c-brand);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">homefit.studio</div>
+  <h1 id="page-title">What homefit.studio shares with your practitioner.</h1>
+  <p id="greeting"></p>
+
+  <h2><span class="num">1.</span> What we collect</h2>
+  <div class="section-card">
+    <p>We know when you opened a plan, which exercises you completed or skipped, how long you paused. Nothing else.</p>
+    <p style="margin-top: 8px;">Specifically, we record 12 types of event: plan opened, plan completed, plan closed, exercise viewed, exercise completed, exercise skipped, exercise replayed, treatment switched, pause, resume, rest shortened, and rest extended. Each event is a single line with a timestamp and a small data payload (e.g. "watched for 45 seconds").</p>
+  </div>
+
+  <h2><span class="num">2.</span> What we don't collect</h2>
+  <div class="section-card">
+    <ul class="nope-list">
+      <li>No video of you doing the exercise.</li>
+      <li>No location.</li>
+      <li>No phone number.</li>
+      <li>No browsing history.</li>
+      <li>No IP address, device fingerprint, or advertising identifier.</li>
+      <li>Nothing about you outside this plan.</li>
+    </ul>
+  </div>
+
+  <h2><span class="num">3.</span> How long we keep it</h2>
+  <div class="section-card">
+    <p>Raw details for 180 days, then summary numbers only. After that we can tell your practitioner your overall completion rate but not the individual details of when or how.</p>
+  </div>
+
+  <h2><span class="num">4.</span> How to stop sharing</h2>
+  <div class="section-card">
+    <p>Tap the button below, or ask your practitioner to turn it off for you.</p>
+  </div>
+
+  <div class="stop-section">
+    <h2>Stop sharing</h2>
+    <button id="stop-btn" type="button" disabled>Stop sharing for this plan</button>
+    <span id="stop-hint">Open this page from inside your exercise plan to stop sharing.</span>
+    <div id="stop-confirm"></div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-brand"><a href="https://homefit.studio">homefit.studio</a></div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var params = new URLSearchParams(window.location.search || '');
+  var planId = params.get('p');
+  var pageTitle = document.getElementById('page-title');
+  var greeting = document.getElementById('greeting');
+  var stopBtn = document.getElementById('stop-btn');
+  var stopHint = document.getElementById('stop-hint');
+  var stopConfirm = document.getElementById('stop-confirm');
+  var practitionerName = 'your practitioner';
+
+  if (!planId) {
+    // Generic variant — no plan context.
+    return;
+  }
+
+  // Contextual variant — fetch practitioner name.
+  window.HomefitApi.getPlanSharingContext(planId).then(function (ctx) {
+    if (!ctx || !ctx.practitioner_name) {
+      // Plan deleted or analytics disabled — fall back to generic.
+      return;
+    }
+
+    practitionerName = ctx.practitioner_name;
+    var practiceName = ctx.practice_name || '';
+    var clientFirst = ctx.client_first_name || '';
+
+    pageTitle.textContent = 'What ' + practitionerName +
+      (practiceName ? ' at ' + practiceName : '') +
+      ' sees about your exercises.';
+
+    if (clientFirst) {
+      greeting.textContent = 'Hi ' + clientFirst + '. Here\'s what\'s being shared.';
+    }
+
+    // Enable the stop-sharing button if we have a session ID in localStorage.
+    var sessionKey = 'homefit-session-id-' + planId;
+    var sessionId = null;
+    try { sessionId = localStorage.getItem(sessionKey); } catch (_) {}
+
+    if (sessionId) {
+      stopBtn.disabled = false;
+      stopHint.textContent = '';
+
+      stopBtn.addEventListener('click', function () {
+        stopBtn.disabled = true;
+        stopBtn.textContent = 'Stopping\u2026';
+
+        window.HomefitApi.revokeAnalyticsConsent(planId, sessionId).then(function () {
+          stopBtn.style.display = 'none';
+          stopConfirm.style.display = 'block';
+          stopConfirm.textContent = 'Stopped. ' + practitionerName +
+            ' won\'t see new data from this plan.';
+
+          // Clear the consent decision in localStorage so no more events fire.
+          try {
+            localStorage.setItem('homefit-analytics-consent-' + planId, 'no');
+          } catch (_) {}
+        }).catch(function () {
+          stopBtn.disabled = false;
+          stopBtn.textContent = 'Stop sharing for this plan';
+          stopHint.textContent = 'Something went wrong. Please try again.';
+          stopHint.style.color = '#EF4444';
+        });
+      });
+    }
+  }).catch(function (err) {
+    // Network error — page stays in generic mode.
+    try { console.warn('[homefit] get_plan_sharing_context failed:', err); } catch (_) {}
+  });
+})();
+</script>
+</body>
+</html>

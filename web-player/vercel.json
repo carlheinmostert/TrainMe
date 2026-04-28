@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/what-we-share",
+      "destination": "/what-we-share.html"
+    },
+    {
       "source": "/p/:path*",
       "destination": "/index.html"
     }
