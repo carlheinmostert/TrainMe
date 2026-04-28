@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Wave 40.5 - Actor coverage on audit feed</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC; --sage-bg: rgba(134,239,172,0.12);
+    --red: #EF4444; --red-bg: rgba(239,68,68,0.12);
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: Inter, -apple-system, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  h1 { font-family: Montserrat, sans-serif; font-weight: 700; font-size: 26px; letter-spacing: -0.4px; margin: 0 0 6px; }
+  .lede { color: var(--text-mute); margin: 0 0 28px; }
+  h2 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .item { background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 10px; }
+  .item-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .item-title { font-weight: 600; margin: 0 0 6px; }
+  .item-body { color: var(--text-mute); font-size: 13px; margin: 0; }
+  .item-body code { background: var(--coral-bg); padding: 1px 5px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--coral); }
+  .btn-row { display: flex; gap: 6px; flex-shrink: 0; }
+  .btn { padding: 5px 14px; border-radius: 8px; border: 1.5px solid transparent; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 120ms ease; }
+  .btn-pass { background: var(--sage-bg); color: var(--sage); border-color: rgba(134,239,172,0.3); }
+  .btn-pass:hover { border-color: var(--sage); }
+  .btn-pass.active { background: var(--sage); color: #000; }
+  .btn-fail { background: var(--red-bg); color: var(--red); border-color: rgba(239,68,68,0.3); }
+  .btn-fail:hover { border-color: var(--red); }
+  .btn-fail.active { background: var(--red); color: #fff; }
+  .note-wrap { margin-top: 8px; }
+  .note-wrap textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-size: 12px; font-family: Inter, sans-serif; resize: vertical; min-height: 36px; }
+  .note-label { font-size: 11px; color: var(--text-dim); margin-bottom: 3px; }
+  .tally { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--border); padding: 10px 0; margin-bottom: 16px; font-size: 13px; font-weight: 600; }
+  .tally .pass { color: var(--sage); }
+  .tally .fail { color: var(--red); }
+  .tally .pending { color: var(--text-dim); }
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 40.5 - portal audit</div>
+  <h1>Full actor coverage on audit feed</h1>
+  <p class="lede">Every row in the audit log should now resolve a practitioner in the Actor column. The schema stamps <code style="background: var(--coral-bg); padding: 1px 5px; border-radius: 4px; font-family: monospace; font-size: 12px; color: var(--coral);">trainer_id</code> on new credit-ledger rows, <code style="background: var(--coral-bg); padding: 1px 5px; border-radius: 4px; font-family: monospace; font-size: 12px; color: var(--coral);">created_by_user_id</code> / <code style="background: var(--coral-bg); padding: 1px 5px; border-radius: 4px; font-family: monospace; font-size: 12px; color: var(--coral);">deleted_by_user_id</code> on clients, and the audit RPC falls back to practice owner for historical rows. 8 items in 4 sections.</p>
+
+  <div class="tally" id="tally">0 pass / 0 fail / 8 pending</div>
+
+  <h2>A - Credit actor (4 items)</h2>
+
+  <div class="item" data-id="A1">
+    <div class="item-header">
+      <div>
+        <p class="item-title">A1. credit.purchase shows practitioner</p>
+        <p class="item-body">Open <a href="https://manage.homefit.studio/audit" target="_blank" style="color: var(--coral);">manage.homefit.studio/audit</a>. Filter to <code>Credit purchase</code>. The Actor column should show the email of the practitioner who bought credits (or the practice owner for historical rows). No dash ("--") in Actor.</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-pass" onclick="vote('A1','pass')">Pass</button>
+        <button class="btn btn-fail" onclick="vote('A1','fail')">Fail</button>
+      </div>
+    </div>
+    <div class="note-wrap">
+      <div class="note-label">Notes (pass or fail)</div>
+      <textarea id="note-A1" oninput="saveNote('A1')" placeholder="Any observations..."></textarea>
+    </div>
+  </div>
+
+  <div class="item" data-id="A2">
+    <div class="item-header">
+      <div>
+        <p class="item-title">A2. credit.refund shows practitioner</p>
+        <p class="item-body">Filter to <code>Credit refund</code>. Actor column should show the practitioner who triggered the refund. If no refund rows exist yet, note "no data" and pass.</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-pass" onclick="vote('A2','pass')">Pass</button>
+        <button class="btn btn-fail" onclick="vote('A2','fail')">Fail</button>
+      </div>
+    </div>
+    <div class="note-wrap">
+      <div class="note-label">Notes (pass or fail)</div>
+      <textarea id="note-A2" oninput="saveNote('A2')" placeholder="Any observations..."></textarea>
+    </div>
+  </div>
+
+  <div class="item" data-id="A3">
+    <div class="item-header">
+      <div>
+        <p class="item-title">A3. credit.signup_bonus shows practitioner</p>
+        <p class="item-body">Filter to <code>Signup bonus</code>. Actor column should show the email of the practitioner who signed up. For historical rows without <code>trainer_id</code>, the practice owner is shown as fallback.</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-pass" onclick="vote('A3','pass')">Pass</button>
+        <button class="btn btn-fail" onclick="vote('A3','fail')">Fail</button>
+      </div>
+    </div>
+    <div class="note-wrap">
+      <div class="note-label">Notes (pass or fail)</div>
+      <textarea id="note-A3" oninput="saveNote('A3')" placeholder="Any observations..."></textarea>
+    </div>
+  </div>
+
+  <div class="item" data-id="A4">
+    <div class="item-header">
+      <div>
+        <p class="item-title">A4. credit.referral_signup_bonus shows practitioner</p>
+        <p class="item-body">Filter to <code>Referral signup bonus</code>. Actor column should show the referee who claimed the referral code. If no referral bonus rows exist, note "no data" and pass.</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-pass" onclick="vote('A4','pass')">Pass</button>
+        <button class="btn btn-fail" onclick="vote('A4','fail')">Fail</button>
+      </div>
+    </div>
+    <div class="note-wrap">
+      <div class="note-label">Notes (pass or fail)</div>
+      <textarea id="note-A4" oninput="saveNote('A4')" placeholder="Any observations..."></textarea>
+    </div>
+  </div>
+
+  <h2>B - Referral rebate actor (1 item)</h2>
+
+  <div class="item" data-id="B1">
+    <div class="item-header">
+      <div>
+        <p class="item-title">B1. referral.rebate shows referrer practice owner</p>
+        <p class="item-body">Filter to <code>Referral rebate</code>. Actor column should show the practice owner of the referrer practice. Previously this was always a dash. If no rebate rows exist, note "no data" and pass.</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-pass" onclick="vote('B1','pass')">Pass</button>
+        <button class="btn btn-fail" onclick="vote('B1','fail')">Fail</button>
+      </div>
+    </div>
+    <div class="note-wrap">
+      <div class="note-label">Notes (pass or fail)</div>
+      <textarea id="note-B1" oninput="saveNote('B1')" placeholder="Any observations..."></textarea>
+    </div>
+  </div>
+
+  <h2>C - Client lifecycle actor (2 items)</h2>
+
+  <div class="item" data-id="C1">
+    <div class="item-header">
+      <div>
+        <p class="item-title">C1. client.create shows practitioner</p>
+        <p class="item-body">Filter to <code>Client create</code>. Actor column should show the email of the practitioner who created the client. For pre-40.5 rows, the practice owner is shown as fallback.</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-pass" onclick="vote('C1','pass')">Pass</button>
+        <button class="btn btn-fail" onclick="vote('C1','fail')">Fail</button>
+      </div>
+    </div>
+    <div class="note-wrap">
+      <div class="note-label">Notes (pass or fail)</div>
+      <textarea id="note-C1" oninput="saveNote('C1')" placeholder="Any observations..."></textarea>
+    </div>
+  </div>
+
+  <div class="item" data-id="C2">
+    <div class="item-header">
+      <div>
+        <p class="item-title">C2. client.delete shows practitioner</p>
+        <p class="item-body">Filter to <code>Client delete</code>. Actor column should show the email of the practitioner who deleted the client. For pre-40.5 rows, the practice owner is shown. If no deleted clients exist, create one, delete it, then check.</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-pass" onclick="vote('C2','pass')">Pass</button>
+        <button class="btn btn-fail" onclick="vote('C2','fail')">Fail</button>
+      </div>
+    </div>
+    <div class="note-wrap">
+      <div class="note-label">Notes (pass or fail)</div>
+      <textarea id="note-C2" oninput="saveNote('C2')" placeholder="Any observations..."></textarea>
+    </div>
+  </div>
+
+  <h2>D - No NULL actors regression (1 item)</h2>
+
+  <div class="item" data-id="D1">
+    <div class="item-header">
+      <div>
+        <p class="item-title">D1. No dashes in Actor column</p>
+        <p class="item-body">Clear all filters. Scroll through the full audit log. Every row should have a practitioner email in the Actor column. No "--" (dash) should appear. If any dash is found, note the <code>kind</code> of that row.</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-pass" onclick="vote('D1','pass')">Pass</button>
+        <button class="btn btn-fail" onclick="vote('D1','fail')">Fail</button>
+      </div>
+    </div>
+    <div class="note-wrap">
+      <div class="note-label">Notes (pass or fail)</div>
+      <textarea id="note-D1" oninput="saveNote('D1')" placeholder="Any observations..."></textarea>
+    </div>
+  </div>
+
+  <footer>
+    Results auto-POST to <code style="background: var(--coral-bg); padding: 1px 5px; border-radius: 4px; font-family: monospace; font-size: 11px; color: var(--coral);">http://localhost:3457/api/test-results/2026-04-29-wave40.5-actor-coverage.results.json</code>
+  </footer>
+</div>
+
+<script>
+(function() {
+  var SLUG = '2026-04-29-wave40.5-actor-coverage.results.json';
+  var SINK = 'http://localhost:3457/api/test-results/' + SLUG;
+  var ALL_IDS = ['A1','A2','A3','A4','B1','C1','C2','D1'];
+  var state = { items: {} };
+
+  function loadState() {
+    fetch('/test-scripts/' + SLUG, { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d; renderAll(); } })
+      .catch(function() {});
+  }
+
+  function persist() {
+    state.updatedAt = new Date().toISOString();
+    fetch(SINK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state)
+    }).catch(function() {});
+  }
+
+  function renderAll() {
+    var pass = 0, fail = 0;
+    ALL_IDS.forEach(function(id) {
+      var s = state.items[id];
+      if (!s) return;
+      var item = document.querySelector('[data-id="' + id + '"]');
+      if (!item) return;
+      item.querySelectorAll('.btn-pass').forEach(function(b) {
+        b.classList.toggle('active', s.status === 'pass');
+      });
+      item.querySelectorAll('.btn-fail').forEach(function(b) {
+        b.classList.toggle('active', s.status === 'fail');
+      });
+      var ta = document.getElementById('note-' + id);
+      if (ta && s.note != null && ta.value !== s.note) ta.value = s.note;
+      if (s.status === 'pass') pass++;
+      else if (s.status === 'fail') fail++;
+    });
+    var pending = ALL_IDS.length - pass - fail;
+    document.getElementById('tally').innerHTML =
+      '<span class="pass">' + pass + ' pass</span> / ' +
+      '<span class="fail">' + fail + ' fail</span> / ' +
+      '<span class="pending">' + pending + ' pending</span>';
+  }
+
+  window.vote = function(id, status) {
+    if (!state.items[id]) state.items[id] = {};
+    state.items[id].status = status;
+    state.items[id].votedAt = new Date().toISOString();
+    renderAll();
+    persist();
+  };
+
+  window.saveNote = function(id) {
+    if (!state.items[id]) state.items[id] = {};
+    state.items[id].note = document.getElementById('note-' + id).value;
+    persist();
+  };
+
+  loadState();
+})();
+</script>
+</body>
+</html>
