@@ -36,7 +36,7 @@ import '../widgets/orientation_lock_guard.dart';
 /// JPEG to produce the body-focus blurred PNG.
 ///
 /// Diagnostic logging now lives in Swift via `os_log` against
-/// subsystem `com.raidme.raidme`, category `avatar.capture` — Carl
+/// subsystem `studio.homefit.app`, category `avatar.capture` — Carl
 /// filters Console.app on those exact strings. Dart-side
 /// `dart:developer.log()` doesn't surface in Console.app for iOS Flutter
 /// profile/release builds.

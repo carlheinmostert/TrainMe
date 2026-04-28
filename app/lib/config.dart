@@ -89,7 +89,7 @@ class AppConfig {
   /// Matches the iOS app's bundle identifier so the OS routes the callback
   /// straight back into the app.
   static const String oauthRedirectUrl =
-      'com.raidme.raidme://login-callback';
+      'studio.homefit.app://login-callback';
 
   /// Signup-bonus credits granted to a brand-new practice by the
   /// `bootstrap_practice_for_user` RPC when the user signs up organically

@@ -6,7 +6,7 @@
 set -e
 
 DEVICE=E4285EC5-6210-4D27-B3AF-F63ADDE139D9
-BUNDLE=com.raidme.raidme
+BUNDLE=studio.homefit.app
 APP_PATH=/Users/chm/dev/TrainMe/app/build/ios/iphonesimulator/Runner.app
 
 echo "▸ Booting simulator (if not already booted)..."

@@ -31,7 +31,7 @@
 			<string>homefit.studio OAuth Callback</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.raidme.raidme</string>
+				<string>studio.homefit.app</string>
 			</array>
 		</dict>
 	</array>
