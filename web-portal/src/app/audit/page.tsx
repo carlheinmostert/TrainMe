@@ -549,9 +549,15 @@ function buildOffsetHref(baseQs: string, offset: number): string {
 
 function fmtDate(iso: string): string {
   try {
+    // Wave 39.2 — pin to Africa/Johannesburg so the rendered time matches
+    // the practitioner's wall clock. Without this the server component
+    // renders in the Vercel UTC timezone and a SA practitioner sees their
+    // events two hours earlier than expected (e.g. a 13:38 SA open shows
+    // up as "11:38", and gets mistaken for missing data).
     return new Date(iso).toLocaleString('en-ZA', {
       dateStyle: 'medium',
       timeStyle: 'short',
+      timeZone: 'Africa/Johannesburg',
     });
   } catch {
     return iso;
