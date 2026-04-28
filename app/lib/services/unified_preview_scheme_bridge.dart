@@ -30,8 +30,7 @@ bool _isStillImageFallback(String? path) {
 /// Dart over `MethodChannel('com.raidme.unified_preview_scheme')`:
 ///
 /// * `resolvePlanJson({ "planId": String })` → String (JSON payload)
-///     Matches the shape of the Phase 1 shelf `/api/plan/<id>` route —
-///     a `get_plan_full`-shaped envelope built from local SQLite.
+///     A `get_plan_full`-shaped envelope built from local SQLite.
 ///
 /// * `resolveMediaPath({ "exerciseId": String, "kind": "line"|"archive"|"segmented" })`
 ///     → String (absolute file path on disk)
@@ -211,9 +210,9 @@ class UnifiedPreviewSchemeBridge {
   }
 
   // ---------------------------------------------------------------------------
-  // Payload builders — shape-identical to the shelf handler so the
-  // bundled web-player bundle keeps a single JSON contract across Phase
-  // 1 and Phase 2 transports.
+  // Payload builders — shape-identical to the server-side `get_plan_full`
+  // (milestone G) so the bundled web-player code has a single JSON
+  // contract across the live and embedded surfaces.
   // ---------------------------------------------------------------------------
 
   Future<_ConsentFlags> _resolveConsent(String? clientId) async {
@@ -276,15 +275,13 @@ class UnifiedPreviewSchemeBridge {
       'include_audio': e.includeAudio,
       'custom_duration_seconds': e.customDurationSeconds,
       'prep_seconds': e.prepSeconds,
-      // Wave 37 hotfix — coerce null to the canonical 15s breather default
-      // here the same as `local_player_server.dart` does. Pre-Milestone-Q
-      // exercises (created before 2026-04-23 when `withPersistenceDefaults`
-      // started seeding 15s) carry a null in local SQLite; the web player
-      // treats null as 0, which makes the rep-block stack skip rest blocks
-      // entirely. This bridge is the active path (`kUseShelfFallback=false`),
-      // so the original W37 fix in the shelf server was a no-op for the
-      // Preview Plan button — Carl's flagged regression. Mirror the
-      // canonical default here so the active path matches.
+      // Wave 37 hotfix — coerce null to the canonical 15s breather default.
+      // Pre-Milestone-Q exercises (created before 2026-04-23 when
+      // `withPersistenceDefaults` started seeding 15s) carry a null in
+      // local SQLite; the web player treats null as 0, which makes the
+      // rep-block stack skip rest blocks entirely. Mirror
+      // `StudioDefaults.interSetRestSeconds` so the in-app Preview matches
+      // what gets published.
       'inter_set_rest_seconds': e.interSetRestSeconds ?? 15,
       // Wave 20 / Milestone X — soft-trim window. Both null = no trim,
       // full clip plays. Both set = the bundle clamps `<video>.currentTime`

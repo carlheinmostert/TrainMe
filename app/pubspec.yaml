@@ -73,13 +73,11 @@ dependencies:
   # unavailable.
   connectivity_plus: ^6.1.3
 
-  # Wave 4 Phase 1 — Unified player prototype.
+  # Wave 4 — Unified player.
   # Embeds the web-player bundle (HTML/CSS/JS) in a Flutter WebView that
-  # loads from a loopback Dart HTTP server (shelf) serving the bundled
-  # assets + plan JSON + local archived video files. Prototype only —
-  # the existing native PlanPreviewScreen is unchanged; this lets us A/B
-  # the unified player side-by-side before cutting the native one.
-  # See app/lib/services/local_player_server.dart + app/lib/screens/unified_preview_screen.dart.
+  # loads via the custom `homefit-local://` URL scheme handled natively
+  # (see UnifiedPlayerSchemeHandler.swift + UnifiedPreviewSchemeBridge).
+  # See app/lib/screens/unified_preview_screen.dart.
   webview_flutter: ^4.10.0
   # Pulled in transitively by webview_flutter, but we import its
   # PlaybackMediaTypes + WebKitWebViewControllerCreationParams directly
@@ -87,8 +85,6 @@ dependencies:
   # autoplay on iOS. Declaring it keeps `depend_on_referenced_packages`
   # lint green.
   webview_flutter_wkwebview: ^3.24.0
-  shelf: ^1.4.1
-  shelf_static: ^1.1.3
 
   # Wave 19.5 — Save the original colour capture to the practitioner's
   # iOS Camera Roll from the Studio exercise card's long-press menu.
@@ -110,14 +106,12 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  # Wave 4 Phase 1 — embedded web-player bundle served by LocalPlayerServer.
-  # Keep the listed files tight so we don't accidentally bundle sw.js, the
-  # Vercel middleware, or other server-side artefacts. Regenerate via
+  # Wave 4 — embedded web-player bundle served by the homefit-local://
+  # WKURLSchemeHandler. Keep the listed files tight so we don't
+  # accidentally bundle sw.js, the Vercel middleware, or other
+  # server-side artefacts. Regenerate via
   # `cd app && dart run tool/sync_web_player_bundle.dart` when web-player/
-  # changes (the helper script lives alongside this pubspec and is how a
-  # future tooling step can rsync rather than commit). For Phase 1 the
-  # copy lives in the repo — generated files stay in .gitignore so a future
-  # build step can re-derive them.
+  # changes.
   assets:
     - assets/web-player/index.html
     - assets/web-player/app.js

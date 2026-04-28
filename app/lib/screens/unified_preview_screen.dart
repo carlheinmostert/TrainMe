@@ -13,23 +13,10 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart'
         WebKitWebViewControllerCreationParams;
 
 import '../models/session.dart';
-import '../services/local_player_server.dart';
 import '../services/local_storage_service.dart';
 import '../services/unified_preview_scheme_bridge.dart';
 import '../theme.dart';
 import '../widgets/orientation_lock_guard.dart';
-
-/// Wave 4 Phase 2 — transport toggle.
-///
-/// Phase 1 served the web-player bundle over a loopback shelf HTTP server
-/// bound to `127.0.0.1:<ephemeral>`. Phase 2 replaces that with a custom
-/// `WKURLSchemeHandler` (see `UnifiedPlayerSchemeHandler.swift`) scheme
-/// `homefit-local://plan/...` — no port allocation, no shelf process,
-/// cleaner Range streaming. Flip this flag back to `true` for an
-/// emergency rollback to the shelf path; the dead code is retained for
-/// that reason (delete in a follow-up once the new transport has baked
-/// on device for a week).
-const bool kUseShelfFallback = false;
 
 /// Name of the iOS platform method channel that owns the
 /// `AVAudioSession` lifecycle for the unified preview. Implemented in
@@ -42,30 +29,20 @@ const MethodChannel _audioChannel =
 /// JS side (see `web-player/app.js` — `installHomefitBridge`).
 const String _bridgeChannelName = 'HomefitBridge';
 
-/// Wave 4 Phase 1 — unified player prototype screen.
+/// Wave 4 Phase 2 — unified player screen.
 ///
-/// Boots the [LocalPlayerServer], loads the bundled `web-player/` code
-/// inside a [WebView], and disposes the server on exit. The goal of
-/// Phase 1 is NOT to replace [PlanPreviewScreen] — it runs side-by-side
-/// so the two implementations can be evaluated A/B.
+/// Loads the bundled `web-player/` code inside a [WebView] via the
+/// custom `homefit-local://plan/...` scheme handled natively by
+/// `UnifiedPlayerSchemeHandler.swift` and resolved against the local
+/// SQLite session by [UnifiedPreviewSchemeBridge].
 ///
 /// Route shape:
-///   `http://127.0.0.1:<port>/?planId=<session-id>&src=local`
+///   `homefit-local://plan/?planId=<session-id>&src=local`
 ///
-/// The existing web-player bundle (identical code that runs at
-/// session.homefit.studio) detects the `src=local` flag in api.js and
-/// routes its `get_plan_full` read at `/api/plan/<planId>` on the local
-/// server, which builds the payload from SQLite. Media URLs in that
-/// payload point at `/local/<exerciseId>/{line,archive}` — the server
-/// streams the stored archives straight off disk.
-///
-/// Phase 2 work (NOT in scope here):
-///   * Swap the TCP transport for WKURLSchemeHandler (cuts the loopback
-///     entirely, removes the port-allocation dance).
-///   * Two-way bridge via `postMessage` so haptics and the iOS audio
-///     session follow the web-player's state.
-///   * Reuse this screen for the trainer-side plan preview everywhere
-///     — once parity's verified, [PlanPreviewScreen] can be retired.
+/// The same web-player bundle that runs at session.homefit.studio
+/// reads `src=local` in api.js and routes `get_plan_full` against the
+/// scheme handler, which builds the payload from SQLite. Media URLs in
+/// that payload resolve to local archived files via the same handler.
 class UnifiedPreviewScreen extends StatefulWidget {
   final Session session;
   final LocalStorageService storage;
@@ -94,33 +71,24 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
 
   Future<void> _boot() async {
     try {
-      // Resolve the transport URL. Phase 2 default: a custom
-      // `homefit-local://plan/` scheme handled natively. Phase 1
-      // rollback path: boot the shelf server and use its loopback URL.
-      Uri uri;
-      if (kUseShelfFallback) {
-        await LocalPlayerServer.instance.start(
-          session: widget.session,
-          storage: widget.storage,
-        );
-        uri = LocalPlayerServer.instance.buildPlayerUrl();
-      } else {
-        // Bind the Dart-side resolver so the Swift scheme handler can
-        // answer plan-JSON + media-path requests against this session.
-        UnifiedPreviewSchemeBridge.instance.bind(
-          session: widget.session,
-          storage: widget.storage,
-        );
-        uri = Uri(
-          scheme: 'homefit-local',
-          host: 'plan',
-          path: '/',
-          queryParameters: {
-            'planId': widget.session.id,
-            'src': 'local',
-          },
-        );
-      }
+      // Phase 1 (loopback shelf HTTP server) was retired 2026-04-26 —
+      // the dead path was a footgun (Wave 37 hotfix landed in the wrong
+      // file). Custom `homefit-local://` scheme is now the only transport.
+      // Bind the Dart-side resolver so the Swift scheme handler can
+      // answer plan-JSON + media-path requests against this session.
+      UnifiedPreviewSchemeBridge.instance.bind(
+        session: widget.session,
+        storage: widget.storage,
+      );
+      final uri = Uri(
+        scheme: 'homefit-local',
+        host: 'plan',
+        path: '/',
+        queryParameters: {
+          'planId': widget.session.id,
+          'src': 'local',
+        },
+      );
 
       // iOS needs inline media playback + no user-gesture requirement
       // so the web-player's `<video autoplay muted>` calls succeed on
@@ -173,22 +141,12 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
             onNavigationRequest: (req) {
               // Any navigation AWAY from the bundle's origin (share
               // sheet opens, stray link taps) is blocked. The bundle
-              // only ever navigates same-origin.
+              // only ever navigates same-origin. The custom URL scheme
+              // has no port concept, so scheme + host is sufficient.
               final dest = Uri.tryParse(req.url);
               if (dest == null) return NavigationDecision.prevent;
-              final sameScheme = dest.scheme == uri.scheme;
-              if (kUseShelfFallback) {
-                if (sameScheme &&
-                    dest.host == uri.host &&
-                    dest.port == uri.port) {
-                  return NavigationDecision.navigate;
-                }
-              } else {
-                // Phase 2: compare scheme + host for the custom URL
-                // scheme. There is no port concept.
-                if (sameScheme && dest.host == uri.host) {
-                  return NavigationDecision.navigate;
-                }
+              if (dest.scheme == uri.scheme && dest.host == uri.host) {
+                return NavigationDecision.navigate;
               }
               return NavigationDecision.prevent;
             },
@@ -229,20 +187,12 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
   void dispose() {
     // Drop the audio-session override so the OS reverts to ambient /
     // silent-respecting behaviour for whatever comes next. Done BEFORE
-    // the server teardown so the platform call lands while the engine
+    // the bridge unbind so the platform call lands while the engine
     // still has a valid messenger.
     if (_audioSessionActivated) {
       unawaited(_setAudioPlayback(false));
     }
-    // Stop the shelf server when the screen closes — a no-op if Phase
-    // 2's native scheme path was used. The controller shuts itself
-    // down via Flutter's widget lifecycle. Use unawaited so dispose()
-    // stays synchronous.
-    if (kUseShelfFallback) {
-      unawaited(LocalPlayerServer.instance.stop());
-    } else {
-      UnifiedPreviewSchemeBridge.instance.unbind();
-    }
+    UnifiedPreviewSchemeBridge.instance.unbind();
     super.dispose();
   }
 
