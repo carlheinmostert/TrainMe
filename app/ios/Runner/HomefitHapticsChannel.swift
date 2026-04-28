@@ -134,44 +134,28 @@ class HomefitHapticsChannel {
             style = .light
         }
 
+        // iOS suppresses ALL vibration hardware while AVAudioSession is in
+        // .playAndRecord mode (the camera plugin sets this during preview).
+        // Workaround: momentarily switch to .ambient, fire the haptic, switch
+        // back. The audio session swap is <1ms — imperceptible.
+        let audioSession = AVAudioSession.sharedInstance()
+        let savedCategory = audioSession.category
+        let savedMode = audioSession.mode
+        let savedOptions = audioSession.categoryOptions
+        let needsSwap = savedCategory == .playAndRecord || savedCategory == .record
+        if needsSwap {
+            try? audioSession.setCategory(.ambient)
+            NSLog("[HomefitHaptics] audio session swapped to .ambient for haptic")
+        }
+
         let gen = UIImpactFeedbackGenerator(style: style)
         gen.prepare()
         gen.impactOccurred(intensity: CGFloat(intensity))
-        NSLog("[HomefitHaptics] UIKit fire OK (style=%d, intensity=%.2f)", style.rawValue, intensity)
+        NSLog("[HomefitHaptics] UIKit fire (style=%d, intensity=%.2f, swapped=%d)", style.rawValue, intensity, needsSwap ? 1 : 0)
 
-        // Approach 3: raw AudioToolbox vibration — bypasses UIKit + CoreHaptics
-        // entirely. These system sound IDs produce haptic feedback through a
-        // different hardware path not subject to Taptic Engine suppression.
-        let soundId: SystemSoundID
-        if intensity >= 0.9 {
-            soundId = 1520  // "pop" — strong
-        } else if intensity >= 0.5 {
-            soundId = 1519  // "peek" — medium
-        } else {
-            soundId = 1521  // "cancelled" — light
-        }
-        AudioServicesPlaySystemSound(soundId)
-        NSLog("[HomefitHaptics] AudioToolbox fire (soundId=%d)", soundId)
-
-        // Also fire CHHapticEngine as a belt-and-suspenders backup.
-        if let engine = engine {
-            do {
-                try engine.start()
-                let event = CHHapticEvent(
-                    eventType: .hapticTransient,
-                    parameters: [
-                        CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
-                        CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
-                    ],
-                    relativeTime: 0
-                )
-                let pattern = try CHHapticPattern(events: [event], parameters: [])
-                let player = try engine.makePlayer(with: pattern)
-                try player.start(atTime: CHHapticTimeImmediate)
-                NSLog("[HomefitHaptics] CHHapticEngine fire OK")
-            } catch {
-                NSLog("[HomefitHaptics] CHHapticEngine fire failed: %@", error.localizedDescription)
-            }
+        if needsSwap {
+            try? audioSession.setCategory(savedCategory, mode: savedMode, options: savedOptions)
+            NSLog("[HomefitHaptics] audio session restored to %@", savedCategory.rawValue)
         }
 
         lastError = nil
