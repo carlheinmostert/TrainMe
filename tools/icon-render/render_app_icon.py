@@ -2,15 +2,18 @@
 """
 Render the homefit.studio iOS app icon set.
 
-Design (v3): 2×2 coral circuit ONLY. Drops the ghost greys + sage rest +
-tint band that v2 carried over from the matrix slice. The 2-cycle coral
-circuit is the recognisable bit of the matrix; isolating it lets each
-pill carry substantially more visual mass at the smallest 60×60 home
-screen size while staying unmistakably "homefit.studio" at 1024×1024.
+Design (v4): 3×3 coral grid alternative to v3's 2×2. Same coral pill
+geometry, same dark surface, same canonical aligned-grid spacing
+(dx=6.5, dy=4.5 in source units) — just one more row + one more
+column. Hypothesis: the denser pattern reads as a more iconic shape
+at 60×60 even though each individual pill is smaller, because the
+overall block becomes a recognisable "matrix of pills" silhouette
+rather than four chunky discrete tiles.
 
-Geometry is COPIED VERBATIM from the canonical sources — the 4 coral
-pills sit on a true 2×2 grid (top row + bottom row aligned, no stagger)
-in the matrix logo:
+Geometry extends the canonical 2×2 from the matrix logo by adding a
+third aligned row and column. The 2×2 lives at x ∈ {15, 21.5} and
+y ∈ {2, 6.5}; v4 adds x = 28.0 and y = 11.0 to make 9 pills total.
+Source-of-truth canonical spacing is documented in:
   - app/lib/widgets/homefit_logo.dart            (Flutter)
   - web-portal/src/components/HomefitLogo.tsx    (TS)
   - web-player/app.js  buildHomefitLogoSvg()     (web)
@@ -40,19 +43,25 @@ SURFACE_BG = (0x0F, 0x11, 0x17)   # surface.dark.bg
 
 
 # ---------------------------------------------------------------------------
-# Canonical 2×2 coral circuit geometry (source units from the matrix logo)
+# 3×3 coral grid geometry (extends canonical 2×2 by one row + one column)
 # ---------------------------------------------------------------------------
-# Verbatim from homefit_logo.dart / HomefitLogo.tsx / buildHomefitLogoSvg().
-# The matrix is rendered in a 48×9.5 source viewbox; the 2×2 coral block
-# occupies x ∈ [15, 26.5] and y ∈ [2, 9.5] within that. We render only
-# those four pills here.
+# Pill geometry verbatim from homefit_logo.dart / HomefitLogo.tsx /
+# buildHomefitLogoSvg(): w=5.0, h=3.0, rx=1.0. Canonical aligned-grid
+# spacing is dx=6.5 across columns and dy=4.5 across rows. The 2×2
+# block sits at x ∈ {15.0, 21.5}, y ∈ {2.0, 6.5}; v4 adds x=28.0
+# and y=11.0 for the third column and third row.
+
+PILL_W = 5.0
+PILL_H = 3.0
+PILL_RX = 1.0
+COL_XS = [15.0, 21.5, 28.0]   # dx = 6.5 (canonical)
+ROW_YS = [2.0, 6.5, 11.0]     # dy = 4.5 (canonical)
 
 # (x, y, w, h, rx)
 CORAL_PILLS = [
-    (15.0, 2.0, 5.0, 3.0, 1.0),   # top-left
-    (15.0, 6.5, 5.0, 3.0, 1.0),   # bottom-left
-    (21.5, 2.0, 5.0, 3.0, 1.0),   # top-right
-    (21.5, 6.5, 5.0, 3.0, 1.0),   # bottom-right
+    (x, y, PILL_W, PILL_H, PILL_RX)
+    for y in ROW_YS
+    for x in COL_XS
 ]
 
 
@@ -64,18 +73,19 @@ ICON_PX = 1024
 
 
 def render_master() -> Image.Image:
-    """Render the canonical 1024×1024 master icon — 2×2 coral circuit only."""
+    """Render the canonical 1024×1024 master icon — 3×3 coral grid (v4)."""
     img = Image.new("RGB", (ICON_PX, ICON_PX), SURFACE_BG)
     draw = ImageDraw.Draw(img)
 
-    # v3 — Carl's call after v2: drop the ghost greys + sage rest, keep
-    # only the 2×2 coral circuit. With four pills instead of seven the
-    # individual coral cells get substantially more pixel area, which is
-    # the whole point — readability at 60×60 was the bottleneck on v2.
+    # v4 — 3×3 coral grid alternative to v3's 2×2. Same target frac
+    # (~75% of canvas width) so the cluster occupies the same overall
+    # footprint; with 9 pills instead of 4 the individual cells are
+    # smaller, but the shape becomes a denser, more obviously
+    # "matrix-of-pills" silhouette. Compare against v3 in the PR to
+    # decide which reads better at 60×60 home-screen size.
     #
-    # Target ~75% of canvas width for the coral cluster (within Carl's
-    # 70-80% window). Centre on the actual pill bounding box, not the
-    # source-viewbox window — the bounding box IS the composition.
+    # Centre on the actual pill bounding box, not any source-viewbox
+    # window — the bounding box IS the composition.
 
     pill_x_min = min(p[0] for p in CORAL_PILLS)
     pill_x_max = max(p[0] + p[2] for p in CORAL_PILLS)
