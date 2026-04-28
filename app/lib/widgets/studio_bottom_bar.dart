@@ -252,22 +252,40 @@ class StudioBottomBar extends StatelessWidget {
       ),
     ];
 
+    // Wave 38.1.1 polish — center the workflow group on the SCREEN
+    // midpoint (not biased by Back's 44pt on the left). Stack lets the
+    // central Row truly center while Back anchors left and the Unlock
+    // pill anchors right (when present), independent of the centre's
+    // intrinsic width.
     return Container(
       height: 44,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Stack(
         children: [
-          _ToolbarIconButton(
-            icon: Icons.arrow_back_rounded,
-            active: true,
-            onTap: onBack,
-            tooltip: 'Back to sessions',
+          // Truly-centred workflow group.
+          Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: centerGroup,
+            ),
           ),
-          const Spacer(),
-          ...centerGroup,
-          const Spacer(),
-          if (isPlanLocked) _UnlockPill(onTap: onUnlockTap),
+          // Back button — left anchor.
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _ToolbarIconButton(
+              icon: Icons.arrow_back_rounded,
+              active: true,
+              onTap: onBack,
+              tooltip: 'Back to sessions',
+            ),
+          ),
+          // Unlock pill — right anchor (only when locked).
+          if (isPlanLocked)
+            Align(
+              alignment: Alignment.centerRight,
+              child: _UnlockPill(onTap: onUnlockTap),
+            ),
         ],
       ),
     );
@@ -433,40 +451,33 @@ class _PublishToolbarButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Wave 38.1.1 polish — round filled background retired per Carl's
+    // QA note ("unnecessary"). Publish now reads as a flat glyph that
+    // matches the rest of the toolbar; state is communicated through
+    // the glyph + tint alone.
     final publishedDirty =
         session.isPublished && session.hasUnpublishedContentChanges;
     final publishedClean = session.isPublished && !publishedDirty;
 
-    Color bg;
-    Color iconColor;
-    Widget child;
-
+    Widget glyph;
     if (isPublishing) {
-      bg = AppColors.primary;
-      iconColor = Colors.white;
-      child = const SizedBox(
+      glyph = const SizedBox(
         width: 22,
         height: 22,
         child: CircularProgressIndicator(
           strokeWidth: 2,
-          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          color: AppColors.primary,
         ),
       );
     } else if (hasError) {
-      bg = AppColors.error;
-      iconColor = Colors.white;
-      child = Icon(Icons.error_outline, color: iconColor, size: 24);
+      glyph = const Icon(Icons.error_outline, color: AppColors.error, size: 24);
     } else if (publishedClean) {
-      bg = AppColors.circuit;
-      iconColor = Colors.white;
-      child = Icon(Icons.check_rounded, color: iconColor, size: 24);
+      glyph = const Icon(Icons.check_rounded, color: AppColors.circuit, size: 24);
     } else {
-      // never published OR dirty re-publish
-      bg = canPublish
+      final color = canPublish
           ? AppColors.primary
           : AppColors.primary.withValues(alpha: 0.45);
-      iconColor = Colors.white;
-      child = Icon(Icons.cloud_upload_outlined, color: iconColor, size: 24);
+      glyph = Icon(Icons.cloud_upload_outlined, color: color, size: 24);
     }
 
     String tooltip;
@@ -485,19 +496,15 @@ class _PublishToolbarButton extends StatelessWidget {
       child: SizedBox(
         width: 44,
         height: 44,
-        child: Material(
-          color: bg,
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onTap == null
-                ? null
-                : () {
-                    HapticFeedback.selectionClick();
-                    onTap!();
-                  },
-            child: Center(child: child),
-          ),
+        child: InkResponse(
+          radius: 22,
+          onTap: onTap == null
+              ? null
+              : () {
+                  HapticFeedback.selectionClick();
+                  onTap!();
+                },
+          child: Center(child: glyph),
         ),
       ),
     );

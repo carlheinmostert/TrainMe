@@ -14,7 +14,6 @@ import '../utils/session_title.dart';
 import '../widgets/client_avatar_glyph.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/orientation_lock_guard.dart';
-import '../widgets/powered_by_footer.dart';
 import '../widgets/session_card.dart';
 import 'client_avatar_capture_screen.dart';
 import 'session_shell_screen.dart';
@@ -494,7 +493,6 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
                       : _buildList()),
             ),
             _buildNewSessionButton(),
-            const PoweredByFooter(),
           ],
         ),
       ),
