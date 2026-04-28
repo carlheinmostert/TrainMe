@@ -4,6 +4,32 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+## Wave 39.3 — Dart timestamp UTC + per-viewer TZ rendering on portal
+
+**Status:** Queued **2026-04-28**. Surfaced during Wave 39 unlock-flow QA. Fire after Wave 39 QA closes (Wave 39 build is on Carl's iPhone right now; bumping mobile would disrupt the QA loop).
+
+**The bug — two-clock skew on the audit log.**
+The portal audit page mixes timestamps from two sources that disagree by +2h on SA-local devices:
+- `audit_events.ts` (`plan.opened`) — stamped server-side via Postgres `now()`, real UTC.
+- `plan_issuances.issued_at` (`plan.publish`) — stamped client-side from Dart, **2h ahead** of real UTC for SA devices.
+
+Root cause is in `app/lib/services/upload_service.dart` (and any other call site emitting timestamps to Supabase). The mobile code uses `DateTime.now().toIso8601String()`, which for a non-UTC `DateTime` emits *unmarked local time* (`2026-04-28T13:23:49.643561` — no `Z`, no offset). Postgres `timestamptz` parses unmarked input as UTC, so a publish that happened at SA wall 13:23 (= 11:23 UTC real instant) gets stored as 13:23 UTC (= a real instant 2h in the future). For SA practitioners the bug is invisible because the bug-shifted UTC value happens to equal SA wall time — but the moment a US-tz practitioner uses the system, or anyone tries to compute durations across event types, the times disagree.
+
+Audit screen also formats SSR-side, currently pinned to `timeZone: 'UTC'` ([web-portal/src/app/audit/page.tsx](../web-portal/src/app/audit/page.tsx)) — this matches the bug-shifted client values for SA users today, but a proper render needs the viewer's local TZ.
+
+**Scope of fix:**
+1. **Mobile timestamp emission** — sweep `app/lib/services/upload_service.dart` and any other writer (start with the four call sites in upload_service: `sent_at`, `issued_at`, `created_at` mirror in plans upsert, the diagnostic log line). Replace `DateTime.now().toIso8601String()` with `DateTime.now().toUtc().toIso8601String()` so the wire format always carries `Z`. Same for any other module that POSTs timestamps to Supabase (grep for `toIso8601String` in `app/lib`).
+2. **One-shot data backfill** — for every existing `plan_issuances.issued_at` and any other affected column written by the buggy path, subtract the offending TZ offset. SAFE option: query practitioners' iPhone TZ (we don't have it; treat as +2 for the SA-only MVP cohort) and run an UPDATE … SET issued_at = issued_at - interval '2 hours' on rows older than the fix-deploy timestamp. RISKIER option: leave historical data as-is and only fix going forward (the audit log will look weird across the cutover but the cutover is a one-day blip). Carl's call which trade-off he prefers.
+3. **Portal — per-viewer-TZ time rendering.** Extract the audit table's `<td>` time cell into a tiny client component (`<ClientTime ts={iso} />`) that calls `new Date(iso).toLocaleString(navigator.language, { dateStyle: 'medium', timeStyle: 'short' })`. The browser-local TZ is what the practitioner expects (their wall clock). Keep `fmtDate(iso)` server-side fallback for the SSR window before hydration. Apply the same client-component swap to the "Prepaid via unlock at …" / "Used at …" subtitles for consistency.
+4. **Test plan addition** — extend the Wave 40 test bundle with an item: open a published plan, immediately publish, look at audit feed; confirm both the `plan.opened` timestamp and the `plan.publish` timestamp align with the practitioner's wall clock (within a minute) and read in the same TZ.
+
+**Why deferred (not patched alongside Wave 39):**
+- Mobile rebuild would disrupt active Wave 39 unlock-flow QA on Carl's iPhone.
+- The backfill question (option 1 vs 2 above) needs Carl's input.
+- Wave 39 audit feed already works for SA-only viewing; the bug is invisible at MVP scale.
+
+---
+
 ## Consent-driven analytics collection (Wave 17)
 
 **Status:** Designed **2026-04-21** with Carl. Full design locked in [`docs/design-reviews/analytics-consent-mvp-2026-04-21.md`](design-reviews/analytics-consent-mvp-2026-04-21.md). MVP pillar — ships alongside the other MVP features, not as a post-MVP add-on. Foundation for the future paid Analytics subscription (Y2+).
