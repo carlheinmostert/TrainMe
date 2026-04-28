@@ -57,7 +57,7 @@
   <h1>Mobile camera promotion + portal hygiene + settings &amp; audit follow-ups</h1>
 
   <p class="lede">
-    Three slices in one bundle. <strong>(A &middot; mobile)</strong> Camera goes first-class — coral camera icon replaces the library glyph in the Studio toolbar; library import slides into a viewfinder corner button; permanent hint copy under the shutter; slide-up-to-lock recording gesture; right-edge vertical lens pills; sized-up toolbar glyphs. <strong>(B &middot; portal)</strong> Top-bar nav links retired (the dashboard tiles ARE the menu); signed-in email chip + practice-switcher chip cluster on the right of the header; dashboard audit tile renders the 5 most-recent events with sage chips and per-viewer-TZ timestamps; audit kind legend wraps inline (1-2 lines instead of 5); avatar glyph on every <code>/clients</code> row + session-icon parity inside <code>/clients/[id]</code> matching mobile SessionCard; <code>/clients</code> drill-in routing bug fixed (cookie-fallback added to <code>/clients/[id]</code>). <strong>(C &middot; settings + audit)</strong> Configurable system defaults under app Settings + audit Actor column always populated + dedicated Client column.
+    Three slices in one bundle, 22 items across 3 sections. <strong>(A &middot; mobile, items 1–7)</strong> Camera goes first-class — coral camera icon replaces the library glyph in the Studio toolbar; library import slides into a viewfinder corner button; permanent hint copy under the shutter; slide-up-to-lock recording gesture; right-edge vertical lens pills; sized-up toolbar glyphs. <strong>(B &middot; portal, items 8–16)</strong> Top-bar nav links retired (the dashboard tiles ARE the menu); signed-in email chip + practice-switcher chip cluster on the right of the header; dashboard audit tile renders the 5 most-recent events with sage chips and per-viewer-TZ timestamps; audit kind legend wraps inline (1-2 lines instead of 5); avatar glyph on every <code>/clients</code> row + session-icon parity inside <code>/clients/[id]</code> matching mobile SessionCard; <code>/clients</code> drill-in routing bug fixed (cookie-fallback added to <code>/clients/[id]</code>). <strong>(C &middot; audit hardening, items 17–22)</strong> Wave 40.1 — audit Actor column never NULL (<code>plan.opened</code> rows derive the practitioner who last published the plan), and a dedicated <strong>Client</strong> column on the audit table linking through to <code>/clients/[id]</code>.
   </p>
 
   <h2>A &middot; Mobile camera + Studio toolbar refresh</h2>
@@ -281,10 +281,84 @@
     </li>
   </ul>
 
-  <h2>C &middot; Settings + audit follow-ups (S1–S2)</h2>
-  <div class="placeholder">
-    Reserved for a follow-up wave. S1 (configurable system defaults under app Settings) + S2 (audit Actor column always populated + dedicated Client column) ship after Wave 40 P/M slices land.
-  </div>
+  <h2>C &middot; Audit hardening (Wave 40.1 &middot; S2)</h2>
+  <ul class="checklist">
+    <li data-num="17" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 17">&check;</button><button class="fail" type="button" aria-label="Fail 17">&times;</button></div>
+      <span class="num">17.</span>
+      <span class="text">S2.a &middot; <code>plan.opened</code> Actor column shows the practitioner who last published &mdash; never NULL, never the literal &quot;Client&quot;.</span>
+      <ol class="steps">
+        <li data-sub="17.1">From a clean iPhone (or simulator), open a published plan URL via <code>https://session.homefit.studio/p/&lt;plan-uuid&gt;</code>. The web player calls <code>record_plan_opened</code> on first paint, dropping a <code>plan.opened</code> audit row.</li>
+        <li data-sub="17.2">Open the portal at <code>https://manage.homefit.studio/audit?practice=&hellip;</code>. Find the most-recent <code>plan.opened</code> row (sage chip).</li>
+        <li data-sub="17.3">The <strong>Actor</strong> column shows the practitioner&apos;s email (e.g. <code>carlhein@me.com</code>) &mdash; the same address listed on the matching <code>plan.publish</code> row. NOT the literal text <code>Client</code>, NOT a dash.</li>
+        <li data-sub="17.4">Hover the actor cell. The browser tooltip reads <code>Plan owner &mdash; opened by anonymous client</code> &mdash; explaining the actor semantics.</li>
+        <li data-sub="17.5">If the plan has been republished multiple times, the actor reflects the LATEST publisher (the <code>plan_issuances.trainer_id</code> ordered by <code>issued_at DESC</code>).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="18" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 18">&check;</button><button class="fail" type="button" aria-label="Fail 18">&times;</button></div>
+      <span class="num">18.</span>
+      <span class="text">S2.a &middot; Other formerly-NULL actor rows now meaningful where derivable.</span>
+      <ol class="steps">
+        <li data-sub="18.1">On <code>/audit</code>, filter to <code>credit.consumption</code> rows (chip group: Plan / burn).</li>
+        <li data-sub="18.2">Each consumption row tied to a publish (<code>ref_id</code> non-null + matching plan exists) now shows the publisher&apos;s email in the Actor column. Previously these were &mdash;.</li>
+        <li data-sub="18.3">System-issued credit rows (<code>credit.purchase</code>, <code>credit.signup_bonus</code>, <code>credit.referral_signup_bonus</code>, <code>credit.adjustment</code>, <code>referral.rebate</code>) and unattributable client rows (<code>client.create</code>, <code>client.delete</code>) STILL render &mdash; that&apos;s expected. Their underlying tables don&apos;t carry a <code>created_by</code> column; documented as a follow-up in the Wave 40.1 PR body.</li>
+        <li data-sub="18.4">Confirm no row anywhere in the table renders the literal text <code>Client</code> in the Actor column. The Wave 39 magic-string is retired.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="19" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 19">&check;</button><button class="fail" type="button" aria-label="Fail 19">&times;</button></div>
+      <span class="num">19.</span>
+      <span class="text">S2.b &middot; New <strong>Client</strong> column on the audit table; plan-shaped rows link to <code>/clients/[id]</code>.</span>
+      <ol class="steps">
+        <li data-sub="19.1">Reload <code>/audit?practice=&hellip;</code>. The audit table header now reads <code>Date &middot; Actor &middot; Kind &middot; Description &middot; Client &middot; Credits &Delta; &middot; Balance after &middot; Link</code> &mdash; Client column sits between Description and Credits.</li>
+        <li data-sub="19.2">Find a <code>plan.publish</code> row whose plan was published for a real client. The Client cell shows the client&apos;s name (e.g. <strong>Melissa</strong>) styled as a coral link.</li>
+        <li data-sub="19.3">Click the client name. Browser navigates to <code>/clients/&lt;client-uuid&gt;</code> &mdash; the client detail page renders normally.</li>
+        <li data-sub="19.4">Confirm the same applies to the matching <code>plan.opened</code> row from item 17 &mdash; same client name + same link target.</li>
+        <li data-sub="19.5">Confirm the same applies to <code>credit.consumption</code> rows tied to a publish (linked via <code>cl.plan_id &rarr; plans.client_id</code>).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="20" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 20">&check;</button><button class="fail" type="button" aria-label="Fail 20">&times;</button></div>
+      <span class="num">20.</span>
+      <span class="text">S2.b &middot; Client-shaped rows show the same client they describe.</span>
+      <ol class="steps">
+        <li data-sub="20.1">Filter <code>/audit</code> to <code>client.create</code> rows.</li>
+        <li data-sub="20.2">Each row&apos;s Client cell shows the same name as the Description (<code>Created client &quot;{name}&quot;</code>). The link routes to <code>/clients/&lt;client-uuid&gt;</code> for that client.</li>
+        <li data-sub="20.3">Filter to <code>client.delete</code> rows. Same: Client cell shows the deleted client&apos;s name (last-known); link routes to the soft-deleted detail page.</li>
+        <li data-sub="20.4">Filter to <code>client.restore</code> rows (these come via <code>audit_events</code> catchall). Same: Client cell populated.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="21" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 21">&check;</button><button class="fail" type="button" aria-label="Fail 21">&times;</button></div>
+      <span class="num">21.</span>
+      <span class="text">S2.b &middot; Practice-shaped rows show <code>&mdash;</code> in the Client column.</span>
+      <ol class="steps">
+        <li data-sub="21.1">Filter <code>/audit</code> to <code>member.join</code> rows. Each row&apos;s Client cell shows a single dim em-dash &mdash; no link, no name.</li>
+        <li data-sub="21.2">Same for <code>credit.purchase</code>, <code>credit.signup_bonus</code>, <code>credit.referral_signup_bonus</code>, <code>credit.adjustment</code>, <code>referral.rebate</code>, and <code>practice.rename</code>.</li>
+        <li data-sub="21.3">The Client column header is still visible; the column doesn&apos;t collapse to zero width when every visible row is practice-shaped.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="22" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 22">&check;</button><button class="fail" type="button" aria-label="Fail 22">&times;</button></div>
+      <span class="num">22.</span>
+      <span class="text">S2.b &middot; Tombstoned client name still surfaces on historical audit rows.</span>
+      <ol class="steps">
+        <li data-sub="22.1">Pre-step: from the portal, <strong>delete</strong> a client that has at least one prior <code>plan.publish</code> + one <code>plan.opened</code> row. Wait a moment for cascade.</li>
+        <li data-sub="22.2">Reload <code>/audit?practice=&hellip;</code>. Find the historical <code>plan.publish</code> row for the now-deleted client.</li>
+        <li data-sub="22.3">The Client cell still shows the (last-known) client name &mdash; not <code>&mdash;</code>, not blank. The <code>clients.deleted_at</code> row preserves the name.</li>
+        <li data-sub="22.4">Click the name. Routes to <code>/clients/&lt;deleted-uuid&gt;</code>. The detail page may render an empty / soft-deleted state &mdash; that&apos;s OK; click-through resolves to the right id even though the client is tombstoned.</li>
+        <li data-sub="22.5">Filter to <code>client.delete</code>. Find the row from step 22.1. Its Client cell links to the same <code>/clients/&lt;deleted-uuid&gt;</code> page.</li>
+        <li data-sub="22.6">Restore the client (from <code>/clients</code> &rarr; recycle bin) so the test rig stays clean for the next pass.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
 
   <div class="oos">
     <h3>Out of scope &mdash; reminder</h3>
@@ -293,7 +367,8 @@
       <li>Avatar URLs are NOT yet surfaced through the portal RPC. Wave 40 ships initials-only on both <code>/clients</code> and <code>/clients/[id]</code>; a future migration will extend <code>list_practice_clients</code> to return <code>avatar_path</code>.</li>
       <li>The dashboard&apos;s &quot;In practice: {Name} &hArr; Switch&quot; line under the H1 is unchanged. The new header chip is in addition, not replacement &mdash; identity context is now visible from every signed-in page.</li>
       <li>Section A (mobile camera M1–M6) is owned by the parallel mobile agent and ships in the same bundle.</li>
-      <li>Section C (S1 + S2) deferred to a follow-up wave; placeholder kept for index-page chronology.</li>
+      <li>S1 (configurable system defaults under app Settings) deferred to a follow-up wave &mdash; not in scope for Wave 40.1.</li>
+      <li>Wave 40.1 only addresses the audit RPC + portal table. The mobile app does not consume the new <code>client_id</code> / <code>client_name</code> columns yet (no audit feed surface in mobile).</li>
     </ul>
   </div>
 

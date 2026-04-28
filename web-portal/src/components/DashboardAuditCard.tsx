@@ -73,18 +73,20 @@ export function DashboardAuditCard({ href, rows, error }: Props) {
 
 function AuditPreviewRow({ row }: { row: AuditRow }) {
   const tone = auditChipTone(row.kind);
-  const isClientActor =
-    row.kind === 'plan.opened' && !row.email && !row.trainerId;
-  const actorLabel = row.email
-    ? row.email
-    : isClientActor
-      ? 'Client'
-      : '—';
+  // Wave 40.1 — `plan.opened` actor now resolves to the plan owner via
+  // list_practice_audit (latest plan_issuances.trainer_id). NULL paths
+  // remaining (credit_ledger system rows, referral.rebate, …) render as
+  // "—". The "Client" magic-string is retired.
+  const actorLabel = row.email ?? '—';
+  const actorTooltip =
+    row.kind === 'plan.opened' && row.email
+      ? 'Plan owner — opened by anonymous client'
+      : actorLabel;
 
   return (
     <li className="flex items-center gap-3 py-2 text-xs">
       <KindChip kind={row.kind} tone={tone} />
-      <span className="min-w-0 flex-1 truncate text-ink-muted" title={actorLabel}>
+      <span className="min-w-0 flex-1 truncate text-ink-muted" title={actorTooltip}>
         {actorLabel}
       </span>
       <span className="shrink-0 whitespace-nowrap text-ink-dim">
