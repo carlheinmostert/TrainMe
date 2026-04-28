@@ -67,6 +67,21 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
     // version — the lock-state heal applies always.
     try {
       final cloud = await ApiClient.instance.getPlanPublishState(_session.id);
+      // Wave 39 diagnostic — surface what the reconcile saw so silent
+      // failures can be traced on device. Remove once the lock-heal
+      // path is confirmed working in profile builds. Banner is auto-
+      // dismissed after 4s.
+      if (mounted) {
+        final localFo = _session.firstOpenedAt;
+        final cloudFo = cloud == null ? '<null cloud>' : cloud['first_opened_at']?.toString() ?? '<null col>';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          duration: const Duration(seconds: 5),
+          content: Text(
+            'reconcile: cloud=$cloudFo · local=$localFo',
+            style: const TextStyle(fontSize: 11),
+          ),
+        ));
+      }
       if (cloud == null || !mounted) return;
 
       Session updated = _session;
