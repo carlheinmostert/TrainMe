@@ -248,8 +248,8 @@ class ConversionService extends ChangeNotifier {
               }).timeout(const Duration(seconds: 30));
 
               // Line-drawing thumbnail (used for line treatment).
-              final convertedPath = PathResolver.resolve(done.convertedFilePath);
-              if (convertedPath != null) {
+              if (done.convertedFilePath != null) {
+                final convertedPath = PathResolver.resolve(done.convertedFilePath!);
                 final linePath = p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
                 await _thumbChannel.invokeMethod<String>('extractFrame', {
                   'inputPath': convertedPath,
