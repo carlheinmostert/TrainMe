@@ -2,6 +2,7 @@ import Flutter
 import UIKit
 import CoreHaptics
 import AudioToolbox
+import AVFoundation
 
 /// Native haptic feedback channel that bypasses Flutter's `HapticFeedback`
 /// services. iOS suppresses Flutter-level haptics while `AVCaptureSession`
