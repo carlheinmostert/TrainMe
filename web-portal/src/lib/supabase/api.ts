@@ -1255,6 +1255,10 @@ export type AuditRow = {
 export type AuditPage = {
   rows: AuditRow[];
   totalCount: number;
+  /** Wave 39 — non-null when the underlying RPC failed. The page renders
+   *  an inline "audit log unavailable" banner instead of a misleading
+   *  empty state. `null` on success (including the legitimate-empty case). */
+  error: string | null;
 };
 
 export type AuditListOptions = {
@@ -1279,11 +1283,14 @@ export class PortalAuditApi {
   constructor(private readonly supabase: CompatSupabase) {}
 
   /**
-   * List practice audit events, filtered + paginated. Returns an empty page
-   * on any RPC error — the portal is display-safe (the table renders the
-   * "no events match these filters" empty state). Callers that need to
-   * distinguish "truly empty" from "RPC failed" should surface errors
-   * from a separate health check, not this method.
+   * List practice audit events, filtered + paginated. The page returned
+   * always exposes an `error` field — `null` on success, a string message
+   * on failure — so the calling page can render "audit log unavailable"
+   * instead of a misleading empty state. We also `console.error` on any
+   * Supabase error so production failures surface in the browser console
+   * (Wave 39 — earlier the function silently smothered RPC errors and a
+   * `practice_invite_codes` regression rendered the audit page empty
+   * with no signal).
    */
   async listAudit(
     practiceId: string,
@@ -1301,8 +1308,13 @@ export class PortalAuditApi {
       p_from: opts.from ?? undefined,
       p_to: opts.to ?? undefined,
     });
-    if (error || !data) {
-      return { rows: [], totalCount: 0 };
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error('[listAudit] RPC failed:', error);
+      return { rows: [], totalCount: 0, error: error.message ?? 'audit RPC failed' };
+    }
+    if (!data) {
+      return { rows: [], totalCount: 0, error: null };
     }
     const rows = (data as unknown as Array<Record<string, unknown>>) ?? [];
     const totalCount =
@@ -1310,6 +1322,7 @@ export class PortalAuditApi {
     return {
       rows: rows.map(mapAuditRow),
       totalCount: Number.isFinite(totalCount) ? totalCount : 0,
+      error: null,
     };
   }
 }

@@ -173,13 +173,17 @@ export default async function AuditPage({
 
         <div className="mt-4 flex items-center justify-between text-xs text-ink-muted">
           <span>
-            {totalCount === 0
-              ? 'No events.'
-              : `Showing ${showingFrom}–${showingTo} of ${totalCount}`}
+            {page.error
+              ? 'Audit log unavailable.'
+              : totalCount === 0
+                ? 'No events.'
+                : `Showing ${showingFrom}–${showingTo} of ${totalCount}`}
           </span>
         </div>
 
-        {page.rows.length === 0 ? (
+        {page.error ? (
+          <AuditErrorBanner message={page.error} />
+        ) : page.rows.length === 0 ? (
           <EmptyState practiceId={practiceId} hasAnyFilter={hasAnyFilter(params)} />
         ) : (
           <AuditTable rows={page.rows} />
@@ -383,6 +387,23 @@ function KindChip({ kind, tone }: { kind: string; tone: AuditChipTone }) {
 // ----------------------------------------------------------------------------
 // Empty + pagination
 // ----------------------------------------------------------------------------
+
+/** Wave 39 — surfaced when `listAudit` returns a non-null `error`. Replaces
+ *  the misleading "no events" empty state so an RPC failure doesn't hide
+ *  the entire feature. The detail line is intentionally terse — the full
+ *  error already lives in the browser console via `console.error`. */
+function AuditErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="mt-10 rounded-lg border border-coral/40 bg-coral/5 p-6 text-center">
+      <p className="font-medium text-coral">Audit log unavailable</p>
+      <p className="mt-2 text-sm text-ink-muted">
+        The audit RPC returned an error. Try refreshing — if it persists,
+        the browser console has the diagnostic detail.
+      </p>
+      <p className="mt-3 font-mono text-xs text-ink-dim">{message}</p>
+    </div>
+  );
+}
 
 function EmptyState({
   practiceId,

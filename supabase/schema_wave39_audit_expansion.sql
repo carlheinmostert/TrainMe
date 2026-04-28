@@ -73,56 +73,14 @@ CREATE INDEX IF NOT EXISTS idx_plan_issuances_prepaid_unlock
 -- 2. consume_credit — already returns `prepaid_unlock_at` in the JSONB on
 -- the fast path (see schema_wave29_unlock_plan.sql). No change needed here;
 -- the Dart publish flow reads that field and threads it onto the
--- record_plan_issuance call.
+-- plan_issuances row it already inserts via the existing direct-INSERT
+-- path (RLS allows authenticated practice members to write the audit row).
+--
+-- A SECURITY DEFINER `record_plan_issuance` RPC was considered for forward
+-- compatibility (in case `plan_issuances` writes ever get RPC-only-locked-
+-- down à la `credit_ledger`). Removed to keep the surface lean; revisit
+-- only when we actually move that lockdown.
 -- ============================================================================
-
--- The publish-side write helper. Existing callers either go directly through
--- INSERT or use a helper — this migration adds an explicit RPC so the Dart
--- upload path can stamp prepaid_unlock_at without granting INSERT to clients.
-CREATE OR REPLACE FUNCTION public.record_plan_issuance(
-  p_practice_id        uuid,
-  p_plan_id            uuid,
-  p_version            integer,
-  p_credits            integer,
-  p_prepaid_unlock_at  timestamptz DEFAULT NULL
-)
-RETURNS uuid
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $fn$
-DECLARE
-  v_caller   uuid := auth.uid();
-  v_id       uuid;
-BEGIN
-  IF v_caller IS NULL THEN
-    RAISE EXCEPTION 'record_plan_issuance requires an authenticated caller'
-      USING ERRCODE = '28000';
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM practice_members
-     WHERE practice_id = p_practice_id AND trainer_id = v_caller
-  ) THEN
-    RAISE EXCEPTION 'record_plan_issuance: caller % is not a member of practice %',
-      v_caller, p_practice_id
-      USING ERRCODE = '42501';
-  END IF;
-
-  INSERT INTO public.plan_issuances (
-    practice_id, plan_id, trainer_id, version, credits, prepaid_unlock_at
-  )
-  VALUES (
-    p_practice_id, p_plan_id, v_caller, p_version, p_credits, p_prepaid_unlock_at
-  )
-  RETURNING id INTO v_id;
-
-  RETURN v_id;
-END;
-$fn$;
-
-GRANT EXECUTE ON FUNCTION public.record_plan_issuance(uuid, uuid, integer, integer, timestamptz) TO authenticated;
-REVOKE EXECUTE ON FUNCTION public.record_plan_issuance(uuid, uuid, integer, integer, timestamptz) FROM anon, public;
 
 -- ============================================================================
 -- 3. record_plan_opened — extend to also drop an audit_events row per call.
@@ -349,40 +307,14 @@ BEGIN
 
     UNION ALL
 
-    SELECT
-      pic.created_at                                  AS a_ts,
-      'invite.mint'::text                             AS a_kind,
-      pic.created_by                                  AS a_trainer_id,
-      u.email::text                                   AS a_email,
-      COALESCE(u.raw_user_meta_data->>'full_name', '')::text AS a_full_name,
-      pic.code::text                                  AS a_title,
-      NULL::numeric                                   AS a_credits_delta,
-      NULL::numeric                                   AS a_balance_after,
-      NULL::uuid                                      AS a_ref_id,
-      NULL::jsonb                                     AS a_meta
-    FROM public.practice_invite_codes pic
-    LEFT JOIN auth.users u ON u.id = pic.created_by
-    WHERE pic.practice_id = p_practice_id
-
-    UNION ALL
-
-    SELECT
-      pic.claimed_at                                  AS a_ts,
-      'invite.claim'::text                            AS a_kind,
-      pic.claimed_by                                  AS a_trainer_id,
-      u.email::text                                   AS a_email,
-      COALESCE(u.raw_user_meta_data->>'full_name', '')::text AS a_full_name,
-      pic.code::text                                  AS a_title,
-      NULL::numeric                                   AS a_credits_delta,
-      NULL::numeric                                   AS a_balance_after,
-      NULL::uuid                                      AS a_ref_id,
-      NULL::jsonb                                     AS a_meta
-    FROM public.practice_invite_codes pic
-    LEFT JOIN auth.users u ON u.id = pic.claimed_by
-    WHERE pic.practice_id = p_practice_id
-      AND pic.claimed_at IS NOT NULL
-
-    UNION ALL
+    -- Wave 14 retired the `practice_invite_codes` table; the legacy
+    -- `invite.mint` / `invite.claim` UNION ALL branches were dropped in
+    -- `schema_milestone_u_add_member_by_email.sql` and MUST stay dropped
+    -- here. Re-introducing them caused a regression in the in-flight Wave
+    -- 39 commit: the RPC compiled (plpgsql is lazy on table refs) but
+    -- threw `42P01: relation "public.practice_invite_codes" does not
+    -- exist` on every call, and the portal silently rendered an empty
+    -- audit page (see fix in `web-portal/src/lib/supabase/api.ts`).
 
     -- audit_events catchall (member.role_change / member.remove /
     -- practice.rename / client.restore / invite.revoke / plan.opened / ...)
@@ -457,7 +389,9 @@ COMMIT;
 --   ) WHERE kind = 'plan.publish' LIMIT 5;
 --   -- Expect: meta keys include `version` + `prepaid_unlock_at`.
 --
--- D. record_plan_issuance stamps the column:
---   -- (paired with a prior unlock_plan_for_edit run; consume_credit returns
---   --  prepaid_unlock_at; Dart threads it into record_plan_issuance.)
+-- D. list_practice_audit does NOT reference retired tables:
+--   SELECT proname FROM pg_proc
+--    WHERE proname = 'list_practice_audit'
+--      AND prosrc LIKE '%practice_invite_codes%';
+--   -- Expect: zero rows. The Wave 14 lockdown must hold.
 -- ============================================================================

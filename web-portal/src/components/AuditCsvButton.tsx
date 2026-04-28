@@ -56,6 +56,13 @@ export function AuditCsvButton({
         from: filters.from,
         to: filters.to,
       });
+      // Wave 39 — surface RPC failures instead of letting them masquerade
+      // as "No events to export." (totalCount=0 on error indistinguishable
+      // from a legitimate empty page without checking `.error`).
+      if (probe.error) {
+        setToast(`Audit RPC failed: ${probe.error}`);
+        return;
+      }
       const total = probe.totalCount;
       if (total === 0) {
         setToast('No events to export.');
@@ -71,6 +78,10 @@ export function AuditCsvButton({
         from: filters.from,
         to: filters.to,
       });
+      if (page.error) {
+        setToast(`Audit RPC failed: ${page.error}`);
+        return;
+      }
       const csv = toCsv(page.rows);
       const fileName = buildFileName(practiceSlug, filters.from, filters.to);
       triggerDownload(csv, fileName);
