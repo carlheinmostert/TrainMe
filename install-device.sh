@@ -11,7 +11,7 @@
 set -e
 
 DEVICE=00008150-001A31D40E88401C   # iPhone CHM
-BUNDLE=com.raidme.raidme
+BUNDLE=studio.homefit.app
 APP_PATH=/Users/chm/dev/TrainMe/app/build/ios/iphoneos/Runner.app
 
 echo "▸ Pulling latest main..."

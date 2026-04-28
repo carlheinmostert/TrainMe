@@ -131,7 +131,7 @@ class AuthService {
   /// Send a one-time magic link to the given email.
   ///
   /// Supabase emails a URL of the form
-  /// `com.raidme.raidme://login-callback?token=XXX&type=magiclink` which,
+  /// `studio.homefit.app://login-callback?token=XXX&type=magiclink` which,
   /// when tapped on this device, deep-links into the app and completes
   /// the session via the Supabase SDK's built-in URL handler
   /// (`onAuthStateChange` fires → AuthGate routes to Home).

@@ -78,6 +78,22 @@ Re-enabling this is a one-line UI change, not a config re-plumb:
 - `app/pubspec.yaml`: `google_sign_in: 6.2.2` stays as a leave-behind dependency.
 - `app/lib/services/auth_service.dart`: native sign-in code stays, just gated off in the UI.
 
+## Bundle ID rebrand follow-up (2026-04-28)
+
+When SIWA / Google is re-enabled, the redirect plumbing now points at the
+new bundle ID. Specifically:
+
+- `AppConfig.oauthRedirectUrl` now resolves to `studio.homefit.app://login-callback`.
+- iOS `Info.plist` `CFBundleURLSchemes` now contains `studio.homefit.app`.
+- Supabase auth redirect allowlist needs `studio.homefit.app://` added
+  (current allowlist: `https://manage.homefit.studio/**`,
+  `http://localhost:3000/**`).
+- Google Cloud Console iOS OAuth client: regenerate against the new bundle ID
+  `studio.homefit.app` (the existing `com.raidme.raidme` iOS client will stop
+  matching once the app is installed under the new ID).
+- Apple Sign-In: when the Apple Developer Program activates, the Service ID +
+  return URL configuration should use `studio.homefit.app://` from the start.
+
 ## Links
 
 - Supabase Flutter Google docs: https://supabase.com/docs/guides/auth/social-login/auth-google

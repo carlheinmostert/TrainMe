@@ -200,6 +200,7 @@ Surfaces required to match:
 - Dead-code sweep (PR #10 flagged `_PrepFlashWrapper`, `_TimerRingPainter`, `_PulseMarkPainter` etc.).
 - `supabase/schema.sql` refresh via `supabase db dump`.
 - Test plan Phase 1 — no tests exist for business-logic RPCs yet.
+- **When SIWA / Google re-enabled** (post-MVP): register `studio.homefit.app://` URL scheme in the Supabase auth redirect allowlist (currently `https://manage.homefit.studio/**` + `http://localhost:3000/**`) and in the Apple/Google OAuth client config. The bundle ID rebrand (2026-04-28) updated the iOS URL scheme + `AppConfig.oauthRedirectUrl` to `studio.homefit.app://login-callback`; re-enablement just needs the Supabase + provider-side allowlists to match. See also `docs/BACKLOG_GOOGLE_SIGNIN.md`.
 
 **Blocked on Carl:**
 - PayFast production merchant account signup.
@@ -310,7 +311,7 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 - Physical device: `./install-device.sh` (pulls main, release build, installs to iPhone CHM; runs with VPN on)
 - Manual build: `cd app && flutter build ios --debug --simulator --dart-define=GIT_SHA=$(git -C /Users/chm/dev/TrainMe rev-parse --short HEAD)`
 - Install with: `xcrun simctl install <device-id> <runner.app>`
-- Launch with: `xcrun simctl launch <device-id> com.raidme.raidme`
+- Launch with: `xcrun simctl launch <device-id> studio.homefit.app`
 - Web player auto-deploys via Vercel on `git push`
 - Bump `sw.js` CACHE_NAME when making major web player changes
 - Supabase schema changes: with the CLI linked, use `supabase db query --linked --file supabase/<file>.sql` to apply directly. Still keep a human-readable `.sql` file in `supabase/` for audit trail. Carl reviews the SQL file before apply.

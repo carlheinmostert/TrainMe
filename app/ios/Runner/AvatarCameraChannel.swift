@@ -33,7 +33,7 @@ import os.log
 // whose session is the SAME `AVCaptureSession` started by this channel —
 // they share state via the `currentSession` static.
 //
-// Diagnostics use `os_log` against subsystem `com.raidme.raidme` and
+// Diagnostics use `os_log` against subsystem `studio.homefit.app` and
 // category `avatar.capture` so Carl can filter Console.app on the
 // physical device. Dart-side `dart:developer.log()` does NOT surface in
 // Console.app for iOS Flutter profile/release builds (Wave 33 learned the
@@ -49,7 +49,7 @@ final class AvatarCameraChannel: NSObject {
 
     /// Subsystem + category for `os_log`. EXACT strings — Carl filters on
     /// these in Console.app.
-    private static let log = OSLog(subsystem: "com.raidme.raidme", category: "avatar.capture")
+    private static let log = OSLog(subsystem: "studio.homefit.app", category: "avatar.capture")
 
     /// Background queue for AVCaptureSession start/stop. Apple specifically
     /// recommends keeping these off the main queue — `startRunning` blocks

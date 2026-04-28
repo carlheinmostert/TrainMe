@@ -49,11 +49,11 @@ import Flutter
 @available(iOS 15.0, *)
 final class ClientAvatarProcessor {
     /// Diagnostic log channel. Subsystem matches the rest of the iOS
-    /// runtime (`com.raidme.raidme`); `avatar.capture` keeps the
+    /// runtime (`studio.homefit.app`); `avatar.capture` keeps the
     /// avatar + photo body-focus pipelines on the same Console.app
     /// filter so Carl can capture both with one query.
     private static let log = OSLog(
-        subsystem: "com.raidme.raidme",
+        subsystem: "studio.homefit.app",
         category: "avatar.capture"
     )
 
@@ -223,7 +223,7 @@ final class ClientAvatarProcessor {
 
         // Wave 37 — diagnostic for the W36 #6 photo banding bug. Logs
         // the working dimensions and the BGRA stride so Carl can
-        // capture under Console.app filter `subsystem:com.raidme.raidme
+        // capture under Console.app filter `subsystem:studio.homefit.app
         // category:avatar.capture`. Square avatars work fine; portrait
         // (9:16) photos have shown horizontal-band artefacts which we
         // suspect are stride / in-place-blur related. Keep this log
