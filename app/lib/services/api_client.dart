@@ -947,12 +947,16 @@ class ApiClient {
   ///
   /// Failures are swallowed silently per R-voice fallback — the caller
   /// shows a neutral error if needed.
+  /// Wave 17 — [analyticsAllowed] gates anonymous usage analytics for
+  /// this client's plans. Default ON per design doc. When null, the
+  /// server-side shim preserves the existing value.
   Future<bool> setClientVideoConsent({
     required String clientId,
     required bool lineAllowed,
     required bool grayscaleAllowed,
     required bool colourAllowed,
     bool? avatarAllowed,
+    bool? analyticsAllowed,
   }) async {
     try {
       // Pass the avatar flag through when the caller specified it; the
@@ -968,6 +972,9 @@ class ApiClient {
       };
       if (avatarAllowed != null) {
         params['p_avatar'] = avatarAllowed;
+      }
+      if (analyticsAllowed != null) {
+        params['p_analytics_allowed'] = analyticsAllowed;
       }
       await _guardAuth(() => raw.rpc(
             'set_client_video_consent',
@@ -1194,6 +1201,65 @@ class ApiClient {
   }
 
   // ==========================================================================
+  // Plan analytics — Wave 17
+  // ==========================================================================
+
+  /// `get_plan_analytics_summary(p_plan_id)` — per-plan rollup for the
+  /// Studio stats widget. Returns opens, completions, last_opened_at, and
+  /// per-exercise stats (viewed / completed / skipped).
+  ///
+  /// Cloud-only — no offline cache. Fetch on demand when the screen
+  /// renders. Returns null on any error so callers render a placeholder.
+  Future<PlanAnalyticsSummary?> getPlanAnalyticsSummary(String planId) async {
+    try {
+      final result = await _guardAuth(() => raw.rpc(
+            'get_plan_analytics_summary',
+            params: {'p_plan_id': planId},
+          ));
+      Map<String, dynamic>? row;
+      if (result is Map<String, dynamic>) {
+        row = result;
+      } else if (result is List && result.isNotEmpty) {
+        final first = result.first;
+        if (first is Map<String, dynamic>) row = first;
+      }
+      if (row == null) return null;
+      return PlanAnalyticsSummary.fromJson(row);
+    } catch (e) {
+      debugPrint('ApiClient.getPlanAnalyticsSummary failed for $planId: $e');
+      return null;
+    }
+  }
+
+  /// `get_client_analytics_summary(p_client_id)` — client-level aggregates
+  /// across all plans belonging to this client. Cloud-only; returns null
+  /// on any error.
+  Future<ClientAnalyticsSummary?> getClientAnalyticsSummary(
+    String clientId,
+  ) async {
+    try {
+      final result = await _guardAuth(() => raw.rpc(
+            'get_client_analytics_summary',
+            params: {'p_client_id': clientId},
+          ));
+      Map<String, dynamic>? row;
+      if (result is Map<String, dynamic>) {
+        row = result;
+      } else if (result is List && result.isNotEmpty) {
+        final first = result.first;
+        if (first is Map<String, dynamic>) row = first;
+      }
+      if (row == null) return null;
+      return ClientAnalyticsSummary.fromJson(row);
+    } catch (e) {
+      debugPrint(
+        'ApiClient.getClientAnalyticsSummary failed for $clientId: $e',
+      );
+      return null;
+    }
+  }
+
+  // ==========================================================================
   // Share-kit analytics — Wave 10 / 11
   // ==========================================================================
 
@@ -1391,6 +1457,100 @@ class UnconsentedTreatment {
     required this.preferredTreatment,
     required this.consentKey,
   });
+}
+
+/// Per-exercise analytics stats returned inside [PlanAnalyticsSummary].
+@immutable
+class ExerciseAnalyticsStats {
+  final String exerciseId;
+  final int viewed;
+  final int completed;
+  final int skipped;
+
+  const ExerciseAnalyticsStats({
+    required this.exerciseId,
+    required this.viewed,
+    required this.completed,
+    required this.skipped,
+  });
+
+  factory ExerciseAnalyticsStats.fromJson(Map<String, dynamic> json) {
+    return ExerciseAnalyticsStats(
+      exerciseId: json['exercise_id'] as String? ?? '',
+      viewed: _asInt(json['viewed']),
+      completed: _asInt(json['completed']),
+      skipped: _asInt(json['skipped']),
+    );
+  }
+}
+
+/// Plan-level analytics summary returned by `get_plan_analytics_summary`.
+@immutable
+class PlanAnalyticsSummary {
+  final int opens;
+  final int completions;
+  final DateTime? lastOpenedAt;
+  final Map<String, ExerciseAnalyticsStats> exerciseStats;
+
+  const PlanAnalyticsSummary({
+    required this.opens,
+    required this.completions,
+    this.lastOpenedAt,
+    required this.exerciseStats,
+  });
+
+  factory PlanAnalyticsSummary.fromJson(Map<String, dynamic> json) {
+    final statsRaw = json['exercise_stats'];
+    final statsMap = <String, ExerciseAnalyticsStats>{};
+    if (statsRaw is List) {
+      for (final item in statsRaw) {
+        if (item is Map<String, dynamic>) {
+          final stat = ExerciseAnalyticsStats.fromJson(item);
+          if (stat.exerciseId.isNotEmpty) {
+            statsMap[stat.exerciseId] = stat;
+          }
+        }
+      }
+    }
+    return PlanAnalyticsSummary(
+      opens: _asInt(json['opens']),
+      completions: _asInt(json['completions']),
+      lastOpenedAt: json['last_opened_at'] != null
+          ? DateTime.tryParse(json['last_opened_at'].toString())
+          : null,
+      exerciseStats: statsMap,
+    );
+  }
+}
+
+/// Client-level analytics summary returned by
+/// `get_client_analytics_summary`.
+@immutable
+class ClientAnalyticsSummary {
+  final int totalOpens;
+  final int totalCompletions;
+  final int totalPlans;
+
+  const ClientAnalyticsSummary({
+    required this.totalOpens,
+    required this.totalCompletions,
+    required this.totalPlans,
+  });
+
+  factory ClientAnalyticsSummary.fromJson(Map<String, dynamic> json) {
+    return ClientAnalyticsSummary(
+      totalOpens: _asInt(json['total_opens']),
+      totalCompletions: _asInt(json['total_completions']),
+      totalPlans: _asInt(json['total_plans']),
+    );
+  }
+}
+
+int _asInt(dynamic v) {
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v is String) return int.tryParse(v) ?? 0;
+  return 0;
 }
 
 // Wave 14: `ClaimInviteResult` / `ClaimInviteError` / `ClaimInviteErrorKind`

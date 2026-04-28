@@ -26,13 +26,16 @@ class CachedClient {
   final String practiceId;
   final String name;
 
-  /// `{line_drawing: bool, grayscale: bool, original: bool, avatar: bool}`
-  /// as the cloud stores it. `line_drawing` is always true (platform
-  /// baseline). `avatar` (Wave 30) gates the body-focus avatar capture
-  /// surface on the client detail view; default false.
+  /// `{line_drawing: bool, grayscale: bool, original: bool, avatar: bool,
+  /// analytics_allowed: bool}` as the cloud stores it. `line_drawing` is
+  /// always true (platform baseline). `avatar` (Wave 30) gates the body-
+  /// focus avatar capture surface on the client detail view; default false.
+  /// `analytics_allowed` (Wave 17) gates anonymous usage analytics;
+  /// default true.
   final bool grayscaleAllowed;
   final bool colourAllowed;
   final bool avatarAllowed;
+  final bool analyticsAllowed;
 
   /// Wave 30 — relative path inside the `raw-archive` bucket of the
   /// body-focus blurred avatar PNG. Shape `{practiceId}/{clientId}/avatar.png`.
@@ -85,6 +88,7 @@ class CachedClient {
     this.grayscaleAllowed = false,
     this.colourAllowed = false,
     this.avatarAllowed = false,
+    this.analyticsAllowed = true,
     this.avatarPath,
     this.clientExerciseDefaults = const <String, dynamic>{},
     this.consentConfirmedAt,
@@ -122,6 +126,7 @@ class CachedClient {
       grayscaleAllowed: consentMap['grayscale'] == true,
       colourAllowed: consentMap['original'] == true || consentMap['colour'] == true,
       avatarAllowed: consentMap['avatar'] == true,
+      analyticsAllowed: consentMap['analytics_allowed'] != false,
       avatarPath:
           pathRaw is String && pathRaw.isNotEmpty ? pathRaw : null,
       clientExerciseDefaults: defaultsMap,
@@ -138,6 +143,7 @@ class CachedClient {
     var grayscale = false;
     var colour = false;
     var avatar = false;
+    var analytics = true;
     if (consentStr != null && consentStr.isNotEmpty) {
       try {
         final decoded = jsonDecode(consentStr);
@@ -145,6 +151,7 @@ class CachedClient {
           grayscale = decoded['grayscale'] == true;
           colour = decoded['original'] == true || decoded['colour'] == true;
           avatar = decoded['avatar'] == true;
+          analytics = decoded['analytics_allowed'] != false;
         }
       } catch (_) {
         // Malformed JSON in cache — treat as default (all off).
@@ -173,6 +180,7 @@ class CachedClient {
       grayscaleAllowed: grayscale,
       colourAllowed: colour,
       avatarAllowed: avatar,
+      analyticsAllowed: analytics,
       avatarPath:
           pathRaw is String && pathRaw.isNotEmpty ? pathRaw : null,
       clientExerciseDefaults: defaults,
@@ -189,11 +197,12 @@ class CachedClient {
       'id': id,
       'practice_id': practiceId,
       'name': name,
-      'video_consent': jsonEncode(<String, bool>{
+      'video_consent': jsonEncode(<String, dynamic>{
         'line_drawing': true,
         'grayscale': grayscaleAllowed,
         'original': colourAllowed,
         'avatar': avatarAllowed,
+        'analytics_allowed': analyticsAllowed,
       }),
       'avatar_path': avatarPath,
       'client_exercise_defaults': jsonEncode(clientExerciseDefaults),
@@ -213,6 +222,7 @@ class CachedClient {
       colourAllowed: colourAllowed,
       grayscaleAllowed: grayscaleAllowed,
       avatarAllowed: avatarAllowed,
+      analyticsAllowed: analyticsAllowed,
       avatarPath: avatarPath,
     );
   }
@@ -224,6 +234,7 @@ class CachedClient {
     bool? grayscaleAllowed,
     bool? colourAllowed,
     bool? avatarAllowed,
+    bool? analyticsAllowed,
     String? avatarPath,
     bool clearAvatarPath = false,
     Map<String, dynamic>? clientExerciseDefaults,
@@ -239,6 +250,7 @@ class CachedClient {
       grayscaleAllowed: grayscaleAllowed ?? this.grayscaleAllowed,
       colourAllowed: colourAllowed ?? this.colourAllowed,
       avatarAllowed: avatarAllowed ?? this.avatarAllowed,
+      analyticsAllowed: analyticsAllowed ?? this.analyticsAllowed,
       avatarPath: clearAvatarPath ? null : (avatarPath ?? this.avatarPath),
       clientExerciseDefaults:
           clientExerciseDefaults ?? this.clientExerciseDefaults,

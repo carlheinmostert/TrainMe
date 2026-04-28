@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../models/client.dart';
 import '../models/session.dart';
+import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/local_storage_service.dart';
 import '../services/sync_service.dart';
@@ -71,6 +72,12 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
   /// future parallel-publish UI has a home.
   final Set<String> _publishingIds = <String>{};
 
+  /// Wave 17 — in-memory cache of plan analytics summaries, keyed by
+  /// plan id (session.id). Cloud-only; fetched on demand for each
+  /// published session. Not persisted to SQLite.
+  final Map<String, PlanAnalyticsSummary?> _analyticsCache = {};
+  bool _analyticsFetched = false;
+
   /// True while a rename RPC is in-flight. Disables the save path so
   /// double-taps don't produce duplicate calls.
   bool _renameSaving = false;
@@ -126,6 +133,8 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
         _loading = false;
         _loadError = null;
       });
+      // Wave 17 — kick off analytics fetch for published sessions.
+      _fetchAnalytics();
     } catch (e) {
       final text = e.toString();
       final truncated = text.substring(0, min(200, text.length));
@@ -134,6 +143,24 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
         _sessions = const [];
         _loading = false;
         _loadError = truncated;
+      });
+    }
+  }
+
+  /// Wave 17 — fetch plan analytics for all published sessions. Fire-and-
+  /// forget per plan; each result lands in [_analyticsCache] and triggers
+  /// a rebuild so the stats line fades in below the card.
+  Future<void> _fetchAnalytics() async {
+    if (_analyticsFetched) return;
+    _analyticsFetched = true;
+    final published = _sessions.where((s) => s.isPublished).toList();
+    if (published.isEmpty) return;
+    for (final session in published) {
+      final summary =
+          await ApiClient.instance.getPlanAnalyticsSummary(session.id);
+      if (!mounted) return;
+      setState(() {
+        _analyticsCache[session.id] = summary;
       });
     }
   }
@@ -533,7 +560,7 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
               _ConsentChip(
                 label: 'Visibility',
                 grantedCount: _consentGrantedCount(_client),
-                totalCount: 4,
+                totalCount: 5,
                 onTap: () => _openConsent(),
               ),
               // Wave 18 — removed the "N sessions" count. The list
@@ -719,23 +746,34 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
         itemBuilder: (context, visualIndex) {
           final dataIndex = _sessions.length - 1 - visualIndex;
           final session = _sessions[dataIndex];
-          return SessionCard(
-            session: session,
-            isPublishing: _publishingIds.contains(session.id),
-            onOpen: () => _openSession(session),
-            onDelete: () => _deleteSession(session),
-            // Wave 38 — inline rename writes through SyncService.
-            // Reflect the new title in our in-memory list immediately
-            // so the rest of the row (dashed underline, version line)
-            // re-paints without a roundtrip.
-            onRenamed: (renamed) {
-              if (!mounted) return;
-              setState(() {
-                _sessions = _sessions
-                    .map((s) => s.id == renamed.id ? renamed : s)
-                    .toList(growable: false);
-              });
-            },
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SessionCard(
+                session: session,
+                isPublishing: _publishingIds.contains(session.id),
+                onOpen: () => _openSession(session),
+                onDelete: () => _deleteSession(session),
+                // Wave 38 — inline rename writes through SyncService.
+                // Reflect the new title in our in-memory list immediately
+                // so the rest of the row (dashed underline, version line)
+                // re-paints without a roundtrip.
+                onRenamed: (renamed) {
+                  if (!mounted) return;
+                  setState(() {
+                    _sessions = _sessions
+                        .map((s) => s.id == renamed.id ? renamed : s)
+                        .toList(growable: false);
+                  });
+                },
+              ),
+              // Wave 17 — plan analytics stats line.
+              _PlanAnalyticsRow(
+                session: session,
+                summary: _analyticsCache[session.id],
+              ),
+            ],
           );
         },
       ),
@@ -941,13 +979,14 @@ class _ConsentChip extends StatelessWidget {
 
 /// Wave 40.3 — count the granted consent slots for the chip header.
 /// Mirrors the portal's `grantedToggles` formula: line_drawing always
-/// counts, plus whichever of grayscale / colour / avatar are on. Total
-/// is fixed at 4.
+/// counts, plus whichever of grayscale / colour / avatar / analytics
+/// are on. Total is fixed at 5 (Wave 17 added analytics).
 int _consentGrantedCount(PracticeClient client) {
   return 1 +
       (client.grayscaleAllowed ? 1 : 0) +
       (client.colourAllowed ? 1 : 0) +
-      (client.avatarAllowed ? 1 : 0);
+      (client.avatarAllowed ? 1 : 0) +
+      (client.analyticsAllowed ? 1 : 0);
 }
 
 /// Paints a dashed underline below the child. Matches the portal's
@@ -978,6 +1017,72 @@ class _DashedUnderlinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DashedUnderlinePainter old) =>
       old.color != color;
+}
+
+/// Wave 17 — compact analytics stats line below a published session card.
+/// Shows "Opened N× · X/Y completed · last {relative}" for plans with
+/// data, or nothing for unpublished / no-data plans.
+class _PlanAnalyticsRow extends StatelessWidget {
+  final Session session;
+  final PlanAnalyticsSummary? summary;
+
+  const _PlanAnalyticsRow({required this.session, this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!session.isPublished) return const SizedBox.shrink();
+    if (summary == null || summary!.opens == 0) {
+      return const Padding(
+        padding: EdgeInsets.only(left: 88, bottom: 4),
+        child: Text(
+          '\u2014',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 11,
+            color: AppColors.textSecondaryOnDark,
+          ),
+        ),
+      );
+    }
+    final s = summary!;
+    final totalExercises = session.exercises
+        .where((e) => !e.isRest)
+        .length;
+    final completionLabel = totalExercises > 0
+        ? '${s.completions}/$totalExercises completed'
+        : '${s.completions} completed';
+    final lastLabel = s.lastOpenedAt != null
+        ? _formatRelativeTime(s.lastOpenedAt!)
+        : '';
+    final parts = <String>[
+      'Opened ${s.opens}\u00d7',
+      completionLabel,
+      if (lastLabel.isNotEmpty) 'last $lastLabel',
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(left: 88, bottom: 4),
+      child: Text(
+        parts.join(' \u00b7 '),
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 11,
+          color: AppColors.textSecondaryOnDark,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+
+  static String _formatRelativeTime(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    if (diff.inDays < 30) return '${(diff.inDays / 7).floor()}w ago';
+    return '${(diff.inDays / 30).floor()}mo ago';
+  }
 }
 
 /// Items in the per-client overflow menu. Scoped to this file — adding

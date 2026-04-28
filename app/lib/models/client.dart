@@ -27,6 +27,12 @@ class PracticeClient {
   /// false the slot opens the consent sheet instead of the camera.
   final bool avatarAllowed;
 
+  /// Wave 17 — has the practitioner allowed anonymous usage analytics for
+  /// this client's plans? Default true (MVP needs data; opt-out via UI).
+  /// When false, the web player skips the consent banner and no analytics
+  /// events are recorded.
+  final bool analyticsAllowed;
+
   /// Relative path inside the `raw-archive` bucket
   /// (`<practiceId>/<clientId>/avatar.png`). Null = no avatar yet —
   /// UI falls back to the initials monogram.
@@ -44,6 +50,7 @@ class PracticeClient {
     this.colourAllowed = false,
     this.grayscaleAllowed = false,
     this.avatarAllowed = false,
+    this.analyticsAllowed = true,
     this.avatarPath,
   });
 
@@ -61,6 +68,7 @@ class PracticeClient {
       colourAllowed: consentMap['original'] == true || consentMap['colour'] == true,
       grayscaleAllowed: consentMap['grayscale'] == true,
       avatarAllowed: consentMap['avatar'] == true,
+      analyticsAllowed: consentMap['analytics_allowed'] != false,
       avatarPath: pathRaw is String && pathRaw.isNotEmpty ? pathRaw : null,
     );
   }
@@ -70,6 +78,7 @@ class PracticeClient {
     bool? colourAllowed,
     bool? grayscaleAllowed,
     bool? avatarAllowed,
+    bool? analyticsAllowed,
     String? avatarPath,
     bool clearAvatarPath = false,
   }) {
@@ -80,6 +89,7 @@ class PracticeClient {
       colourAllowed: colourAllowed ?? this.colourAllowed,
       grayscaleAllowed: grayscaleAllowed ?? this.grayscaleAllowed,
       avatarAllowed: avatarAllowed ?? this.avatarAllowed,
+      analyticsAllowed: analyticsAllowed ?? this.analyticsAllowed,
       avatarPath: clearAvatarPath ? null : (avatarPath ?? this.avatarPath),
     );
   }
