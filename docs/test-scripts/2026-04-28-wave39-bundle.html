@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 39 Bundle (sticky defaults + photo refresh + audit prepaid + plan opens)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 39 &middot; device QA</div>
+  <h1>Sticky defaults + photo refresh + audit prepaid + plan opens</h1>
+
+  <p class="lede">
+    Four mixed-surface fixes. <strong>(A)</strong> Sticky per-client defaults (Wave 8) finally propagate forward on the next capture. The fix is a synchronous in-memory overlay layered on top of the SQLite cache: every override now lands in [<code>StickyDefaults._memoryOverlay</code>] before the async pending-op queue starts spinning. The next capture's prefill consults the overlay first, so a rapid edit-then-capture sequence inherits the override even if SQLite hasn&apos;t flushed yet. <strong>(B)</strong> Studio&apos;s conversion-event listener used to drop events whose row wasn&apos;t in <code>_session.exercises</code> yet &mdash; the typical race for a fast photo conversion captured as the LAST exercise. The listener now force-refreshes the session from SQLite (canonical store) when it can&apos;t find the row, so spinners clear in-place without leaving + reentering Studio. <strong>(C)</strong> Audit page now surfaces the unlock &harr; publish prepayment relationship: <code>plan_issuances.prepaid_unlock_at</code> is stamped on prepaid republishes, <code>list_practice_audit</code> threads it through, and the description column renders &quot;Prepaid via unlock at &hellip;&quot; on the publish row + &quot;Used at &hellip;&quot; / &quot;Awaiting republish&quot; on the matching unlock row. <strong>(D)</strong> Audit page now logs every plan-open as a sage <code>plan.opened</code> event with a NULL actor that renders as &quot;Client&quot;. <code>record_plan_opened</code> RPC inserts the audit row alongside the existing <code>first_opened_at</code> / <code>last_opened_at</code> stamps. Schema migration: <code>supabase/schema_wave39_audit_expansion.sql</code>.
+  </p>
+
+  <h2>A &middot; Sticky per-client default propagation</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">1.</span>
+      <span class="text">Edit fields on exercise 1, capture exercise 2 on same client &rarr; pre-fills with overridden values.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open Client A. Create a new session. Capture a video (long-press shutter, ~3s). Wait for conversion to finish.</li>
+        <li data-sub="1.2">Open the exercise card&apos;s DOSE accordion. Set reps = 12 (tap the 12 chip). Set sets = 4 (tap 4 chip). Set hold = 5s.</li>
+        <li data-sub="1.3">Open the exercise card&apos;s PACING accordion. Set prep seconds = 10 (override input). Set DURATION PER REP &rarr; Manual &rarr; 6s.</li>
+        <li data-sub="1.4">Swipe right to Capture mode IMMEDIATELY (don&apos;t wait). Long-press shutter and record exercise 2.</li>
+        <li data-sub="1.5">Swipe back to Studio. Open exercise 2&apos;s DOSE accordion. Reps reads <strong>12</strong>, sets reads <strong>4</strong>, hold reads <strong>5s</strong>. NOT the system defaults of 10 / 3 / 0s.</li>
+        <li data-sub="1.6">Open exercise 2&apos;s PACING accordion. Prep seconds reads <strong>10</strong>. DURATION PER REP&apos;s Manual seed reads <strong>6s</strong>.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">2.</span>
+      <span class="text">Defaults are isolated per client &mdash; Client B&apos;s next capture uses ITS own override map, not Client A&apos;s.</span>
+      <ol class="steps">
+        <li data-sub="2.1">Carry the Client A defaults from item 1 (reps=12, sets=4, hold=5s).</li>
+        <li data-sub="2.2">Back out to Home. Open or create Client B. Create a new session. Capture an exercise.</li>
+        <li data-sub="2.3">Open the exercise card&apos;s DOSE accordion. Reps reads <strong>10</strong> (system default), sets reads <strong>3</strong>, hold reads <strong>0s</strong>. The Client A overrides do NOT leak.</li>
+        <li data-sub="2.4">Edit Client B&apos;s exercise: reps = 8, sets = 2. Capture another exercise on Client B. New card opens with reps=8, sets=2.</li>
+        <li data-sub="2.5">Switch back to Client A &rarr; create another new session &rarr; capture &rarr; reps=12, sets=4 (Client A&apos;s map preserved through the round-trip; not contaminated by Client B&apos;s 8/2).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">3.</span>
+      <span class="text">System-default fallback when no client default exists.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Create a brand-new client (Client C) with no prior sessions. Open it &rarr; create session &rarr; capture exercise 1.</li>
+        <li data-sub="3.2">Open the exercise card. Reps reads 10, sets 3, hold 0s &mdash; system defaults. (The cached_clients row exists with empty <code>client_exercise_defaults</code> jsonb; prefill is a no-op so withPersistenceDefaults fills 10/3/15.)</li>
+        <li data-sub="3.3">Capture another exercise on Client C without touching any field. Same defaults (10/3/0s) &mdash; no override happened, nothing to write back.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B &middot; Photo last-exercise conversion refresh</h2>
+  <ul class="checklist">
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">4.</span>
+      <span class="text">Capture a photo as the LAST exercise &mdash; spinner clears in-place within ~1.5s.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Create a new session on any client. Swipe right to Capture mode.</li>
+        <li data-sub="4.2">Tap the shutter (short tap = photo). Photo captures. Swipe LEFT back to Studio immediately.</li>
+        <li data-sub="4.3">Studio shows the photo card with a converting spinner. Wait. Within ~1.5s the spinner crossfades to a green check (conversion done). The card is now interactive &mdash; tap it &rarr; full-screen viewer opens.</li>
+        <li data-sub="4.4">DO NOT navigate away and come back during the wait. The fix is that the spinner clears WITHOUT needing to leave Studio.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">5.</span>
+      <span class="text">Mid-list photo capture still updates correctly (regression check).</span>
+      <ol class="steps">
+        <li data-sub="5.1">In Studio, drag a photo card so it&apos;s NOT the last in the list (e.g. capture a video after, or reorder).</li>
+        <li data-sub="5.2">Capture another photo &mdash; doesn&apos;t matter where in the list. Spinner appears, then clears within ~1.5s. Position in the list is correct (next available slot in capture order).</li>
+        <li data-sub="5.3">Capture sequence: photo &rarr; video &rarr; photo &rarr; video. All four cards eventually settle to a green check. None get stuck on converting.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C &middot; Audit prepaid-unlock relationship</h2>
+  <ul class="checklist">
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">6.</span>
+      <span class="text">Publish row shows &quot;Prepaid via unlock at &hellip;&quot; subtitle when the publish consumed a prior unlock.</span>
+      <ol class="steps">
+        <li data-sub="6.1">On a published session whose 14-day grace has ELAPSED (or fake one with sqlite3 + ledger row), tap the padlock-style Unlock pill in Studio&apos;s bottom toolbar. Confirm the 1-credit unlock sheet.</li>
+        <li data-sub="6.2">In the same session, edit something structural (add an exercise OR delete one). Hit Publish. Publish succeeds without charging another credit (consume_credit takes the prepaid fast path).</li>
+        <li data-sub="6.3">Open the portal &rarr; Audit. Find the most recent <code>plan.publish</code> row. The Description column shows the plan title (line 1) PLUS a muted dim-grey second line: <strong>&quot;Prepaid via unlock at {date}&quot;</strong>. The date matches the unlock row&apos;s timestamp.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&times;</button></div>
+      <span class="num">7.</span>
+      <span class="text">Unlock credit-consumption row shows &quot;Used at {publish date}&quot; OR &quot;Awaiting republish&quot;.</span>
+      <ol class="steps">
+        <li data-sub="7.1">In the same Audit page, scroll to the <code>credit.consumption</code> row whose Description column reads <strong>unlock_plan_for_edit</strong> (the unlock from item 6).</li>
+        <li data-sub="7.2">Subtitle line 2 reads <strong>&quot;Used at {date}&quot;</strong> &mdash; the date matches the matching <code>plan.publish</code> row&apos;s timestamp.</li>
+        <li data-sub="7.3">Now tap the unlock pill on a DIFFERENT locked session. DO NOT republish &mdash; just leave it. Reload the Audit page. The new unlock row&apos;s subtitle reads <strong>&quot;Awaiting republish&quot;</strong> (no matching publish yet).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>D &middot; Audit plan opens</h2>
+  <ul class="checklist">
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&times;</button></div>
+      <span class="num">8.</span>
+      <span class="text">Opening a published plan generates a <code>plan.opened</code> audit row.</span>
+      <ol class="steps">
+        <li data-sub="8.1">Take any published plan&apos;s share URL (https://session.homefit.studio/p/{uuid}). Open it in a fresh browser tab (or incognito so you&apos;re unauthenticated).</li>
+        <li data-sub="8.2">Wait for the player to render the first slide.</li>
+        <li data-sub="8.3">Refresh the portal&apos;s Audit page. The most recent row is a <strong>plan.opened</strong> chip with <code>ts</code> roughly = now. Description: &quot;Client opened plan&quot;.</li>
+        <li data-sub="8.4">Open the same URL again 10 minutes later (or just refresh). A NEW <code>plan.opened</code> row appears in the Audit log &mdash; it&apos;s logged on every open, not first-only.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&times;</button></div>
+      <span class="num">9.</span>
+      <span class="text">Chip tone is sage (engagement) and actor reads as &quot;Client&quot;.</span>
+      <ol class="steps">
+        <li data-sub="9.1">On the audit page, locate any <code>plan.opened</code> row. The kind chip uses the SAGE colour (light green-ish background + emerald text) &mdash; the same palette as Credits-In events. NOT coral (which is the practitioner-publish tone).</li>
+        <li data-sub="9.2">Actor column for the row reads <strong>&quot;Client&quot;</strong> in muted text (not &quot;&mdash;&quot;, not blank). Anon web-player calls have no auth.uid().</li>
+        <li data-sub="9.3">The Link column for the row points to the Player URL (same as <code>plan.publish</code> rows).</li>
+        <li data-sub="9.4">Filter chip group: in the audit filter bar, expand &quot;Credits in&quot; (the sage group). <code>plan.opened</code> appears in that group&apos;s chip list. Toggle it on &mdash; only the engagement rows surface.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope &mdash; reminder</h3>
+    <ul>
+      <li>The 4 sticky-default fix is a Wave 8 follow-up. Field set is unchanged: reps / sets / hold_seconds / include_audio / preferred_treatment / prep_seconds / custom_duration_seconds (+ Wave 18.7 custom_duration_per_rep).</li>
+      <li>Photo conversion timing (~500ms) and dual-output pipeline (line drawing + segmented body-focus jpg) are unchanged. The fix is purely on the <em>listener side</em> in Studio: when an event arrives for a row not yet in <code>_session.exercises</code>, force a refresh from SQLite.</li>
+      <li>The audit page&apos;s unlock&harr;publish derivation is client-side &mdash; we walk the loaded page&apos;s rows once per render, build a Map keyed by <code>meta.prepaid_unlock_at</code>, and stamp the matching consumption row. With 50 rows per page, an unlock and its publish almost always co-locate; cross-page pairs would lose the &quot;Used at&hellip;&quot; subtitle (the publish&apos;s own subtitle still shows). Acceptable trade-off vs a server-side join.</li>
+      <li><code>plan.opened</code> rows have NO trainer_id (anon writes). The actor filter dropdown can&apos;t target them; use the kind filter instead.</li>
+      <li>No mobile UI for any of the audit changes &mdash; portal-only.</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-28-wave39-bundle.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave39-bundle', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

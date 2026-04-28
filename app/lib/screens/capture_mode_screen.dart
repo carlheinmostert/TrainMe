@@ -752,15 +752,26 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       // offline cache and seed the seven sticky fields. Cache miss (no
       // client_id, or client not yet synced) simply leaves the capture
       // with the default nulls so StudioDefaults apply.
+      //
+      // Wave 39 — merge the SQLite-cached snapshot with [StickyDefaults]'
+      // in-memory overlay so a rapid edit-then-capture sequence sees the
+      // override even if the SQLite write hasn't flushed yet. The overlay
+      // wins per-field; SQLite stays the canonical store.
       final clientId = widget.session.clientId;
       if (clientId != null && clientId.isNotEmpty) {
         final cached =
             await SyncService.instance.storage.getCachedClientById(clientId);
-        if (cached != null && cached.clientExerciseDefaults.isNotEmpty) {
-          exercise = StickyDefaults.prefillCapture(
-            exercise,
-            cached.clientExerciseDefaults,
-          );
+        StickyDefaults.primeFromSnapshot(
+          clientId,
+          cached?.clientExerciseDefaults ?? const <String, dynamic>{},
+        );
+        final effective = StickyDefaults.effectiveDefaults(
+          clientId: clientId,
+          cachedDefaults:
+              cached?.clientExerciseDefaults ?? const <String, dynamic>{},
+        );
+        if (effective.isNotEmpty) {
+          exercise = StickyDefaults.prefillCapture(exercise, effective);
         }
       }
 
