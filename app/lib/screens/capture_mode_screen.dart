@@ -179,11 +179,6 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// reverses on stop / cancel.
   late final AnimationController _lockTargetController;
 
-  /// Screen-edge coral flash on lock-engage. Fires once (forward → reverse
-  /// over 400ms) so the practitioner sees an unmistakable visual
-  /// confirmation that hands-free recording is active. Replaces haptic
-  /// feedback which iOS suppresses during mic use.
-  late final AnimationController _lockFlashController;
 
   @override
   void initState() {
@@ -202,10 +197,6 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     _lockTargetController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
-    );
-    _lockFlashController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
     );
     _initCamera();
   }
@@ -231,7 +222,6 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     _cameraController?.dispose();
     _flyController.dispose();
     _lockTargetController.dispose();
-    _lockFlashController.dispose();
     super.dispose();
   }
 
