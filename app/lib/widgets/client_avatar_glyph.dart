@@ -52,16 +52,34 @@ class _ClientAvatarGlyphState extends State<ClientAvatarGlyph> {
   bool _signing = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Wave 40.6 hotfix — eagerly start the signed-URL fetch when the
+    // local file is missing. The previous lazy-in-build approach caused
+    // the first frame to always render initials; by starting in initState
+    // the signed URL arrives sooner and the avatar appears on the second
+    // frame instead of needing a third build cycle.
+    final path = widget.client.avatarPath;
+    if (path != null && path.isNotEmpty && _localFilePath() == null) {
+      _ensureSigned();
+    }
+  }
+
+  @override
   void didUpdateWidget(covariant ClientAvatarGlyph oldWidget) {
     super.didUpdateWidget(oldWidget);
     final newPath = widget.client.avatarPath;
     if (newPath != oldWidget.client.avatarPath) {
       // Path changed — drop any cached signed URL so the next render
       // re-signs.
-      setState(() {
-        _signedUrl = null;
-        _signedForPath = null;
-      });
+      _signedUrl = null;
+      _signedForPath = null;
+      // Eagerly re-fetch for the new path.
+      if (newPath != null && newPath.isNotEmpty) {
+        _ensureSigned();
+      } else {
+        setState(() {});
+      }
     }
   }
 
