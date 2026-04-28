@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 40.6 Haptics deep fix + photo refresh + treatment thumbnails</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 40.6 &middot; haptics deep fix + photo refresh + treatment thumbnails</div>
+  <h1>Camera haptics + photo spinner + treatment-aware thumbnails</h1>
+
+  <p class="lede">
+    Three targeted fixes from Wave 40.5 device QA. <strong>(A)</strong> Haptics rewritten from <code>UIImpactFeedbackGenerator</code> to <code>CHHapticEngine</code> with <code>playsHapticsOnly = true</code> &mdash; fires reliably during active recording, on repeated calls, and across the full session. <strong>(B)</strong> Photo-last-exercise spinner race condition fixed by replacing the guard-stacking pattern with a monotonic sequence number + merge-based refresh. The conversion listener is now the sole authority for conversion state. <strong>(C)</strong> Studio card thumbnails now reflect the practitioner&apos;s preferred treatment: line-drawing, B&amp;W (grayscale filter), or original (raw). <strong>9 items in 3 sections.</strong>
+  </p>
+
+  <h2>A &middot; Haptics (CHHapticEngine rewrite)</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">A1.</span>
+      <span class="text">Shutter press-down fires every time (not just first).</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open any client &rarr; session &rarr; Camera mode.</li>
+        <li data-sub="1.2">Tap the shutter quickly (photo capture). Feel the haptic tick.</li>
+        <li data-sub="1.3">Wait a few seconds. Tap again. Confirm the haptic fires again.</li>
+        <li data-sub="1.4">Repeat 4&ndash;5 more times across 30 seconds. Every tap should produce a haptic.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">A2.</span>
+      <span class="text">Per-second ticks fire during video recording.</span>
+      <ol class="steps">
+        <li data-sub="2.1">Long-press the shutter to start a video recording.</li>
+        <li data-sub="2.2">While recording (red dot visible), count 5 seconds. You should feel a haptic tick on each second (strong thud).</li>
+        <li data-sub="2.3">The ticks should continue for the full duration of recording.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">A3.</span>
+      <span class="text">Lock-zone enter/exit haptics fire.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Long-press the shutter and start recording.</li>
+        <li data-sub="3.2">While holding, drag your finger upward toward the lock target (the padlock icon area, ~95pt above shutter).</li>
+        <li data-sub="3.3">Feel a light haptic as you cross into the armed zone (lock target highlights).</li>
+        <li data-sub="3.4">Drag back down below the threshold. Feel another light haptic as you exit.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">A4.</span>
+      <span class="text">Stop recording haptic fires; lock-engage haptic fires.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Start a video recording (long-press). Release normally (below the lock zone). Feel a light haptic on stop.</li>
+        <li data-sub="4.2">Start another recording. Drag up to lock target and release (lock engages). Feel a heavy haptic on lock engage.</li>
+        <li data-sub="4.3">Tap the shutter (now showing a white square) to stop the locked recording. Feel a light haptic on stop.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B &middot; Photo refresh (last-exercise spinner clears)</h2>
+  <ul class="checklist">
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">B1.</span>
+      <span class="text">Capture 2 photos &mdash; last one&apos;s spinner clears in-place without leaving Studio.</span>
+      <ol class="steps">
+        <li data-sub="5.1">Open a new session &rarr; Camera mode.</li>
+        <li data-sub="5.2">Take a photo (tap shutter). Swipe to Studio &mdash; see the card with a spinner.</li>
+        <li data-sub="5.3">Swipe back to Camera. Take a second photo.</li>
+        <li data-sub="5.4">Swipe to Studio. Both exercise cards should show their thumbnails (spinners cleared). The LAST exercise card (the second photo) must not be stuck with a spinner.</li>
+        <li data-sub="5.5">If the second card still shows a spinner, wait 3 seconds. If it doesn&apos;t clear, this is a FAIL.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">B2.</span>
+      <span class="text">Capture 3 photos &mdash; all spinners clear without leaving Studio.</span>
+      <ol class="steps">
+        <li data-sub="6.1">Start a fresh session. Take 3 photos in quick succession (tap-swipe-tap-swipe-tap).</li>
+        <li data-sub="6.2">Swipe to Studio. Wait up to 5 seconds for conversion to complete.</li>
+        <li data-sub="6.3">All three exercise cards should show their thumbnails. No stuck spinners.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C &middot; Treatment-aware thumbnails in Studio</h2>
+  <ul class="checklist">
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&times;</button></div>
+      <span class="num">C1.</span>
+      <span class="text">Photo exercise &mdash; flip treatment, thumbnail reflects the change.</span>
+      <ol class="steps">
+        <li data-sub="7.1">Open a session with at least one photo exercise.</li>
+        <li data-sub="7.2">Expand the card. Tap the treatment segmented control (Line / B&amp;W / Original tiles below the exercise name).</li>
+        <li data-sub="7.3">Select <strong>B&amp;W</strong>. The card thumbnail (88pt square on the left) should show a grayscale version of the raw photo.</li>
+        <li data-sub="7.4">Select <strong>Original</strong>. The thumbnail should show the full-colour raw photo.</li>
+        <li data-sub="7.5">Select <strong>Line</strong>. The thumbnail should show the line-drawing conversion (the default/existing look).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&times;</button></div>
+      <span class="num">C2.</span>
+      <span class="text">Video exercise &mdash; flip treatment, thumbnail reflects the change.</span>
+      <ol class="steps">
+        <li data-sub="8.1">Open a session with at least one video exercise (fully converted).</li>
+        <li data-sub="8.2">Expand the card. Flip to <strong>B&amp;W</strong>.</li>
+        <li data-sub="8.3">The card thumbnail should apply a grayscale filter (desaturated appearance).</li>
+        <li data-sub="8.4">Flip to <strong>Original</strong>. The thumbnail returns to normal colour.</li>
+        <li data-sub="8.5">Flip to <strong>Line</strong>. The thumbnail shows the line-drawing frame.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&times;</button></div>
+      <span class="num">C3.</span>
+      <span class="text">Treatment change persists after navigating away and back.</span>
+      <ol class="steps">
+        <li data-sub="9.1">Set an exercise to <strong>Original</strong> treatment.</li>
+        <li data-sub="9.2">Navigate back to the client list, then re-enter the session.</li>
+        <li data-sub="9.3">The exercise card&apos;s thumbnail should still show the raw/colour thumbnail (reflecting Original treatment), not the line-drawing default.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+</div>
+
+<script>
+(function() {
+  var SLUG = '2026-04-29-wave40.6-mobile.results.json';
+  var API  = 'http://localhost:3457/api/test-results/' + SLUG;
+  var state = { items: {} };
+
+  // Load existing state
+  fetch('/test-scripts/' + SLUG, { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : { items: {} }; })
+    .then(function(data) {
+      state = data || { items: {} };
+      applyState();
+    })
+    .catch(function() {});
+
+  function applyState() {
+    document.querySelectorAll('.checklist > li').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var item = state.items[num];
+      if (item) {
+        li.setAttribute('data-status', item.status);
+        var note = li.querySelector('.note');
+        if (note && item.note) note.value = item.note;
+      }
+    });
+  }
+
+  function persist() {
+    fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state),
+    }).catch(function() {});
+  }
+
+  document.querySelectorAll('.checklist > li').forEach(function(li) {
+    var num = li.getAttribute('data-num');
+
+    li.querySelector('.vote .pass').addEventListener('click', function() {
+      li.setAttribute('data-status', 'pass');
+      if (!state.items[num]) state.items[num] = {};
+      state.items[num].status = 'pass';
+      persist();
+    });
+
+    li.querySelector('.vote .fail').addEventListener('click', function() {
+      li.setAttribute('data-status', 'fail');
+      if (!state.items[num]) state.items[num] = {};
+      state.items[num].status = 'fail';
+      persist();
+    });
+
+    var note = li.querySelector('.note');
+    if (note) {
+      var debounce;
+      note.addEventListener('input', function() {
+        clearTimeout(debounce);
+        if (!state.items[num]) state.items[num] = {};
+        state.items[num].note = note.value;
+        debounce = setTimeout(persist, 400);
+      });
+    }
+  });
+})();
+</script>
+</body>
+</html>

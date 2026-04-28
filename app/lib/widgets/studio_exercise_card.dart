@@ -409,6 +409,12 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
                   // caption stack. 88pt gives the row roughly three
                   // text-lines of vertical company.
                   size: 88,
+                  // Wave 40.6 — treatment-aware thumbnails. The card
+                  // thumbnail reflects the practitioner's preferred
+                  // treatment so flipping Line → B&W → Original is
+                  // visible on the card grid without opening the
+                  // media viewer.
+                  treatment: widget.exercise.preferredTreatment,
                 ),
                 // Edit-affordance glyph — purely visual. The thumbnail
                 // itself is the tap target; the glyph is a hint, not a

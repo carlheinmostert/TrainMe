@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
+import '../models/treatment.dart';
 import 'capture_thumbnail.dart';
 
 /// Thumbnail Peek — long-press on an exercise-card thumbnail opens an
@@ -34,6 +35,11 @@ class ThumbnailPeek extends StatelessWidget {
   /// roughly three lines of vertical company.
   final double size;
 
+  /// Wave 40.6 — treatment-aware thumbnail. Passed through to
+  /// [CaptureThumbnail] so the resting thumbnail reflects the
+  /// practitioner's preferred treatment on this exercise.
+  final Treatment? treatment;
+
   const ThumbnailPeek({
     super.key,
     required this.exercise,
@@ -43,6 +49,7 @@ class ThumbnailPeek extends StatelessWidget {
     required this.onDelete,
     this.onDownloadOriginal,
     this.size = 56,
+    this.treatment,
   });
 
   @override
@@ -140,6 +147,7 @@ class ThumbnailPeek extends StatelessWidget {
                     size: size,
                     showChrome: !chromeOff,
                     showConversionOverlay: !chromeOff,
+                    treatment: treatment,
                   ),
                 ),
         );

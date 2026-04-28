@@ -156,6 +156,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   bool _canShowReachabilityPill = false;
   double _lastReachabilityScrollPx = 0;
 
+  /// Wave 40.6 — monotonic sequence number stamped by the conversion
+  /// listener every time it applies a `done` event. Shell and parent
+  /// refreshes (async SQLite reads) may only overwrite `_session` when
+  /// the refreshed data is at least as fresh as the sequence-stamped
+  /// version. This replaces the guard-stacking pattern (Wave 39.4 +
+  /// Wave 40.5) which failed when 2+ photos raced.
+  int _conversionSeq = 0;
+
   @override
   void initState() {
     super.initState();
@@ -215,53 +223,59 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   void didUpdateWidget(covariant StudioModeScreen old) {
     super.didUpdateWidget(old);
     if (old.session != widget.session) {
-      // Wave 39.4 — guard against parent re-push regressing fresher
-      // local state. SessionShellScreen runs `_refreshSession` async +
-      // unawaited on capture events; if a stale snapshot resolves AFTER
-      // the conversion listener has already applied a `done` event to
-      // our local copy, the parent's old in-memory row would clobber
-      // the fresh status. Adopt the parent push only when it carries
-      // strictly more information than what we already have:
-      //   - more exercises (a capture-add) wins,
-      //   - same exercise count but at least one row whose
-      //     conversionStatus is fresher (done > converting > pending) wins.
-      // Otherwise we trust the local state (the listener has
-      // self-healed it).
-      if (_shouldAdoptParentSession(widget.session)) {
-        setState(() => _session = widget.session);
+      // Wave 40.6 — the conversion listener is authoritative for
+      // conversion state. Parent pushes are only adopted when they
+      // carry STRUCTURAL changes (different exercise count or new IDs)
+      // that the conversion listener can't produce. For same-structure
+      // pushes, we merge: take the parent's non-conversion fields but
+      // keep each exercise's conversion state from whichever source
+      // (local vs parent) is fresher. This eliminates the race where
+      // the shell's async SQLite read resolves after the conversion
+      // listener has already applied a `done` event.
+      final next = widget.session;
+      if (next.exercises.length != _session.exercises.length) {
+        // Structural change (capture added or deleted). Adopt the
+        // parent's list wholesale, but overlay any locally-fresher
+        // conversion status per exercise.
+        final merged = _mergeConversionState(next);
+        setState(() => _session = merged);
+      } else {
+        // Same structure. Merge conversion state from whichever side
+        // is fresher per row.
+        final merged = _mergeConversionState(next);
+        setState(() => _session = merged);
       }
     }
   }
 
-  /// Wave 39.4 — returns true when [next] (parent push) is strictly
-  /// fresher than `_session`, false when it would regress local state.
-  ///
-  /// "Fresher" rules, in priority order:
-  ///   1. More exercises in next than local → adopt (capture added a row).
-  ///   2. Fewer exercises in next than local → adopt (delete propagated).
-  ///   3. Same count but any row in next has a fresher conversion
-  ///      status than the matching local row → adopt.
-  ///   4. Otherwise, keep local (the conversion listener has the freshest
-  ///      conversion state; parent's stale refresh would regress it).
-  bool _shouldAdoptParentSession(Session next) {
-    if (next.exercises.length != _session.exercises.length) return true;
+  /// Merge [incoming] with `_session` so that each exercise keeps the
+  /// FRESHER conversion status between the two. All non-exercise fields
+  /// come from [incoming] (the parent push).
+  Session _mergeConversionState(Session incoming) {
     final localById = <String, ExerciseCapture>{
       for (final e in _session.exercises) e.id: e,
     };
-    for (final cand in next.exercises) {
+    final merged = incoming.exercises.map((cand) {
       final local = localById[cand.id];
-      if (local == null) return true; // a different row id appeared
-      if (_conversionRank(cand.conversionStatus) >
-          _conversionRank(local.conversionStatus)) {
-        return true;
+      if (local == null) return cand;
+      if (_conversionRank(local.conversionStatus) >
+          _conversionRank(cand.conversionStatus)) {
+        // Local is fresher — keep the local exercise's conversion
+        // fields but take everything else from the candidate.
+        return cand.copyWith(
+          conversionStatus: local.conversionStatus,
+          convertedFilePath: local.convertedFilePath,
+          thumbnailPath: local.thumbnailPath,
+          videoDurationMs: local.videoDurationMs,
+          archiveFilePath: local.archiveFilePath,
+          archivedAt: local.archivedAt,
+          segmentedRawFilePath: local.segmentedRawFilePath,
+          maskFilePath: local.maskFilePath,
+        );
       }
-      if (_conversionRank(cand.conversionStatus) <
-          _conversionRank(local.conversionStatus)) {
-        return false; // parent is older, keep local
-      }
-    }
-    // Conversion-status tie. Adopt to pick up other field edits.
-    return true;
+      return cand;
+    }).toList();
+    return incoming.copyWith(exercises: merged);
   }
 
   /// Maps [ConversionStatus] to a freshness rank — higher = newer.
@@ -398,8 +412,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   }
 
   Future<void> _refreshSession() async {
+    final seqBefore = _conversionSeq;
     final refreshed = await widget.storage.getSession(_session.id);
-    if (refreshed != null && mounted) {
+    if (refreshed == null || !mounted) return;
+    // Wave 40.6 — if a conversion event landed while we were reading
+    // SQLite, the in-memory state is fresher. Merge rather than replace.
+    if (_conversionSeq != seqBefore) {
+      final merged = _mergeConversionState(refreshed);
+      setState(() => _pushSession(merged));
+    } else {
       setState(() => _pushSession(refreshed));
     }
   }
@@ -408,49 +429,55 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     _conversionSub =
         _conversionService.onConversionUpdate.listen((updated) {
       if (!mounted) return;
-      // Wave 39.4 — the Wave 39 force-refresh-on-listener-miss didn't
-      // hold on device because the parent SessionShellScreen's
-      // unawaited `_refreshSession` could resolve AFTER our listener
-      // applied the `done` payload, regressing the row to the snapshot
-      // it had when the parent originally read SQLite. Two-part fix:
-      //   1. Apply the conversion payload to the in-memory copy
-      //      synchronously (immediate spinner clear).
-      //   2. ALSO kick off an unconditional SQLite reload in the
-      //      background, then merge the conversion event's payload over
-      //      the matching exercise row. This way SQLite is the source
-      //      of truth, parent re-pushes can't regress us, and the
-      //      conversion event always wins for the affected row.
-      // Combined with `didUpdateWidget`'s adopt-parent guard, this is
-      // self-healing against any race between the listener and the
-      // parent's refresh.
+      // Wave 40.6 — authoritative conversion path. The conversion
+      // listener is the SOLE writer of conversion-state changes.
+      //
+      // 1. Bump the monotonic sequence counter so any concurrent
+      //    async SQLite reads (shell refresh, parent re-push) that
+      //    resolve later know they're stale.
+      // 2. Apply the conversion payload to the in-memory exercise
+      //    list synchronously (instant spinner clear).
+      // 3. Kick off a background SQLite reconcile that merges ALL
+      //    pending conversion events over the canonical snapshot.
+      //    The reconcile also bumps the sequence, keeping the
+      //    freshness guard intact.
+      //
+      // This replaces the Wave 39.4 two-part fix + Wave 40.5 guard
+      // stacking which failed when 2+ photos raced because the
+      // parent's async refresh could sneak between events.
+      _conversionSeq++;
+      final seqAtEvent = _conversionSeq;
       final exercises = List<ExerciseCapture>.from(_session.exercises);
       final idx = exercises.indexWhere((e) => e.id == updated.id);
       if (idx >= 0) {
-        setState(() {
-          exercises[idx] = updated;
-          _pushSession(_session.copyWith(exercises: exercises));
-        });
+        exercises[idx] = updated;
       }
-      unawaited(_reconcileFromStorage(updated));
+      setState(() {
+        _pushSession(_session.copyWith(exercises: exercises));
+      });
+      unawaited(_reconcileFromStorage(updated, seqAtEvent));
     });
   }
 
-  /// Wave 39.4 — read the canonical session from SQLite, then merge
+  /// Wave 40.6 — read the canonical session from SQLite, then merge
   /// [authoritative] over the matching exercise row before pushing.
-  /// Used by the conversion listener so a `done` event is guaranteed
-  /// to land regardless of any parent-driven re-push race.
-  Future<void> _reconcileFromStorage(ExerciseCapture authoritative) async {
+  /// Only applies when our [seqAtWrite] still matches `_conversionSeq`
+  /// (no newer conversion event has landed in the meantime).
+  Future<void> _reconcileFromStorage(
+      ExerciseCapture authoritative, int seqAtWrite) async {
     final fresh = await widget.storage.getSession(_session.id);
     if (fresh == null || !mounted) return;
+    // If a newer conversion event arrived while we were reading SQLite,
+    // skip this reconcile — the newer event's own reconcile will handle
+    // it.
+    if (_conversionSeq != seqAtWrite) return;
     final merged = List<ExerciseCapture>.from(fresh.exercises);
     final i = merged.indexWhere((e) => e.id == authoritative.id);
     if (i >= 0) {
       merged[i] = authoritative;
-    } else {
-      // Row not in SQLite yet (extremely rare — saveExercise(done) runs
-      // before the emit in conversion_service.dart). Fall through to
-      // the SQLite snapshot as-is; the next event will reconcile.
     }
+    // Bump seq again so the reconcile result is also protected.
+    _conversionSeq++;
     if (!mounted) return;
     setState(() {
       _pushSession(fresh.copyWith(exercises: merged));
