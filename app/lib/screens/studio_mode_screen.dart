@@ -1165,7 +1165,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                   publishError: _publishError,
                   clientName: _session.clientName,
                   onBack: () => Navigator.of(context).pop(),
-                  onImport: () => _importFromLibrary(),
+                  // Wave 40 (M1) — first toolbar slot is Camera. Tap =
+                  // same path as the right-edge swipe-left pull tab.
+                  onCameraTap: widget.onOpenCapture,
                   onPreview: _openPreview,
                   onPublish: _publishFromToolbar,
                   onShare: _shareFromToolbar,
