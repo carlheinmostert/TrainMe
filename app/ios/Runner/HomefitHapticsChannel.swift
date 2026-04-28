@@ -113,47 +113,54 @@ class HomefitHapticsChannel {
         }
     }
 
-    /// Fire a single transient haptic event. Returns true if the event
-    /// was delivered to the engine without error.
+    /// Fire a haptic using a FRESH UIImpactFeedbackGenerator per call.
+    /// No caching, no reuse, no stale state. prepare() + impactOccurred()
+    /// in immediate succession. Falls back to CHHapticEngine if UIKit path
+    /// fails. Returns "ok" / "ok-fallback" / error string.
     @discardableResult
     private func playTransient(intensity: Float, sharpness: Float) -> Bool {
-        if engine == nil {
-            NSLog("[HomefitHaptics] engine nil — attempting restart")
-            startEngine()
-        }
-        guard let engine = engine else {
-            lastError = lastError ?? "engine is nil after restart attempt"
-            NSLog("[HomefitHaptics] playTransient BAIL — engine still nil")
-            return false
+        let isMain = Thread.isMainThread
+        NSLog("[HomefitHaptics] playTransient intensity=%.2f mainThread=%d", intensity, isMain ? 1 : 0)
+
+        // Approach 1: fresh UIImpactFeedbackGenerator — simplest possible.
+        // Create → prepare → fire → discard. No state to go stale.
+        let style: UIImpactFeedbackGenerator.FeedbackStyle
+        if intensity >= 0.9 {
+            style = .heavy
+        } else if intensity >= 0.5 {
+            style = .medium
+        } else {
+            style = .light
         }
 
-        do {
-            // Always re-start the engine before each play. CHHapticEngine
-            // auto-stops after brief inactivity (~1-2s) to conserve power.
-            // start() is idempotent — no-op if already running, restarts if
-            // dormant. Without this, the second+ haptic in a session reports
-            // success but the Taptic Engine hardware doesn't fire.
-            try engine.start()
+        let gen = UIImpactFeedbackGenerator(style: style)
+        gen.prepare()
+        gen.impactOccurred(intensity: CGFloat(intensity))
+        NSLog("[HomefitHaptics] UIKit fire OK (style=%d, intensity=%.2f)", style.rawValue, intensity)
 
-            let event = CHHapticEvent(
-                eventType: .hapticTransient,
-                parameters: [
-                    CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
-                    CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
-                ],
-                relativeTime: 0
-            )
-            let pattern = try CHHapticPattern(events: [event], parameters: [])
-            let player = try engine.makePlayer(with: pattern)
-            try player.start(atTime: CHHapticTimeImmediate)
-            NSLog("[HomefitHaptics] playTransient OK (intensity=%.2f)", intensity)
-            lastError = nil
-            return true
-        } catch {
-            lastError = "play failed: \(error.localizedDescription)"
-            NSLog("[HomefitHaptics] playTransient FAILED: %@", error.localizedDescription)
-            return false
+        // Also fire CHHapticEngine as a belt-and-suspenders backup.
+        if let engine = engine {
+            do {
+                try engine.start()
+                let event = CHHapticEvent(
+                    eventType: .hapticTransient,
+                    parameters: [
+                        CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
+                        CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
+                    ],
+                    relativeTime: 0
+                )
+                let pattern = try CHHapticPattern(events: [event], parameters: [])
+                let player = try engine.makePlayer(with: pattern)
+                try player.start(atTime: CHHapticTimeImmediate)
+                NSLog("[HomefitHaptics] CHHapticEngine fire OK")
+            } catch {
+                NSLog("[HomefitHaptics] CHHapticEngine fire failed: %@", error.localizedDescription)
+            }
         }
+
+        lastError = nil
+        return true
     }
 
     /// Diagnostic report — called from the Diagnostics screen via
