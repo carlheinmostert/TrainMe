@@ -2,31 +2,28 @@
 """
 Render the homefit.studio iOS app icon set.
 
-Design (v7): 3×3 grid + sage centre, with SQUARE pills (5×5) so the
-bounding box is a true 1:1 block on a phone home screen.
+Design (v8): 3×3 grid + sage centre, square pills (5×5), scaled
+to 65% canvas width so the matrix has more breathing room inside
+the iOS rounded-square mask.
 
-Why v7 — and the deliberate brand divergence: pills are canonical
-5×3 (5 wide, 3 tall) in the matrix logo across web and mobile. With
-canonical pills, a 3×3 grid can never form a square bounding box at
-any reasonable spacing — v5 (dy=4.5) gave an 18×12 stripe (3:2),
-and v6 (dy=5.5) bumped that to 18×14 (1.29:1). Carl tested v6 on
-his iPhone home screen and reported it STILL read wider than tall.
-Comparing four candidates (square via vertical gaps, square pills,
-square + bigger pills, rotate to vertical pills), Carl picked
-"square pills, bigger" — break the canonical 5:3 aspect ratio in
-the icon surface ONLY so the grid is a clean 1:1 block.
+Why v8 — Carl tested v7 (75% canvas width) on his iPhone home
+screen and reported the matrix looked "too big inside the rounded
+square". Apple's de-facto icon design grid sits content at ~60-65%
+canvas width (system icons cluster in that range), and v8 drops to
+65% to match — gives the rounded-square mask the breathing room it
+expects. Carl picked 65% out of a 70/65/60 preview comparison.
 
-This is a deliberate, scoped brand divergence: the matrix logo
-elsewhere (Flutter app, web portal, web player) keeps its canonical
-5:3 pills. The icon surface gets square pills because a square
-bounding box is load-bearing for an iOS app icon. Standard practice
-for app icons — geometry adapts to the square frame; the rest of
-the brand system stays intact.
+v7 retained for context: square pills (PILL_H 3.0 → 5.0) so the
+3×3 grid forms a true 1:1 bounding box (18×18 source units). v6
+and earlier attempts kept canonical 5:3 pills, but no reasonable
+spacing produced a square grid — the bounding box always read
+wider than tall on device. Square pills are a deliberate, scoped
+brand divergence on the icon surface only; the matrix logo on web
+and mobile keeps its canonical 5×3 pills.
 
-v7 geometry: PILL_H raised 3.0 → 5.0 (square 5×5), and ROW_YS
-spaced dy=6.5 (was dy=5.5) so the vertical gap between pills
-matches the horizontal gap. Bounding box becomes 18 wide × 18 tall
-— a true 1:1 square block. Horizontal cadence dx=6.5 unchanged.
+v8 geometry: identical to v7 (square 5×5 pills, dx=dy=6.5,
+18×18 bounding box, centre-sage). Only `target_frac` changes:
+0.75 → 0.65.
 
 Centre pill stays sage `#86EFAC` — the centre-sage composition
 mirrors the matrix logo's "circuit + rest" rhythm cue inside a
@@ -34,9 +31,9 @@ square footprint. Centre placement is the most balanced, iconic
 choice; bottom-right would read as a sequential narrative (works
 in the wide matrix logo, not in a square icon).
 
-Unchanged from v6: pill colours (coral + sage), pill rx=1, dark
-surface `#0F1117`, ~75% canvas target width, dx=6.5 horizontal
-cadence, COL_XS unchanged.
+Unchanged from v7: pill colours (coral + sage), pill rx=1, dark
+surface `#0F1117`, dx=6.5 horizontal cadence, dy=6.5 vertical
+cadence, COL_XS / ROW_YS, square 5×5 pills.
 
 Source-of-truth canonical spacing is documented in:
   - app/lib/widgets/homefit_logo.dart            (Flutter)
@@ -120,17 +117,17 @@ ICON_PX = 1024
 
 
 def render_master() -> Image.Image:
-    """Render the canonical 1024×1024 master icon — 3×3 grid with centre sage (v7)."""
+    """Render the canonical 1024×1024 master icon — 3×3 grid with centre sage (v8)."""
     img = Image.new("RGB", (ICON_PX, ICON_PX), SURFACE_BG)
     draw = ImageDraw.Draw(img)
 
-    # v7 — square 5×5 pills give a true 1:1 bounding box (18×18 in
-    # source units). Carl's v6 device test still read wider-than-tall
-    # because canonical 5:3 pills can't form a square grid at any
-    # reasonable spacing; v7 abandons the canonical pill aspect on
-    # this icon surface only so the matrix lands as a clean square
-    # block. Same target frac (~75% of canvas width), same horizontal
-    # dx=6.5, same coral / sage / dark surface tokens.
+    # v8 — same square 5×5 pills as v7 (true 1:1 bounding box, 18×18
+    # in source units), but scaled to 65% of canvas width instead of
+    # 75%. Carl's v7 device test read "too big inside the rounded
+    # square"; Apple's de-facto icon design grid sits content at
+    # ~60-65% canvas width, and v8 lands at 65% to give the iOS
+    # rounded-square mask the breathing room it expects. Same coral
+    # / sage / dark surface tokens, same dx=dy=6.5 cadence.
     #
     # Centre on the actual pill bounding box, not any source-viewbox
     # window — the bounding box IS the composition.
@@ -142,7 +139,9 @@ def render_master() -> Image.Image:
     pill_w = pill_x_max - pill_x_min  # 18.0 source units (3 cols × dx 6.5 + pill 5.0 - dx)
     pill_h = pill_y_max - pill_y_min  # 18.0 source units (v7: 2 × dy 6.5 + pill 5.0 — square)
 
-    target_frac = 0.75
+    # v8: 0.65 (was 0.75 in v7) — drop to Apple's icon-grid territory
+    # so the matrix breathes inside the rounded-square mask.
+    target_frac = 0.65
     target_w_px = ICON_PX * target_frac
     scale = target_w_px / pill_w  # source-unit → px
 
