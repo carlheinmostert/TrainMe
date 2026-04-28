@@ -504,9 +504,12 @@ class _PublishToolbarButton extends StatelessWidget {
     } else if (publishedClean) {
       glyph = const Icon(Icons.check_rounded, color: AppColors.circuit, size: 28);
     } else {
+      // Wave 40.5 — publish icon renders white (matching other toolbar
+      // slots per the "single accent colour" rule). Coral is reserved
+      // for state cues (lock icon, triangles). Dim when not publishable.
       final color = canPublish
-          ? AppColors.primary
-          : AppColors.primary.withValues(alpha: 0.45);
+          ? AppColors.textOnDark
+          : AppColors.textOnDark.withValues(alpha: 0.45);
       glyph = Icon(Icons.cloud_upload_outlined, color: color, size: 28);
     }
 

@@ -10,6 +10,7 @@ import '../config.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/conversion_service.dart';
+import '../services/homefit_haptics.dart';
 import '../services/local_storage_service.dart';
 import '../services/path_resolver.dart';
 import '../services/sticky_defaults.dart';
@@ -83,6 +84,14 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   int _activeCameraIndex = 0;
   bool _isCameraInitialized = false;
   FlashMode _flashMode = FlashMode.off;
+
+  // Wave 40.5 (M4) — ultrawide camera support. The `camera` plugin's
+  // `setZoomLevel(0.5)` clamps to `getMinZoomLevel()` (>=1.0) on the
+  // main wide camera. To reach 0.5x we swap CameraDescription to the
+  // ultrawide lens. These are populated in `_initCamera`.
+  CameraDescription? _backWideCamera;
+  CameraDescription? _backUltrawideCamera;
+  bool _isOnUltrawide = false;
 
   // --- Zoom state ---
   /// Physical zoom bounds of the active controller (in logical "x" terms:
@@ -365,6 +374,38 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     );
     if (_activeCameraIndex < 0) _activeCameraIndex = 0;
 
+    // Wave 40.5 (M4) — identify back-wide vs back-ultrawide for 0.5x
+    // lens switching. On iPhones with dual/triple rear cameras,
+    // `availableCameras()` returns separate CameraDescription entries
+    // for each physical lens. The ultrawide typically has the lowest
+    // sensorOrientation or is listed after the main wide. We identify
+    // it by checking for "ultra" in the name (iOS reports
+    // "Back Ultra Wide Camera") or by picking the second back camera.
+    final backCameras = _cameras
+        .where((c) => c.lensDirection == CameraLensDirection.back)
+        .toList();
+    _backWideCamera = null;
+    _backUltrawideCamera = null;
+    _isOnUltrawide = false;
+    if (backCameras.length >= 2) {
+      // iOS names: "Back Camera", "Back Ultra Wide Camera",
+      // "Back Telephoto Camera". Match on "ultra" (case-insensitive).
+      for (final cam in backCameras) {
+        final name = cam.name.toLowerCase();
+        if (name.contains('ultra')) {
+          _backUltrawideCamera = cam;
+        } else if (_backWideCamera == null) {
+          _backWideCamera = cam;
+        }
+      }
+      // Fallback: if no "ultra" name found, treat the second back camera
+      // as ultrawide (some older iOS versions don't label them).
+      if (_backUltrawideCamera == null && backCameras.length >= 2) {
+        _backWideCamera = backCameras[0];
+        _backUltrawideCamera = backCameras[1];
+      }
+    }
+
     await _attachController(_cameras[_activeCameraIndex]);
   }
 
@@ -429,23 +470,25 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// Build the lens-switch button list from the zoom range the active
   /// controller reports.
   ///
-  /// Wave 40.4 (M5.1) — `0.5×` is now ALWAYS shown alongside `1×`
-  /// regardless of the reported `minZoom`. Carl's QA: "I don't see
-  /// the point five zoom level, which I would like, please, as per
-  /// the spec." Some camera-plugin / iOS combos report `minZoom=1.0`
-  /// even on devices with an ultrawide lens; gating the pill on that
-  /// hides it on hardware that actually supports 0.5×. Tapping the
-  /// pill calls `setZoomLevel(0.5)` which the plugin clamps to the
-  /// real range — graceful fallback on devices without ultrawide
-  /// (the active highlight simply never lands on 0.5).
-  ///
-  /// `2×` and `3×` stay gated on the reported max so we don't show
-  /// pills that exceed digital-zoom range on smaller sensors.
+  /// Wave 40.5 (M4) — `0.5×` is shown when an ultrawide camera is
+  /// detected (via CameraDescription swap) OR when the zoom range
+  /// covers it natively. On devices without ultrawide, the pill is
+  /// hidden to avoid a no-op button. `2×` and `3×` stay gated on the
+  /// reported max so we don't show pills that exceed digital-zoom
+  /// range on smaller sensors.
   List<double> _buildLensListForRange(double minZoom, double maxZoom) {
     const candidates = [0.5, 1.0, 2.0, 3.0];
     final lenses = <double>[];
     for (final c in candidates) {
-      if (c == 0.5 || c == 1.0) {
+      if (c == 0.5) {
+        // Show 0.5x only if we have an ultrawide camera to switch to,
+        // or the zoom range natively supports it.
+        if (_backUltrawideCamera != null || minZoom <= 0.5) {
+          lenses.add(c);
+        }
+        continue;
+      }
+      if (c == 1.0) {
         lenses.add(c);
         continue;
       }
@@ -493,13 +536,39 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   // ---------------------------------------------------------------------------
 
   /// Apply a logical zoom factor (clamped to the device's zoom range)
-  /// and update state. Setting a value that corresponds to a different
-  /// physical lens triggers iOS's virtual multi-camera device to switch
-  /// under the hood, so this is both "physical lens switch" and "digital
-  /// zoom" — same API, handled by the OS.
+  /// and update state.
+  ///
+  /// Wave 40.5 (M4) — 0.5x requires swapping CameraDescription to the
+  /// ultrawide lens because `setZoomLevel(0.5)` clamps to 1.0 on the
+  /// main wide camera. When switching back from ultrawide to wide (any
+  /// value >= 1.0), we swap the controller back and then set zoom.
   Future<void> _applyZoom(double requested) async {
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) return;
+
+    // 0.5x requested + ultrawide available + not already on ultrawide
+    if (requested <= 0.5 && _backUltrawideCamera != null && !_isOnUltrawide) {
+      await _switchToCamera(_backUltrawideCamera!, isUltrawide: true);
+      return;
+    }
+
+    // >= 1.0 requested but we're on ultrawide — swap back to wide
+    if (requested >= 1.0 && _isOnUltrawide && _backWideCamera != null) {
+      await _switchToCamera(_backWideCamera!, isUltrawide: false);
+      // After switching back to wide, apply the requested zoom
+      final ctrl = _cameraController;
+      if (ctrl != null && ctrl.value.isInitialized && mounted) {
+        final clamped = requested.clamp(_minZoom, _maxZoom).toDouble();
+        try {
+          await ctrl.setZoomLevel(clamped);
+          if (mounted) setState(() => _currentZoom = clamped);
+        } catch (e) {
+          debugPrint('setZoomLevel($clamped) after switch failed: $e');
+        }
+      }
+      return;
+    }
+
     final clamped = requested.clamp(_minZoom, _maxZoom).toDouble();
     try {
       await controller.setZoomLevel(clamped);
@@ -507,6 +576,33 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       setState(() => _currentZoom = clamped);
     } catch (e) {
       debugPrint('setZoomLevel($clamped) failed: $e');
+    }
+  }
+
+  /// Wave 40.5 (M4) — swap the active camera controller to a different
+  /// CameraDescription. Used for ultrawide <-> wide lens switching.
+  Future<void> _switchToCamera(
+    CameraDescription camera, {
+    required bool isUltrawide,
+  }) async {
+    if (_isRecording) return; // never switch mid-recording
+    final current = _cameraController;
+    setState(() {
+      _isCameraInitialized = false;
+      _cameraController = null;
+    });
+    await current?.dispose();
+
+    // Update the active camera index to match
+    final idx = _cameras.indexOf(camera);
+    if (idx >= 0) _activeCameraIndex = idx;
+
+    _isOnUltrawide = isUltrawide;
+    await _attachController(camera);
+    // On ultrawide, set zoom to 1.0 (which is the ultrawide's native FOV,
+    // equivalent to 0.5x on the main wide lens).
+    if (isUltrawide && mounted) {
+      setState(() => _currentZoom = 0.5);
     }
   }
 
@@ -557,6 +653,16 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // base on every drag-related ScaleUpdate.
     if (details.pointerCount < 2) return;
     final target = _pinchBaseZoom * details.scale;
+    // Wave 40.5 (M4) — detect pinch crossing the 0.5/1.0 boundary
+    // for ultrawide <-> wide camera swap.
+    if (_isOnUltrawide && target >= 1.0 && _backWideCamera != null) {
+      _applyZoom(target); // will swap back to wide
+      return;
+    }
+    if (!_isOnUltrawide && target < 0.7 && _backUltrawideCamera != null) {
+      _applyZoom(0.5); // will swap to ultrawide
+      return;
+    }
     _applyZoomCoalesced(target);
   }
 
@@ -572,7 +678,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
 
     try {
-      HapticFeedback.mediumImpact();
+      HomefitHaptics.medium();
       final xFile = await _cameraController!.takePicture();
       final exercise = await _persistCapture(xFile.path, MediaType.photo);
       if (exercise != null) {
@@ -598,7 +704,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     _longPressActive = true;
     _pendingStopAfterStart = false;
     _hoveringLockTarget = false;
-    HapticFeedback.selectionClick();
+    HomefitHaptics.selection();
   }
 
   /// Called on both `onLongPressEnd` (normal release) and the raw
@@ -650,7 +756,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// target turns coral, shutter inner morphs to white square,
   /// hint copy swaps).
   void _snapToLockedRecording() {
-    HapticFeedback.heavyImpact();
+    HomefitHaptics.heavy();
     setState(() => _isLocked = true);
   }
 
@@ -685,7 +791,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     if (next != _hoveringLockTarget) {
       // Tactile threshold cue — fires on both enter and exit so the
       // armed-zone boundary is unmistakable.
-      HapticFeedback.lightImpact();
+      HomefitHaptics.light();
       setState(() => _hoveringLockTarget = next);
     }
   }
@@ -699,9 +805,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
     // Fire the haptic BEFORE the await so the bio feels the press
     // immediately, even if the controller takes a moment to actually
-    // start writing. Use heavy impact — Carl reported feeling nothing
-    // with medium on his device.
-    HapticFeedback.heavyImpact();
+    // start writing. Use heavy impact via native channel — Flutter's
+    // HapticFeedback is suppressed while AVCaptureSession holds the mic.
+    HomefitHaptics.heavy();
 
     // Snapshot orientation at the first frame and lock the surface to
     // it. AVFoundation embeds `videoOrientation` once at recording
@@ -757,7 +863,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           return;
         }
         setState(() => _recordingSeconds++);
-        HapticFeedback.heavyImpact();
+        HomefitHaptics.heavy();
         if (_recordingSeconds >= AppConfig.maxVideoSeconds) {
           _stopVideoRecording(autoStopped: true);
         }
@@ -837,14 +943,14 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
       // Haptic confirmation:
       // - user-initiated stop: single light tap
-      // - auto-stopped at max: double light tap so the bio knows the app
-      //   stopped them, they didn't accidentally release.
+      // - auto-stopped at max: double heavy tap ~120ms apart so the bio
+      //   unmistakably knows the app stopped them.
       if (autoStopped) {
-        HapticFeedback.lightImpact();
-        await Future.delayed(const Duration(milliseconds: 100));
-        HapticFeedback.lightImpact();
+        HomefitHaptics.heavy();
+        await Future.delayed(const Duration(milliseconds: 120));
+        HomefitHaptics.heavy();
       } else {
-        HapticFeedback.lightImpact();
+        HomefitHaptics.light();
       }
 
       final exercise = await _persistCapture(xFile.path, MediaType.video);
@@ -944,7 +1050,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// failed file. Cancel (no selection) is a no-op.
   Future<void> _importFromLibrary() async {
     if (_isRecording) return;
-    HapticFeedback.selectionClick();
+    HomefitHaptics.selection();
     try {
       final picked = await _picker.pickMultipleMedia();
       if (picked.isEmpty) return;
@@ -1423,10 +1529,10 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
   Widget _buildLensPill(double lens) {
     // "Active" when current zoom is within ~15% of this lens value.
-    // Keeps the highlight sensible as the user pinches smoothly across
-    // the range — we don't want every pixel of pinch clearing the
-    // highlight.
-    final active = (_currentZoom - lens).abs() <= lens * 0.15;
+    // For the 0.5x pill, also check if we're on the ultrawide camera.
+    final active = lens == 0.5
+        ? _isOnUltrawide
+        : (!_isOnUltrawide && (_currentZoom - lens).abs() <= lens * 0.15);
     // Wave 40 (M5) — active inverts to white-on-black instead of the
     // coral-on-white the row used. Mirrors iPhone Camera's active-lens
     // pill so the affordance reads as "current selection" without

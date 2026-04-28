@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Wave 40.5 — Mobile hotfix (haptics + ultrawide + photo refresh)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC; --sage-bg: rgba(134,239,172,0.12);
+    --red: #EF4444; --red-bg: rgba(239,68,68,0.12);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 24px 80px; }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  h1 { font-family: Montserrat, sans-serif; font-weight: 700;
+    font-size: 24px; letter-spacing: -0.3px; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); margin-bottom: 28px; font-size: 13px; }
+  h2 { font-family: Montserrat, sans-serif; font-weight: 600;
+    font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--coral); margin: 28px 0 12px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border); }
+
+  .item {
+    background: var(--raised); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 18px; margin-bottom: 10px;
+  }
+  .item .id { color: var(--text-dim); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
+  .item .desc { margin-bottom: 10px; }
+  .item .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 14px; border-radius: 8px; border: none;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+    transition: all 120ms ease; text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .btn-pass { background: var(--sage-bg); color: var(--sage); border: 1px solid rgba(134,239,172,0.3); }
+  .btn-pass:hover { background: rgba(134,239,172,0.2); }
+  .btn-fail { background: var(--red-bg); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+  .btn-fail:hover { background: rgba(239,68,68,0.2); }
+  .btn.active { transform: scale(1.05); box-shadow: 0 0 12px rgba(255,255,255,0.08); }
+  .btn-pass.active { background: var(--sage); color: #000; }
+  .btn-fail.active { background: var(--red); color: #fff; }
+  .status-chip {
+    display: inline-block; padding: 2px 8px; border-radius: 9999px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .status-chip.pass { background: var(--sage-bg); color: var(--sage); }
+  .status-chip.fail { background: var(--red-bg); color: var(--red); }
+  .status-chip.pending { background: var(--raised); color: var(--text-dim); border: 1px dashed var(--text-dim); }
+
+  textarea {
+    width: 100%; margin-top: 8px; padding: 8px 10px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; font-family: inherit; font-size: 12px;
+    resize: vertical; min-height: 48px;
+  }
+  textarea::placeholder { color: var(--text-dim); }
+
+  .tally {
+    margin-top: 24px; padding: 16px 18px;
+    background: var(--raised); border: 1px solid var(--border);
+    border-radius: 10px; font-size: 13px;
+  }
+  .tally .pass { color: var(--sage); font-weight: 700; }
+  .tally .fail { color: var(--red); font-weight: 700; }
+  .tally .pending { color: var(--text-dim); }
+
+  footer {
+    margin-top: 36px; padding-top: 16px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 11px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 40.5 - Mobile hotfix</div>
+  <h1>Haptics + ultrawide + photo refresh</h1>
+  <p class="lede">
+    Four fixes from Wave 40.4 device QA feedback. <strong>A</strong> Publish icon whiten.
+    <strong>B</strong> Native haptics via platform channel (bypasses iOS AVCaptureSession suppression).
+    <strong>C</strong> 0.5x ultrawide via CameraDescription swap.
+    <strong>D</strong> Photo-as-last-exercise conversion UI refresh regression.
+  </p>
+
+  <!-- ===== A: Publish icon ===== -->
+  <h2>A - Publish icon white</h2>
+
+  <div class="item" data-id="A1">
+    <div class="id">A1 - Publish icon renders white</div>
+    <div class="desc">
+      Open Studio for any unpublished session with exercises. The publish
+      (cloud-upload) icon in the bottom toolbar should be <strong>white</strong>
+      (matching camera/preview/share icons), NOT coral. The lock-state
+      Unlock padlock icon CAN still be coral (it is a state cue). Verify
+      both the active (publishable) and dim (no exercises / already published
+      clean) states render in white tones.
+    </div>
+    <div class="actions">
+      <button class="btn btn-pass" onclick="mark('A1','pass')">Pass</button>
+      <button class="btn btn-fail" onclick="mark('A1','fail')">Fail</button>
+      <span class="status-chip pending" id="chip-A1">Pending</span>
+    </div>
+    <textarea id="notes-A1" placeholder="Notes (both states)..." oninput="saveNotes('A1')"></textarea>
+  </div>
+
+  <!-- ===== B: Native haptics ===== -->
+  <h2>B - Native haptics (camera active)</h2>
+
+  <div class="item" data-id="B1">
+    <div class="id">B1 - Press-hold start haptic</div>
+    <div class="desc">
+      Open Camera mode. Press and hold the shutter button. You should feel a
+      <strong>heavy thud haptic</strong> the instant video recording starts
+      (even while the camera mic is hot). This is the critical fix --
+      Wave 40.4 reported no haptic at all during recording.
+    </div>
+    <div class="actions">
+      <button class="btn btn-pass" onclick="mark('B1','pass')">Pass</button>
+      <button class="btn btn-fail" onclick="mark('B1','fail')">Fail</button>
+      <span class="status-chip pending" id="chip-B1">Pending</span>
+    </div>
+    <textarea id="notes-B1" placeholder="Notes..." oninput="saveNotes('B1')"></textarea>
+  </div>
+
+  <div class="item" data-id="B2">
+    <div class="id">B2 - Per-second tick haptic</div>
+    <div class="desc">
+      While recording video, feel for a <strong>heavy haptic tick every second</strong>
+      in sync with the pulsing red dot. Should be unmistakable even with
+      the mic recording. Count at least 5 ticks.
+    </div>
+    <div class="actions">
+      <button class="btn btn-pass" onclick="mark('B2','pass')">Pass</button>
+      <button class="btn btn-fail" onclick="mark('B2','fail')">Fail</button>
+      <span class="status-chip pending" id="chip-B2">Pending</span>
+    </div>
+    <textarea id="notes-B2" placeholder="Notes..." oninput="saveNotes('B2')"></textarea>
+  </div>
+
+  <div class="item" data-id="B3">
+    <div class="id">B3 - Lock-engage haptic</div>
+    <div class="desc">
+      While recording, slide finger up onto the lock target (the round lock icon
+      above the shutter). Feel for a <strong>light haptic</strong> when entering the
+      armed zone, then <strong>release</strong> your finger while over the lock target.
+      You should feel a <strong>heavy thud</strong> confirming lock-engage. The shutter
+      inner morphs to a white square.
+    </div>
+    <div class="actions">
+      <button class="btn btn-pass" onclick="mark('B3','pass')">Pass</button>
+      <button class="btn btn-fail" onclick="mark('B3','fail')">Fail</button>
+      <span class="status-chip pending" id="chip-B3">Pending</span>
+    </div>
+    <textarea id="notes-B3" placeholder="Notes..." oninput="saveNotes('B3')"></textarea>
+  </div>
+
+  <div class="item" data-id="B4">
+    <div class="id">B4 - Stop recording haptic</div>
+    <div class="desc">
+      Stop a recording (either release finger for non-locked, or tap the white
+      square for locked). Feel for a <strong>light tap</strong> confirming the stop.
+      For the 30s auto-stop: let a recording run to 30s -- feel for a
+      <strong>double heavy thud</strong> (~120ms apart).
+    </div>
+    <div class="actions">
+      <button class="btn btn-pass" onclick="mark('B4','pass')">Pass</button>
+      <button class="btn btn-fail" onclick="mark('B4','fail')">Fail</button>
+      <span class="status-chip pending" id="chip-B4">Pending</span>
+    </div>
+    <textarea id="notes-B4" placeholder="Notes..." oninput="saveNotes('B4')"></textarea>
+  </div>
+
+  <!-- ===== C: 0.5x ultrawide ===== -->
+  <h2>C - 0.5x ultrawide lens</h2>
+
+  <div class="item" data-id="C1">
+    <div class="id">C1 - Tap 0.5x pill</div>
+    <div class="desc">
+      Open Camera mode. The vertical lens pills on the right edge should include
+      <strong>0.5x</strong> (only if the device has an ultrawide camera -- iPhone 11+
+      with dual/triple rear cameras). Tap the 0.5x pill. The viewfinder should
+      switch to the ultrawide field of view (noticeably wider). The 0.5x pill
+      should be highlighted (white background, black text).
+    </div>
+    <div class="actions">
+      <button class="btn btn-pass" onclick="mark('C1','pass')">Pass</button>
+      <button class="btn btn-fail" onclick="mark('C1','fail')">Fail</button>
+      <span class="status-chip pending" id="chip-C1">Pending</span>
+    </div>
+    <textarea id="notes-C1" placeholder="Notes..." oninput="saveNotes('C1')"></textarea>
+  </div>
+
+  <div class="item" data-id="C2">
+    <div class="id">C2 - Pinch crossover</div>
+    <div class="desc">
+      While on the 0.5x ultrawide, pinch outward to zoom. When the zoom passes
+      ~0.7x the viewfinder should seamlessly switch back to the main wide camera
+      at 1x. Similarly, from 1x, pinch inward past ~0.7x and it should switch
+      to ultrawide. The transition should be smooth (brief re-init is acceptable).
+    </div>
+    <div class="actions">
+      <button class="btn btn-pass" onclick="mark('C2','pass')">Pass</button>
+      <button class="btn btn-fail" onclick="mark('C2','fail')">Fail</button>
+      <span class="status-chip pending" id="chip-C2">Pending</span>
+    </div>
+    <textarea id="notes-C2" placeholder="Notes..." oninput="saveNotes('C2')"></textarea>
+  </div>
+
+  <div class="item" data-id="C3">
+    <div class="id">C3 - Switch back to 1x/2x/3x</div>
+    <div class="desc">
+      While on 0.5x ultrawide, tap the 1x pill. The viewfinder should switch back
+      to the main wide camera. The 1x pill should highlight. Verify 2x and 3x
+      also work after returning from ultrawide. The 0.5x pill should NOT appear
+      during recording (lens switching mid-clip is disabled).
+    </div>
+    <div class="actions">
+      <button class="btn btn-pass" onclick="mark('C3','pass')">Pass</button>
+      <button class="btn btn-fail" onclick="mark('C3','fail')">Fail</button>
+      <span class="status-chip pending" id="chip-C3">Pending</span>
+    </div>
+    <textarea id="notes-C3" placeholder="Notes..." oninput="saveNotes('C3')"></textarea>
+  </div>
+
+  <!-- ===== D: Photo refresh ===== -->
+  <h2>D - Photo last-exercise refresh</h2>
+
+  <div class="item" data-id="D1">
+    <div class="id">D1 - Photo conversion updates Studio card</div>
+    <div class="desc">
+      Create a new session. Capture a single <strong>photo</strong> (tap shutter).
+      Swipe left to Studio. The photo card should show the raw thumbnail initially.
+      Wait a few seconds for line-drawing conversion to complete. The card's
+      thumbnail should <strong>update in-place</strong> to the converted line-drawing
+      version without requiring any interaction (no scroll, no tap, no navigation).
+      The conversion spinner (if visible) should clear. This is the regression
+      fix -- previously the last exercise's UI did not update after conversion.
+    </div>
+    <div class="actions">
+      <button class="btn btn-pass" onclick="mark('D1','pass')">Pass</button>
+      <button class="btn btn-fail" onclick="mark('D1','fail')">Fail</button>
+      <span class="status-chip pending" id="chip-D1">Pending</span>
+    </div>
+    <textarea id="notes-D1" placeholder="Notes..." oninput="saveNotes('D1')"></textarea>
+  </div>
+
+  <!-- Tally -->
+  <div class="tally" id="tally">Loading...</div>
+
+  <footer>
+    Auto-persists to <code>http://localhost:3457/api/test-results/2026-04-29-wave40.5-mobile-hotfix.results.json</code>.
+  </footer>
+</div>
+
+<script>
+(function() {
+  var SLUG = '2026-04-29-wave40.5-mobile-hotfix.results.json';
+  var SINK = 'http://localhost:3457/api/test-results/' + SLUG;
+  var state = { items: {} };
+
+  // Load existing state from the server.
+  fetch('/test-scripts/' + SLUG, { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (data && data.items) {
+        state = data;
+        Object.keys(state.items).forEach(function(id) {
+          var entry = state.items[id];
+          applyUI(id, entry.status, entry.notes || '');
+        });
+      }
+      updateTally();
+    })
+    .catch(function() { updateTally(); });
+
+  window.mark = function(id, status) {
+    if (!state.items[id]) state.items[id] = {};
+    state.items[id].status = status;
+    state.items[id].notes = (document.getElementById('notes-' + id) || {}).value || '';
+    state.items[id].ts = new Date().toISOString();
+    applyUI(id, status, state.items[id].notes);
+    updateTally();
+    persist();
+  };
+
+  window.saveNotes = function(id) {
+    if (!state.items[id]) state.items[id] = {};
+    state.items[id].notes = (document.getElementById('notes-' + id) || {}).value || '';
+    state.items[id].ts = new Date().toISOString();
+    persist();
+  };
+
+  function applyUI(id, status, notes) {
+    var chip = document.getElementById('chip-' + id);
+    if (chip) {
+      chip.className = 'status-chip ' + status;
+      chip.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+    }
+    // Highlight the active button.
+    var item = document.querySelector('[data-id="' + id + '"]');
+    if (item) {
+      item.querySelectorAll('.btn').forEach(function(b) { b.classList.remove('active'); });
+      var sel = item.querySelector('.btn-' + status);
+      if (sel) sel.classList.add('active');
+    }
+    var ta = document.getElementById('notes-' + id);
+    if (ta && notes && !ta.value) ta.value = notes;
+  }
+
+  function updateTally() {
+    var ids = [];
+    document.querySelectorAll('[data-id]').forEach(function(el) { ids.push(el.dataset.id); });
+    var pass = 0, fail = 0, pending = 0;
+    ids.forEach(function(id) {
+      var s = state.items[id] ? state.items[id].status : null;
+      if (s === 'pass') pass++;
+      else if (s === 'fail') fail++;
+      else pending++;
+    });
+    var el = document.getElementById('tally');
+    el.innerHTML =
+      '<span class="pass">' + pass + ' pass</span> / ' +
+      '<span class="fail">' + fail + ' fail</span> / ' +
+      '<span class="pending">' + pending + ' pending</span> of ' + ids.length + ' items';
+  }
+
+  function persist() {
+    fetch(SINK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state)
+    }).catch(function() {});
+  }
+})();
+</script>
+</body>
+</html>

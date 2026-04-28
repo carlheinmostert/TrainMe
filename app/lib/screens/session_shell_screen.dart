@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../config.dart';
+import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/api_client.dart';
 import '../services/local_storage_service.dart';
@@ -134,10 +135,54 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
   }
 
   /// Refresh the session from storage — called after either mode mutates it.
+  ///
+  /// Wave 40.5 — guard against regressing conversion state. StudioModeScreen's
+  /// conversion listener applies `done` events synchronously via
+  /// `onSessionChanged`, pushing a fresher session to `_session`. This
+  /// async SQLite read can resolve AFTER that push and would overwrite
+  /// the shell's `_session` with a stale version (still `pending` or
+  /// `converting`). Adopt the SQLite version only when it's not stale
+  /// — same logic as StudioModeScreen's `_shouldAdoptParentSession`.
   Future<void> _refreshSession() async {
     final refreshed = await widget.storage.getSession(_session.id);
     if (refreshed != null && mounted) {
-      setState(() => _session = refreshed);
+      if (_shouldAdoptRefreshed(refreshed)) {
+        setState(() => _session = refreshed);
+      }
+    }
+  }
+
+  /// Returns true when [refreshed] is at least as fresh as `_session`,
+  /// false when it would regress conversion state. Same ranking as
+  /// StudioModeScreen's `_shouldAdoptParentSession`.
+  bool _shouldAdoptRefreshed(Session refreshed) {
+    // Different exercise count → always adopt (capture added or deleted).
+    if (refreshed.exercises.length != _session.exercises.length) return true;
+    // Check conversion freshness per exercise.
+    final localById = <String, ExerciseCapture>{
+      for (final e in _session.exercises) e.id: e,
+    };
+    for (final cand in refreshed.exercises) {
+      final local = localById[cand.id];
+      if (local == null) return true; // different row id appeared
+      if (_conversionRank(cand.conversionStatus) <
+          _conversionRank(local.conversionStatus)) {
+        return false; // refreshed is older — reject
+      }
+    }
+    return true;
+  }
+
+  int _conversionRank(ConversionStatus status) {
+    switch (status) {
+      case ConversionStatus.pending:
+        return 0;
+      case ConversionStatus.converting:
+        return 1;
+      case ConversionStatus.failed:
+        return 2;
+      case ConversionStatus.done:
+        return 3;
     }
   }
 
