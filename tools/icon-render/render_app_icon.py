@@ -2,14 +2,15 @@
 """
 Render the homefit.studio iOS app icon set.
 
-Design: Option A — tight crop on the recognisable centre band of the
-canonical matrix (2×2 coral circuit + sage rest, with the inner-most
-pair of ghost pills flanking it for context). The full 48×9.5 matrix is
-too wide (≈5:1) for a square icon; cropping to the centre slice keeps
-the brand promise (the matrix IS the logo) while reading cleanly at the
-smallest 60×60 home-screen size and the 1024×1024 marketing render.
+Design (v3): 2×2 coral circuit ONLY. Drops the ghost greys + sage rest +
+tint band that v2 carried over from the matrix slice. The 2-cycle coral
+circuit is the recognisable bit of the matrix; isolating it lets each
+pill carry substantially more visual mass at the smallest 60×60 home
+screen size while staying unmistakably "homefit.studio" at 1024×1024.
 
-Geometry is COPIED VERBATIM from the canonical sources:
+Geometry is COPIED VERBATIM from the canonical sources — the 4 coral
+pills sit on a true 2×2 grid (top row + bottom row aligned, no stagger)
+in the matrix logo:
   - app/lib/widgets/homefit_logo.dart            (Flutter)
   - web-portal/src/components/HomefitLogo.tsx    (TS)
   - web-player/app.js  buildHomefitLogoSvg()     (web)
@@ -17,7 +18,6 @@ Brand tokens copied from docs/design/project/tokens.json.
 
 Outputs:
   app/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-*.png
-plus a marketing PNG at the 1024×1024 size.
 
 Run:
   python3 tools/icon-render/render_app_icon.py
@@ -27,8 +27,6 @@ No third-party deps beyond Pillow (already on Carl's Mac).
 
 from __future__ import annotations
 
-import math
-import os
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -38,141 +36,76 @@ from PIL import Image, ImageDraw
 # ---------------------------------------------------------------------------
 
 CORAL = (0xFF, 0x6B, 0x35)        # color.brand.default
-CORAL_TINT_ALPHA = 38             # ≈ 0.15 * 255 — coral band opacity
-SAGE = (0x86, 0xEF, 0xAC)         # color.semantic.rest
-GHOST_OUTER = (0x4B, 0x55, 0x63)  # ink.dark.disabled
-GHOST_MID = (0x6B, 0x72, 0x80)    # ink.dark.muted
-GHOST_INNER = (0x9C, 0xA3, 0xAF)  # ink.dark.secondary
 SURFACE_BG = (0x0F, 0x11, 0x17)   # surface.dark.bg
 
 
 # ---------------------------------------------------------------------------
-# Canonical matrix geometry (48 × 9.5 source units)
+# Canonical 2×2 coral circuit geometry (source units from the matrix logo)
 # ---------------------------------------------------------------------------
 # Verbatim from homefit_logo.dart / HomefitLogo.tsx / buildHomefitLogoSvg().
+# The matrix is rendered in a 48×9.5 source viewbox; the 2×2 coral block
+# occupies x ∈ [15, 26.5] and y ∈ [2, 9.5] within that. We render only
+# those four pills here.
 
-# (x, y, w, h, rx, fill)
-PILLS = [
-    # Left ghost pills: outer → inner
-    (0.0,  2.75, 2.5, 1.5, 0.5, GHOST_OUTER),
-    (4.0,  2.45, 3.5, 2.1, 0.7, GHOST_MID),
-    (9.0,  2.15, 4.5, 2.7, 0.9, GHOST_INNER),
-    # 2×2 coral circuit
-    (15.0, 2.0,  5.0, 3.0, 1.0, CORAL),
-    (15.0, 6.5,  5.0, 3.0, 1.0, CORAL),
-    (21.5, 2.0,  5.0, 3.0, 1.0, CORAL),
-    (21.5, 6.5,  5.0, 3.0, 1.0, CORAL),
-    # Sage rest
-    (28.0, 2.0,  5.0, 3.0, 1.0, SAGE),
-    # Right ghost pills: inner → outer
-    (34.5, 2.15, 4.5, 2.7, 0.9, GHOST_INNER),
-    (40.5, 2.45, 3.5, 2.1, 0.7, GHOST_MID),
-    (45.5, 2.75, 2.5, 1.5, 0.5, GHOST_OUTER),
+# (x, y, w, h, rx)
+CORAL_PILLS = [
+    (15.0, 2.0, 5.0, 3.0, 1.0),   # top-left
+    (15.0, 6.5, 5.0, 3.0, 1.0),   # bottom-left
+    (21.5, 2.0, 5.0, 3.0, 1.0),   # top-right
+    (21.5, 6.5, 5.0, 3.0, 1.0),   # bottom-right
 ]
 
-# Coral tint band (sits behind the 2×2 circuit columns).
-BAND = (14.5, 1.0, 12.5, 8.5, 1.2)  # x, y, w, h, rx
-
 
 # ---------------------------------------------------------------------------
-# Crop window — Option A (centre slice)
+# Render
 # ---------------------------------------------------------------------------
-# The 48×9.5 matrix is too wide (~5:1) for a square icon. We crop to the
-# centre slice that carries the brand promise:
-#   inner ghost pill → 2×2 coral circuit (in tint band) → sage rest →
-#   inner ghost pill (mirror)
-#
-# That's source x ∈ [9, 39], y ∈ [1, 9.5]  →  30 × 8.5  ≈ 3.5:1
-# The matrix is rendered in the upper-middle, leaving the lower portion
-# of the icon as a quiet field of dark surface — Apple's home-screen
-# rounded mask means the corners get softly cropped anyway, and a
-# centred-vertically band makes the icon feel composed at every size.
-#
-# Pills near the crop edges (the 9.0 / 34.5 inner ghosts) anchor the
-# composition without trailing off into clipped fragments.
 
 ICON_PX = 1024
 
 
 def render_master() -> Image.Image:
-    """Render the canonical 1024×1024 master icon."""
-    # RGBA overlay — translucent coral band needs alpha compositing.
-    img = Image.new("RGBA", (ICON_PX, ICON_PX), (*SURFACE_BG, 255))
+    """Render the canonical 1024×1024 master icon — 2×2 coral circuit only."""
+    img = Image.new("RGB", (ICON_PX, ICON_PX), SURFACE_BG)
     draw = ImageDraw.Draw(img)
 
-    # Horizontal crop window in source units (centre slice of the canonical
-    # matrix). We crop to source x ∈ [9, 39] which keeps inner ghost pill →
-    # 2×2 coral circuit → sage rest → inner ghost pill. The full 48-wide
-    # matrix is too wide (~5:1) for a square icon; this slice reads as the
-    # brand promise. Vertical placement is driven by the pill bounding box
-    # (see below), not a y-crop, so the matrix sits on the optical centre.
-    crop_x0, crop_x1 = 9.0, 39.0
-    crop_w = crop_x1 - crop_x0
-
-    # v2 — Carl feedback on the v1 render (target_frac=0.84, vertical
-    # offset using crop-window centring): pills read as "tiny dots" at
-    # the 60×60 home-screen size, and the matrix sat noticeably below
-    # optical centre. Two changes:
+    # v3 — Carl's call after v2: drop the ghost greys + sage rest, keep
+    # only the 2×2 coral circuit. With four pills instead of seven the
+    # individual coral cells get substantially more pixel area, which is
+    # the whole point — readability at 60×60 was the bottleneck on v2.
     #
-    #   1. Scale up. Carl's Option A targets ~70% canvas WIDTH, with an
-    #      explicit escalation rule: bump to 80% if pills still read tiny
-    #      at 60×60. At 70% the home-screen variant still reads as faint
-    #      dots so we ship at 80% — leaves the safe-area margin Apple's
-    #      home-screen mask wants while putting visible mass behind the
-    #      matrix at every size.
-    #   2. Recentre vertically using the PILL bounding box, not the crop
-    #      window. The crop window y∈[1, 9.5] has empty padding at the top
-    #      that the pills don't fill (topmost pill row starts at y=2.0).
-    #      Centring the crop window therefore pushes the pills below the
-    #      optical axis. We compute the actual pill y-extent of pills that
-    #      survive the x-crop and centre on that — so visual mass sits on
-    #      the canvas midline.
-    target_frac = 0.80
+    # Target ~75% of canvas width for the coral cluster (within Carl's
+    # 70-80% window). Centre on the actual pill bounding box, not the
+    # source-viewbox window — the bounding box IS the composition.
+
+    pill_x_min = min(p[0] for p in CORAL_PILLS)
+    pill_x_max = max(p[0] + p[2] for p in CORAL_PILLS)
+    pill_y_min = min(p[1] for p in CORAL_PILLS)
+    pill_y_max = max(p[1] + p[3] for p in CORAL_PILLS)
+    pill_w = pill_x_max - pill_x_min  # 11.5 source units
+    pill_h = pill_y_max - pill_y_min  # 7.5 source units
+
+    target_frac = 0.75
     target_w_px = ICON_PX * target_frac
-    scale = target_w_px / crop_w  # source-unit → px
+    scale = target_w_px / pill_w  # source-unit → px
 
-    visible_pills = [
-        p for p in PILLS if not (p[0] + p[2] <= crop_x0 or p[0] >= crop_x1)
-    ]
-    pill_y_min = min(p[1] for p in visible_pills)
-    pill_y_max = max(p[1] + p[3] for p in visible_pills)
-    pill_h = pill_y_max - pill_y_min
-    rendered_pill_h = pill_h * scale
-
-    offset_x = (ICON_PX - target_w_px) / 2 - crop_x0 * scale
-    offset_y = (ICON_PX - rendered_pill_h) / 2 - pill_y_min * scale
+    rendered_h_px = pill_h * scale
+    offset_x = (ICON_PX - target_w_px) / 2 - pill_x_min * scale
+    offset_y = (ICON_PX - rendered_h_px) / 2 - pill_y_min * scale
 
     def to_px(x: float, y: float) -> tuple[float, float]:
         return (offset_x + x * scale, offset_y + y * scale)
 
-    def draw_rounded_rect(d: ImageDraw.ImageDraw, sx: float, sy: float, sw: float,
-                          sh: float, srx: float, fill) -> None:
-        x0, y0 = to_px(sx, sy)
-        x1, y1 = to_px(sx + sw, sy + sh)
-        r_px = srx * scale
-        d.rounded_rectangle(
+    for (x, y, w, h, rx) in CORAL_PILLS:
+        x0, y0 = to_px(x, y)
+        x1, y1 = to_px(x + w, y + h)
+        r_px = rx * scale
+        draw.rounded_rectangle(
             (round(x0), round(y0), round(x1), round(y1)),
             radius=max(1.0, r_px),
-            fill=fill,
+            fill=CORAL,
         )
 
-    # NOTE: the canonical matrix has a 15%-coral tint band sitting behind
-    # the 2×2 circuit. We omit it from the icon: at 60×60 the tint fills
-    # the inter-pill gaps and the four coral cells read as one solid blob,
-    # losing the 2×2 grid that's the recognisable bit of the matrix. The
-    # band is decorative chrome on the web player / mobile preview surface
-    # where the matrix is large enough for the gaps to win; an app icon
-    # has to read at the smallest size first.
-
-    # Pills — only those that overlap the crop window. Outer ghosts
-    # (x=0, x=4, x=40.5, x=45.5) sit fully outside x ∈ [9, 39] and
-    # are skipped so we don't spend pixels on partially-clipped marks.
-    for (x, y, w, h, rx, fill) in PILLS:
-        if x + w <= crop_x0 or x >= crop_x1:
-            continue
-        draw_rounded_rect(draw, x, y, w, h, rx, fill=(*fill, 255))
-
-    return img.convert("RGB")
+    return img
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +141,6 @@ def main() -> None:
     print(f"Rendering homefit.studio app icon master ({ICON_PX}×{ICON_PX})…")
     master = render_master()
 
-    # Marketing 1024 — exact master, no resampling.
     for filename, size in ICON_TARGETS:
         out_path = out_dir / filename
         if size == ICON_PX:
