@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import CoreHaptics
+import AudioToolbox
 
 /// Native haptic feedback channel that bypasses Flutter's `HapticFeedback`
 /// services. iOS suppresses Flutter-level haptics while `AVCaptureSession`
@@ -137,6 +138,20 @@ class HomefitHapticsChannel {
         gen.prepare()
         gen.impactOccurred(intensity: CGFloat(intensity))
         NSLog("[HomefitHaptics] UIKit fire OK (style=%d, intensity=%.2f)", style.rawValue, intensity)
+
+        // Approach 3: raw AudioToolbox vibration — bypasses UIKit + CoreHaptics
+        // entirely. These system sound IDs produce haptic feedback through a
+        // different hardware path not subject to Taptic Engine suppression.
+        let soundId: SystemSoundID
+        if intensity >= 0.9 {
+            soundId = 1520  // "pop" — strong
+        } else if intensity >= 0.5 {
+            soundId = 1519  // "peek" — medium
+        } else {
+            soundId = 1521  // "cancelled" — light
+        }
+        AudioServicesPlaySystemSound(soundId)
+        NSLog("[HomefitHaptics] AudioToolbox fire (soundId=%d)", soundId)
 
         // Also fire CHHapticEngine as a belt-and-suspenders backup.
         if let engine = engine {
