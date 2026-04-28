@@ -146,9 +146,29 @@ class CaptureThumbnail extends StatelessWidget {
       // (close enough — the line-drawing thumbnail is the fallback
       // when no raw thumbnail exists).
       if (exercise.absoluteThumbnailPath != null) {
-        final thumbFile = File(exercise.absoluteThumbnailPath!);
+        // Pick the treatment-specific thumbnail for videos.
+        // Variants generated at conversion time (Wave 40.6):
+        //   line:      {id}_thumb_line.jpg  (frame from converted video)
+        //   grayscale: {id}_thumb.jpg       (existing B&W from raw)
+        //   original:  {id}_thumb_color.jpg (color frame from raw)
+        // Falls back to the existing B&W thumbnail if variants don't exist.
+        final basePath = exercise.absoluteThumbnailPath!;
+        final effectiveTreatment = treatment ?? Treatment.line;
+        String thumbPath;
+        switch (effectiveTreatment) {
+          case Treatment.line:
+            thumbPath = basePath.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
+          case Treatment.grayscale:
+            thumbPath = basePath; // the default thumbnail IS B&W
+          case Treatment.original:
+            thumbPath = basePath.replaceFirst('_thumb.jpg', '_thumb_color.jpg');
+        }
+        // Fall back to the existing thumbnail if the variant doesn't exist.
+        final thumbFile = File(thumbPath);
+        final fallbackFile = File(basePath);
+        final useFile = thumbFile.existsSync() ? thumbFile : fallbackFile;
         Widget thumb = Image.file(
-          thumbFile,
+          useFile,
           fit: BoxFit.cover,
           cacheWidth: cacheWidth,
           errorBuilder: (_, __, ___) => Container(
@@ -159,9 +179,6 @@ class CaptureThumbnail extends StatelessWidget {
             ),
           ),
         );
-        if (colorFilter != null) {
-          thumb = ColorFiltered(colorFilter: colorFilter, child: thumb);
-        }
         return Stack(
           fit: StackFit.expand,
           children: [

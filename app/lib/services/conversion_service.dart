@@ -223,29 +223,42 @@ class ConversionService extends ChangeNotifier {
         if (exercise.mediaType == MediaType.video) {
           try {
             final dir = await getApplicationDocumentsDirectory();
-            final thumbPath =
-                p.join(dir.path, 'thumbnails', '${exercise.id}_thumb.jpg');
+            final thumbDir = p.join(dir.path, 'thumbnails');
+            final thumbPath = p.join(thumbDir, '${exercise.id}_thumb.jpg');
             final sourcePath = await _pickThumbnailSource(done);
             if (sourcePath != null) {
+              // B&W thumbnail (default — used for grayscale treatment).
               await _thumbChannel.invokeMethod<String>('extractFrame', {
                 'inputPath': sourcePath,
                 'outputPath': thumbPath,
-                // `timeMs` ignored when autoPick=true; the native side samples
-                // a motion-peak frame and crops tight around the person. Gives
-                // a more readable thumbnail at Studio-list sizes.
                 'timeMs': 0,
                 'autoPick': true,
                 'grayscale': true,
-              }).timeout(
-                const Duration(seconds: 30),
-                onTimeout: () {
-                  throw TimeoutException(
-                    'Native extractFrame exceeded 30s '
-                    '(exercise=${exercise.id})',
-                  );
-                },
-              );
+              }).timeout(const Duration(seconds: 30));
               done = done.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
+
+              // Color thumbnail (used for original treatment).
+              final colorPath = p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
+              await _thumbChannel.invokeMethod<String>('extractFrame', {
+                'inputPath': sourcePath,
+                'outputPath': colorPath,
+                'timeMs': 0,
+                'autoPick': true,
+                'grayscale': false,
+              }).timeout(const Duration(seconds: 30));
+
+              // Line-drawing thumbnail (used for line treatment).
+              final convertedPath = PathResolver.resolve(done.convertedFilePath);
+              if (convertedPath != null) {
+                final linePath = p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
+                await _thumbChannel.invokeMethod<String>('extractFrame', {
+                  'inputPath': convertedPath,
+                  'outputPath': linePath,
+                  'timeMs': 0,
+                  'autoPick': false,
+                  'grayscale': false,
+                }).timeout(const Duration(seconds: 30));
+              }
             }
           } catch (e) {
             debugPrint('Post-conversion thumbnail update failed: $e');
