@@ -323,13 +323,17 @@ export function ClientsList({
                 className="flex h-full flex-col rounded-lg border border-surface-border bg-surface-base p-4 transition hover:border-brand hover:shadow-focus-ring focus-visible:border-brand focus-visible:outline-none"
               >
                 <div className="flex items-start gap-3">
-                  {/* Wave 40 P6 — initials avatar mirrors the mobile
-                      ClientCard treatment. The cloud body-focus avatar
-                      jpg (Wave 30) isn't surfaced by `list_practice_clients`
-                      yet; once the RPC threads `avatar_path`, drop the
-                      URL into the `imageUrl` prop and the disc swaps to
-                      the blurred image automatically. */}
-                  <ClientAvatar name={c.name} size="md" />
+                  {/* Wave 40 P6 + Wave 40.4 — initials avatar mirrors the
+                      mobile ClientCard treatment. When `c.avatarUrl` is
+                      non-null (signed URL minted by `list_practice_clients`
+                      via `sign_storage_url`), the disc renders the body-
+                      focus avatar JPG that the practitioner captured on
+                      mobile; otherwise it falls back to initials. */}
+                  <ClientAvatar
+                    name={c.name}
+                    imageUrl={c.avatarUrl}
+                    size="md"
+                  />
                   <h3 className="min-w-0 flex-1 font-heading text-base font-semibold text-ink">
                     {c.name}
                   </h3>

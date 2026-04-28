@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 40.4 (camera polish + portal client avatar)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  .placeholder { background: var(--raised); padding: 14px 18px; border-radius: 8px; border: 1px dashed var(--border); color: var(--text-dim); font-style: italic; font-size: 13px; margin: 8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 40.4 &middot; follow-up QA</div>
+  <h1>Camera polish + portal client avatar image</h1>
+
+  <p class="lede">
+    Two slices in one bundle, picking up the FAIL items from Wave 40 device QA. <strong>(A &middot; mobile, items 1&ndash;4)</strong> Camera UI polish &mdash; tighter shutter / lens-pill / library-button affordances picked up from Carl's Wave 40 notes. <strong>(B &middot; portal, items 5&ndash;6)</strong> Portal /clients list and /clients/[id] session-icon now render the body-focus avatar JPG (Wave 30) the practitioner captured on mobile, instead of the initials fallback. Wired through a new <code>avatar_url</code> column on <code>list_practice_clients</code> + <code>get_client_by_id</code>: a 1-hour signed URL into the private <code>raw-archive</code> bucket via the pgjwt-backed <code>sign_storage_url</code> helper. Falls back to initials when no avatar yet, so net-new clients keep working unchanged.
+  </p>
+
+  <h2>A &middot; Mobile camera polish</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">1.</span>
+      <span class="text">Camera polish item 1 &mdash; placeholder.</span>
+      <div class="placeholder">Owned by the parallel Wave 40.4 mobile agent. They'll fill in the steps before this bundle goes out for QA.</div>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">2.</span>
+      <span class="text">Camera polish item 2 &mdash; placeholder.</span>
+      <div class="placeholder">Owned by the parallel Wave 40.4 mobile agent.</div>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">3.</span>
+      <span class="text">Camera polish item 3 &mdash; placeholder.</span>
+      <div class="placeholder">Owned by the parallel Wave 40.4 mobile agent.</div>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">4.</span>
+      <span class="text">Camera polish item 4 &mdash; placeholder.</span>
+      <div class="placeholder">Owned by the parallel Wave 40.4 mobile agent.</div>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B &middot; Portal client avatar image (Wave 40 items 14 + 16 follow-up)</h2>
+  <ul class="checklist">
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">5.</span>
+      <span class="text">B1 &middot; <code>/clients</code> list shows the body-focus avatar JPG when present; falls back to initials when not.</span>
+      <ol class="steps">
+        <li data-sub="5.1"><strong>Setup.</strong> On the mobile app, pick a client that does NOT yet have an avatar. Go to their detail screen, tap the avatar slot, capture a body-focus still through the in-app camera. Wait for the upload to land (the avatar disc on the mobile screen swaps from initials to the blurred image).</li>
+        <li data-sub="5.2">Hard-refresh <a href="https://manage.homefit.studio/clients" target="_blank">manage.homefit.studio/clients</a> in Safari (Cmd+Shift+R). Sign in if needed.</li>
+        <li data-sub="5.3">The card for the client you just photographed shows the same body-focus blurred avatar as a 40&times;40 disc on the left of the card &mdash; <strong>not</strong> the initials chip you saw before. Hover-tooltip is the client name.</li>
+        <li data-sub="5.4">A second client that has NEVER had an avatar captured continues to render initials (e.g. <code>JS</code> on coral). Confirm both states coexist on the same list.</li>
+        <li data-sub="5.5">Right-click the avatar &rarr; "Open Image in New Tab". The URL contains <code>/storage/v1/object/sign/raw-archive/&hellip;</code> with a <code>?token=</code> query string &mdash; the signed URL minted by the new RPC. Image loads.</li>
+        <li data-sub="5.6">If a client has multiple sessions: the count + "shared X ago" copy below the disc is unchanged from Wave 40 (only the avatar idiom is new).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">6.</span>
+      <span class="text">B2 &middot; <code>/clients/[id]</code> session-icon shows the same avatar idiom &mdash; matches mobile SessionCard.</span>
+      <ol class="steps">
+        <li data-sub="6.1">From <code>/clients</code>, click into the client you photographed in step 5. The page is <code>/clients/{id}</code>.</li>
+        <li data-sub="6.2">Scroll to the <strong>Sessions</strong> section. Each row in the desktop table (or card on mobile) has a 40&times;40 session-icon disc on the left.</li>
+        <li data-sub="6.3">The disc renders the body-focus blurred avatar &mdash; the same image you saw on the <code>/clients</code> list. The exercise-count badge (small coral pill, bottom-right of the disc) overlays cleanly on the image.</li>
+        <li data-sub="6.4">Open the same client&apos;s detail screen on the mobile app. Side-by-side, the SessionCard avatar and the portal session-icon should look identical &mdash; same image, same crop, same body-focus blur. (R-10 parity.)</li>
+        <li data-sub="6.5">For a different client whose avatar hasn&apos;t been captured: the session-icon shows initials, with the same exercise-count badge. Both states coexist correctly.</li>
+        <li data-sub="6.6">Hover (or long-press on iPad) the badge: tooltip reads <code>N exercises</code> (or <code>1 exercise</code> for singular). Hover the avatar disc itself: tooltip is the client name.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope for this wave</h3>
+    <ul>
+      <li>Re-blurring or re-processing the avatar on the portal &mdash; we render whatever bytes the mobile app uploaded. The privacy guarantee (face/body abstraction) is intrinsic to the JPG. Wave 30 owns the pipeline.</li>
+      <li>Caching the signed URL across renders &mdash; URLs expire after 1 hour. Each page load mints a fresh one (cheap; the RPC is one round-trip already underway).</li>
+      <li>Surfacing the avatar in the <code>/clients/[id]</code> header card &mdash; ClientDetailPanel layout is unchanged. Carl&apos;s QA flagged the list and the session-icon, both of which are now done.</li>
+      <li>Dashboard / audit / members / network avatar treatment &mdash; not asked for. <code>list_practice_audit</code> + the audit table use the practitioner's email + name, not the client's avatar.</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-29-wave40.4-camera-polish.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave40.4-camera-polish', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

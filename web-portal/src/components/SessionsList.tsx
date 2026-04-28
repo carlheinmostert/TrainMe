@@ -18,6 +18,12 @@ type Props = {
    *  preferred source (per-row cohesion) but we accept this as a fallback
    *  for future single-client surfaces. */
   fallbackClientName?: string;
+  /** Wave 40.4 — signed URL for the client's body-focus avatar JPG.
+   *  Threaded through from `/clients/[id]` (which has the parent client
+   *  in scope). When present, the session-icon disc renders the image
+   *  instead of initials, matching the mobile SessionCard treatment.
+   *  Ignored when `showSessionIcon` is false. */
+  clientAvatarUrl?: string | null;
 };
 
 type Toast = { text: string } | null;
@@ -42,6 +48,7 @@ export function SessionsList({
   isOwnerView,
   showSessionIcon = false,
   fallbackClientName,
+  clientAvatarUrl = null,
 }: Props) {
   const [query, setQuery] = useState('');
   const [toast, setToast] = useState<Toast>(null);
@@ -136,6 +143,7 @@ export function SessionsList({
                     <SessionIcon
                       clientName={s.clientName ?? fallbackClientName ?? ''}
                       exerciseCount={s.exerciseCount}
+                      avatarUrl={clientAvatarUrl}
                     />
                   </td>
                 )}
@@ -226,6 +234,7 @@ export function SessionsList({
                 <SessionIcon
                   clientName={s.clientName ?? fallbackClientName ?? ''}
                   exerciseCount={s.exerciseCount}
+                  avatarUrl={clientAvatarUrl}
                 />
               )}
               <div className="min-w-0 flex-1">
@@ -320,26 +329,30 @@ function playerUrl(planId: string): string {
 }
 
 /**
- * Wave 40 P8 — session-icon parity with mobile SessionCard.
+ * Wave 40 P8 + Wave 40.4 — session-icon parity with mobile SessionCard.
  *
  * Mobile renders the body-focus avatar disc (Wave 30) with the exercise
  * count overlaid as a coral-ringed badge in the bottom-right corner.
- * The portal RPC doesn't surface `clients.avatar_path` yet (column is
- * mobile-write only as of Wave 30), so we render the initials fallback
- * the same way mobile does when `avatar_path` is null. Once a future
- * RPC migration threads the URL through, drop it into the
- * `<ClientAvatar imageUrl=…>` prop and the disc swaps automatically.
+ * Wave 40.4 — `list_practice_clients` / `get_client_by_id` now mint a
+ * signed URL for the avatar JPG; when supplied here, the disc renders
+ * the image. Falls back to initials when null (no avatar captured yet).
  */
 function SessionIcon({
   clientName,
   exerciseCount,
+  avatarUrl,
 }: {
   clientName: string;
   exerciseCount: number;
+  avatarUrl?: string | null;
 }) {
   return (
     <span className="relative inline-block shrink-0">
-      <ClientAvatar name={clientName || '–'} size="md" />
+      <ClientAvatar
+        name={clientName || '–'}
+        imageUrl={avatarUrl}
+        size="md"
+      />
       {exerciseCount > 0 && (
         <span
           aria-hidden="true"

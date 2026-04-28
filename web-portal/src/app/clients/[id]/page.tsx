@@ -141,6 +141,7 @@ export default async function ClientDetailPage({
               isOwnerView={isOwner}
               showSessionIcon
               fallbackClientName={client.name}
+              clientAvatarUrl={client.avatarUrl}
             />
           )}
         </section>
