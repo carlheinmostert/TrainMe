@@ -1240,9 +1240,9 @@ class LocalStorageService {
   /// missing or tombstoned — callers read this as "no extra consent
   /// signals available, fall back to the line-drawing default".
   ///
-  /// Added for Wave 4 Phase 1 (unified player prototype): the in-process
-  /// LocalPlayerServer needs per-plan consent flags to build a
-  /// shape-identical `get_plan_full` payload out of the local DB.
+  /// Added for Wave 4 (unified player): the scheme bridge needs per-plan
+  /// consent flags to build a shape-identical `get_plan_full` payload
+  /// out of the local DB.
   Future<CachedClient?> getCachedClientById(String id) async {
     final rows = await db.query(
       'cached_clients',
