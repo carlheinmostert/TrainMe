@@ -2329,3 +2329,126 @@ body.is-fullscreen .playpause-toggle {
    getComputedStyle without round-tripping through the video metadata
    event.
 */
+
+/* ================================================================
+   Wave 17 — Analytics consent banner
+   ================================================================ */
+
+.analytics-consent-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  transform: translateY(-100%);
+  transition: transform var(--dur-slow) var(--ease-emphasized);
+  pointer-events: none;
+}
+
+.analytics-consent-banner.is-visible {
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.analytics-consent-inner {
+  background: var(--c-surface-raised);
+  border-bottom: 2px solid var(--c-brand);
+  padding: 20px 24px 16px;
+  text-align: center;
+  max-width: 480px;
+  margin: 0 auto;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.analytics-consent-title {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--c-ink-primary);
+  margin-bottom: 6px;
+}
+
+.analytics-consent-body {
+  font-family: var(--f-body);
+  font-size: 13px;
+  color: var(--c-ink-secondary);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.analytics-consent-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.analytics-consent-btn {
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-standard);
+}
+
+.analytics-consent-decline {
+  background: transparent;
+  color: var(--c-ink-secondary);
+  border: 1px solid var(--c-surface-border);
+}
+
+.analytics-consent-decline:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--c-ink-muted);
+}
+
+.analytics-consent-accept {
+  background: var(--c-brand);
+  color: #fff;
+}
+
+.analytics-consent-accept:hover {
+  background: var(--c-brand-dark);
+}
+
+.analytics-consent-link {
+  display: inline-block;
+  font-family: var(--f-body);
+  font-size: 12px;
+  color: var(--c-ink-muted);
+  text-decoration: none;
+  transition: color var(--dur-fast);
+}
+
+.analytics-consent-link:hover {
+  color: var(--c-brand);
+}
+
+/* Wave 17 — Completion CTA */
+
+.analytics-completion-cta {
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+.analytics-cta-link {
+  display: inline-block;
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-brand);
+  text-decoration: none;
+  padding: 8px 16px;
+  border: 1px solid var(--c-brand-tint-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-brand-tint-bg);
+  transition: all var(--dur-fast) var(--ease-standard);
+}
+
+.analytics-cta-link:hover {
+  background: rgba(255, 107, 53, 0.20);
+  border-color: var(--c-brand);
+}

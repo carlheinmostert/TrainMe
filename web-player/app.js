@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v69-photo-treatment-override-fix';
+const PLAYER_VERSION = 'v70-analytics-consent';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -103,6 +103,231 @@ let plan = null;
 let slides = [];
 let currentIndex = 0;
 let swipeState = { active: false, startX: 0, startY: 0, currentX: 0, startTime: 0, didSwipe: false };
+
+// ============================================================
+// Wave 17 — Analytics consent + event tracking state
+// ============================================================
+//
+// Session lifecycle: on plan load, startAnalyticsSession is called.
+// If it returns a session ID, the banner is shown (unless localStorage
+// records a prior decision). Consent drives whether events fire.
+//
+// `analyticsSessionId` — the session UUID from the server, or null if
+// analytics is practitioner-disabled for this client.
+// `analyticsConsented` — true once the client taps "Yes, share";
+// false if "No thanks"; null before the decision.
+// `analyticsTrainerName` — practitioner display name for banner copy.
+// `analyticsSlideViewedAt` — timestamp map per slide index, for
+// computing watched duration on skip/complete.
+
+let analyticsSessionId = null;
+let analyticsConsented = null;
+let analyticsTrainerName = 'your practitioner';
+let analyticsSlideViewedAt = {};
+let analyticsCompletedSlides = {};
+let analyticsPlanOpenTime = null;
+let pauseStartedAt = null;
+
+/**
+ * Detect a coarse user-agent bucket for the analytics session.
+ * No fingerprinting — just the browser family + form factor.
+ */
+function detectUserAgentBucket() {
+  try {
+    const ua = navigator.userAgent || '';
+    const isMobile = /Mobi|Android/i.test(ua);
+    if (/CriOS/i.test(ua) || (/Chrome/i.test(ua) && !/Edg/i.test(ua))) {
+      return isMobile ? 'chrome_mobile' : 'chrome_desktop';
+    }
+    if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) {
+      return isMobile ? 'mobile_safari' : 'safari_desktop';
+    }
+    if (/Firefox/i.test(ua)) {
+      return isMobile ? 'firefox_mobile' : 'firefox_desktop';
+    }
+    return 'other';
+  } catch (_) {
+    return 'other';
+  }
+}
+
+/** localStorage key for persisted consent decision. */
+function analyticsConsentKey(planId) {
+  return 'homefit-analytics-consent-' + (planId || '');
+}
+
+/** localStorage key for the analytics session ID. */
+function analyticsSessionKey(planId) {
+  return 'homefit-session-id-' + (planId || '');
+}
+
+/**
+ * Emit an analytics event if consent has been granted.
+ * `plan_opened` is the exception — it fires regardless (per design doc).
+ */
+function emitAnalyticsEvent(kind, exerciseId, data) {
+  if (!analyticsSessionId) return;
+  // plan_opened fires even without consent (for banner funnel metrics).
+  if (kind !== 'plan_opened' && analyticsConsented !== true) return;
+  window.HomefitApi.logAnalyticsEvent(analyticsSessionId, kind, exerciseId, data);
+}
+
+/**
+ * Show the consent banner (slides in from top).
+ */
+function showConsentBanner() {
+  const existing = document.getElementById('analytics-consent-banner');
+  if (existing) return; // already showing
+
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  const banner = document.createElement('div');
+  banner.id = 'analytics-consent-banner';
+  banner.className = 'analytics-consent-banner';
+  banner.innerHTML =
+    '<div class="analytics-consent-inner">' +
+      '<p class="analytics-consent-title">Help ' + escapeHTML(analyticsTrainerName) + ' help you.</p>' +
+      '<p class="analytics-consent-body">We\'ll share which exercises you complete, and when. Nothing else.<br>You can stop this anytime.</p>' +
+      '<div class="analytics-consent-actions">' +
+        '<button class="analytics-consent-btn analytics-consent-decline" type="button">No thanks</button>' +
+        '<button class="analytics-consent-btn analytics-consent-accept" type="button">Yes, share</button>' +
+      '</div>' +
+      '<a class="analytics-consent-link" href="/what-we-share' + (planId ? '?p=' + encodeURIComponent(planId) : '') + '" target="_blank" rel="noopener">What\'s shared? \u2192</a>' +
+    '</div>';
+
+  document.body.appendChild(banner);
+  // Force reflow then add the visible class for the slide-in animation.
+  void banner.offsetWidth;
+  banner.classList.add('is-visible');
+
+  banner.querySelector('.analytics-consent-accept').addEventListener('click', function () {
+    onConsentDecision(true);
+  });
+  banner.querySelector('.analytics-consent-decline').addEventListener('click', function () {
+    onConsentDecision(false);
+  });
+}
+
+function onConsentDecision(granted) {
+  analyticsConsented = granted;
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+
+  // Persist to localStorage so repeat opens don't re-prompt.
+  try {
+    localStorage.setItem(analyticsConsentKey(planId), granted ? 'yes' : 'no');
+  } catch (_) { /* quota errors etc */ }
+
+  // Write to server.
+  window.HomefitApi.setAnalyticsConsent(analyticsSessionId, granted);
+
+  // Dismiss the banner.
+  const banner = document.getElementById('analytics-consent-banner');
+  if (banner) {
+    banner.classList.remove('is-visible');
+    setTimeout(function () { banner.remove(); }, 400);
+  }
+}
+
+/**
+ * Initialise analytics for the loaded plan. Called once in init() after
+ * the plan renders. Async — fires network calls but never blocks the
+ * player render path.
+ */
+async function initAnalytics() {
+  if (window.HomefitApi.isLocalSurface()) return;
+
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  if (!planId) return;
+
+  analyticsPlanOpenTime = Date.now();
+
+  // Start a server session.
+  const sessionId = await window.HomefitApi.startAnalyticsSession(planId, detectUserAgentBucket());
+
+  if (!sessionId) {
+    // Practitioner disabled analytics for this client. No banner, no events.
+    return;
+  }
+
+  analyticsSessionId = sessionId;
+
+  // Persist session ID so the transparency page can read it.
+  try {
+    localStorage.setItem(analyticsSessionKey(planId), sessionId);
+  } catch (_) {}
+
+  // Fetch practitioner name for the banner copy.
+  var ctx = await window.HomefitApi.getPlanSharingContext(planId);
+  if (ctx && ctx.practitioner_name) {
+    analyticsTrainerName = ctx.practitioner_name;
+  }
+
+  // Fire plan_opened regardless of consent (per design doc).
+  emitAnalyticsEvent('plan_opened', null, {
+    referrer: (typeof document !== 'undefined' && document.referrer) || null,
+  });
+
+  // Check localStorage for a prior consent decision.
+  var stored = null;
+  try {
+    stored = localStorage.getItem(analyticsConsentKey(planId));
+  } catch (_) {}
+
+  if (stored === 'yes') {
+    analyticsConsented = true;
+    // Re-confirm with the server in case localStorage drifted.
+    window.HomefitApi.setAnalyticsConsent(analyticsSessionId, true);
+  } else if (stored === 'no') {
+    analyticsConsented = false;
+  } else {
+    // No prior decision — show the consent banner.
+    showConsentBanner();
+  }
+}
+
+/**
+ * Wire the beforeunload / pagehide event for `plan_closed`.
+ */
+function installAnalyticsCloseHandler() {
+  var closeFired = false;
+  function onClose() {
+    if (closeFired) return;
+    closeFired = true;
+    if (!analyticsSessionId || analyticsConsented !== true) return;
+    var elapsed = analyticsPlanOpenTime ? Date.now() - analyticsPlanOpenTime : 0;
+    var eventData = {
+      elapsed_ms: elapsed,
+      slide_index_at_close: currentIndex,
+    };
+    // Use fetch with keepalive for reliability on page close.
+    // keepalive allows the request to outlive the page. Fallback to
+    // fire-and-forget emitAnalyticsEvent if it throws.
+    try {
+      fetch(
+        window.HomefitApi.SUPABASE_URL + '/rest/v1/rpc/log_analytics_event',
+        {
+          method: 'POST',
+          headers: {
+            'apikey': window.HomefitApi.SUPABASE_ANON_KEY,
+            'Authorization': 'Bearer ' + window.HomefitApi.SUPABASE_ANON_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_session_id: analyticsSessionId,
+            p_event_kind: 'plan_closed',
+            p_exercise_id: null,
+            p_event_data: eventData,
+          }),
+          keepalive: true,
+        },
+      );
+    } catch (_) {
+      emitAnalyticsEvent('plan_closed', null, eventData);
+    }
+  }
+  // pagehide is more reliable than beforeunload on mobile Safari.
+  window.addEventListener('pagehide', onClose);
+  window.addEventListener('beforeunload', onClose);
+}
 
 // Three-treatment playback — PER SLIDE, driven by exercise.preferred_treatment.
 //
@@ -1437,6 +1662,43 @@ function escapeHTML(str) {
 function goTo(index) {
   if (index < 0 || index >= slides.length) return;
 
+  // -- Wave 17 analytics: evaluate the LEAVING slide before switching. --
+  var leavingIndex = currentIndex;
+  var leavingSlide = slides[leavingIndex];
+  if (leavingSlide && isWorkoutMode && analyticsConsented === true) {
+    var viewedAt = analyticsSlideViewedAt[leavingIndex];
+    var watchedMs = viewedAt ? Date.now() - viewedAt : 0;
+    var slideDur = calculateDuration(leavingSlide) * 1000;
+    var watchedPct = slideDur > 0 ? watchedMs / slideDur : 0;
+
+    if (leavingSlide.media_type !== 'rest') {
+      if (analyticsCompletedSlides[leavingIndex]) {
+        // Already completed — navigating back counts as replay.
+        if (index === leavingIndex) { /* no-op on same-slide */ }
+      } else if (watchedPct >= 0.8 || remainingSeconds <= 0) {
+        analyticsCompletedSlides[leavingIndex] = true;
+        emitAnalyticsEvent('exercise_completed', leavingSlide.id, {
+          watched_ms: Math.round(watchedMs),
+          threshold_met: watchedPct >= 0.8,
+        });
+      } else if (watchedPct < 0.2 && watchedMs > 500) {
+        emitAnalyticsEvent('exercise_skipped', leavingSlide.id, {
+          watched_ms: Math.round(watchedMs),
+        });
+      }
+    }
+  }
+
+  // -- Wave 17 analytics: detect replay (navigating back to a completed slide). --
+  if (isWorkoutMode && analyticsConsented === true && analyticsCompletedSlides[index]) {
+    var replaySlide = slides[index];
+    if (replaySlide && replaySlide.media_type !== 'rest') {
+      emitAnalyticsEvent('exercise_replayed', replaySlide.id, {
+        from_ms: analyticsSlideViewedAt[index] ? Date.now() - analyticsSlideViewedAt[index] : 0,
+      });
+    }
+  }
+
   // Pause any playing videos on current card
   pauseAllVideos();
 
@@ -1449,6 +1711,17 @@ function goTo(index) {
   clearPrepTimer();
 
   currentIndex = index;
+
+  // -- Wave 17 analytics: record when this slide was first viewed. --
+  if (isWorkoutMode) {
+    analyticsSlideViewedAt[index] = Date.now();
+    var activeSlide = slides[index];
+    if (activeSlide && activeSlide.media_type !== 'rest') {
+      emitAnalyticsEvent('exercise_viewed', activeSlide.id, {
+        slide_position: index,
+      });
+    }
+  }
   updateUI();
   // After a jump, recompute immediately so we don't wait 1s for the ticker.
   updateTimelineBar();
@@ -1477,6 +1750,19 @@ function goTo(index) {
 
 function goNext() {
   if (isWorkoutMode) {
+    // -- Wave 17 analytics: rest_shortened when skipping a rest slide early. --
+    if (analyticsConsented === true) {
+      var skipSlide = slides[currentIndex];
+      if (skipSlide && skipSlide.media_type === 'rest' && remainingSeconds > 0) {
+        var scheduledMs = calculateDuration(skipSlide) * 1000;
+        var viewedAt = analyticsSlideViewedAt[currentIndex];
+        var actualMs = viewedAt ? Date.now() - viewedAt : 0;
+        emitAnalyticsEvent('rest_shortened', null, {
+          scheduled_ms: Math.round(scheduledMs),
+          actual_ms: Math.round(actualMs),
+        });
+      }
+    }
     // Stop current timer when skipping
     clearWorkoutTimer();
     clearPrepTimer();
@@ -2330,6 +2616,15 @@ function startWorkout() {
     // unchanged, so manually kick off the workout phase.
     autoPlayCurrentVideo();
     enterWorkoutPhaseForCurrent();
+    // -- Wave 17 analytics: record the first slide as viewed since goTo()
+    // won't fire for index 0 when we're already there. --
+    analyticsSlideViewedAt[0] = Date.now();
+    if (analyticsConsented === true) {
+      var firstSlide = slides[0];
+      if (firstSlide && firstSlide.media_type !== 'rest') {
+        emitAnalyticsEvent('exercise_viewed', firstSlide.id, { slide_position: 0 });
+      }
+    }
   } else {
     goTo(0);
   }
@@ -2642,6 +2937,37 @@ function resumeActiveVideoAfterBreather() {
 function onTimerComplete() {
   hideTimerDisplay();
 
+  // -- Wave 17 analytics: mark completed slide + detect rest_extended. --
+  if (analyticsConsented === true) {
+    var completingSlide = slides[currentIndex];
+    if (completingSlide) {
+      if (completingSlide.media_type === 'rest') {
+        // Check if rest ran past its scheduled time.
+        var viewedAt = analyticsSlideViewedAt[currentIndex];
+        var actualMs = viewedAt ? Date.now() - viewedAt : 0;
+        var scheduledMs = calculateDuration(completingSlide) * 1000;
+        if (actualMs > scheduledMs + 1500) {
+          // User let rest extend past schedule (>1.5s tolerance for timer drift).
+          emitAnalyticsEvent('rest_extended', null, {
+            scheduled_ms: Math.round(scheduledMs),
+            actual_ms: Math.round(actualMs),
+          });
+        }
+      } else {
+        // Exercise timer completed — mark as completed.
+        if (!analyticsCompletedSlides[currentIndex]) {
+          analyticsCompletedSlides[currentIndex] = true;
+          var viewedAtEx = analyticsSlideViewedAt[currentIndex];
+          var watchedMs = viewedAtEx ? Date.now() - viewedAtEx : 0;
+          emitAnalyticsEvent('exercise_completed', completingSlide.id, {
+            watched_ms: Math.round(watchedMs),
+            threshold_met: true,
+          });
+        }
+      }
+    }
+  }
+
   const nextIndex = currentIndex + 1;
   if (nextIndex >= slides.length) {
     finishWorkout();
@@ -2658,6 +2984,19 @@ function onTimerComplete() {
  */
 function pauseTimer() {
   if (!isTimerRunning) return;
+
+  // -- Wave 17 analytics: pause_tapped --
+  if (analyticsConsented === true) {
+    var activeSlide = slides[currentIndex];
+    var viewedAt = analyticsSlideViewedAt[currentIndex];
+    var elapsedMs = viewedAt ? Date.now() - viewedAt : 0;
+    emitAnalyticsEvent('pause_tapped', activeSlide ? activeSlide.id : null, {
+      elapsed_ms: Math.round(elapsedMs),
+    });
+  }
+  // Track when the pause started so resume can compute pause_duration_ms.
+  pauseStartedAt = Date.now();
+
   isTimerRunning = false;
   clearWorkoutTimer();
   // Keep the video in sync so it doesn't keep playing while the timer is paused.
@@ -2678,6 +3017,17 @@ function pauseTimer() {
  */
 function resumeTimer() {
   if (isTimerRunning) return;
+
+  // -- Wave 17 analytics: resume_tapped --
+  if (analyticsConsented === true) {
+    var pauseDur = pauseStartedAt ? Date.now() - pauseStartedAt : 0;
+    var activeSlide = slides[currentIndex];
+    emitAnalyticsEvent('resume_tapped', activeSlide ? activeSlide.id : null, {
+      pause_duration_ms: Math.round(pauseDur),
+    });
+  }
+  pauseStartedAt = null;
+
   isTimerRunning = true;
   workoutTimer = setInterval(onTimerTick, 1000);
   // Resume video playback alongside the timer — BUT ONLY if we're in a
@@ -3000,6 +3350,17 @@ function paintTreatmentOverride() {
 function applyClientTreatmentOverride(next) {
   if (!next || VALID_OVERRIDES.indexOf(next) === -1) return;
   if (next === clientTreatmentOverride) return;
+  // -- Wave 17 analytics: treatment_switched --
+  if (analyticsConsented === true) {
+    var activeSlide = slides[currentIndex];
+    // Map internal keys to wire values for the event payload.
+    var fromWire = clientTreatmentOverride === 'bw' ? 'grayscale' : clientTreatmentOverride;
+    var toWire = next === 'bw' ? 'grayscale' : next;
+    emitAnalyticsEvent('treatment_switched', activeSlide ? activeSlide.id : null, {
+      from: fromWire,
+      to: toWire,
+    });
+  }
   clientTreatmentOverride = next;
   const planId = (plan && plan.id) || getPlanIdFromURL();
   writeClientTreatmentOverride(planId, clientTreatmentOverride);
@@ -3567,9 +3928,53 @@ function finishWorkout() {
     $workoutComplete.classList.add('is-live');
   }
 
+  // -- Wave 17 analytics: plan_completed --
+  if (analyticsConsented === true) {
+    var completedCount = 0;
+    var skippedCount = 0;
+    for (var i = 0; i < slides.length; i++) {
+      if (slides[i].media_type === 'rest') continue;
+      if (analyticsCompletedSlides[i]) completedCount++;
+      else skippedCount++;
+    }
+    emitAnalyticsEvent('plan_completed', null, {
+      total_elapsed_ms: elapsedMs,
+      exercises_completed: completedCount,
+      exercises_skipped: skippedCount,
+    });
+  }
+
+  // -- Wave 17: inject the completion CTA into the workout-complete overlay. --
+  renderCompletionCTA();
+
   // Flip the ETA to "Done" end-state.
   workoutCompleteFlag = true;
   updateTimelineBar();
+}
+
+/**
+ * Wave 17 — render the analytics completion CTA in the workout-complete
+ * overlay. Links to the transparency page and offers an Exit button.
+ */
+function renderCompletionCTA() {
+  // Only show if analytics was active and consent was granted.
+  if (!analyticsSessionId || analyticsConsented !== true) return;
+  // Don't double-inject.
+  if (document.getElementById('analytics-completion-cta')) return;
+
+  var planId = (plan && plan.id) || getPlanIdFromURL();
+  var cta = document.createElement('div');
+  cta.id = 'analytics-completion-cta';
+  cta.className = 'analytics-completion-cta';
+  cta.innerHTML =
+    '<a class="analytics-cta-link" href="/what-we-share' +
+    (planId ? '?p=' + encodeURIComponent(planId) : '') +
+    '" target="_blank" rel="noopener">See what\'s been shared with ' +
+    escapeHTML(analyticsTrainerName) + ' \u2192</a>';
+  // Insert after the existing workout-complete-time element.
+  if ($workoutTotalTime && $workoutTotalTime.parentNode) {
+    $workoutTotalTime.parentNode.insertBefore(cta, $workoutCloseBtn);
+  }
 }
 
 /**
@@ -4091,6 +4496,12 @@ async function init() {
 
     // Show the Start Workout button
     $startWorkoutBtn.hidden = false;
+
+    // -- Wave 17: initialise analytics + wire close handler. --
+    // Fire-and-forget — analytics init is async but must never block the
+    // player render path or the Start Workout button.
+    initAnalytics();
+    installAnalyticsCloseHandler();
 
   } catch (err) {
     console.error('Failed to load plan:', err);

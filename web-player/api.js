@@ -260,9 +260,183 @@
     }
   }
 
+  // ==================================================================
+  // Wave 17 — Analytics consent + event tracking RPCs
+  // ==================================================================
+
+  /**
+   * `start_analytics_session(p_plan_id, p_user_agent_bucket)` — starts an
+   * anonymous analytics session for this plan view. Returns the session UUID
+   * or null if the practitioner has disabled analytics for this client.
+   *
+   * The returned session ID is the handle passed to every subsequent event
+   * call; a null return means the player should skip the consent banner
+   * entirely and never emit events.
+   *
+   * Skipped on the local surface (mobile preview WebView) — same reasoning
+   * as recordPlanOpened: practitioner rehearsal isn't a real client open.
+   */
+  async function startAnalyticsSession(planId, userAgentBucket) {
+    if (!planId) return null;
+    if (isLocalSurface()) return null;
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/start_analytics_session`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_plan_id: planId,
+            p_user_agent_bucket: userAgentBucket || 'other',
+          }),
+        },
+      );
+      if (!response.ok) return null;
+      const result = await response.json();
+      // The RPC returns the UUID directly (scalar) or null.
+      return result || null;
+    } catch (err) {
+      try { console.warn('[homefit] start_analytics_session failed:', err); } catch (_) {}
+      return null;
+    }
+  }
+
+  /**
+   * `log_analytics_event(p_session_id, p_event_kind, p_exercise_id, p_event_data)`
+   * — persists a single event row. Rate-limited server-side (~1/sec per session).
+   *
+   * Fire-and-forget; errors are logged but never thrown.
+   */
+  async function logAnalyticsEvent(sessionId, eventKind, exerciseId, eventData) {
+    if (!sessionId || !eventKind) return;
+    if (isLocalSurface()) return;
+    try {
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/log_analytics_event`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_session_id: sessionId,
+            p_event_kind: eventKind,
+            p_exercise_id: exerciseId || null,
+            p_event_data: eventData || null,
+          }),
+        },
+      );
+    } catch (err) {
+      try { console.warn('[homefit] log_analytics_event failed:', err); } catch (_) {}
+    }
+  }
+
+  /**
+   * `set_analytics_consent(p_session_id, p_granted)` — records the client's
+   * consent decision (accept or reject) for this session.
+   */
+  async function setAnalyticsConsent(sessionId, granted) {
+    if (!sessionId) return;
+    if (isLocalSurface()) return;
+    try {
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/set_analytics_consent`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_session_id: sessionId,
+            p_granted: !!granted,
+          }),
+        },
+      );
+    } catch (err) {
+      try { console.warn('[homefit] set_analytics_consent failed:', err); } catch (_) {}
+    }
+  }
+
+  /**
+   * `revoke_analytics_consent(p_plan_id, p_session_id)` — called from the
+   * "Stop sharing" button on the transparency page. Revokes consent for
+   * this session and flags the plan for no further analytics.
+   */
+  async function revokeAnalyticsConsent(planId, sessionId) {
+    if (!planId) return;
+    if (isLocalSurface()) return;
+    try {
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/revoke_analytics_consent`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_plan_id: planId,
+            p_session_id: sessionId || null,
+          }),
+        },
+      );
+    } catch (err) {
+      try { console.warn('[homefit] revoke_analytics_consent failed:', err); } catch (_) {}
+    }
+  }
+
+  /**
+   * `get_plan_sharing_context(p_plan_id)` — returns minimal practitioner +
+   * practice + client context for the transparency page greeting.
+   *
+   * Returns { practitioner_name, practice_name, client_first_name,
+   * analytics_allowed } or null when the plan is deleted / analytics
+   * disabled at the client level.
+   */
+  async function getPlanSharingContext(planId) {
+    if (!planId) return null;
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/get_plan_sharing_context`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ p_plan_id: planId }),
+        },
+      );
+      if (!response.ok) return null;
+      const rows = await response.json();
+      // RPC returns TABLE — PostgREST wraps as an array. Grab first row.
+      if (Array.isArray(rows) && rows.length > 0) return rows[0];
+      if (rows && !Array.isArray(rows)) return rows;
+      return null;
+    } catch (err) {
+      try { console.warn('[homefit] get_plan_sharing_context failed:', err); } catch (_) {}
+      return null;
+    }
+  }
+
   window.HomefitApi = Object.freeze({
     getPlanFull,
     recordPlanOpened,
+    startAnalyticsSession,
+    logAnalyticsEvent,
+    setAnalyticsConsent,
+    revokeAnalyticsConsent,
+    getPlanSharingContext,
     isLocalSurface,
     getLocalPlanId,
     SUPABASE_URL,
