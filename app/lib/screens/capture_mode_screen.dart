@@ -179,6 +179,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// reverses on stop / cancel.
   late final AnimationController _lockTargetController;
 
+  /// Screen-edge coral flash on lock-engage. Fires once (forward → reverse
+  /// over 400ms) so the practitioner sees an unmistakable visual
+  /// confirmation that hands-free recording is active. Replaces haptic
+  /// feedback which iOS suppresses during mic use.
+  late final AnimationController _lockFlashController;
+
   @override
   void initState() {
     super.initState();
@@ -196,6 +202,10 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     _lockTargetController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
+    );
+    _lockFlashController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
     );
     _initCamera();
   }
@@ -221,6 +231,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     _cameraController?.dispose();
     _flyController.dispose();
     _lockTargetController.dispose();
+    _lockFlashController.dispose();
     super.dispose();
   }
 
@@ -756,8 +767,13 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// target turns coral, shutter inner morphs to white square,
   /// hint copy swaps).
   void _snapToLockedRecording() {
-    HomefitHaptics.heavy();
+    HomefitHaptics.heavy(); // best-effort; suppressed during mic use
     setState(() => _isLocked = true);
+    // Screen-edge coral flash — visual confirmation that lock engaged.
+    // Replaces haptic feedback which iOS suppresses during recording.
+    _lockFlashController.forward(from: 0).then((_) {
+      if (mounted) _lockFlashController.reverse();
+    });
   }
 
   /// Wave 40 (M4) — translates a pointer-move event inside the
@@ -803,26 +819,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       return;
     }
 
-    // Fire the haptic BEFORE the await so the bio feels the press
-    // immediately, even if the controller takes a moment to actually
-    // start writing. Use heavy impact via native channel — Flutter's
-    // HapticFeedback is suppressed while AVCaptureSession holds the mic.
-    //
-    // DIAGNOSTIC (Wave 40.6 debug): await the result and surface it
-    // so Carl can see if the native channel reports "ok" or an error
-    // specifically during camera use. Remove after diagnosis.
-    final hapticResult = await HomefitHaptics.heavy();
-    debugPrint('HAPTIC_DIAG _startVideoRecording heavy => $hapticResult');
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          content: Text('Haptic: $hapticResult',
-            style: const TextStyle(fontFamily: 'Inter', fontSize: 13)),
-          duration: const Duration(seconds: 3),
-          behavior: SnackBarBehavior.floating,
-        ));
-    }
+    // Best-effort haptic — iOS suppresses vibration while AVCaptureSession
+    // holds the mic (hardware-level, no workaround). Fires on the first
+    // interaction before the mic is fully claimed; silent after that.
+    // Visual feedback (pulsing red dot, lock-target animation) is the
+    // primary recording cue. See CLAUDE.md iOS limitation note.
+    HomefitHaptics.heavy();
 
     // Snapshot orientation at the first frame and lock the surface to
     // it. AVFoundation embeds `videoOrientation` once at recording
@@ -1235,6 +1237,28 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
               top: false,
               child: _buildShutter(),
             ),
+          ),
+
+          // Screen-edge coral flash on lock-engage. IgnorePointer so
+          // it doesn't eat taps. Fades in over 200ms then out over 200ms
+          // (total 400ms driven by _lockFlashController).
+          AnimatedBuilder(
+            animation: _lockFlashController,
+            builder: (context, _) {
+              final v = _lockFlashController.value;
+              if (v == 0) return const SizedBox.shrink();
+              return IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: const Color(0xFFFF6B35).withOpacity(v * 0.8),
+                      width: 4,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),

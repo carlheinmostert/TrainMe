@@ -1,36 +1,25 @@
 import Flutter
 import UIKit
 import CoreHaptics
-import AudioToolbox
-import AVFoundation
 
-/// Native haptic feedback channel that bypasses Flutter's `HapticFeedback`
-/// services. iOS suppresses Flutter-level haptics while `AVCaptureSession`
-/// holds the audio engine (mic is hot during video recording).
+/// Native haptic feedback via UIImpactFeedbackGenerator.
 ///
-/// Wave 40.6 — rewritten to use `CHHapticEngine` instead of
-/// `UIImpactFeedbackGenerator`. Carl's device QA on Wave 40.5 showed that
-/// `UIImpactFeedbackGenerator` fires the FIRST time only — subsequent
-/// calls in the same session are silently swallowed. The root cause is
-/// that iOS invalidates the generator's `prepare()` state after a short
-/// delay (~1-2s), and during active `AVCaptureSession` recording the audio
-/// session reconfiguration further suppresses the Taptic Engine path that
-/// `UIImpactFeedbackGenerator` uses.
+/// **iOS limitation (confirmed 2026-04-28):** iOS suppresses ALL vibration
+/// hardware while an AVCaptureSession with audio input is active. This is
+/// a hardware-level protection to prevent Taptic Engine vibrations from
+/// contaminating microphone audio. No API (UIImpactFeedbackGenerator,
+/// CHHapticEngine, AudioServicesPlaySystemSound, AVAudioSession category
+/// swap) can bypass it. Haptics only fire BEFORE the camera plugin claims
+/// the mic (first interaction in a camera session). After that, visual
+/// feedback is the only option — see capture_mode_screen.dart.
 ///
-/// `CHHapticEngine` with `playsHapticsOnly = true` is immune to audio
-/// session interference. It talks directly to the Taptic Engine and
-/// continues to fire during video recording (mic hot), between recordings,
-/// and across repeated calls without any prepare/invalidation dance.
+/// The channel remains useful for non-camera surfaces (Diagnostics,
+/// Settings, Studio editor) where haptics fire reliably.
 ///
 /// Channel name: `homefit/haptics`
-/// Methods:
-///   - `lightImpact`      → transient haptic, intensity 0.4, sharpness 0.5
-///   - `mediumImpact`     → transient haptic, intensity 0.65, sharpness 0.6
-///   - `heavyImpact`      → transient haptic, intensity 1.0, sharpness 0.8
-///   - `selectionClick`   → transient haptic, intensity 0.3, sharpness 0.9
+/// Methods: `lightImpact`, `mediumImpact`, `heavyImpact`, `selectionClick`, `diagnose`
 class HomefitHapticsChannel {
     private let channel: FlutterMethodChannel
-    private var engine: CHHapticEngine?
     private var lastError: String?
 
     init(messenger: FlutterBinaryMessenger) {
@@ -38,8 +27,6 @@ class HomefitHapticsChannel {
             name: "homefit/haptics",
             binaryMessenger: messenger
         )
-
-        startEngine()
 
         channel.setMethodCallHandler { [weak self] (call, result) in
             guard let self = self else {
@@ -49,133 +36,39 @@ class HomefitHapticsChannel {
 
             switch call.method {
             case "lightImpact":
-                let ok = self.playTransient(intensity: 0.4, sharpness: 0.5)
-                result(ok ? "ok" : self.lastError ?? "unknown")
-
+                result(self.fire(.light, intensity: 0.4) ? "ok" : self.lastError ?? "unknown")
             case "mediumImpact":
-                let ok = self.playTransient(intensity: 0.65, sharpness: 0.6)
-                result(ok ? "ok" : self.lastError ?? "unknown")
-
+                result(self.fire(.medium, intensity: 0.65) ? "ok" : self.lastError ?? "unknown")
             case "heavyImpact":
-                let ok = self.playTransient(intensity: 1.0, sharpness: 0.8)
-                result(ok ? "ok" : self.lastError ?? "unknown")
-
+                result(self.fire(.heavy, intensity: 1.0) ? "ok" : self.lastError ?? "unknown")
             case "selectionClick":
-                let ok = self.playTransient(intensity: 0.3, sharpness: 0.9)
-                result(ok ? "ok" : self.lastError ?? "unknown")
-
+                result(self.fire(.light, intensity: 0.3) ? "ok" : self.lastError ?? "unknown")
             case "diagnose":
                 result(self.diagnose())
-
             default:
                 result(FlutterMethodNotImplemented)
             }
         }
     }
 
-    /// Create and start the CHHapticEngine. Called once at init and
-    /// again if the engine stops (e.g. app backgrounding).
-    private func startEngine() {
-        let hw = CHHapticEngine.capabilitiesForHardware()
-        guard hw.supportsHaptics else {
-            lastError = "hardware does not support haptics"
-            NSLog("[HomefitHaptics] supportsHaptics=false — device has no Taptic Engine")
-            return
-        }
-
-        do {
-            let eng = try CHHapticEngine()
-            eng.playsHapticsOnly = true
-
-            eng.stoppedHandler = { [weak self] reason in
-                NSLog("[HomefitHaptics] engine stopped: reason=%d", reason.rawValue)
-                self?.engine = nil
-                self?.lastError = "engine stopped (reason \(reason.rawValue))"
-            }
-            eng.resetHandler = { [weak self] in
-                NSLog("[HomefitHaptics] engine reset — restarting")
-                do {
-                    try self?.engine?.start()
-                    NSLog("[HomefitHaptics] engine restarted OK")
-                } catch {
-                    NSLog("[HomefitHaptics] engine restart failed: %@", error.localizedDescription)
-                    self?.engine = nil
-                    self?.lastError = "restart failed: \(error.localizedDescription)"
-                }
-            }
-
-            try eng.start()
-            self.engine = eng
-            self.lastError = nil
-            NSLog("[HomefitHaptics] CHHapticEngine started OK")
-        } catch {
-            self.engine = nil
-            self.lastError = "engine start failed: \(error.localizedDescription)"
-            NSLog("[HomefitHaptics] engine start FAILED: %@", error.localizedDescription)
-        }
-    }
-
-    /// Fire a haptic using a FRESH UIImpactFeedbackGenerator per call.
-    /// No caching, no reuse, no stale state. prepare() + impactOccurred()
-    /// in immediate succession. Falls back to CHHapticEngine if UIKit path
-    /// fails. Returns "ok" / "ok-fallback" / error string.
+    /// Fresh generator per call — no caching, no stale state.
     @discardableResult
-    private func playTransient(intensity: Float, sharpness: Float) -> Bool {
-        let isMain = Thread.isMainThread
-        NSLog("[HomefitHaptics] playTransient intensity=%.2f mainThread=%d", intensity, isMain ? 1 : 0)
-
-        // Approach 1: fresh UIImpactFeedbackGenerator — simplest possible.
-        // Create → prepare → fire → discard. No state to go stale.
-        let style: UIImpactFeedbackGenerator.FeedbackStyle
-        if intensity >= 0.9 {
-            style = .heavy
-        } else if intensity >= 0.5 {
-            style = .medium
-        } else {
-            style = .light
-        }
-
-        // iOS suppresses ALL vibration hardware while AVAudioSession is in
-        // .playAndRecord mode (the camera plugin sets this during preview).
-        // Workaround: momentarily switch to .ambient, fire the haptic, switch
-        // back. The audio session swap is <1ms — imperceptible.
-        let audioSession = AVAudioSession.sharedInstance()
-        let savedCategory = audioSession.category
-        let savedMode = audioSession.mode
-        let savedOptions = audioSession.categoryOptions
-        let needsSwap = savedCategory == .playAndRecord || savedCategory == .record
-        if needsSwap {
-            try? audioSession.setCategory(.ambient)
-            NSLog("[HomefitHaptics] audio session swapped to .ambient for haptic")
-        }
-
+    private func fire(_ style: UIImpactFeedbackGenerator.FeedbackStyle, intensity: Float) -> Bool {
         let gen = UIImpactFeedbackGenerator(style: style)
         gen.prepare()
         gen.impactOccurred(intensity: CGFloat(intensity))
-        NSLog("[HomefitHaptics] UIKit fire (style=%d, intensity=%.2f, swapped=%d)", style.rawValue, intensity, needsSwap ? 1 : 0)
-
-        if needsSwap {
-            try? audioSession.setCategory(savedCategory, mode: savedMode, options: savedOptions)
-            NSLog("[HomefitHaptics] audio session restored to %@", savedCategory.rawValue)
-        }
-
         lastError = nil
         return true
     }
 
-    /// Diagnostic report — called from the Diagnostics screen via
-    /// the `diagnose` method channel call.
+    /// Diagnostic report for the Diagnostics screen.
     private func diagnose() -> String {
         let hw = CHHapticEngine.capabilitiesForHardware()
         var lines: [String] = []
         lines.append("supportsHaptics: \(hw.supportsHaptics)")
-        lines.append("engine: \(engine != nil ? "alive" : "nil")")
         lines.append("lastError: \(lastError ?? "none")")
-
-        // Try a test fire.
-        let testOk = playTransient(intensity: 1.0, sharpness: 0.8)
-        lines.append("testFire(heavy): \(testOk ? "OK" : "FAILED — \(lastError ?? "?")")")
-
+        let ok = fire(.heavy, intensity: 1.0)
+        lines.append("testFire(heavy): \(ok ? "OK" : "FAILED")")
         return lines.joined(separator: "\n")
     }
 }
