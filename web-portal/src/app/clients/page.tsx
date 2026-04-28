@@ -62,12 +62,14 @@ export default async function ClientsPage({
   }
   const isOwner = role === 'owner';
 
-  // Two fetches in parallel — clients for the grid, sessions for the
-  // per-client stats (count + last-shared + practitioner). Both gated
-  // by the same practice, both practice-scoped at the RPC layer.
-  const [clients, sessions] = await Promise.all([
+  // Three fetches in parallel — clients for the grid, sessions for the
+  // per-client stats (count + last-shared + practitioner), and the
+  // membership list for the header right-cluster (Wave 40 P3 practice
+  // switcher). All three are practice-scoped at the RPC layer.
+  const [clients, sessions, practices] = await Promise.all([
     api.listPracticeClients(practiceId),
     api.listPracticeSessions(practiceId),
+    api.listMyPractices(),
   ]);
 
   const heading = isOwner ? 'Practice clients' : 'Clients';
@@ -81,7 +83,13 @@ export default async function ClientsPage({
 
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut practiceId={practiceId} isOwner={isOwner} />
+      <BrandHeader
+        showSignOut
+        practiceId={practiceId}
+        isOwner={isOwner}
+        userEmail={user.email ?? ''}
+        practices={practices}
+      />
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link

@@ -1,10 +1,15 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
-import { createPortalApi, PortalReferralApi } from '@/lib/supabase/api';
+import {
+  createPortalApi,
+  createPortalAuditApi,
+  PortalReferralApi,
+} from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { PracticeContextLine } from '@/components/PracticeContextLine';
 import { DashboardTile } from '@/components/DashboardTile';
+import { DashboardAuditCard } from '@/components/DashboardAuditCard';
 import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
 
 type SearchParams = { practice?: string };
@@ -40,7 +45,11 @@ export default async function DashboardPage({
   if (practices.length === 0) {
     return (
       <main className="flex min-h-screen flex-col">
-        <BrandHeader showSignOut />
+        <BrandHeader
+          showSignOut
+          userEmail={user.email ?? ''}
+          practices={practices}
+        />
         <div className="mx-auto max-w-2xl px-6 py-16">
           <h1 className="font-heading text-3xl font-bold">Welcome</h1>
           <p className="mt-3 text-ink-muted">
@@ -81,22 +90,29 @@ export default async function DashboardPage({
   // per-row disambiguator ("47 credits" / "0 credits"). Parallelised
   // so the extra membership's balance costs one round-trip, not two.
   const referralApi = new PortalReferralApi(supabase);
+  const auditApi = createPortalAuditApi(supabase);
   const [
     role,
     clients,
     referralStats,
-    lastIssuanceAt,
     members,
     allBalances,
+    auditPreview,
   ] = await Promise.all([
     api.getCurrentUserRole(selected.id, user.id),
     api.listPracticeClients(selected.id),
     referralApi.dashboardStats(selected.id),
-    api.getLastIssuanceAt(selected.id),
     api.listPracticeMembers(selected.id),
     Promise.all(
       practices.map(async (p) => [p.id, await api.getPracticeBalance(p.id)] as const),
     ),
+    // Wave 40 P4 — dashboard audit card. Pull the 5 most-recent events
+    // for the active practice; the dashboard tile renders a sage-chipped
+    // mini-list and the click target routes to /audit. No filters
+    // applied — the card is the engagement signal, the dedicated page
+    // is for triage. Replaces the pre-Wave-40 `getLastIssuanceAt` single-
+    // line "Last publish · 2 days ago" tile which surfaced no row payload.
+    auditApi.listAudit(selected.id, { limit: 5 }),
   ]);
   const isOwner = role === 'owner';
 
@@ -150,13 +166,9 @@ export default async function DashboardPage({
       ? 'Share your code to start'
       : `${refereeCount} ${refereeCount === 1 ? 'practitioner' : 'practitioners'} in your network`;
 
-  // Audit — relative "Last publish" date.
-  const auditHeadline = lastIssuanceAt
-    ? formatRelativeDate(lastIssuanceAt, now)
-    : 'Never';
-  const auditSubtitle = lastIssuanceAt
-    ? 'Last plan published'
-    : 'Publish from the mobile app to fill this';
+  // Audit — DashboardAuditCard renders rows directly; the pre-Wave-40
+  // single-line "Last publish · …" computation moved into the card's
+  // empty-state fallback.
 
   // Members (owner only)
   const memberCount = members.length;
@@ -169,6 +181,8 @@ export default async function DashboardPage({
         showSignOut
         practiceId={selected.id}
         isOwner={isOwner}
+        userEmail={user.email ?? ''}
+        practices={practices}
       />
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
         <div className="mb-8 flex flex-col gap-2">
@@ -218,11 +232,10 @@ export default async function DashboardPage({
             subtitle={clientsSubtitle}
           />
 
-          <DashboardTile
+          <DashboardAuditCard
             href={`/audit${qs}`}
-            label="Audit"
-            headline={auditHeadline}
-            subtitle={auditSubtitle}
+            rows={auditPreview.rows}
+            error={auditPreview.error}
           />
 
           {isOwner && (
@@ -250,32 +263,3 @@ function fmtCredits(n: number): string {
     : rounded.toFixed(1);
 }
 
-/**
- * Human-readable relative date for the Audit tile. Uses the built-in
- * `Intl.RelativeTimeFormat` so we avoid a date library dependency. The
- * ladder (minute → hour → day → week → month → year) picks the biggest
- * unit that yields a non-zero magnitude.
- *
- * Uses `numeric: 'auto'` so near-present values render as "today",
- * "yesterday", "last week" rather than the numeric "0 days ago".
- */
-function formatRelativeDate(iso: string, nowMs: number): string {
-  const then = Date.parse(iso);
-  if (!Number.isFinite(then)) return 'Recently';
-  const diffMs = then - nowMs; // negative for past
-
-  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
-  const absSec = Math.abs(diffMs) / 1000;
-
-  if (absSec < 60) return rtf.format(Math.round(diffMs / 1000), 'second');
-  if (absSec < 60 * 60) return rtf.format(Math.round(diffMs / 60000), 'minute');
-  if (absSec < 60 * 60 * 24)
-    return rtf.format(Math.round(diffMs / (60 * 60 * 1000)), 'hour');
-  if (absSec < 60 * 60 * 24 * 7)
-    return rtf.format(Math.round(diffMs / (24 * 60 * 60 * 1000)), 'day');
-  if (absSec < 60 * 60 * 24 * 30)
-    return rtf.format(Math.round(diffMs / (7 * 24 * 60 * 60 * 1000)), 'week');
-  if (absSec < 60 * 60 * 24 * 365)
-    return rtf.format(Math.round(diffMs / (30 * 24 * 60 * 60 * 1000)), 'month');
-  return rtf.format(Math.round(diffMs / (365 * 24 * 60 * 60 * 1000)), 'year');
-}

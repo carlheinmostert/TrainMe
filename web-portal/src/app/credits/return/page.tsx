@@ -101,9 +101,20 @@ export default async function CreditsReturnPage({
     if (result.applied) appliedSandboxCredits = result.credits;
   }
 
+  // Wave 40 P3 — header right-cluster needs the membership list to power
+  // the practice switcher chip. List is small (a practitioner typically
+  // belongs to 1-2 practices) so the extra round-trip is negligible.
+  const portalApi = createPortalApi(supabase);
+  const practices = await portalApi.listMyPractices();
+
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut practiceId={practiceId || undefined} />
+      <BrandHeader
+        showSignOut
+        practiceId={practiceId || undefined}
+        userEmail={user.email ?? ''}
+        practices={practices}
+      />
       <div className="mx-auto w-full max-w-2xl flex-1 px-6 py-16">
         <div className="rounded-lg border border-brand/40 bg-brand/10 p-8 text-center">
           <h1 className="font-heading text-2xl font-bold text-brand">

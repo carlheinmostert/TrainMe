@@ -77,15 +77,22 @@ export default async function MembersPage({
     redirect('/dashboard');
   }
 
-  const [{ members, pending }, role] = await Promise.all([
+  const [{ members, pending }, role, practices] = await Promise.all([
     membersApi.listMembersAndPending(practiceId),
     portalApi.getCurrentUserRole(practiceId, user.id),
+    portalApi.listMyPractices(),
   ]);
   const isOwner = role === 'owner';
 
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut practiceId={practiceId} isOwner={isOwner} />
+      <BrandHeader
+        showSignOut
+        practiceId={practiceId}
+        isOwner={isOwner}
+        userEmail={user.email ?? ''}
+        practices={practices}
+      />
       <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link

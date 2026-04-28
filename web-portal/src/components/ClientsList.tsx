@@ -9,6 +9,7 @@ import {
   type PracticeClient,
   type PracticeSession,
 } from '@/lib/supabase/api';
+import { ClientAvatar } from './ClientAvatar';
 
 type Props = {
   clients: PracticeClient[];
@@ -321,9 +322,18 @@ export function ClientsList({
                 href={`/clients/${c.id}${practiceQs}`}
                 className="flex h-full flex-col rounded-lg border border-surface-border bg-surface-base p-4 transition hover:border-brand hover:shadow-focus-ring focus-visible:border-brand focus-visible:outline-none"
               >
-                <h3 className="font-heading text-base font-semibold text-ink">
-                  {c.name}
-                </h3>
+                <div className="flex items-start gap-3">
+                  {/* Wave 40 P6 — initials avatar mirrors the mobile
+                      ClientCard treatment. The cloud body-focus avatar
+                      jpg (Wave 30) isn't surfaced by `list_practice_clients`
+                      yet; once the RPC threads `avatar_path`, drop the
+                      URL into the `imageUrl` prop and the disc swaps to
+                      the blurred image automatically. */}
+                  <ClientAvatar name={c.name} size="md" />
+                  <h3 className="min-w-0 flex-1 font-heading text-base font-semibold text-ink">
+                    {c.name}
+                  </h3>
+                </div>
 
                 <p className="mt-2 text-xs text-ink-muted">
                   {stats
