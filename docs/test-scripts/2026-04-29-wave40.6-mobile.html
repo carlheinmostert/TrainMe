@@ -176,6 +176,32 @@
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
+
+    <li data-num="10" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&times;</button></div>
+      <span class="num">R1.</span>
+      <span class="text"><strong>Regression: Client avatar shows on Home + ClientSessions.</strong></span>
+      <ol class="steps">
+        <li data-sub="10.1">Open the Home (clients list). Clients that had a captured avatar (body-focus blurred photo) should display their avatar circle, not just initials.</li>
+        <li data-sub="10.2">If the local avatar file is missing (fresh install / bundle ID change), the app should fetch a signed URL from the cloud and display the avatar after a brief moment.</li>
+        <li data-sub="10.3">Tap into a client &rarr; ClientSessions header should also show the avatar glyph.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+
+    <li data-num="11" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&times;</button></div>
+      <span class="num">R2.</span>
+      <span class="text"><strong>Regression: Session metadata preserved after edits.</strong></span>
+      <ol class="steps">
+        <li data-sub="11.1">Open a session in Studio. Edit reps, sets, hold time, and notes on an exercise.</li>
+        <li data-sub="11.2">Wait a few seconds (allow any async reconciliation to run).</li>
+        <li data-sub="11.3">The edited values should persist in Studio &mdash; not revert to defaults or blanks.</li>
+        <li data-sub="11.4">Navigate away (back to client list) and re-enter the session. The edited values should still be there.</li>
+        <li data-sub="11.5">If a conversion is still running (e.g. photo just captured), wait for it to complete. Exercise metadata on OTHER exercises should not be affected by the conversion event.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
   </ul>
 </div>
 

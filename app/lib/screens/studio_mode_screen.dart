@@ -223,58 +223,66 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   void didUpdateWidget(covariant StudioModeScreen old) {
     super.didUpdateWidget(old);
     if (old.session != widget.session) {
-      // Wave 40.6 — the conversion listener is authoritative for
-      // conversion state. Parent pushes are only adopted when they
-      // carry STRUCTURAL changes (different exercise count or new IDs)
-      // that the conversion listener can't produce. For same-structure
-      // pushes, we merge: take the parent's non-conversion fields but
-      // keep each exercise's conversion state from whichever source
-      // (local vs parent) is fresher. This eliminates the race where
-      // the shell's async SQLite read resolves after the conversion
-      // listener has already applied a `done` event.
-      final next = widget.session;
-      if (next.exercises.length != _session.exercises.length) {
-        // Structural change (capture added or deleted). Adopt the
-        // parent's list wholesale, but overlay any locally-fresher
-        // conversion status per exercise.
-        final merged = _mergeConversionState(next);
-        setState(() => _session = merged);
-      } else {
-        // Same structure. Merge conversion state from whichever side
-        // is fresher per row.
-        final merged = _mergeConversionState(next);
-        setState(() => _session = merged);
-      }
+      // Wave 40.6 — merge the parent push with local state. Session-level
+      // fields (publish/lock state) come from the parent; exercise
+      // metadata (reps, sets, hold, notes) stays local (the in-memory
+      // copy may have unsaved edits); conversion-specific fields come
+      // from whichever side is fresher. New exercises in the parent
+      // push (captures added in Camera mode) are appended.
+      final merged = _mergeConversionState(widget.session);
+      setState(() => _session = merged);
     }
   }
 
   /// Merge [incoming] with `_session` so that each exercise keeps the
-  /// FRESHER conversion status between the two. All non-exercise fields
-  /// come from [incoming] (the parent push).
+  /// FRESHER conversion status between the two. Session-level fields
+  /// (publish state, lock state, title, etc.) come from [incoming];
+  /// exercise metadata (reps, sets, hold, notes, name, treatment, etc.)
+  /// comes from LOCAL — the in-memory `_session` is authoritative for
+  /// user edits that may not have flushed to SQLite yet.
+  ///
+  /// **Wave 40.6 hotfix:** the original impl took exercise metadata from
+  /// `incoming` when conversion ranks were equal. If the shell's async
+  /// `_reconcileWithCloudIfUnpublished` captured a pre-edit snapshot and
+  /// pushed it after the user made edits, those edits were stomped.
+  /// Fixed: local is ALWAYS the base for exercise metadata; only
+  /// conversion-specific fields come from whichever side is fresher.
   Session _mergeConversionState(Session incoming) {
-    final localById = <String, ExerciseCapture>{
-      for (final e in _session.exercises) e.id: e,
+    final incomingById = <String, ExerciseCapture>{
+      for (final e in incoming.exercises) e.id: e,
     };
-    final merged = incoming.exercises.map((cand) {
-      final local = localById[cand.id];
-      if (local == null) return cand;
-      if (_conversionRank(local.conversionStatus) >
-          _conversionRank(cand.conversionStatus)) {
-        // Local is fresher — keep the local exercise's conversion
-        // fields but take everything else from the candidate.
-        return cand.copyWith(
-          conversionStatus: local.conversionStatus,
-          convertedFilePath: local.convertedFilePath,
-          thumbnailPath: local.thumbnailPath,
-          videoDurationMs: local.videoDurationMs,
-          archiveFilePath: local.archiveFilePath,
-          archivedAt: local.archivedAt,
-          segmentedRawFilePath: local.segmentedRawFilePath,
-          maskFilePath: local.maskFilePath,
+    final merged = _session.exercises.map((local) {
+      final cand = incomingById[local.id];
+      if (cand == null) return local;
+      if (_conversionRank(cand.conversionStatus) >
+          _conversionRank(local.conversionStatus)) {
+        // Incoming has fresher conversion state — overlay conversion
+        // fields onto local (keeping local's metadata edits intact).
+        return local.copyWith(
+          conversionStatus: cand.conversionStatus,
+          convertedFilePath: cand.convertedFilePath,
+          thumbnailPath: cand.thumbnailPath,
+          videoDurationMs: cand.videoDurationMs,
+          archiveFilePath: cand.archiveFilePath,
+          archivedAt: cand.archivedAt,
+          segmentedRawFilePath: cand.segmentedRawFilePath,
+          maskFilePath: cand.maskFilePath,
         );
       }
-      return cand;
+      // Local has equal or fresher conversion state — keep local as-is.
+      return local;
     }).toList();
+
+    // For exercises that exist in incoming but not in local (new rows
+    // from a parent-side addition we haven't seen yet), append them.
+    for (final cand in incoming.exercises) {
+      if (!_session.exercises.any((e) => e.id == cand.id)) {
+        merged.add(cand);
+      }
+    }
+
+    // Session-level fields from incoming (publish state, lock state).
+    // Exercise list from the merge.
     return incoming.copyWith(exercises: merged);
   }
 
@@ -463,6 +471,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// [authoritative] over the matching exercise row before pushing.
   /// Only applies when our [seqAtWrite] still matches `_conversionSeq`
   /// (no newer conversion event has landed in the meantime).
+  ///
+  /// **Wave 40.6 hotfix** — the original impl replaced `_session` wholesale
+  /// with `fresh` (the SQLite snapshot). If the practitioner had edited
+  /// exercise metadata (reps, sets, hold, notes, etc.) between the
+  /// conversion event and the SQLite read, those edits existed only in
+  /// `_session` and were stomped. Fixed by keeping `_session` as the base
+  /// and only overlaying conversion-specific fields from `fresh` / the
+  /// authoritative exercise.
   Future<void> _reconcileFromStorage(
       ExerciseCapture authoritative, int seqAtWrite) async {
     final fresh = await widget.storage.getSession(_session.id);
@@ -471,16 +487,56 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // skip this reconcile — the newer event's own reconcile will handle
     // it.
     if (_conversionSeq != seqAtWrite) return;
-    final merged = List<ExerciseCapture>.from(fresh.exercises);
-    final i = merged.indexWhere((e) => e.id == authoritative.id);
-    if (i >= 0) {
-      merged[i] = authoritative;
-    }
+
+    // Build a lookup of SQLite exercises for conversion-state reconcile.
+    final freshById = <String, ExerciseCapture>{
+      for (final e in fresh.exercises) e.id: e,
+    };
+
+    // Keep in-memory exercises as the base (preserves unsaved metadata
+    // edits). For each exercise, overlay conversion-specific fields
+    // from whichever source is fresher: the authoritative conversion
+    // event for its target row, or the SQLite snapshot for any OTHER
+    // exercises whose conversion may have advanced since our last push.
+    final merged = _session.exercises.map((local) {
+      if (local.id == authoritative.id) {
+        // The conversion event itself is always the freshest for its row.
+        return local.copyWith(
+          conversionStatus: authoritative.conversionStatus,
+          convertedFilePath: authoritative.convertedFilePath,
+          thumbnailPath: authoritative.thumbnailPath,
+          videoDurationMs: authoritative.videoDurationMs,
+          archiveFilePath: authoritative.archiveFilePath,
+          archivedAt: authoritative.archivedAt,
+          segmentedRawFilePath: authoritative.segmentedRawFilePath,
+          maskFilePath: authoritative.maskFilePath,
+        );
+      }
+      final freshRow = freshById[local.id];
+      if (freshRow != null &&
+          _conversionRank(freshRow.conversionStatus) >
+              _conversionRank(local.conversionStatus)) {
+        // SQLite has a fresher conversion state for this exercise
+        // (e.g. a conversion that completed while we were reading).
+        return local.copyWith(
+          conversionStatus: freshRow.conversionStatus,
+          convertedFilePath: freshRow.convertedFilePath,
+          thumbnailPath: freshRow.thumbnailPath,
+          videoDurationMs: freshRow.videoDurationMs,
+          archiveFilePath: freshRow.archiveFilePath,
+          archivedAt: freshRow.archivedAt,
+          segmentedRawFilePath: freshRow.segmentedRawFilePath,
+          maskFilePath: freshRow.maskFilePath,
+        );
+      }
+      return local;
+    }).toList();
+
     // Bump seq again so the reconcile result is also protected.
     _conversionSeq++;
     if (!mounted) return;
     setState(() {
-      _pushSession(fresh.copyWith(exercises: merged));
+      _pushSession(_session.copyWith(exercises: merged));
     });
   }
 
