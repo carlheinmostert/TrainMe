@@ -1,13 +1,32 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/exercise_capture.dart';
+import '../models/treatment.dart';
 import '../theme.dart';
+
+/// Grayscale color matrix — zeroes the saturation while preserving
+/// luminance. Matches the web player's `filter: grayscale(1)
+/// contrast(1.05)` as closely as Flutter's `ColorFilter.matrix` allows.
+const ColorFilter _kGrayscaleFilter = ColorFilter.matrix(<double>[
+  0.2126, 0.7152, 0.0722, 0, 0, //
+  0.2126, 0.7152, 0.0722, 0, 0, //
+  0.2126, 0.7152, 0.0722, 0, 0, //
+  0, 0, 0, 1, 0, //
+]);
 
 /// Reusable thumbnail widget for a captured exercise.
 ///
 /// Displays the image (raw if still converting, converted if done)
 /// with overlays indicating conversion status and media type.
 /// Used in both the session strip (capture screen) and the plan editor.
+///
+/// Wave 40.6 — treatment-aware thumbnails. When [treatment] is non-null,
+/// the thumbnail reflects the practitioner's preferred treatment:
+///   - `Treatment.line`      → converted (line-drawing) file (existing)
+///   - `Treatment.grayscale` → raw file with a grayscale color filter
+///   - `Treatment.original`  → raw file with no filter
+/// When [treatment] is null, behaviour matches legacy: converted if done,
+/// raw otherwise (i.e. the existing B&W-thumbnail path).
 class CaptureThumbnail extends StatelessWidget {
   final ExerciseCapture exercise;
   final double size;
@@ -28,12 +47,18 @@ class CaptureThumbnail extends StatelessWidget {
   /// 24). Defaults to true so list cells keep their full glyphery.
   final bool showChrome;
 
+  /// Wave 40.6 — when non-null, the thumbnail switches to the
+  /// treatment-appropriate source file + color filter. When null,
+  /// legacy behaviour applies (converted → raw fallback).
+  final Treatment? treatment;
+
   const CaptureThumbnail({
     super.key,
     required this.exercise,
     this.size = 64,
     this.showConversionOverlay = true,
     this.showChrome = true,
+    this.treatment,
   });
 
   @override
@@ -60,11 +85,37 @@ class CaptureThumbnail extends StatelessWidget {
     );
   }
 
-  /// The thumbnail image. Shows converted version if available, raw otherwise.
-  Widget _buildImage(int cacheWidth) {
-    final path = exercise.displayFilePath;
-    final file = File(path);
+  /// Resolves the file path and optional color filter for the active
+  /// treatment. Returns `(File, ColorFilter?)`.
+  (File, ColorFilter?) _resolveSource() {
+    final effectiveTreatment = treatment ?? Treatment.line;
 
+    // Rest periods: no treatment logic.
+    if (exercise.isRest) {
+      return (File(exercise.displayFilePath), null);
+    }
+
+    switch (effectiveTreatment) {
+      case Treatment.line:
+        // Line drawing: use the converted file (existing behaviour).
+        return (File(exercise.displayFilePath), null);
+
+      case Treatment.grayscale:
+        // B&W: use the raw file with a grayscale filter.
+        // For videos, prefer the thumbnail of the raw file (there's no
+        // separate raw thumbnail — use the archive or raw path).
+        final rawPath = exercise.absoluteRawFilePath;
+        return (File(rawPath), _kGrayscaleFilter);
+
+      case Treatment.original:
+        // Original: use the raw file with no filter.
+        final rawPath = exercise.absoluteRawFilePath;
+        return (File(rawPath), null);
+    }
+  }
+
+  /// The thumbnail image. Treatment-aware per Wave 40.6.
+  Widget _buildImage(int cacheWidth) {
     // Rest periods: show a calming icon in a dark surface.
     if (exercise.isRest) {
       return Container(
@@ -79,26 +130,42 @@ class CaptureThumbnail extends StatelessWidget {
       );
     }
 
+    final (sourceFile, colorFilter) = _resolveSource();
+
     // For videos, show the extracted thumbnail if available,
     // otherwise fall back to a dark placeholder with a play icon.
     if (exercise.mediaType == MediaType.video) {
+      // For non-line treatments, show the raw file directly (it's a
+      // video so we can't show a frame — use the thumbnail path but
+      // with the treatment filter applied). The thumbnail is always
+      // from the converted pipeline, so for B&W/Original we ideally
+      // want a raw thumbnail. Since a separate raw thumbnail doesn't
+      // exist, we show the existing thumbnail with the appropriate
+      // filter: line thumbnail with grayscale filter approximates B&W,
+      // and for Original we show the existing thumbnail unfiltered
+      // (close enough — the line-drawing thumbnail is the fallback
+      // when no raw thumbnail exists).
       if (exercise.absoluteThumbnailPath != null) {
         final thumbFile = File(exercise.absoluteThumbnailPath!);
+        Widget thumb = Image.file(
+          thumbFile,
+          fit: BoxFit.cover,
+          cacheWidth: cacheWidth,
+          errorBuilder: (_, __, ___) => Container(
+            color: AppColors.surfaceRaised,
+            child: const Center(
+              child: Icon(Icons.play_circle_outline,
+                  color: Colors.white54, size: 28),
+            ),
+          ),
+        );
+        if (colorFilter != null) {
+          thumb = ColorFiltered(colorFilter: colorFilter, child: thumb);
+        }
         return Stack(
           fit: StackFit.expand,
           children: [
-            Image.file(
-              thumbFile,
-              fit: BoxFit.cover,
-              cacheWidth: cacheWidth,
-              errorBuilder: (_, __, ___) => Container(
-                color: AppColors.surfaceRaised,
-                child: const Center(
-                  child: Icon(Icons.play_circle_outline,
-                      color: Colors.white54, size: 28),
-                ),
-              ),
-            ),
+            thumb,
             if (showChrome)
               Center(
                 child: Icon(Icons.play_circle_outline,
@@ -115,8 +182,10 @@ class CaptureThumbnail extends StatelessWidget {
       );
     }
 
-    return Image.file(
-      file,
+    // Photo exercises. For B&W/Original, use the raw file; for Line,
+    // use the converted (line-drawing) file.
+    Widget image = Image.file(
+      sourceFile,
       fit: BoxFit.cover,
       cacheWidth: cacheWidth,
       errorBuilder: (_, __, ___) => Container(
@@ -126,6 +195,10 @@ class CaptureThumbnail extends StatelessWidget {
         ),
       ),
     );
+    if (colorFilter != null) {
+      image = ColorFiltered(colorFilter: colorFilter, child: image);
+    }
+    return image;
   }
 
   /// Conversion status overlay:
