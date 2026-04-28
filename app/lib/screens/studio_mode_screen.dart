@@ -164,6 +164,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// Wave 40.5) which failed when 2+ photos raced.
   int _conversionSeq = 0;
 
+  /// Buffer for conversion events that arrive before the exercise is in
+  /// `_session.exercises` (the parent's async refresh hasn't pushed the
+  /// new exercise yet). Keyed by exercise ID. Drained in `didUpdateWidget`
+  /// when the parent push adds the exercise to our list.
+  final Map<String, ExerciseCapture> _pendingConversions = {};
+
+
   @override
   void initState() {
     super.initState();
@@ -223,13 +230,30 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   void didUpdateWidget(covariant StudioModeScreen old) {
     super.didUpdateWidget(old);
     if (old.session != widget.session) {
-      // Wave 40.6 — merge the parent push with local state. Session-level
-      // fields (publish/lock state) come from the parent; exercise
-      // metadata (reps, sets, hold, notes) stays local (the in-memory
-      // copy may have unsaved edits); conversion-specific fields come
-      // from whichever side is fresher. New exercises in the parent
-      // push (captures added in Camera mode) are appended.
-      final merged = _mergeConversionState(widget.session);
+      // Wave 40.6 — merge the parent push with local state.
+      var merged = _mergeConversionState(widget.session);
+
+      // Drain buffered conversion events for exercises that just appeared
+      // in the parent push. This fixes the "last photo spinner" bug:
+      // fast photo conversions outrace the parent's async SQLite read,
+      // so the listener buffers the `done` event until the exercise
+      // actually appears in our list.
+      if (_pendingConversions.isNotEmpty) {
+        final exercises = List<ExerciseCapture>.from(merged.exercises);
+        var applied = false;
+        for (final entry in _pendingConversions.entries) {
+          final idx = exercises.indexWhere((e) => e.id == entry.key);
+          if (idx >= 0) {
+            exercises[idx] = entry.value;
+            applied = true;
+          }
+        }
+        if (applied) {
+          _pendingConversions.clear();
+          merged = merged.copyWith(exercises: exercises);
+        }
+      }
+
       setState(() => _session = merged);
     }
   }
@@ -459,11 +483,18 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       final idx = exercises.indexWhere((e) => e.id == updated.id);
       if (idx >= 0) {
         exercises[idx] = updated;
+        setState(() {
+          _pushSession(_session.copyWith(exercises: exercises));
+        });
+        unawaited(_reconcileFromStorage(updated, seqAtEvent));
+      } else {
+        // Exercise not in our list yet — the parent's async refresh
+        // hasn't pushed it. Buffer the event; didUpdateWidget will
+        // replay it when the exercise appears. This is the root cause
+        // of the "last photo spinner won't clear" bug: fast photo
+        // conversions (~200ms) outrace the parent's SQLite read.
+        _pendingConversions[updated.id] = updated;
       }
-      setState(() {
-        _pushSession(_session.copyWith(exercises: exercises));
-      });
-      unawaited(_reconcileFromStorage(updated, seqAtEvent));
     });
   }
 
