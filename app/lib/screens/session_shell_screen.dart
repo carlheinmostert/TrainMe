@@ -146,9 +146,11 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
   Future<void> _refreshSession() async {
     final refreshed = await widget.storage.getSession(_session.id);
     if (refreshed != null && mounted) {
-      if (_shouldAdoptRefreshed(refreshed)) {
-        setState(() => _session = refreshed);
-      }
+      // Always push to Studio — Studio's _mergeConversionState handles
+      // freshness per-exercise. The _shouldAdoptRefreshed guard was
+      // swallowing pushes that carried new exercises, preventing Studio
+      // from ever seeing the last photo.
+      setState(() => _session = refreshed);
     }
   }
 
