@@ -1177,6 +1177,10 @@ export async function createAdminApi(): Promise<AdminApi> {
  *  the portal falls back to the grey "neutral" palette. */
 export const AUDIT_EVENT_KINDS = [
   'plan.publish',
+  // Wave 39 — client engagement signal. Emitted by `record_plan_opened`
+  // (anon RPC the web player calls on every plan-open). Sage tone +
+  // null actor + render as "Client" in the actor column.
+  'plan.opened',
   'credit.consumption',
   'credit.purchase',
   'credit.refund',
@@ -1210,6 +1214,9 @@ export function auditChipTone(kind: string): AuditChipTone {
     case 'plan.publish':
     case 'credit.consumption':
       return 'coral';
+    // Wave 39 — sage for client-engagement reads (distinct from coral
+    // practitioner-publish events).
+    case 'plan.opened':
     case 'credit.purchase':
     case 'credit.signup_bonus':
     case 'credit.referral_signup_bonus':

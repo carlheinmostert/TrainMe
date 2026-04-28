@@ -258,14 +258,27 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     _conversionSub =
         _conversionService.onConversionUpdate.listen((updated) {
       if (!mounted) return;
-      setState(() {
-        final exercises = List<ExerciseCapture>.from(_session.exercises);
-        final idx = exercises.indexWhere((e) => e.id == updated.id);
-        if (idx >= 0) {
+      final exercises = List<ExerciseCapture>.from(_session.exercises);
+      final idx = exercises.indexWhere((e) => e.id == updated.id);
+      if (idx >= 0) {
+        setState(() {
           exercises[idx] = updated;
           _pushSession(_session.copyWith(exercises: exercises));
-        }
-      });
+        });
+        return;
+      }
+      // Wave 39 — when the listener can't find the row in our in-memory
+      // session, the most likely cause is a freshly-captured exercise
+      // whose `_refreshSession` hasn't propagated yet (typical for fast
+      // photo conversions captured as the LAST exercise: capture-mode
+      // queues conversion + fires `_refreshSession` in parallel; on a
+      // ~500ms photo pipeline both `converting` AND `done` emits can
+      // arrive before the refresh resolves, leaving the in-memory row
+      // stuck on `converting` until the user navigates away and back).
+      // Force a refresh so SQLite (which already has the latest state
+      // since `_storage.saveExercise(done)` ran inside the conversion
+      // service before the emit) becomes the source of truth.
+      unawaited(_refreshSession());
     });
   }
 
@@ -381,15 +394,23 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       mediaType: type,
       sessionId: _session.id,
     );
+    // Wave 39 — merge SQLite snapshot with the in-memory overlay so rapid
+    // edit-then-capture sequences pick up the latest override.
     final clientId = _session.clientId;
     if (clientId != null && clientId.isNotEmpty) {
       final cached =
           await SyncService.instance.storage.getCachedClientById(clientId);
-      if (cached != null && cached.clientExerciseDefaults.isNotEmpty) {
-        exercise = StickyDefaults.prefillCapture(
-          exercise,
-          cached.clientExerciseDefaults,
-        );
+      StickyDefaults.primeFromSnapshot(
+        clientId,
+        cached?.clientExerciseDefaults ?? const <String, dynamic>{},
+      );
+      final effective = StickyDefaults.effectiveDefaults(
+        clientId: clientId,
+        cachedDefaults:
+            cached?.clientExerciseDefaults ?? const <String, dynamic>{},
+      );
+      if (effective.isNotEmpty) {
+        exercise = StickyDefaults.prefillCapture(exercise, effective);
       }
     }
     exercises.insert(position, exercise);

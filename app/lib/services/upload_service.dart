@@ -841,16 +841,25 @@ class UploadService {
       // (e.g. schema migration not applied yet) we swallow — the ledger
       // is consistent and the bio must not be blocked by an audit hiccup.
       // ----------------------------------------------------------------
+      // Wave 39 — when the prepaid-unlock fast path fired in step 3b,
+      // surface the cleared timestamp on the audit row so the portal's
+      // /audit page can render the "Prepaid via unlock at {date}" subtitle
+      // and reverse-link the matching `credit.consumption` unlock row.
+      // NULL on regular publishes.
+      final issuanceRow = <String, dynamic>{
+        'plan_id': session.id,
+        'practice_id': practiceId,
+        'trainer_id': trainerId,
+        'version': newVersion,
+        'exercise_count': nonRestCount,
+        'credits_charged': creditsToCharge,
+        'issued_at': DateTime.now().toIso8601String(),
+      };
+      if (prepaidUnlockAt is String && prepaidUnlockAt.isNotEmpty) {
+        issuanceRow['prepaid_unlock_at'] = prepaidUnlockAt;
+      }
       await loudSwallow(
-        () => _api.insertPlanIssuance({
-          'plan_id': session.id,
-          'practice_id': practiceId,
-          'trainer_id': trainerId,
-          'version': newVersion,
-          'exercise_count': nonRestCount,
-          'credits_charged': creditsToCharge,
-          'issued_at': DateTime.now().toIso8601String(),
-        }),
+        () => _api.insertPlanIssuance(issuanceRow),
         kind: 'plan_issuance_audit_failed',
         source: 'UploadService.uploadPlan',
         severity: 'warn',

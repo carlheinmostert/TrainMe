@@ -201,6 +201,36 @@ export default async function AuditPage({
 // ----------------------------------------------------------------------------
 
 function AuditTable({ rows }: { rows: AuditRow[] }) {
+  // Wave 39 — derive the unlock ↔ publish mapping client-side. For each
+  // credit.consumption row whose title is 'unlock_plan_for_edit', find the
+  // earliest later plan.publish row on the same plan whose
+  // meta.prepaid_unlock_at matches the unlock's ts. Build two lookup maps
+  // so the row renderer can stamp:
+  //   * publishesByPrepaidTs[unlock.ts] -> the publish row's ts
+  //     ("Used at ..." subtitle on the unlock row)
+  //   * plan.publish row already carries meta.prepaid_unlock_at ->
+  //     "Prepaid via unlock at ..." subtitle on the publish row
+  //
+  // The rows array is ordered ts DESC, so we iterate from the END
+  // (oldest-first) when matching unlocks to publishes. A pure-client
+  // derivation is fine: the audit page is paginated at 50 rows; an
+  // unlock and its corresponding publish are typically adjacent in
+  // time (and almost always in the same page).
+  const usedByUnlockTs = new Map<string, string>();
+  for (const r of rows) {
+    if (r.kind !== 'plan.publish') continue;
+    const prepaid = r.meta?.prepaid_unlock_at;
+    if (typeof prepaid === 'string' && prepaid.length > 0) {
+      // Multiple publishes can share the same prepaid timestamp only in
+      // the (impossible) double-spend race; keep the earliest publish
+      // wins behaviour by checking before set.
+      const existing = usedByUnlockTs.get(prepaid);
+      if (!existing || new Date(r.ts) < new Date(existing)) {
+        usedByUnlockTs.set(prepaid, r.ts);
+      }
+    }
+  }
+
   return (
     <div className="mt-6 overflow-hidden rounded-lg border border-surface-border bg-surface-base">
       <div className="overflow-x-auto">
@@ -218,7 +248,11 @@ function AuditTable({ rows }: { rows: AuditRow[] }) {
           </thead>
           <tbody className="divide-y divide-surface-border">
             {rows.map((r, idx) => (
-              <AuditTableRow key={`${r.ts}-${r.kind}-${idx}`} row={r} />
+              <AuditTableRow
+                key={`${r.ts}-${r.kind}-${idx}`}
+                row={r}
+                publishTsForUnlock={usedByUnlockTs.get(r.ts) ?? null}
+              />
             ))}
           </tbody>
         </table>
@@ -227,10 +261,26 @@ function AuditTable({ rows }: { rows: AuditRow[] }) {
   );
 }
 
-function AuditTableRow({ row }: { row: AuditRow }) {
+function AuditTableRow({
+  row,
+  publishTsForUnlock,
+}: {
+  row: AuditRow;
+  publishTsForUnlock: string | null;
+}) {
   const tone = auditChipTone(row.kind);
   const description = buildDescription(row);
   const link = buildLink(row);
+  // Wave 39 — secondary subtitle line. Two sources:
+  //   1. plan.publish + meta.prepaid_unlock_at → "Prepaid via unlock at …"
+  //   2. credit.consumption + title='unlock_plan_for_edit' →
+  //        "Used at {publish date}" or "Awaiting republish"
+  const subtitle = buildSubtitle(row, publishTsForUnlock);
+  // Wave 39 — anon plan.opened rows from the web player carry a NULL
+  // actor. Render them as "Client" instead of "—" so the engagement
+  // signal is unambiguous in the actor column.
+  const isClientActor =
+    row.kind === 'plan.opened' && !row.email && !row.trainerId;
 
   return (
     <tr>
@@ -245,6 +295,8 @@ function AuditTableRow({ row }: { row: AuditRow }) {
               <span className="text-xs text-ink-dim">{row.fullName}</span>
             ) : null}
           </div>
+        ) : isClientActor ? (
+          <span className="text-sm text-ink-muted">Client</span>
         ) : (
           <span className="text-ink-dim">&mdash;</span>
         )}
@@ -252,7 +304,12 @@ function AuditTableRow({ row }: { row: AuditRow }) {
       <td className="px-4 py-3">
         <KindChip kind={row.kind} tone={tone} />
       </td>
-      <td className="px-4 py-3 text-ink">{description}</td>
+      <td className="px-4 py-3 text-ink">
+        <div>{description}</div>
+        {subtitle ? (
+          <div className="mt-1 text-xs text-ink-dim">{subtitle}</div>
+        ) : null}
+      </td>
       <td
         className={`whitespace-nowrap px-4 py-3 text-right font-mono text-xs ${creditsClass(row.creditsDelta)}`}
       >
@@ -277,6 +334,40 @@ function AuditTableRow({ row }: { row: AuditRow }) {
       </td>
     </tr>
   );
+}
+
+/** Wave 39 — secondary subtitle for the description column. Surfaces the
+ *  unlock ↔ publish prepayment relationship so the audit log reads
+ *  end-to-end without a context-switch.
+ *
+ *  Branches:
+ *    1. plan.publish + meta.prepaid_unlock_at: "Prepaid via unlock at {ts}"
+ *    2. credit.consumption + title='unlock_plan_for_edit':
+ *         - matched publish in this page → "Used at {publish ts}"
+ *         - no match → "Awaiting republish"
+ *    Returns null otherwise. */
+function buildSubtitle(
+  row: AuditRow,
+  publishTsForUnlock: string | null,
+): string | null {
+  if (row.kind === 'plan.publish') {
+    const prepaid = row.meta?.prepaid_unlock_at;
+    if (typeof prepaid === 'string' && prepaid.length > 0) {
+      return `Prepaid via unlock at ${fmtDate(prepaid)}`;
+    }
+    return null;
+  }
+  if (
+    row.kind === 'credit.consumption' &&
+    typeof row.title === 'string' &&
+    row.title === 'unlock_plan_for_edit'
+  ) {
+    if (publishTsForUnlock) {
+      return `Used at ${fmtDate(publishTsForUnlock)}`;
+    }
+    return 'Awaiting republish';
+  }
+  return null;
 }
 
 function KindChip({ kind, tone }: { kind: string; tone: AuditChipTone }) {
@@ -473,6 +564,8 @@ function creditsClass(n: number | null): string {
 function kindLabel(kind: string): string {
   const map: Record<string, string> = {
     'plan.publish': 'Plan publish',
+    // Wave 39 — client engagement read.
+    'plan.opened': 'Plan opened',
     'credit.consumption': 'Credit consumption',
     'credit.purchase': 'Credit purchase',
     'credit.refund': 'Credit refund',
@@ -520,6 +613,11 @@ function buildDescription(row: AuditRow): string {
         : '';
       return row.title ? `${row.title}${version}` : `Plan published${version}`;
     }
+    case 'plan.opened':
+      // Anon read from the web player; we don't have the title in the
+      // audit row, but the Player link in the Link column resolves to
+      // the plan URL.
+      return 'Client opened plan';
     case 'credit.consumption':
       return row.title ?? 'Credit spent on publish';
     case 'credit.purchase':
@@ -575,6 +673,9 @@ function buildLink(row: AuditRow): AuditLink | null {
         external: false,
       };
     case 'plan.publish':
+    // Wave 39 — plan.opened rows carry the plan uuid in ref_id (set
+    // by record_plan_opened); same external-link target as publish.
+    case 'plan.opened':
       // The plan URL lives on plans.plan_url, which the RPC doesn't surface.
       // Use refId (plan uuid) as the link; the player page treats any
       // non-matching uuid as "plan not found" gracefully.
