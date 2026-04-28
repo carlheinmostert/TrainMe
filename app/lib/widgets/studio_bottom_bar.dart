@@ -220,12 +220,24 @@ class StudioBottomBar extends StatelessWidget {
       // Wave 40 (M1) — Camera replaces Library as the first slot. Tap
       // = same as swipe-left to Capture mode (no modal). Library import
       // survives inside the camera viewfinder (see M2).
+      //
+      // Wave 40.4 (M1.1) — glyph + colour:
+      //   * `Icons.photo_camera_outlined` matches the `ShellPullTab`
+      //     swipe-tab-to-Camera indicator on the right edge of Studio.
+      //     Carl's QA: "I like the camera icon, not the video camera
+      //     icon" + "icon for the camera is not the same as the one on
+      //     the tab where we swipe left on. They should both be the
+      //     same icon."
+      //   * `accent: false` (default) — slot icons render in white. The
+      //     coral triangles between slots ARE the workflow indicator;
+      //     the icons themselves stay calm. Coral is reserved for
+      //     state-driven cues (e.g. the locked-state Unlock icon
+      //     below).
       _ToolbarIconButton(
-        icon: Icons.videocam_outlined,
+        icon: Icons.photo_camera_outlined,
         active: true,
         onTap: onCameraTap,
         tooltip: 'Open camera',
-        accent: true,
       ),
       _Triangle(dim: !previewActive),
       _ToolbarIconButton(
