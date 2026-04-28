@@ -2,11 +2,22 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PracticeSession } from '@/lib/supabase/api';
+import { ClientAvatar } from './ClientAvatar';
 
 type Props = {
   sessions: PracticeSession[];
   /** True when the caller is the practice owner (drives the practitioner column). */
   isOwnerView: boolean;
+  /** Wave 40 P8 — when supplied (typically by `/clients/[id]`), each
+   *  row renders a session-icon glyph that mirrors mobile SessionCard:
+   *  initials disc + exercise-count badge overlay. The legacy `/audit`
+   *  + standalone usages (no client context) skip the icon. */
+  showSessionIcon?: boolean;
+  /** Wave 40 P8 — used as the initials source for the session icon when
+   *  `showSessionIcon` is true. The session row's clientName is the
+   *  preferred source (per-row cohesion) but we accept this as a fallback
+   *  for future single-client surfaces. */
+  fallbackClientName?: string;
 };
 
 type Toast = { text: string } | null;
@@ -26,7 +37,12 @@ type Toast = { text: string } | null;
  * someone else's session. Practitioners don't see their own email on their
  * own rows — they know who they are.
  */
-export function SessionsList({ sessions, isOwnerView }: Props) {
+export function SessionsList({
+  sessions,
+  isOwnerView,
+  showSessionIcon = false,
+  fallbackClientName,
+}: Props) {
   const [query, setQuery] = useState('');
   const [toast, setToast] = useState<Toast>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -100,6 +116,9 @@ export function SessionsList({ sessions, isOwnerView }: Props) {
         <table className="w-full text-left text-sm">
           <thead className="bg-surface-raised text-xs uppercase tracking-wider text-ink-muted">
             <tr>
+              {showSessionIcon && (
+                <th scope="col" className="w-12 px-4 py-3" aria-label="Session" />
+              )}
               <th scope="col" className="px-4 py-3">Session</th>
               {isOwnerView && (
                 <th scope="col" className="px-4 py-3">Practitioner</th>
@@ -112,6 +131,14 @@ export function SessionsList({ sessions, isOwnerView }: Props) {
           <tbody className="divide-y divide-surface-border">
             {filtered.map((s) => (
               <tr key={s.id}>
+                {showSessionIcon && (
+                  <td className="px-4 py-3 align-top">
+                    <SessionIcon
+                      clientName={s.clientName ?? fallbackClientName ?? ''}
+                      exerciseCount={s.exerciseCount}
+                    />
+                  </td>
+                )}
                 <td className="px-4 py-3 align-top">
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
@@ -194,8 +221,14 @@ export function SessionsList({ sessions, isOwnerView }: Props) {
             key={s.id}
             className="rounded-lg border border-surface-border bg-surface-base p-4"
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
+            <div className="flex items-start gap-3">
+              {showSessionIcon && (
+                <SessionIcon
+                  clientName={s.clientName ?? fallbackClientName ?? ''}
+                  exerciseCount={s.exerciseCount}
+                />
+              )}
+              <div className="min-w-0 flex-1">
                 <p className="font-semibold text-ink">{s.title || 'Untitled'}</p>
                 {s.clientName && (
                   <p className="mt-0.5 text-xs text-ink-muted">{s.clientName}</p>
@@ -284,6 +317,40 @@ export function SessionsList({ sessions, isOwnerView }: Props) {
 
 function playerUrl(planId: string): string {
   return `https://session.homefit.studio/p/${planId}`;
+}
+
+/**
+ * Wave 40 P8 — session-icon parity with mobile SessionCard.
+ *
+ * Mobile renders the body-focus avatar disc (Wave 30) with the exercise
+ * count overlaid as a coral-ringed badge in the bottom-right corner.
+ * The portal RPC doesn't surface `clients.avatar_path` yet (column is
+ * mobile-write only as of Wave 30), so we render the initials fallback
+ * the same way mobile does when `avatar_path` is null. Once a future
+ * RPC migration threads the URL through, drop it into the
+ * `<ClientAvatar imageUrl=…>` prop and the disc swaps automatically.
+ */
+function SessionIcon({
+  clientName,
+  exerciseCount,
+}: {
+  clientName: string;
+  exerciseCount: number;
+}) {
+  return (
+    <span className="relative inline-block shrink-0">
+      <ClientAvatar name={clientName || '–'} size="md" />
+      {exerciseCount > 0 && (
+        <span
+          aria-hidden="true"
+          title={`${exerciseCount} ${exerciseCount === 1 ? 'exercise' : 'exercises'}`}
+          className="absolute -bottom-1 -right-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-surface-base bg-brand px-1 font-mono text-[10px] font-semibold text-surface-bg"
+        >
+          {exerciseCount}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function VersionChip({ version }: { version: number }) {

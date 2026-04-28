@@ -39,14 +39,23 @@ export default async function CreditsPage({
   // practitioners consume them. The /credits/purchase API route also
   // enforces this as defence-in-depth.
   const portal = createPortalApi(supabase);
-  const role = practiceId
-    ? await portal.getCurrentUserRole(practiceId, user.id)
-    : null;
+  const [role, practices] = await Promise.all([
+    practiceId
+      ? portal.getCurrentUserRole(practiceId, user.id)
+      : Promise.resolve(null),
+    portal.listMyPractices(),
+  ]);
   const isOwner = role === 'owner';
 
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut practiceId={practiceId} isOwner={isOwner} />
+      <BrandHeader
+        showSignOut
+        practiceId={practiceId}
+        isOwner={isOwner}
+        userEmail={user.email ?? ''}
+        practices={practices}
+      />
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link

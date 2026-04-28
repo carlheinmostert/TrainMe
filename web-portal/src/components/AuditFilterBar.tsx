@@ -129,12 +129,21 @@ export function AuditFilterBar({
               </button>
             )}
           </div>
-          <div className="flex flex-col gap-2">
-            {kindGroups.map((group) => (
-              <div key={group.label} className="flex flex-wrap gap-1.5">
-                <span className="mr-1 self-center text-[10px] uppercase tracking-wider text-ink-dim">
+          {/* Wave 40 P5 — chips flow inline regardless of group. The
+              group label still scopes a cluster of chips visually (renders
+              as a quiet `<small>` left-of-cluster) but the whole row wraps
+              naturally instead of forcing each group onto its own line.
+              Pre-Wave-40 layout was 5 vertical lines; this collapses to 1-2
+              wrap lines depending on viewport width. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            {kindGroups.map((group, gi) => (
+              <div
+                key={group.label}
+                className="flex flex-wrap items-center gap-1.5"
+              >
+                <small className="mr-0.5 text-[10px] uppercase tracking-wider text-ink-dim">
                   {group.label}
-                </span>
+                </small>
                 {group.kinds.map((k) => {
                   const active = selectedKinds.has(k.kind);
                   return (
@@ -154,6 +163,12 @@ export function AuditFilterBar({
                     </button>
                   );
                 })}
+                {gi < kindGroups.length - 1 && (
+                  <span
+                    aria-hidden="true"
+                    className="mx-1 h-3 w-px bg-surface-border"
+                  />
+                )}
               </div>
             ))}
           </div>

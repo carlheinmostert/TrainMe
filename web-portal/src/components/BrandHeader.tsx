@@ -1,57 +1,69 @@
 import Link from 'next/link';
 import { HomefitLogo } from './HomefitLogo';
+import { HeaderRightCluster } from './HeaderRightCluster';
+import type { PracticeWithRole } from '@/lib/supabase/api';
 
 type Props = {
-  /** Show the authenticated nav. Sign-out lives INSIDE the Account page —
-   *  one destination for all account-level actions rather than a duplicate
-   *  sign-out affordance in the header. */
+  /** Show the right-cluster (practice switcher + account menu chip).
+   *  False on auth landing pages where there's no signed-in user yet. */
   showSignOut?: boolean;
-  /** Current practice context, passed through so nav links keep the selection. */
+  /** Current practice context, passed through so the switcher carries the
+   *  selection. Optional because pages without a resolved practice (sign-up,
+   *  some auth states) still want to render the email chip. */
   practiceId?: string;
-  /** True when the caller is an owner of the current practice. Gates the
-   *  Members link (owner-only per the tenancy model). Pages that don't
-   *  compute the role default to false, hiding the link — safe fallback
-   *  per R-12.3 (nav hides features the caller can't use). */
+  /** True when the caller is an owner of the current practice. Retained
+   *  on the prop surface for backwards compatibility with existing callers,
+   *  but no longer drives any rendering — Wave 40 P1 retired the nav links
+   *  that gated on this flag. The dashboard tiles ARE the menu. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   isOwner?: boolean;
+  /** Signed-in user's email (Wave 40 P2). Surfaced as the right-cluster
+   *  chip label so the practitioner can confirm-at-a-glance which account
+   *  is active. Empty string when no user is signed in. */
+  userEmail?: string;
+  /** Every practice the caller belongs to (Wave 40 P3). Powers the
+   *  practice-switcher chip in the header right-cluster. Empty array
+   *  when there's no signed-in user or the caller hasn't been bootstrapped
+   *  into a practice yet. */
+  practices?: PracticeWithRole[];
 };
 
 /**
  * Top-of-page header for the web portal.
  *
- * R-02 (header purity): the only interactive content in the header is
- * the home link + primary nav. No page titles, breadcrumbs, or
- * action buttons — those live inside each page.
+ * Wave 40 P1 retires the nav menu (Clients · Credits · Network · Audit ·
+ * Members · Account) that previously sat in the header. The dashboard's
+ * clickable stat tiles ARE the navigation; duplicating them here was
+ * redundant chrome that crowded the right-cluster identity affordances.
  *
- * R-12.3 (primary nav covers every destination): the nav enumerates
- * Clients, Credits, Network, Audit, Members, Account. Members is
- * gated to owners because practitioners can't invite. Every other
- * destination surfaces for every signed-in user.
+ * What's left in the header:
+ *   - Logo + wordmark on the left → home link.
+ *   - Right cluster: practice switcher chip + account menu chip
+ *     (Wave 40 P2 / P3). The chips render on every signed-in surface so
+ *     practitioners can switch context or sign out without bouncing
+ *     through the dashboard.
  *
- * Practice propagation: nav links carry `?practice=<id>` when a
- * practice is selected so the destination opens in the same context.
- * Links fall back to the bare path when there's no practice (fresh
- * sign-in edge case).
+ * R-02 (header purity): the only interactive content remains identity
+ * + tenant-context. No page titles, breadcrumbs, or action buttons.
+ *
+ * Practice propagation: callers that want their internal links to carry
+ * the active practice append `?practice=<id>` themselves at the body
+ * level; the header is now identity-only and doesn't render
+ * practice-aware anchors.
  */
 export function BrandHeader({
   showSignOut = false,
   practiceId,
-  isOwner = false,
+  userEmail = '',
+  practices = [],
 }: Props) {
-  const qs = practiceId ? `?practice=${practiceId}` : '';
-
-  // Clients is the primary workspace — sessions roll up beneath each
-  // client on /clients/[id]. Without a practice, route through the
-  // dashboard which redirects to a default selection.
-  const clientsHref = practiceId ? `/clients${qs}` : '/dashboard';
-  const creditsHref = practiceId ? `/credits${qs}` : '/credits';
-  const networkHref = practiceId ? `/network${qs}` : '/dashboard';
-  const auditHref = practiceId ? `/audit${qs}` : '/dashboard';
-  const membersHref = practiceId ? `/members${qs}` : '/dashboard';
-  const accountHref = practiceId ? `/account${qs}` : '/account';
+  const accountHref = practiceId
+    ? `/account?practice=${practiceId}`
+    : '/account';
 
   return (
     <header className="border-b border-surface-border bg-surface-base/80 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+      <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
         <Link
           href="/"
           className="flex items-center gap-3 text-ink hover:text-brand-light transition"
@@ -64,36 +76,14 @@ export function BrandHeader({
         </Link>
 
         {showSignOut && (
-          <nav
-            aria-label="Primary"
-            className="flex flex-wrap items-center gap-x-5 gap-y-2"
-          >
-            <NavLink href={clientsHref}>Clients</NavLink>
-            <NavLink href={creditsHref}>Credits</NavLink>
-            <NavLink href={networkHref}>Network</NavLink>
-            <NavLink href={auditHref}>Audit</NavLink>
-            {isOwner && <NavLink href={membersHref}>Members</NavLink>}
-            <NavLink href={accountHref}>Account</NavLink>
-          </nav>
+          <HeaderRightCluster
+            email={userEmail}
+            practices={practices}
+            selectedId={practiceId ?? null}
+            accountHref={accountHref}
+          />
         )}
       </div>
     </header>
-  );
-}
-
-function NavLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className="text-sm text-ink-muted transition hover:text-ink"
-    >
-      {children}
-    </Link>
   );
 }

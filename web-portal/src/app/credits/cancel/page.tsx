@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
+import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 
 type SearchParams = { pid?: string; practice?: string };
@@ -23,9 +24,19 @@ export default async function CreditsCancelPage({
   const params = await searchParams;
   const practiceId = params.practice ?? '';
 
+  // Wave 40 P3 — header right-cluster needs the membership list to power
+  // the practice switcher chip.
+  const portalApi = createPortalApi(supabase);
+  const practices = await portalApi.listMyPractices();
+
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut practiceId={practiceId || undefined} />
+      <BrandHeader
+        showSignOut
+        practiceId={practiceId || undefined}
+        userEmail={user.email ?? ''}
+        practices={practices}
+      />
       <div className="mx-auto w-full max-w-2xl flex-1 px-6 py-16">
         <div className="rounded-lg border border-surface-border bg-surface-base p-8 text-center">
           <h1 className="font-heading text-2xl font-bold">

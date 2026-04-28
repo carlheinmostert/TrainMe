@@ -1,10 +1,12 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
 import { redirect, notFound } from 'next/navigation';
 import { getServerClient } from '@/lib/supabase-server';
 import { createPortalApi } from '@/lib/supabase/api';
 import { BrandHeader } from '@/components/BrandHeader';
 import { ClientDetailPanel } from '@/components/ClientDetailPanel';
 import { SessionsList } from '@/components/SessionsList';
+import { ACTIVE_PRACTICE_COOKIE } from '@/lib/active-practice';
 
 type SearchParams = { practice?: string };
 
@@ -38,10 +40,18 @@ export default async function ClientDetailPage({
   const api = createPortalApi(supabase);
   const { id: clientId } = await params;
   const query = await searchParams;
-  const practiceId = query.practice ?? '';
+  // Wave 40 P7 — practice resolution mirrors /clients + /audit + /credits
+  // (cookie fallback). Without this, the click chain on the dashboard
+  // (`/clients?practice=X` → middleware strips qs → `/clients/X`) loses
+  // the practice context and the page bounced through `/dashboard`.
+  // The cookie set by middleware on the previous strip is the load-
+  // bearing fallback once the qs is gone.
+  const cookieStore = await cookies();
+  const cookiePractice = cookieStore.get(ACTIVE_PRACTICE_COOKIE)?.value ?? '';
+  const practiceId = query.practice ?? cookiePractice;
 
-  // Without a practice in the qs we can't gate properly; route through
-  // the dashboard default. The landing page will redirect into a real
+  // Without a practice we can't gate properly; route through the
+  // dashboard default. The landing page will redirect into a real
   // practice selection.
   if (!practiceId) {
     redirect('/dashboard');
@@ -54,12 +64,15 @@ export default async function ClientDetailPage({
   }
   const isOwner = role === 'owner';
 
-  // Resolve the client + its sessions in parallel. `getClientById`
-  // returns null for not-found OR not-a-member (get_client_by_id
-  // conflates both to RETURN empty-set, which we normalise to null).
-  const [client, sessions] = await Promise.all([
+  // Resolve the client + its sessions + the caller's practices in
+  // parallel. `getClientById` returns null for not-found OR not-a-member
+  // (get_client_by_id conflates both to RETURN empty-set, which we
+  // normalise to null). `listMyPractices` powers the header right-cluster
+  // switcher (Wave 40 P3).
+  const [client, sessions, practices] = await Promise.all([
     api.getClientById(clientId),
     api.listSessionsForClient(clientId),
+    api.listMyPractices(),
   ]);
 
   if (!client) {
@@ -77,7 +90,13 @@ export default async function ClientDetailPage({
 
   return (
     <main className="flex min-h-screen flex-col">
-      <BrandHeader showSignOut practiceId={practiceId} isOwner={isOwner} />
+      <BrandHeader
+        showSignOut
+        practiceId={practiceId}
+        isOwner={isOwner}
+        userEmail={user.email ?? ''}
+        practices={practices}
+      />
       <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
         <nav className="mb-4 text-sm text-ink-muted">
           <Link
@@ -117,7 +136,12 @@ export default async function ClientDetailPage({
               app.
             </p>
           ) : (
-            <SessionsList sessions={sessions} isOwnerView={isOwner} />
+            <SessionsList
+              sessions={sessions}
+              isOwnerView={isOwner}
+              showSessionIcon
+              fallbackClientName={client.name}
+            />
           )}
         </section>
 
