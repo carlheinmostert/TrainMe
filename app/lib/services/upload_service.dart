@@ -879,6 +879,14 @@ class UploadService {
       // ----------------------------------------------------------------
       final planUrl = '${AppConfig.webPlayerBaseUrl}/p/${session.id}';
       final now = DateTime.now();
+      // Wave 39.1 — when consume_credit hit the prepaid-unlock fast
+      // path, the cloud-side function ALSO cleared first_opened_at +
+      // last_opened_at to restart the 14-day grace clock. Mirror that
+      // locally so the bottom-bar lock chip flips back to "Not yet
+      // opened" immediately, instead of waiting for the next reconcile
+      // (and instead of misleadingly showing a residual lock between
+      // the publish and the reconcile).
+      final unlockPaid = prepaidUnlockAt != null;
       final updated = session.copyWith(
         sentAt: now,
         planUrl: planUrl,
@@ -891,6 +899,8 @@ class UploadService {
         // `_isPlanLocked` flips back to true once the post-open grace
         // window has elapsed.
         clearUnlockCreditPrepaidAt: true,
+        clearFirstOpenedAt: unlockPaid,
+        clearLastOpenedAt: unlockPaid,
       );
       await _storage.saveSession(updated);
       await _recordSuccess(session.id);

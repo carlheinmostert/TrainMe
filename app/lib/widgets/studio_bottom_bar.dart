@@ -226,8 +226,20 @@ class StudioBottomBar extends StatelessWidget {
         onTap: previewActive ? onPreview : null,
         tooltip: 'Preview plan',
       ),
-      if (!isPlanLocked) ...[
-        _Triangle(dim: !publishActive),
+      _Triangle(dim: !(isPlanLocked || publishActive)),
+      // Wave 39.1 hotfix — when locked, the Publish slot is taken by a
+      // compact Unlock icon (lock_outline_rounded, coral). Tapping opens
+      // the unlock bottom sheet. This replaces the prior right-anchored
+      // "Unlock (1 credit)" pill that was overflowing the toolbar.
+      if (isPlanLocked)
+        _ToolbarIconButton(
+          icon: Icons.lock_outline_rounded,
+          active: true,
+          onTap: onUnlockTap,
+          tooltip: 'Unlock (1 credit)',
+          accent: true,
+        )
+      else
         _PublishToolbarButton(
           session: session,
           isPublishing: isPublishing,
@@ -238,12 +250,7 @@ class StudioBottomBar extends StatelessWidget {
               : null,
           onLockedTap: onPublishLockedTap,
         ),
-        _Triangle(dim: !shareActive),
-      ] else
-        // Locked: Publish slot is replaced by Unlock (right-aligned).
-        // Share still chains off Preview directly so the visual workflow
-        // ends with Share at the centre group.
-        _Triangle(dim: !shareActive),
+      _Triangle(dim: !shareActive),
       _ToolbarIconButton(
         icon: Icons.ios_share,
         active: shareActive,
@@ -280,12 +287,9 @@ class StudioBottomBar extends StatelessWidget {
               tooltip: 'Back to sessions',
             ),
           ),
-          // Unlock pill — right anchor (only when locked).
-          if (isPlanLocked)
-            Align(
-              alignment: Alignment.centerRight,
-              child: _UnlockPill(onTap: onUnlockTap),
-            ),
+          // Wave 39.1 — Unlock pill retired. Unlock now lives IN the
+          // workflow chain (replacing Publish when locked) so the
+          // toolbar fits naturally and stays centred.
         ],
       ),
     );
@@ -394,19 +398,25 @@ class _ToolbarIconButton extends StatelessWidget {
   final bool active;
   final VoidCallback? onTap;
   final String tooltip;
+  /// Wave 39.1 — coral tint for the locked-state Unlock icon (lock_outline)
+  /// so it reads as a payment gate rather than a generic toolbar action.
+  final bool accent;
 
   const _ToolbarIconButton({
     required this.icon,
     required this.active,
     required this.onTap,
     required this.tooltip,
+    this.accent = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = active
-        ? AppColors.textOnDark
-        : AppColors.textOnDark.withValues(alpha: 0.45);
+    final color = accent
+        ? AppColors.primary
+        : active
+            ? AppColors.textOnDark
+            : AppColors.textOnDark.withValues(alpha: 0.45);
     return SizedBox(
       width: 44,
       height: 44,
@@ -561,57 +571,10 @@ class _TrianglePainter extends CustomPainter {
   bool shouldRepaint(covariant _TrianglePainter old) => old.dim != dim;
 }
 
-/// Coral-bordered, coral-tinted "🔒 Unlock (1 credit)" stadium pill.
-/// 44pt height, 999px radius. Replaces Publish when the plan is post-
-/// 14-day-grace locked.
-class _UnlockPill extends StatelessWidget {
-  final VoidCallback onTap;
-
-  const _UnlockPill({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.primary.withValues(alpha: 0.12),
-      shape: StadiumBorder(
-        side: BorderSide(color: AppColors.primary, width: 1.5),
-      ),
-      child: InkWell(
-        customBorder: const StadiumBorder(),
-        onTap: () {
-          HapticFeedback.selectionClick();
-          onTap();
-        },
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 0),
-          child: SizedBox(
-            height: 44,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.lock_outline_rounded,
-                  size: 18,
-                  color: AppColors.primary,
-                ),
-                SizedBox(width: 8),
-                Text(
-                  'Unlock (1 credit)',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+// Wave 39.1 — `_UnlockPill` retired. The right-anchored stadium pill
+// with "Unlock (1 credit)" text overflowed the toolbar; the unlock
+// affordance is now an in-chain coral lock_outline icon that takes the
+// Publish slot when locked. Tooltip carries the "(1 credit)" hint.
 
 // ---------------------------------------------------------------------------
 // Internal value-types for the stats resolver
