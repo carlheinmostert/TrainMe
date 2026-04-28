@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Wave 40 · Camera layout · homefit.studio</title>
+<style>
+  :root {
+    --coral: #FF6B35;
+    --coral-glow: #FF6B3540;
+    --bg: #0E0E10;
+    --ink: #F2F2F4;
+    --ink-dim: #A0A0A8;
+    --ink-muted: #6E6E78;
+    --surface-card: #18181B;
+    --surface-border: #2A2A2E;
+    --rec-red: #E53935;
+    --rec-red-glow: #E5393566;
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, 'Inter', system-ui, sans-serif;
+  }
+  body {
+    padding: 32px 24px 80px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 800;
+    font-size: 28px;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+  }
+  .subtitle {
+    color: var(--ink-dim);
+    font-size: 13px;
+    margin-bottom: 32px;
+    line-height: 1.5;
+  }
+  h2 {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: 0;
+    margin: 32px 0 16px;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+  .row {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .frame {
+    position: relative;
+    width: 320px;
+    height: 692px;
+    background: #000;
+    border-radius: 44px;
+    border: 8px solid #1c1c1e;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .frame::before {
+    content: "";
+    position: absolute;
+    top: 12px; left: 50%;
+    transform: translateX(-50%);
+    width: 120px; height: 30px;
+    background: #000;
+    border-radius: 16px;
+    z-index: 50;
+  }
+  .viewfinder {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(160deg, #2c2c2e 0%, #1a1a1c 60%, #0e0e10 100%);
+  }
+  /* Mock person silhouette in viewfinder */
+  .viewfinder::after {
+    content: "";
+    position: absolute;
+    inset: 30% 20% 5% 20%;
+    background: radial-gradient(ellipse at 50% 30%, #4a4a52 0%, transparent 55%);
+    opacity: 0.7;
+  }
+
+  /* Top-right close X (existing) */
+  .close-x {
+    position: absolute;
+    top: 60px;
+    right: 16px;
+    width: 36px;
+    height: 36px;
+    border-radius: 18px;
+    background: rgba(0,0,0,0.5);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    z-index: 30;
+  }
+
+  /* Peek box (mid-left, unchanged) */
+  .peek {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    background: #2a2a2e;
+    border: 1px solid var(--coral);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--coral);
+    font-weight: 600;
+    z-index: 20;
+  }
+  .peek-count {
+    position: absolute;
+    top: -6px; right: -6px;
+    width: 18px; height: 18px;
+    border-radius: 9px;
+    background: var(--coral);
+    color: #fff;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+  }
+
+  /* Right-edge vertical lens pills (NEW) */
+  .lens-stack {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 20;
+  }
+  .lens-pill {
+    width: 44px;
+    height: 44px;
+    border-radius: 22px;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255,255,255,0.12);
+  }
+  .lens-pill.active {
+    background: rgba(255,255,255,0.85);
+    color: #000;
+  }
+
+  /* Bottom-left library import (NEW) */
+  .library-btn {
+    position: absolute;
+    left: 16px;
+    bottom: 36px;
+    width: 44px;
+    height: 44px;
+    border-radius: 22px;
+    background: rgba(0,0,0,0.5);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    border: 1px solid rgba(255,255,255,0.12);
+  }
+  .library-btn svg { width: 22px; height: 22px; }
+
+  /* Shutter — bottom-center */
+  .shutter-zone {
+    position: absolute;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%);
+    width: 80px;
+    height: 80px;
+    z-index: 20;
+  }
+  .shutter {
+    position: absolute;
+    inset: 0;
+    border-radius: 40px;
+    border: 4px solid #fff;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .shutter-inner {
+    width: 56px; height: 56px;
+    border-radius: 28px;
+    background: var(--rec-red);
+    transition: all 200ms ease;
+  }
+  /* Recording state — pulsing inner */
+  .frame.recording .shutter-inner {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+  }
+  .frame.recording .shutter {
+    border-color: var(--rec-red);
+    box-shadow: 0 0 0 3px var(--rec-red-glow);
+  }
+
+  /* Permanent hint — under shutter, never auto-fades */
+  .hint {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.55);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    z-index: 18;
+  }
+
+  /* Lock target — appears 80pt above shutter when recording */
+  .lock-target {
+    position: absolute;
+    left: 50%;
+    bottom: 132px;
+    transform: translateX(-50%);
+    width: 56px;
+    height: 56px;
+    border-radius: 28px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.18);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    z-index: 19;
+    transition: all 200ms ease;
+  }
+  .lock-target svg { width: 22px; height: 22px; }
+  /* Drag track from shutter up to lock target */
+  .drag-track {
+    position: absolute;
+    left: 50%;
+    bottom: 108px;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 32px;
+    background: linear-gradient(to top, rgba(255,255,255,0.4), rgba(255,255,255,0.1));
+    border-radius: 2px;
+    z-index: 17;
+  }
+  .frame.locked .lock-target {
+    background: var(--coral);
+    border-color: var(--coral);
+    color: #fff;
+  }
+  .frame.locked .shutter {
+    border-color: var(--rec-red);
+  }
+  .frame.locked .shutter-inner {
+    background: #fff;
+    border-radius: 4px;
+    width: 28px; height: 28px;
+  }
+
+  /* Recording indicator (top of viewport) */
+  .rec-indicator {
+    position: absolute;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--rec-red);
+    padding: 6px 12px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 30;
+  }
+  .rec-indicator::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 3px;
+    background: #fff;
+  }
+
+  .label {
+    margin-top: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    text-align: center;
+  }
+  .annotation {
+    font-size: 11px;
+    color: var(--ink-muted);
+    text-align: center;
+    line-height: 1.4;
+    margin-top: 4px;
+    max-width: 320px;
+  }
+
+  /* Studio toolbar mock */
+  .studio-frame {
+    width: 320px;
+    height: 96px;
+    background: var(--bg);
+    border-top: 1px solid var(--surface-border);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 12px;
+    flex-shrink: 0;
+  }
+  .toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .tb-icon {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.85);
+  }
+  .tb-icon.dim {
+    color: rgba(255,255,255,0.35);
+  }
+  .tb-icon svg { width: 22px; height: 22px; }
+  .tri {
+    width: 8px;
+    height: 12px;
+    background: var(--coral);
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
+  }
+  .tri.dim {
+    background: rgba(255,107,53,0.4);
+  }
+  .strike-through {
+    position: relative;
+    color: rgba(255,255,255,0.3);
+  }
+  .strike-through::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: -4px;
+    right: -4px;
+    height: 1px;
+    background: rgba(255,107,53,0.5);
+  }
+
+  .keyline {
+    background: rgba(255,107,53,0.06);
+    border-left: 3px solid var(--coral);
+    padding: 14px 18px;
+    margin: 16px 0 8px;
+    border-radius: 0 8px 8px 0;
+  }
+  .keyline strong { color: var(--coral); }
+</style>
+</head>
+<body>
+
+<h1>Wave 40 · Camera Layout</h1>
+<p class="subtitle">
+  Three changes to the Capture surface, plus the Studio toolbar swap that promotes the camera to first-class.
+  Goal: workflow chain reads <em>capture → preview → publish → share</em>; library import survives but no longer pretends to be the primary path.
+</p>
+
+<h2>Studio toolbar — before vs after</h2>
+<div class="row">
+  <div>
+    <div class="studio-frame">
+      <div class="toolbar-row">
+        <div class="tb-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></div>
+        <div class="tb-icon strike-through"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg></div>
+        <div class="tri"></div>
+        <div class="tb-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
+        <div class="tri"></div>
+        <div class="tb-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+        <div class="tri"></div>
+        <div class="tb-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></div>
+      </div>
+    </div>
+    <div class="label">Before</div>
+    <div class="annotation">Library → Preview → Publish → Share. Library wrongly reads as first step.</div>
+  </div>
+  <div>
+    <div class="studio-frame">
+      <div class="toolbar-row">
+        <div class="tb-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></div>
+        <div class="tb-icon" style="color: var(--coral);"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
+        <div class="tri"></div>
+        <div class="tb-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
+        <div class="tri"></div>
+        <div class="tb-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+        <div class="tri"></div>
+        <div class="tb-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></div>
+      </div>
+    </div>
+    <div class="label">After</div>
+    <div class="annotation">Camera → Preview → Publish → Share. Camera-icon tap = same as swipe-left.</div>
+  </div>
+</div>
+
+<h2>Camera viewfinder — three states</h2>
+<div class="row">
+
+  <!-- State 1: Idle -->
+  <div>
+    <div class="frame">
+      <div class="viewfinder"></div>
+      <div class="close-x">×</div>
+      <div class="peek">
+        Peek
+        <div class="peek-count">3</div>
+      </div>
+      <div class="lens-stack">
+        <div class="lens-pill">.5</div>
+        <div class="lens-pill active">1×</div>
+        <div class="lens-pill">2</div>
+        <div class="lens-pill">3</div>
+      </div>
+      <div class="library-btn" title="Import from photo library">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+      </div>
+      <div class="shutter-zone">
+        <div class="shutter">
+          <div class="shutter-inner"></div>
+        </div>
+      </div>
+      <div class="hint">Tap for photo · Hold for video · Slide ↑ to lock</div>
+    </div>
+    <div class="label">State 1 · Idle</div>
+    <div class="annotation">Lens pills moved to right edge (vertical stack). Library import bottom-left.<br>Hint text is permanent (not auto-fading).</div>
+  </div>
+
+  <!-- State 2: Recording (pressed, not yet locked) -->
+  <div>
+    <div class="frame recording">
+      <div class="viewfinder"></div>
+      <div class="close-x">×</div>
+      <div class="rec-indicator">REC 0:08</div>
+      <div class="peek">
+        Peek
+        <div class="peek-count">3</div>
+      </div>
+      <div class="lens-stack">
+        <div class="lens-pill">.5</div>
+        <div class="lens-pill active">1×</div>
+        <div class="lens-pill">2</div>
+        <div class="lens-pill">3</div>
+      </div>
+      <div class="library-btn">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+      </div>
+      <div class="lock-target">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div class="drag-track"></div>
+      <div class="shutter-zone">
+        <div class="shutter">
+          <div class="shutter-inner"></div>
+        </div>
+      </div>
+      <div class="hint">Slide finger ↑ onto 🔒 to lock</div>
+    </div>
+    <div class="label">State 2 · Recording (held)</div>
+    <div class="annotation">Press-and-hold shutter. Lock target fades in 80pt above shutter. Drag-track suggests the gesture path.</div>
+  </div>
+
+  <!-- State 3: Locked recording -->
+  <div>
+    <div class="frame locked recording">
+      <div class="viewfinder"></div>
+      <div class="close-x">×</div>
+      <div class="rec-indicator">REC 0:23</div>
+      <div class="peek">
+        Peek
+        <div class="peek-count">3</div>
+      </div>
+      <div class="lens-stack">
+        <div class="lens-pill">.5</div>
+        <div class="lens-pill active">1×</div>
+        <div class="lens-pill">2</div>
+        <div class="lens-pill">3</div>
+      </div>
+      <div class="library-btn">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+      </div>
+      <div class="lock-target">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div class="shutter-zone">
+        <div class="shutter">
+          <div class="shutter-inner"></div>
+        </div>
+      </div>
+      <div class="hint">Tap ⬛ to stop</div>
+    </div>
+    <div class="label">State 3 · Locked</div>
+    <div class="annotation">Lock target turns coral (snapped). Shutter inner morphs from red dot to white square. Tap to stop.</div>
+  </div>
+
+</div>
+
+<h2>Behaviour notes</h2>
+<div class="keyline">
+  <strong>Library import inside Camera.</strong> Tapping the bottom-left library icon opens the iOS multi-select photo picker.
+  When the user picks N photos, each photo flows through the SAME pipeline as a captured photo —
+  individual peek-box animations fire one per import, conversion queue handles them sequentially, no batched silent ingest.
+</div>
+<div class="keyline">
+  <strong>Slide-up-to-lock gesture.</strong> The lock target appears the moment recording starts (∼200ms fade-in).
+  While the finger is pressed on the shutter, vertical drag-up onto the lock target snaps the lock — haptic confirmation,
+  shutter inner morphs from red-dot to white-square, recording continues with finger released. To stop: tap the morphed shutter.
+</div>
+<div class="keyline">
+  <strong>Permanent hint copy.</strong> Idle: <code>Tap for photo · Hold for video · Slide ↑ to lock</code> at 55% opacity.
+  Pressed-recording: copy swaps to <code>Slide finger ↑ onto 🔒 to lock</code>.
+  Locked: copy swaps to <code>Tap ⬛ to stop</code>.
+</div>
+<div class="keyline">
+  <strong>Right-edge vertical lens pills.</strong> The four pills (<code>.5 / 1× / 2 / 3</code>) stack vertically right of the viewfinder.
+  44×44pt pills, 8pt gap, vertically centred. Active pill inverts (white background, black text). Doesn't overlap the lock-drag corridor.
+</div>
+<div class="keyline">
+  <strong>Bottom-left library icon.</strong> 44×44pt rounded button, ~16pt from screen edges. Sits well below the peek box (which stays mid-left).
+  Icon is the standard photo-stack glyph from iOS Photos.
+</div>
+
+</body>
+</html>
