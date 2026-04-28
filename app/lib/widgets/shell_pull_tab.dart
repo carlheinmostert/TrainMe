@@ -108,9 +108,14 @@ class _ShellPullTabState extends State<ShellPullTab>
     // Icon communicates the *target* mode (what tapping reveals).
     //   left-edge  -> in Capture, reveals Studio -> session-list glyph
     //   right-edge -> in Studio,  reveals Camera -> camera glyph
+    //
+    // Wave 40.4 — right-edge glyph aligned to `Icons.photo_camera_outlined`
+    // so it matches the Studio toolbar's slot-1 Camera icon. Carl's QA:
+    // "the icon for the camera is not the same as the one on the tab
+    // where we swipe left on. They should both be the same icon."
     final icon = isLeft
         ? Icons.list_alt_rounded
-        : Icons.camera_alt_outlined;
+        : Icons.photo_camera_outlined;
 
     return Align(
       alignment: Alignment(isLeft ? -1.0 : 1.0, widget.verticalAlignment),

@@ -427,13 +427,25 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   }
 
   /// Build the lens-switch button list from the zoom range the active
-  /// controller reports. `1x` is always present (main wide). The rest
-  /// are included only if they fall within [min, max].
+  /// controller reports.
+  ///
+  /// Wave 40.4 (M5.1) — `0.5×` is now ALWAYS shown alongside `1×`
+  /// regardless of the reported `minZoom`. Carl's QA: "I don't see
+  /// the point five zoom level, which I would like, please, as per
+  /// the spec." Some camera-plugin / iOS combos report `minZoom=1.0`
+  /// even on devices with an ultrawide lens; gating the pill on that
+  /// hides it on hardware that actually supports 0.5×. Tapping the
+  /// pill calls `setZoomLevel(0.5)` which the plugin clamps to the
+  /// real range — graceful fallback on devices without ultrawide
+  /// (the active highlight simply never lands on 0.5).
+  ///
+  /// `2×` and `3×` stay gated on the reported max so we don't show
+  /// pills that exceed digital-zoom range on smaller sensors.
   List<double> _buildLensListForRange(double minZoom, double maxZoom) {
     const candidates = [0.5, 1.0, 2.0, 3.0];
     final lenses = <double>[];
     for (final c in candidates) {
-      if (c == 1.0) {
+      if (c == 0.5 || c == 1.0) {
         lenses.add(c);
         continue;
       }
@@ -498,14 +510,54 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
   }
 
+  /// Wave 40.4 (M5.2) — pinch debounce / coalesce. Pinch updates fire
+  /// at ~60 Hz; without coalescing we'd queue dozens of `setZoomLevel`
+  /// futures, swamping the camera plugin and visibly stalling the
+  /// preview. We track an in-flight call and the most recent target;
+  /// if a call is in flight we just record the new target and let the
+  /// completer kick off a follow-up that targets the LATEST value.
+  bool _zoomInFlight = false;
+  double? _pendingZoomTarget;
+
+  Future<void> _applyZoomCoalesced(double requested) async {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    final clamped = requested.clamp(_minZoom, _maxZoom).toDouble();
+    if (_zoomInFlight) {
+      _pendingZoomTarget = clamped;
+      return;
+    }
+    _zoomInFlight = true;
+    try {
+      await controller.setZoomLevel(clamped);
+      if (!mounted) return;
+      setState(() => _currentZoom = clamped);
+    } catch (e) {
+      debugPrint('setZoomLevel($clamped) failed: $e');
+    } finally {
+      _zoomInFlight = false;
+      // Drain the most recent pending target, if any.
+      if (_pendingZoomTarget != null && mounted) {
+        final next = _pendingZoomTarget!;
+        _pendingZoomTarget = null;
+        unawaited(_applyZoomCoalesced(next));
+      }
+    }
+  }
+
   void _onPinchStart(ScaleStartDetails _) {
     _pinchBaseZoom = _currentZoom;
   }
 
   void _onPinchUpdate(ScaleUpdateDetails details) {
     // Scale relative to the zoom we had when the pinch began.
+    // Only react to genuine scale changes (two-finger pinches) — a
+    // single-finger drag reports `scale == 1.0` constantly and
+    // `pointerCount == 1`. Without this guard we'd reset zoom to the
+    // base on every drag-related ScaleUpdate.
+    if (details.pointerCount < 2) return;
     final target = _pinchBaseZoom * details.scale;
-    _applyZoom(target);
+    _applyZoomCoalesced(target);
   }
 
   // ---------------------------------------------------------------------------
@@ -534,11 +586,19 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
   /// Called when the user's finger touches down on the shutter for a
   /// potential long-press.
+  ///
+  /// Wave 40.4 (M4) — fire a `selectionClick` haptic immediately on
+  /// touch-down so the practitioner gets instant tactile confirmation
+  /// the shutter received the press. Carl's QA: "I have no haptic
+  /// firing even when I press and hold the camera button." iOS won't
+  /// recognise the long-press for ~500ms, so without an
+  /// on-touch-down haptic the shutter feels dead until video starts.
   void _onShutterPressDown() {
     if (_isRecording) return;
     _longPressActive = true;
     _pendingStopAfterStart = false;
     _hoveringLockTarget = false;
+    HapticFeedback.selectionClick();
   }
 
   /// Called on both `onLongPressEnd` (normal release) and the raw
@@ -596,32 +656,38 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
   /// Wave 40 (M4) — translates a pointer-move event inside the
   /// shutter zone into upward drag-distance and updates
-  /// [_hoveringLockTarget]. The lock target sits ~80pt above the
-  /// shutter centre; an upward drag of >= 60pt counts as "on the
-  /// lock target". Only fires while the long-press is active and
-  /// recording is in flight.
+  /// [_hoveringLockTarget]. Only fires while the long-press is
+  /// active and recording is in flight.
+  ///
+  /// Wave 40.4 (M3) — geometry pushed further out:
+  ///   * Lock-target centre sits 192pt above the screen bottom
+  ///     (was 160pt). Shutter centre sits at ~68pt → centre-to-centre
+  ///     gap is ~124pt. With the 28pt shutter-bottom inset + 84pt
+  ///     shutter the upper edge is at 112pt; lock-target lower edge
+  ///     is at 192-28=164pt — a comfortable 52pt of empty corridor.
+  ///   * Threshold pushed to ~95pt upward travel (was 60pt) — roughly
+  ///     70% of the way to the target's centre, far enough to demand
+  ///     a deliberate reach. No accidental triggers from pointer
+  ///     jitter at the start of a long-press.
+  ///   * Light-impact haptics fire on enter AND exit of the armed
+  ///     zone so the practitioner feels the threshold both ways
+  ///     ("I'm here, I can release" / "I left, I'd better drag back
+  ///     up before letting go").
   void _onShutterPointerMove(PointerMoveEvent event) {
     if (!_longPressActive || _isLocked) return;
-    // localPosition is relative to the Listener (the 80x80 shutter
-    // zone). dy=40 is the centre; dragging up makes dy < 0 relative
-    // to the centre, but we use raw localPosition.dy for the
-    // threshold check directly.
+    // localPosition is relative to the Listener (the 84x84 shutter
+    // zone). dy=42 is the centre; dragging up makes dy < 0 relative
+    // to the centre. Distance dragged upward from the shutter centre
+    // (positive when the finger is ABOVE centre).
     final dy = event.localPosition.dy;
-    // Distance dragged upward from the shutter centre (positive when
-    // the finger is ABOVE centre). Centre y = ~40pt inside an 80pt
-    // box.
-    final upward = 40.0 - dy;
-    setState(() {
-      // Lock target lives ~80pt above the shutter (centre-of-target
-      // is bottom: 132 + 28 = 160pt above the screen bottom; shutter
-      // bottom is 28pt; shutter top is 28+80 = 108pt; so the gap from
-      // shutter centre (28+40 = 68pt above bottom) to lock-target
-      // centre (160pt above bottom) is ~92pt). We use a slightly
-      // forgiving threshold of 60pt of upward travel = "on target",
-      // which gives a comfortable corridor without false positives
-      // from finger jitter.
-      _hoveringLockTarget = upward >= 60;
-    });
+    final upward = 42.0 - dy;
+    final next = upward >= 95;
+    if (next != _hoveringLockTarget) {
+      // Tactile threshold cue — fires on both enter and exit so the
+      // armed-zone boundary is unmistakable.
+      HapticFeedback.lightImpact();
+      setState(() => _hoveringLockTarget = next);
+    }
   }
 
   Future<void> _startVideoRecording() async {
@@ -673,11 +739,15 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       // Per-second haptic tick. Fires IMMEDIATELY once we've confirmed
       // (a) the controller started recording, (b) `_isRecording = true`,
       // and (c) the release didn't already land during the async start.
-      // Upgraded to `mediumImpact` — on-device testing showed `lightImpact`
-      // was not perceptible during active video recording (iOS may suppress
-      // softer haptics while the mic is hot to avoid audio contamination).
-      // Debug prints confirm via console that the timer actually fires and
-      // hasn't been cancelled early.
+      //
+      // Wave 40.4 (M4) — upgraded from `mediumImpact` to `heavyImpact`.
+      // Carl's device QA on Wave 40 reported NO per-second haptic was
+      // perceptible during recording. iOS suppresses softer haptics
+      // while the mic is hot (audio contamination guard); even
+      // mediumImpact apparently falls below the threshold on some
+      // hardware/build combos. Heavy is the next step up — coarser but
+      // unmistakably felt. Debug prints confirm via console that the
+      // timer actually fires and hasn't been cancelled early.
       _recordingTickTimer =
           Timer.periodic(const Duration(seconds: 1), (timer) {
         debugPrint(
@@ -687,7 +757,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           return;
         }
         setState(() => _recordingSeconds++);
-        HapticFeedback.mediumImpact();
+        HapticFeedback.heavyImpact();
         if (_recordingSeconds >= AppConfig.maxVideoSeconds) {
           _stopVideoRecording(autoStopped: true);
         }
@@ -1433,11 +1503,20 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     );
   }
 
-  /// Wave 40 (M4) — lock-target overlay shown while recording. Lives
-  /// 80pt above the shutter centre, fades in 200ms when recording
-  /// starts, and turns coral when the user has snapped into locked
-  /// hands-free mode. The drag-track is a 4pt-wide vertical gradient
-  /// suggesting the gesture path.
+  /// Wave 40 (M4) — lock-target overlay shown while recording. Fades
+  /// in 200ms when recording starts, and turns coral when the user
+  /// has snapped into locked hands-free mode.
+  ///
+  /// Wave 40.4 (M3) polish:
+  ///   * Lock target pushed from 132pt to 164pt above the safe-area
+  ///     bottom (centre at 192pt) so the practitioner has to
+  ///     deliberately reach for it. Drag-track stretches accordingly.
+  ///   * Armed-state visuals upgraded:
+  ///       - scale 1.0 → 1.15 over 120ms via AnimatedScale
+  ///       - background tint deepened from 55% → 75% coral alpha
+  ///       - "Release to lock" caption fades in below the chip at
+  ///         55% white opacity, 10.5pt Inter (matches the M3 hint
+  ///         caption register).
   ///
   /// Hit-testing on this overlay is disabled by the parent
   /// `IgnorePointer` so pointer events go through to the shutter
@@ -1448,20 +1527,22 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       builder: (context, _) {
         final t = _lockTargetController.value;
         if (t == 0) return const SizedBox.shrink();
-        // Lock target sits centred horizontally, ~132pt above the
-        // bottom of the safe area. Drag track lives in the gap
-        // between shutter (28pt + 80pt = 108pt above bottom) and the
-        // lock-target bottom (132pt) — a 24pt gap, so the track is
-        // 32pt to overlap both edges.
+        // Lock target sits centred horizontally, 164pt above the
+        // bottom of the safe area (centre at 192pt; chip is 56pt
+        // tall). Drag track lives in the gap between shutter
+        // (28pt + 84pt = 112pt above bottom) and the lock-target
+        // bottom (164pt) — a 52pt gap, so the track is 56pt to
+        // overlap both edges.
         final hovering = _hoveringLockTarget;
         final lockBg = _isLocked
             ? AppColors.primary
             : (hovering
-                ? AppColors.primary.withValues(alpha: 0.55)
+                ? AppColors.primary.withValues(alpha: 0.75)
                 : Colors.black.withValues(alpha: 0.55));
         final lockBorder = _isLocked || hovering
             ? AppColors.primary
             : Colors.white.withValues(alpha: 0.18);
+        final showReleaseHint = hovering && !_isLocked;
         return SafeArea(
           top: false,
           child: Stack(
@@ -1469,12 +1550,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
             children: [
               // Drag track between shutter and lock target.
               Positioned(
-                bottom: 108,
+                bottom: 112,
                 child: Opacity(
                   opacity: t,
                   child: Container(
                     width: 4,
-                    height: 32,
+                    height: 56,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(2),
                       gradient: LinearGradient(
@@ -1489,24 +1570,57 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
                   ),
                 ),
               ),
+              // "Release to lock" caption — appears just under the
+              // lock chip while armed (and not yet snapped). Stays
+              // beneath the chip's bottom edge (~164pt) at 144pt
+              // bottom so it doesn't crowd the chip.
+              Positioned(
+                bottom: 144,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 120),
+                  opacity: showReleaseHint ? t : 0.0,
+                  child: Text(
+                    'Release to lock',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 0.2,
+                      color: Colors.white.withValues(alpha: 0.55),
+                      shadows: const [
+                        Shadow(
+                          color: Colors.black54,
+                          blurRadius: 4,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
               // Lock target round chip.
               Positioned(
-                bottom: 132,
+                bottom: 164,
                 child: Opacity(
                   opacity: t,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: lockBg,
-                      border: Border.all(color: lockBorder, width: 1),
-                    ),
-                    child: const Icon(
-                      Icons.lock_outline_rounded,
-                      color: Colors.white,
-                      size: 22,
+                  child: AnimatedScale(
+                    duration: const Duration(milliseconds: 120),
+                    curve: Curves.easeOutCubic,
+                    scale: hovering && !_isLocked ? 1.15 : 1.0,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: lockBg,
+                        border: Border.all(color: lockBorder, width: 1),
+                      ),
+                      child: const Icon(
+                        Icons.lock_outline_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
                     ),
                   ),
                 ),

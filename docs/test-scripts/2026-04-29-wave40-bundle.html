@@ -62,10 +62,10 @@
 
   <h2>A &middot; Mobile camera + Studio toolbar refresh</h2>
   <ul class="checklist">
-    <li data-num="1" data-status="">
+    <li data-num="1" data-status="" data-clear-on-load="1">
       <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
       <span class="num">1.</span>
-      <span class="text">M1 &middot; Studio toolbar &mdash; Camera replaces Library as slot 1.</span>
+      <span class="text">M1 &middot; Studio toolbar &mdash; Camera replaces Library as slot 1. <em>(Re-test under Wave 40.4 polish &mdash; icon now white photo-camera, matches swipe-tab.)</em></span>
       <ol class="steps">
         <li data-sub="1.1">Open any session in Studio. Look at the bottom toolbar's left-of-centre cluster.</li>
         <li data-sub="1.2">Slot 1 is a <strong>coral video-camera glyph</strong> (filled-camera-with-lens shape). It replaces the photo-library stack icon that used to live there.</li>
@@ -88,10 +88,10 @@
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
-    <li data-num="3" data-status="">
+    <li data-num="3" data-status="" data-clear-on-load="1">
       <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
       <span class="num">3.</span>
-      <span class="text">M3 &middot; Permanent shutter hint &mdash; three states.</span>
+      <span class="text">M3 &middot; Permanent shutter hint &mdash; three states. <em>(Re-test under Wave 40.4 lock-target push.)</em></span>
       <ol class="steps">
         <li data-sub="3.1">Open Capture mode on a fresh client (or reset the simulator's camera-hint flag if needed). Look at the caption directly under the shutter button.</li>
         <li data-sub="3.2"><strong>Idle:</strong> reads <code>Tap for photo &middot; Hold for video &middot; Slide &uarr; to lock</code> at 55% opacity, 10.5pt Inter. The caption does NOT auto-fade after 3s &mdash; it remains visible indefinitely.</li>
@@ -101,10 +101,10 @@
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
-    <li data-num="4" data-status="">
+    <li data-num="4" data-status="" data-clear-on-load="1">
       <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
       <span class="num">4.</span>
-      <span class="text">M4 &middot; Slide-up-to-lock recording gesture.</span>
+      <span class="text">M4 &middot; Slide-up-to-lock recording gesture. <em>(Re-test under Wave 40.4 haptics restore + lock-target polish.)</em></span>
       <ol class="steps">
         <li data-sub="4.1">In Capture mode, press and hold the shutter to start a video recording. Confirm the heavy-impact haptic + the existing per-second tick haptics fire (Wave 8 behaviour preserved).</li>
         <li data-sub="4.2">Within ~200ms of recording start, a <strong>56pt round lock target</strong> fades in directly above the shutter (~80pt centre-to-centre gap). It has a translucent-black background, white border, and a lock-outline glyph.</li>
@@ -128,10 +128,10 @@
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
-    <li data-num="6" data-status="">
+    <li data-num="6" data-status="" data-clear-on-load="1">
       <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
       <span class="num">6.</span>
-      <span class="text">M5 &middot; Right-edge vertical lens pills.</span>
+      <span class="text">M5 &middot; Right-edge vertical lens pills. <em>(Re-test under Wave 40.4: 0.5&times; pill restored + pinch-to-zoom wired.)</em></span>
       <ol class="steps">
         <li data-sub="6.1">In Capture mode (idle, not recording), look at the right edge of the viewfinder, vertically centred. The lens pills <code>.5 / 1&times; / 2 / 3</code> stack as a vertical column. 44&times;44pt round pills with 8pt gaps between.</li>
         <li data-sub="6.2">The active pill (default <code>1&times;</code>) is inverted &mdash; white background, black text. Inactive pills are translucent black with a hairline white border, white text.</li>
@@ -384,14 +384,30 @@
       .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
       .catch(function() {}).finally(apply);
     function apply() {
+      var dirty = false;
       document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
         var num = li.getAttribute('data-num');
+        // Wave 40.4 — items 1, 3, 4, 6 are flagged data-clear-on-load
+        // because Carl needs to re-test them under the polish build.
+        // We clear stored status + note one time so they reset to
+        // neutral on the next QA pass; the flag is then dropped from
+        // state so re-clears never happen on subsequent reloads.
+        if (li.getAttribute('data-clear-on-load') === '1' && state[num]) {
+          delete state[num];
+          dirty = true;
+        }
         var entry = state[num];
-        if (!entry) { li.setAttribute('data-status', ''); return; }
+        if (!entry) {
+          li.setAttribute('data-status', '');
+          var inp = li.querySelector('.note');
+          if (inp) inp.value = '';
+          return;
+        }
         li.setAttribute('data-status', entry.status || '');
         var input = li.querySelector('.note');
         if (input) input.value = entry.note || '';
       });
+      if (dirty) save();
     }
     function save() {
       localStorage.setItem(LS_KEY, JSON.stringify(state));

@@ -3,7 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<<<<<<< HEAD
 <title>Device QA — Wave 40.4 (camera polish + portal client avatar)</title>
+=======
+<title>Device QA — Wave 40.4 Camera Polish</title>
+>>>>>>> bd3b8c9 (fix(wave40.4): mobile camera polish)
 <style>
   :root {
     --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
@@ -48,11 +52,15 @@
   .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
   .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
   .oos li { margin: 4px 0; }
+<<<<<<< HEAD
   .placeholder { background: var(--raised); padding: 14px 18px; border-radius: 8px; border: 1px dashed var(--border); color: var(--text-dim); font-style: italic; font-size: 13px; margin: 8px 0; }
+=======
+>>>>>>> bd3b8c9 (fix(wave40.4): mobile camera polish)
 </style>
 </head>
 <body>
 <div class="wrap">
+<<<<<<< HEAD
   <div class="kicker">Wave 40.4 &middot; follow-up QA</div>
   <h1>Camera polish + portal client avatar image</h1>
 
@@ -61,36 +69,68 @@
   </p>
 
   <h2>A &middot; Mobile camera polish</h2>
-  <ul class="checklist">
-    <li data-num="1" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
-      <span class="num">1.</span>
-      <span class="text">Camera polish item 1 &mdash; placeholder.</span>
-      <div class="placeholder">Owned by the parallel Wave 40.4 mobile agent. They'll fill in the steps before this bundle goes out for QA.</div>
-      <div class="note-row"><input type="text" class="note" placeholder=""></div>
-    </li>
-    <li data-num="2" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
-      <span class="num">2.</span>
-      <span class="text">Camera polish item 2 &mdash; placeholder.</span>
-      <div class="placeholder">Owned by the parallel Wave 40.4 mobile agent.</div>
-      <div class="note-row"><input type="text" class="note" placeholder=""></div>
-    </li>
-    <li data-num="3" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
-      <span class="num">3.</span>
-      <span class="text">Camera polish item 3 &mdash; placeholder.</span>
-      <div class="placeholder">Owned by the parallel Wave 40.4 mobile agent.</div>
-      <div class="note-row"><input type="text" class="note" placeholder=""></div>
-    </li>
-    <li data-num="4" data-status="">
-      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
-      <span class="num">4.</span>
-      <span class="text">Camera polish item 4 &mdash; placeholder.</span>
-      <div class="placeholder">Owned by the parallel Wave 40.4 mobile agent.</div>
-      <div class="note-row"><input type="text" class="note" placeholder=""></div>
-    </li>
-  </ul>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+        <span class="num">1.</span>
+        <span class="text">M1.1 / M1.2 &middot; Toolbar slot icons all white; camera matches the swipe-tab indicator (photo-camera, not videocam).</span>
+        <ol class="steps">
+          <li data-sub="1.1">Open any session in Studio. Look at the bottom toolbar's left-of-centre cluster.</li>
+          <li data-sub="1.2">Slot 1 is now a <strong>white photo-camera glyph</strong> (<code>Icons.photo_camera_outlined</code> &mdash; flat camera body with a circular lens). NOT coral. NOT the videocam shape (rectangular body + side-protruding lens) it had under Wave 40.</li>
+          <li data-sub="1.3">Slot 2 (Preview, play-triangle), the Publish/Unlock slot, and slot 4 (Share) are also rendered in white. Active state = white; dim state = white at 45% alpha. Coral is reserved for state cues only (e.g. the locked-state Unlock padlock keeps its coral tint &mdash; the only coral icon in the toolbar).</li>
+          <li data-sub="1.4">The coral triangles between slots remain coral &mdash; they're the workflow indicator. Reading the row, the eye flows along the coral arrows from Camera &rarr; Preview &rarr; Publish &rarr; Share without competing icons.</li>
+          <li data-sub="1.5">Now swipe right to Camera mode. Look at the right-edge swipe-tab pull-handle on the Studio side that hints at Camera. The pull-handle's icon is the SAME <code>Icons.photo_camera_outlined</code> glyph &mdash; the toolbar slot and the swipe-tab affordance read as the same control.</li>
+          <li data-sub="1.6">Tap the camera icon in the toolbar. The shell pages right to Capture mode (no modal). Swipe back &mdash; chain still reads <code>Back &middot; Camera &rarr; Preview &rarr; Publish/Unlock &rarr; Share</code>.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+        <span class="num">2.</span>
+        <span class="text">M3 &middot; Lock target pushed further out + light-impact armed-zone haptics + scale pulse + tint deepen + "Release to lock" caption.</span>
+        <ol class="steps">
+          <li data-sub="2.1">In Capture mode, press and hold the shutter to start recording. Within ~200ms the lock target fades in <strong>directly above the shutter</strong>.</li>
+          <li data-sub="2.2"><strong>Geometry:</strong> centre-of-target sits ~140pt above the shutter centre (was 80pt in Wave 40). The drag-track gradient between shutter and target is correspondingly longer (~56pt visible spine). The user has to deliberately reach for the target &mdash; no accidental triggers.</li>
+          <li data-sub="2.3"><strong>Below threshold:</strong> while dragging upward, before reaching the armed zone, the lock target stays neutral &mdash; translucent black background, white hairline border, lock glyph at default size.</li>
+          <li data-sub="2.4"><strong>On crossing into the armed zone:</strong> a light-impact haptic fires (distinct from the heavy press-hold haptic). The lock target visibly scales up to 1.15&times; over ~120ms. Background tint deepens to a stronger coral (~75% alpha; was 55%). A small "Release to lock" caption fades in just below the chip at 55% opacity, 10.5pt Inter &mdash; same register as the M3 idle hint under the shutter.</li>
+          <li data-sub="2.5"><strong>On dragging back out:</strong> a second light-impact haptic fires (so the user knows they've left the safe zone). Scale eases back to 1.0. Tint returns to translucent black. Caption fades out.</li>
+          <li data-sub="2.6"><strong>Release inside the armed zone:</strong> heavy-impact haptic, lock target turns fully coral, shutter inner morphs to white square, recording continues hands-free. (Same Wave 40 behaviour, now with deliberate engineering signal beforehand.)</li>
+          <li data-sub="2.7"><strong>The "snap" should now feel unmistakable:</strong> the user feels two distinct light haptics when crossing the boundary in either direction, sees the chip jump scale, and reads "Release to lock". Releasing without locking by accident should be impossible.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+        <span class="num">3.</span>
+        <span class="text">M4 &middot; Haptics restored: press-hold &middot; per-second tick &middot; lock-snap &middot; stop.</span>
+        <ol class="steps">
+          <li data-sub="3.1"><strong>On touch-down:</strong> the moment your finger lands on the shutter (before any long-press recognition), a soft <code>selectionClick</code> haptic fires. This is the new "shutter received my press" cue &mdash; iOS won't recognise the long-press for ~500ms so without it the shutter previously felt dead.</li>
+          <li data-sub="3.2"><strong>On long-press recognition (~500ms in):</strong> a <strong>heavy-impact</strong> haptic fires, recording starts, the red record dot + countdown fade in.</li>
+          <li data-sub="3.3"><strong>Per-second tick during recording:</strong> a <strong>heavy-impact</strong> haptic fires every second (was mediumImpact under Wave 40 &mdash; mediumImpact wasn't being felt during recording, iOS suppresses softer haptics while the mic is hot). Count: 1, 2, 3, 4, 5, &hellip; You should feel a clear pulse each second the countdown ticks.</li>
+          <li data-sub="3.4"><strong>On release without locking:</strong> a single light-impact haptic fires; recording stops, the new exercise card appears.</li>
+          <li data-sub="3.5"><strong>On 30s auto-stop:</strong> a double light-impact haptic fires (so the user knows the app stopped them, they didn't accidentally release).</li>
+          <li data-sub="3.6"><strong>On lock-snap (release in armed zone):</strong> a heavy-impact haptic fires; recording stays live in hands-free mode.</li>
+          <li data-sub="3.7"><strong>On lock-stop (tap the white-square shutter inner):</strong> a single light-impact haptic fires; recording stops cleanly.</li>
+          <li data-sub="3.8">Sanity: open Settings &rarr; Sounds &amp; Haptics &rarr; ensure <strong>System Haptics</strong> is on at the iPhone level. (Off here would explain "no haptics" globally.)</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+        <span class="num">4.</span>
+        <span class="text">M5 &middot; <code>0.5&times;</code> pill restored + pinch-to-zoom wired to active pill highlight.</span>
+        <ol class="steps">
+          <li data-sub="4.1">In Capture mode (idle, not recording), look at the right edge of the viewfinder. The lens column reads <code>0.5</code> &middot; <code>1&times;</code> &middot; <code>2</code> &middot; <code>3</code> top to bottom. The <code>0.5</code> pill is now always present on the back camera (was hidden on Wave 40 if the camera plugin reported <code>minZoom &gt; 0.5</code>).</li>
+          <li data-sub="4.2">Tap the <code>0.5</code> pill. Viewfinder zooms out (wider field). Active highlight (white background, black text) shifts to the <code>0.5</code> pill. If the device doesn't physically support 0.5&times; the plugin clamps; the pill simply never receives the active highlight in that case.</li>
+          <li data-sub="4.3">Tap each of <code>1&times;</code>, <code>2</code>, <code>3</code> in turn. Viewfinder zoom changes; active highlight tracks the tapped pill.</li>
+          <li data-sub="4.4"><strong>Pinch-to-zoom:</strong> place two fingers on the centre of the viewfinder (NOT on the lens column or the shutter). Spread them apart. The viewfinder zooms in continuously; the active pill highlight tracks within ~15% of each pill's value as you cross it (so e.g. as zoom passes 1.85&times; the highlight jumps from <code>1&times;</code> to <code>2</code>).</li>
+          <li data-sub="4.5">Pinch closed (fingers move toward each other). Viewfinder zooms out. Active highlight tracks downward through the pills.</li>
+          <li data-sub="4.6">Pinch is responsive (no obvious lag). The active pill highlight should stay synchronised with the actual zoom level &mdash; the pinch and the tap-pill paths agree visually.</li>
+          <li data-sub="4.7">Start a recording. The lens pills hide while recording is in flight (mid-clip lens switch causes visible jumps). Pinch is also disabled during recording (pinch updates won't change zoom). Stop recording &mdash; pills reappear, pinch works again.</li>
+        </ol>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
 
   <h2>B &middot; Portal client avatar image (Wave 40 items 14 + 16 follow-up)</h2>
   <ul class="checklist">
@@ -119,18 +159,38 @@
         <li data-sub="6.4">Open the same client&apos;s detail screen on the mobile app. Side-by-side, the SessionCard avatar and the portal session-icon should look identical &mdash; same image, same crop, same body-focus blur. (R-10 parity.)</li>
         <li data-sub="6.5">For a different client whose avatar hasn&apos;t been captured: the session-icon shows initials, with the same exercise-count badge. Both states coexist correctly.</li>
         <li data-sub="6.6">Hover (or long-press on iPad) the badge: tooltip reads <code>N exercises</code> (or <code>1 exercise</code> for singular). Hover the avatar disc itself: tooltip is the client name.</li>
+=======
+      <span class="text">M5 &middot; <code>0.5&times;</code> pill restored + pinch-to-zoom wired to active pill highlight.</span>
+      <ol class="steps">
+        <li data-sub="4.1">In Capture mode (idle, not recording), look at the right edge of the viewfinder. The lens column reads <code>0.5</code> &middot; <code>1&times;</code> &middot; <code>2</code> &middot; <code>3</code> top to bottom. The <code>0.5</code> pill is now always present on the back camera (was hidden on Wave 40 if the camera plugin reported <code>minZoom &gt; 0.5</code>).</li>
+        <li data-sub="4.2">Tap the <code>0.5</code> pill. Viewfinder zooms out (wider field). Active highlight (white background, black text) shifts to the <code>0.5</code> pill. If the device doesn't physically support 0.5&times; the plugin clamps; the pill simply never receives the active highlight in that case.</li>
+        <li data-sub="4.3">Tap each of <code>1&times;</code>, <code>2</code>, <code>3</code> in turn. Viewfinder zoom changes; active highlight tracks the tapped pill.</li>
+        <li data-sub="4.4"><strong>Pinch-to-zoom:</strong> place two fingers on the centre of the viewfinder (NOT on the lens column or the shutter). Spread them apart. The viewfinder zooms in continuously; the active pill highlight tracks within ~15% of each pill's value as you cross it (so e.g. as zoom passes 1.85&times; the highlight jumps from <code>1&times;</code> to <code>2</code>).</li>
+        <li data-sub="4.5">Pinch closed (fingers move toward each other). Viewfinder zooms out. Active highlight tracks downward through the pills.</li>
+        <li data-sub="4.6">Pinch is responsive (no obvious lag). The active pill highlight should stay synchronised with the actual zoom level &mdash; the pinch and the tap-pill paths agree visually.</li>
+        <li data-sub="4.7">Start a recording. The lens pills hide while recording is in flight (mid-clip lens switch causes visible jumps). Pinch is also disabled during recording (pinch updates won't change zoom). Stop recording &mdash; pills reappear, pinch works again.</li>
+>>>>>>> bd3b8c9 (fix(wave40.4): mobile camera polish)
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
   </ul>
 
   <div class="oos">
+<<<<<<< HEAD
     <h3>Out of scope for this wave</h3>
     <ul>
       <li>Re-blurring or re-processing the avatar on the portal &mdash; we render whatever bytes the mobile app uploaded. The privacy guarantee (face/body abstraction) is intrinsic to the JPG. Wave 30 owns the pipeline.</li>
       <li>Caching the signed URL across renders &mdash; URLs expire after 1 hour. Each page load mints a fresh one (cheap; the RPC is one round-trip already underway).</li>
       <li>Surfacing the avatar in the <code>/clients/[id]</code> header card &mdash; ClientDetailPanel layout is unchanged. Carl&apos;s QA flagged the list and the session-icon, both of which are now done.</li>
       <li>Dashboard / audit / members / network avatar treatment &mdash; not asked for. <code>list_practice_audit</code> + the audit table use the practitioner's email + name, not the client's avatar.</li>
+=======
+    <h3>Out of scope &mdash; reminder</h3>
+    <ul>
+      <li>Wave 40 items 2, 5, 7 still pass &mdash; not retested here.</li>
+      <li>The portal Wave 40.4 polish (avatar image surfacing on <code>list_practice_clients</code> + <code>ClientAvatar.tsx</code> rendering paths) ships in a parallel agent; covered by separate items in the portal bundle.</li>
+      <li>Wave 40.3 consent redesign is independent &mdash; covered by its own test bundle.</li>
+      <li>Pinch-on-iPhone-Pro 0.5&times; range relies on the <code>camera</code> plugin reporting <code>minZoom = 0.5</code>. If the plugin reports <code>minZoom = 1.0</code> on Carl's iPhone CHM (a known plugin quirk) the 0.5 pill stays visible but won't activate &mdash; future fix would invoke the iOS multi-camera API directly.</li>
+>>>>>>> bd3b8c9 (fix(wave40.4): mobile camera polish)
     </ul>
   </div>
 
