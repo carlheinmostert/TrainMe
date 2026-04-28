@@ -150,7 +150,7 @@
   <div class="wrap">
     <div class="kicker">homefit.studio · device QA</div>
     <h1>Test scripts</h1>
-    <p class="lede">Active QA for 8 waves (Wave 40.4 follow-up fresh + Wave 40 bundle + Wave 39.4 hotfix carryover + 5 older). Wave 40.4 picks up the FAIL items from Wave 40 device QA (mobile camera polish + portal client avatar image rendering). Older waves were superseded by later work and have been moved out of the active queue (see Past waves below).</p>
+    <p class="lede">Active QA for 9 waves (Wave 40.3 fresh + Wave 40.4 follow-up + Wave 40 bundle + Wave 39.4 hotfix carryover + 5 older). Wave 40.3 ships the consent redesign (collapsed accordion + Avatar toggle + audit row on every change). Wave 40.4 picks up the FAIL items from Wave 40 device QA (mobile camera polish + portal client avatar image rendering). Older waves were superseded by later work and have been moved out of the active queue (see Past waves below).</p>
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
@@ -165,10 +165,23 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-04-29-wave40.3-consent.html">
+          <div class="row">
+            <div>
+              <div class="name">1 · Wave 40.3 — Client consent redesign + audit log</div>
+              <div class="scope">Three coupled changes across portal + mobile. <strong>(1)</strong> The portal&apos;s <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/clients/[id]</code> consent block is wrapped in a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;details&gt;</code> accordion that ships <em>collapsed</em> on every route load — the visibility settings are no longer the page&apos;s primary visual block. Header chip reads <strong>Visibility · {granted}/{total} granted</strong>. <strong>(2)</strong> Toggle list grows a fourth row, <strong>Avatar still</strong>, finally surfacing the Wave-30 consent slot on the portal. <strong>(3)</strong> Every save drops a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">client.consent.update</code> row into <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">audit_events</code> with a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">{from, to}</code> diff payload — sage chip in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/audit</code>, Wave 40.1 Client column populates via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">ref_id</code>. Mobile R-11 twin: chip-then-bottom-sheet keeps the same headline. <strong>6 items.</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-04-29-wave40.4-camera-polish.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 40.4 — Camera polish + portal client avatar image (Wave 40 follow-up)</div>
+              <div class="name">2 · Wave 40.4 — Camera polish + portal client avatar image (Wave 40 follow-up)</div>
               <div class="scope">Picks up the FAIL items from Wave 40 device QA. <strong>(A &middot; mobile)</strong> Camera UI polish &mdash; tighter shutter / lens-pill / library-button affordances per Carl's Wave 40 notes. <strong>(B &middot; portal)</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/clients</code> list and <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/clients/[id]</code> session-icon now render the body-focus avatar JPG (Wave 30) the practitioner captured on mobile, instead of initials. Wired through a new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">avatar_url</code> column on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">list_practice_clients</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">get_client_by_id</code> &mdash; 1-hour signed URL into the private <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">raw-archive</code> bucket via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">sign_storage_url</code>. Falls back to initials when no avatar yet. <strong>6 items in 2 sections (A: 4 placeholders &middot; B: 2 portal).</strong></div>
             </div>
             <div style="text-align: right;">
@@ -181,7 +194,7 @@
         <a href="./2026-04-29-wave40-bundle.html">
           <div class="row">
             <div>
-              <div class="name">2 · Wave 40 — Mobile camera promotion + portal hygiene + settings/audit follow-ups</div>
+              <div class="name">3 · Wave 40 — Mobile camera promotion + portal hygiene + settings/audit follow-ups</div>
               <div class="scope">Three slices in one bundle. <strong>(A · mobile)</strong> Camera goes first-class — coral camera icon replaces the library glyph in the Studio toolbar; library import slides into a viewfinder corner button; permanent hint copy under the shutter; slide-up-to-lock recording gesture; right-edge vertical lens pills; sized-up toolbar glyphs. <strong>(B · portal)</strong> Top-bar nav links retired (the dashboard tiles ARE the menu); signed-in email chip + practice-switcher chip cluster on the right of the header; dashboard audit tile renders the 5 most-recent events with sage chips and per-viewer-TZ timestamps; audit kind legend wraps inline (1-2 lines instead of 5); avatar glyph on every <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/clients</code> row + session-icon parity inside <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/clients/[id]</code> matching mobile SessionCard; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/clients</code> drill-in routing bug fixed (cookie-fallback added to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/clients/[id]</code>). <strong>(C · settings + audit)</strong> Deferred to Wave 40.1 follow-up — configurable system defaults under app Settings + audit Actor column always populated + dedicated Client column. <strong>16 items in 2 active sections (A: 7 &middot; B: 9); Section C placeholder.</strong></div>
             </div>
             <div style="text-align: right;">
@@ -194,7 +207,7 @@
         <a href="./2026-04-29-wave39.4-hotfix.html">
           <div class="row">
             <div>
-              <div class="name">3 · Wave 39.4 — Mobile hotfix (sticky pacing + photo refresh + reachability + UTC timestamps)</div>
+              <div class="name">4 · Wave 39.4 — Mobile hotfix (sticky pacing + photo refresh + reachability + UTC timestamps)</div>
               <div class="scope">Five mobile fixes from Wave 39 device-QA feedback. <strong>(A)</strong> Sticky per-client defaults extend to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">video_reps_per_loop</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">inter_set_rest_seconds</code>. <strong>(B)</strong> Photo last-exercise refresh proper fix: conversion listener now unconditionally reloads the session from SQLite on every <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">done</code> event and merges the conversion payload over the matching row, so spinners clear in-place even when the parent SessionShellScreen&apos;s async refresh races us. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">didUpdateWidget</code> gained an adopt-parent guard. <strong>(C)</strong> Reachability drop-pill latch persists until the practitioner taps the pill again (or backgrounds the app); card taps + upward scrolls no longer reset it. <strong>(D)</strong> When latched, dropped list content is clipped above the toolbar&apos;s top edge (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">ClipRect</code> wrap on the translating list). <strong>(E)</strong> Dart wire timestamps emit UTC at every Postgres-bound site in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">upload_service.dart</code> (4 sites: 2x <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plans.created_at</code>, 1x <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plans.sent_at</code>, 1x <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plan_issuances.issued_at</code>). <strong>13 items in 4 sections (A: 3 &middot; B: 3 &middot; C: 5 &middot; D: 2).</strong></div>
             </div>
             <div style="text-align: right;">
@@ -207,7 +220,7 @@
         <a href="./2026-04-21-wave5-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">4 · Wave 5 + 14 + 16 — Members area + publish-time consent validation</div>
+              <div class="name">5 · Wave 5 + 14 + 16 — Members area + publish-time consent validation</div>
               <div class="scope">Most user-facing remaining wave. Portal <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">/members</code> with the Wave 14 add-by-email flow that superseded the invite-code flow. Three paths: <em>added</em> (existing account → instant join), <em>already_member</em> (idempotent no-op), <em>pending</em> (no account → stashed in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">pending_practice_members</code>, auto-claims on signup via an <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">auth.users</code> trigger). Role change + hard remove + leave-with-guards unchanged. Mobile "Join a practice" card retired — practitioners discover via switcher. Wave 16 appended Section 8: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">validate_plan_treatment_consent</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">consume_credit</code> backstop + bottom-sheet with "Grant consent &amp; publish" / "Back to Studio" CTAs. 25 items.</div>
             </div>
             <div style="text-align: right;">
@@ -220,7 +233,7 @@
         <a href="./2026-04-21-wave8-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">5 · Wave 8 — Sticky per-client defaults</div>
+              <div class="name">6 · Wave 8 — Sticky per-client defaults</div>
               <div class="scope">JSONB <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">client_exercise_defaults</code> + SQLite mirror. Forward-only propagation on new captures for reps/sets/hold/rest/muted/preferred-treatment. Invisible UX — just pre-fills. Also: landscape capture + "long-press to record video" hint. 11 items.</div>
             </div>
             <div style="text-align: right;">
@@ -233,7 +246,7 @@
         <a href="./2026-04-21-wave9-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">6 · Wave 9 — Audit expansion (full event log + filters + CSV)</div>
+              <div class="name">7 · Wave 9 — Audit expansion (full event log + filters + CSV)</div>
               <div class="scope">Portal-only. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">/audit</code> expands to a unified event log — publishes, credit changes, referral rebates, clients created/deleted, members joined, invites minted/claimed. New <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">audit_events</code> table for mutations without natural sources. Kind chips, filter bar (multi-select), pagination, CSV export. Everyone sees everything. 17 items.</div>
             </div>
             <div style="text-align: right;">
@@ -246,7 +259,7 @@
         <a href="./2026-04-21-wave15-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">7 · Wave 15 — Offline-sync robustness</div>
+              <div class="name">8 · Wave 15 — Offline-sync robustness</div>
               <div class="scope">Three targeted fixes from Wave 5 QA failure modes. (A) Null-return <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">upsert_client_with_id</code> now throws + rides the flush error path instead of leaving ghost ops in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">pending_ops</code>. (B) <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">session_not_found</code> detected at the API boundary → forces sign-out + coral banner on Home + Studio with a Sign-in CTA. (C) Diagnostics gets a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">Force sync now</code> action with a toast. Polish: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">pullAll</code> on signin + 5s retry backoff. 11 items.</div>
             </div>
             <div style="text-align: right;">
@@ -259,7 +272,7 @@
         <a href="./2026-04-21-wave7-device-qa.html">
           <div class="row">
             <div>
-              <div class="name">8 · Wave 7 — Silent-failure observability</div>
+              <div class="name">9 · Wave 7 — Silent-failure observability</div>
               <div class="scope">Architectural — test last because it's mostly invisible. Settings → About → Diagnostics runs the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">signed_url_self_check()</code> probe + three more. Boot self-check auto-opens on first sign-in. Verify <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);;">error_logs</code> is writing rows under failure simulation. 12 items.</div>
             </div>
             <div style="text-align: right;">

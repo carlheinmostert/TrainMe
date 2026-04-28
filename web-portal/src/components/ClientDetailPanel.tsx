@@ -58,6 +58,9 @@ export function ClientDetailPanel({
   const [displayName, setDisplayName] = useState(initialClientName);
   const [grayscale, setGrayscale] = useState(initialConsent.grayscale);
   const [original, setOriginal] = useState(initialConsent.original);
+  // Wave 40.3 — Avatar (Wave-30 consent slot) finally surfaced on the
+  // portal. Mirrors the mobile sheet's Profile group toggle.
+  const [avatar, setAvatar] = useState(initialConsent.avatar);
   const [savedConsent, setSavedConsent] = useState(initialConsent);
   const [toast, setToast] = useState<Toast>(null);
   const [pending, startTransition] = useTransition();
@@ -67,7 +70,9 @@ export function ClientDetailPanel({
   const clientName = displayName;
 
   const dirty =
-    grayscale !== savedConsent.grayscale || original !== savedConsent.original;
+    grayscale !== savedConsent.grayscale ||
+    original !== savedConsent.original ||
+    avatar !== savedConsent.avatar;
 
   // "Narrowing" = the save would turn OFF a currently-granted treatment.
   // The soft warning below explains the effect on already-published plans.
@@ -77,7 +82,8 @@ export function ClientDetailPanel({
   // dropping the reassurance rather than making a claim we can't back up.
   const narrowing =
     (savedConsent.grayscale && !grayscale) ||
-    (savedConsent.original && !original);
+    (savedConsent.original && !original) ||
+    (savedConsent.avatar && !avatar);
 
   /**
    * Delete the client. R-01: fires immediately. After the RPC lands we
@@ -135,11 +141,12 @@ export function ClientDetailPanel({
       try {
         const supabase = getBrowserClient();
         const api = createPortalApi(supabase);
-        await api.setClientVideoConsent(clientId, grayscale, original);
+        await api.setClientVideoConsent(clientId, grayscale, original, avatar);
         setSavedConsent({
           line_drawing: true,
           grayscale,
           original,
+          avatar,
         });
         setToast({ text: 'Saved.', tone: 'info' });
       } catch (e) {
@@ -149,6 +156,19 @@ export function ClientDetailPanel({
       window.setTimeout(() => setToast(null), 2500);
     });
   }
+
+  // Wave 40.3 — granted-count for the collapsed-state header chip.
+  // line_drawing is locked-on so it always counts; we surface
+  // "{granted}/{total}" so the practitioner sees the headline without
+  // having to expand the panel. Total = 4 (line_drawing + grayscale +
+  // original + avatar). Reads from the LIVE state so dragging a toggle
+  // before saving updates the chip immediately — tighter feedback loop.
+  const totalToggles = 4;
+  const grantedToggles =
+    1 + // line_drawing always
+    (grayscale ? 1 : 0) +
+    (original ? 1 : 0) +
+    (avatar ? 1 : 0);
 
   return (
     <section aria-labelledby="client-heading">
@@ -206,12 +226,46 @@ export function ClientDetailPanel({
         </button>
       </header>
 
-      {/* 2. Inline consent form — R-01 no modal. */}
-      <div className="mt-8 rounded-lg border border-surface-border bg-surface-base p-5">
-        <h2 className="font-heading text-lg font-semibold text-ink">
-          What can {clientName} see as?
-        </h2>
-        <p className="mt-1 text-sm text-ink-muted">
+      {/* 2. Inline consent form — R-01 no modal.
+       *
+       * Wave 40.3 — wrapped in a <details> so the panel is collapsed by
+       * default on every route load. Carl's framing: "you don't want to
+       * see it the whole time. It's not the main show." The summary acts
+       * as the chip — name + granted-count + caret. State is intentionally
+       * not persisted across navigations: every visit to /clients/[id]
+       * lands collapsed, the practitioner expands when they need to. */}
+      <details className="group mt-8 overflow-hidden rounded-lg border border-surface-border bg-surface-base">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 transition hover:bg-surface-raised/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand">
+          {/* WebKit puts a default disclosure marker on summary; suppress
+           * it so the caret below is the only chevron. */}
+          <style>{`details > summary::-webkit-details-marker{display:none}`}</style>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <h2 className="font-heading text-base font-semibold text-ink">
+              Visibility
+            </h2>
+            <span className="inline-flex shrink-0 items-center rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
+              {grantedToggles}/{totalToggles} granted
+            </span>
+          </div>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="none"
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 text-ink-muted transition-transform group-open:rotate-180"
+          >
+            <path
+              d="M5 7l5 6 5-6"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </summary>
+
+        <div className="border-t border-surface-border px-5 pb-5 pt-4">
+          <p className="text-sm text-ink-muted">
           Line drawings are always available — they&rsquo;re how the plan
           de-identifies {clientName} by default. Add black &amp; white or
           full colour for plans where {clientName} prefers the real footage.
@@ -248,9 +302,24 @@ export function ClientDetailPanel({
             onChange={setOriginal}
           />
         </ul>
-        {/* Future consent groups slot in here — e.g. Data sharing,
-         * Communications. Keep the pattern: uppercase subheading +
-         * grouped ToggleRows. */}
+
+        {/* Wave 40.3 — Profile group mirrors the mobile sheet's second
+         * section. The avatar toggle gates capture + storage of the
+         * body-focus blurred still that replaces the initials monogram on
+         * practitioner-facing surfaces. Different category from playback —
+         * kept in its own group so the practitioner reads it as "what we
+         * store of {Name}" not "how the client sees themselves". */}
+        <p className="mt-5 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
+          Profile
+        </p>
+        <ul className="mt-2 space-y-3">
+          <ToggleRow
+            label="Avatar still"
+            helper={`Single capture with the background blurred — replaces the initials circle on ${clientName}.`}
+            checked={avatar}
+            onChange={setAvatar}
+          />
+        </ul>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <button
@@ -274,7 +343,8 @@ export function ClientDetailPanel({
             link again for the change to take effect.
           </p>
         )}
-      </div>
+        </div>
+      </details>
 
       {/* Toast — R-01: inline status line, not a modal. */}
       {toast && (
