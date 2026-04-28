@@ -124,13 +124,20 @@ export type PracticeSession = {
 
 /**
  * Per-client consent matrix. Matches the `clients.video_consent` jsonb
- * default from `schema_milestone_g_three_treatment.sql`. `line_drawing`
- * is always true — de-identification is structural, not toggleable.
+ * default from `schema_milestone_g_three_treatment.sql` extended by
+ * `schema_wave30_client_avatar.sql`. `line_drawing` is always true —
+ * de-identification is structural, not toggleable. `avatar` (Wave 30)
+ * gates whether the client's body-focus avatar still is captured + stored
+ * + rendered as the practitioner-facing identity glyph.
+ *
+ * Wave 40.3 widened the portal type so the `/clients/[id]` page can
+ * surface the avatar toggle alongside the playback treatments.
  */
 export type ClientVideoConsent = {
   line_drawing: true;
   grayscale: boolean;
   original: boolean;
+  avatar: boolean;
 };
 
 /**
@@ -546,12 +553,18 @@ export class PortalApi {
     clientId: string,
     grayscale: boolean,
     original: boolean,
+    avatar: boolean,
   ): Promise<void> {
+    // Wave 40.3 — thread `p_avatar` so the portal toggle reaches the same
+    // 5-arg RPC mobile uses (Wave 30). The RPC also drops a
+    // `client.consent.update` audit_events row whenever the jsonb actually
+    // changed (no-op saves don't bloat the log).
     const { error } = await this.supabase.rpc('set_client_video_consent', {
       p_client_id: clientId,
       p_line_drawing: true,
       p_grayscale: grayscale,
       p_original: original,
+      p_avatar: avatar,
     });
     if (error) throw new Error(error.message);
   }
@@ -1216,6 +1229,10 @@ export const AUDIT_EVENT_KINDS = [
   'client.create',
   'client.delete',
   'client.restore',
+  // Wave 40.3 — emitted by `set_client_video_consent` whenever the
+  // video_consent jsonb actually changes (no-op saves are suppressed).
+  // Sage tone — positive engagement / practitioner-curating-client signal.
+  'client.consent.update',
   'member.join',
   'member.role_change',
   'member.remove',
@@ -1246,6 +1263,9 @@ export function auditChipTone(kind: string): AuditChipTone {
     case 'credit.signup_bonus':
     case 'credit.referral_signup_bonus':
     case 'referral.rebate':
+    // Wave 40.3 — practitioner curating per-client visibility. Sage like
+    // other positive-engagement events.
+    case 'client.consent.update':
       return 'sage';
     case 'credit.refund':
     case 'client.delete':
@@ -1606,9 +1626,12 @@ function normaliseConsent(raw: unknown): ClientVideoConsent {
       line_drawing: true,
       grayscale: Boolean(obj.grayscale),
       original: Boolean(obj.original),
+      // Wave 40.3 — surface the Wave-30 avatar slot to the portal. Default
+      // false when the key is missing on legacy rows.
+      avatar: Boolean(obj.avatar),
     };
   }
-  return { line_drawing: true, grayscale: false, original: false };
+  return { line_drawing: true, grayscale: false, original: false, avatar: false };
 }
 
 /**

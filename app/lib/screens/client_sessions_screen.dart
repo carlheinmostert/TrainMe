@@ -525,8 +525,15 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
           const SizedBox(height: 10),
           Row(
             children: [
+              // Wave 40.3 — chip now mirrors the portal's <details> header:
+              // "Visibility · {granted}/{total} granted". The chip is the
+              // collapsed-state header; tapping expands into the existing
+              // bottom sheet which serves as the mobile twin of the portal
+              // accordion. R-11 parity intact.
               _ConsentChip(
-                label: 'Client consent',
+                label: 'Visibility',
+                grantedCount: _consentGrantedCount(_client),
+                totalCount: 4,
                 onTap: () => _openConsent(),
               ),
               // Wave 18 — removed the "N sessions" count. The list
@@ -856,11 +863,24 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
 
 /// Small pill shown in the per-client header. Tapping opens the existing
 /// [showClientConsentSheet] — mobile-appropriate UX, R-11 carve-out.
+///
+/// Wave 40.3 — extended with `grantedCount` / `totalCount` so the chip
+/// renders the same `{granted}/{total} granted` headline the portal's
+/// collapsed-state Visibility summary uses. The mobile chip IS the
+/// collapsed view; tapping reveals the same sheet content the portal
+/// accordion expands into.
 class _ConsentChip extends StatelessWidget {
   final String label;
+  final int grantedCount;
+  final int totalCount;
   final VoidCallback onTap;
 
-  const _ConsentChip({required this.label, required this.onTap});
+  const _ConsentChip({
+    required this.label,
+    required this.grantedCount,
+    required this.totalCount,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -893,12 +913,41 @@ class _ConsentChip extends StatelessWidget {
                   color: AppColors.textOnDark,
                 ),
               ),
+              const SizedBox(width: 6),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF86EFAC).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$grantedCount/$totalCount granted',
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF86EFAC),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
   }
+}
+
+/// Wave 40.3 — count the granted consent slots for the chip header.
+/// Mirrors the portal's `grantedToggles` formula: line_drawing always
+/// counts, plus whichever of grayscale / colour / avatar are on. Total
+/// is fixed at 4.
+int _consentGrantedCount(PracticeClient client) {
+  return 1 +
+      (client.grayscaleAllowed ? 1 : 0) +
+      (client.colourAllowed ? 1 : 0) +
+      (client.avatarAllowed ? 1 : 0);
 }
 
 /// Paints a dashed underline below the child. Matches the portal's

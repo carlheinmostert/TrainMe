@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 40.3 Client consent redesign + audit log</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 40.3 &middot; consent redesign + audit log</div>
+  <h1>Client visibility — collapsed-by-default + Avatar toggle + audit-logged</h1>
+
+  <p class="lede">
+    Three coupled changes across both surfaces. <strong>(1)</strong> The portal&apos;s <code>/clients/[id]</code> consent block is no longer the page&apos;s primary visual block — it&apos;s wrapped in a <code>&lt;details&gt;</code> accordion that ships <em>collapsed</em> on every route load. The summary header reads <strong>Visibility &middot; {granted}/{total} granted</strong>. <strong>(2)</strong> The portal toggle list grows a fourth row, <strong>Avatar still</strong>, finally surfacing the Wave-30 consent slot the mobile sheet has had since 2026-04-23. <strong>(3)</strong> Every successful save drops a <code>client.consent.update</code> row into <code>audit_events</code>, with <code>meta</code> carrying a <code>{from, to}</code> jsonb diff. The <code>/audit</code> feed renders these rows with a sage chip + a description that names the keys whose boolean flipped (e.g. &ldquo;Visibility for Aslan: B&amp;W on, Avatar off&rdquo;). The Wave 40.1 Client column populates correctly because the row&apos;s <code>ref_id</code> is the client uuid. <strong>R-11 mobile twin:</strong> the existing chip-then-bottom-sheet is the mobile equivalent of the portal accordion; the chip now mirrors the portal&apos;s headline (<strong>Visibility &middot; {granted}/{total} granted</strong>). Avatar toggle was already present in the sheet (Wave 30) — it just gets its first audit-log entries now. <strong>6 items.</strong>
+  </p>
+
+  <h2>Test items</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">1.</span>
+      <span class="text">Portal &middot; <code>/clients/[id]</code> consent block is collapsed by default; header chip shows the granted count.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open <a href="https://manage.homefit.studio/clients" target="_blank">manage.homefit.studio/clients</a> and click into any client. Scroll to where the visibility form used to live (just below the practitioner email line).</li>
+        <li data-sub="1.2">The block reads as a single horizontal pill: header text <strong>Visibility</strong> + a sage chip with <code>{N}/4 granted</code> + a downward chevron on the right. The four toggles are NOT visible.</li>
+        <li data-sub="1.3">Reload the page. Confirm it returns to the collapsed state &mdash; expansion is intentionally not persisted.</li>
+        <li data-sub="1.4">Navigate away to <code>/clients</code> and back. Same behaviour: collapsed on every route load.</li>
+        <li data-sub="1.5">Granted count is correct. For a client with grayscale + colour off + avatar off, chip reads <code>1/4 granted</code> (only line_drawing). For a client with all on, chip reads <code>4/4 granted</code>.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">2.</span>
+      <span class="text">Portal &middot; tap header &mdash; block expands; 4 toggles visible (line_drawing locked-on, grayscale, original, avatar).</span>
+      <ol class="steps">
+        <li data-sub="2.1">Tap (or click) the chip from item 1. The chevron rotates 180&deg;; the panel expands downward.</li>
+        <li data-sub="2.2">Inside, the <strong>Video treatment</strong> uppercase subhead is followed by 3 toggle rows in this order: <em>Line drawing</em> (locked on, struck-through cursor), <em>Black &amp; white</em> (toggleable), <em>Original colour</em> (toggleable).</li>
+        <li data-sub="2.3">Below the video group, a second uppercase subhead reads <strong>Profile</strong>. Underneath it is a single toggle row: <em>Avatar still</em> with helper copy mentioning &ldquo;Single capture with the background blurred&hellip; replaces the initials circle on {Name}&rdquo;.</li>
+        <li data-sub="2.4">Tap header again to collapse. Panel collapses cleanly. No visual jump on the granted-count chip during the animation.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">3.</span>
+      <span class="text">Portal &middot; flip the Avatar toggle, save &mdash; toast confirms; new row appears in <code>/audit</code> with sage chip + practitioner actor + Client column populated.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Expand the Visibility panel. Note the live granted-count chip at the top &mdash; it tracks the LIVE state, so flipping a toggle moves it before saving.</li>
+        <li data-sub="3.2">Flip Avatar (toggle once). Confirm the chip count shifts by 1; <strong>Save</strong> button activates (was disabled while clean).</li>
+        <li data-sub="3.3">Click Save. Top-of-page toast reads <strong>Saved.</strong> &amp; auto-dismisses in ~2.5s.</li>
+        <li data-sub="3.4">Navigate to <a href="https://manage.homefit.studio/audit" target="_blank">manage.homefit.studio/audit</a>. The newest row reads <strong>Visibility update</strong> with a sage chip.</li>
+        <li data-sub="3.5">Actor column = your practitioner email (NOT &ldquo;&mdash;&rdquo;). Client column = the client&apos;s name + a link through to <code>/clients/[id]</code>.</li>
+        <li data-sub="3.6">Description column reads roughly <strong>Visibility for {Name}: Avatar on</strong> (or &ldquo;Avatar off&rdquo; depending on direction). Other toggles unchanged &Rarr; only the moved key surfaces in the diff.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">4.</span>
+      <span class="text">Mobile &middot; same flow on <code>ClientSessionsScreen</code> &mdash; chip headline matches portal; saving the sheet emits an audit row.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Open the iOS app, tap a client, land on the per-client screen. Look at the chip below the client&apos;s name + avatar.</li>
+        <li data-sub="4.2">Chip reads <strong>Visibility</strong> with a sage <code>{N}/4 granted</code> tag inside. Same headline copy as the portal.</li>
+        <li data-sub="4.3">Tap the chip. The bottom sheet from Wave 30 opens with both groups (Video treatment + Profile) and four toggles. Toggles initialised to current consent values.</li>
+        <li data-sub="4.4">Flip B&amp;W (or any non-line_drawing row); tap Save. Sheet dismisses; back on the client screen, the chip granted-count updates without a network round-trip.</li>
+        <li data-sub="4.5">Open portal <code>/audit</code>. Newest row is <strong>Visibility update</strong> with the practitioner email as actor (the mobile authenticated session). Description shows the diff that was saved.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">5.</span>
+      <span class="text">Audit row payload &middot; <code>meta.from</code> + <code>meta.to</code> show the diff cleanly when inspected.</span>
+      <ol class="steps">
+        <li data-sub="5.1">In <code>/audit</code>, find the newest <code>client.consent.update</code> row and click into the row&apos;s CSV export (or use the browser dev-tools Network tab to inspect the underlying RPC response).</li>
+        <li data-sub="5.2">The <code>meta</code> bag contains two keys: <code>from</code> and <code>to</code>. Each is a 4-key jsonb of <code>{line_drawing, grayscale, original, avatar}</code>.</li>
+        <li data-sub="5.3"><code>line_drawing</code> is <code>true</code> on both sides (locked).</li>
+        <li data-sub="5.4">Exactly one of <code>grayscale</code> / <code>original</code> / <code>avatar</code> moved between <code>from</code> and <code>to</code> &mdash; matches the toggle that was flipped in item 3 / 4.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">6.</span>
+      <span class="text">Regression &middot; existing grayscale / original toggles still save without an avatar change being implied.</span>
+      <ol class="steps">
+        <li data-sub="6.1">Pick a client with avatar OFF + B&amp;W OFF + colour OFF. Visibility chip reads <code>1/4 granted</code>.</li>
+        <li data-sub="6.2">Expand. Flip <em>Black &amp; white</em> ON only; leave colour + avatar untouched. Save.</li>
+        <li data-sub="6.3">Reload the page. Chip now reads <code>2/4 granted</code>; expanding shows B&amp;W ON, colour OFF, avatar OFF (unchanged from before).</li>
+        <li data-sub="6.4">Audit row description reads <strong>Visibility for {Name}: B&amp;W on</strong> &mdash; only one diff key surfaced.</li>
+        <li data-sub="6.5">Mobile&apos;s chip on the same client also reads <code>2/4 granted</code> after a sync. Avatar slot in the sheet still shows OFF, untouched.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope</h3>
+    <ul>
+      <li>Wave 40.2 (extending audit Actor coverage to credit_ledger / referral.rebate / client.create / client.delete) is a separate planned wave. Not addressed here.</li>
+      <li>Renaming the <code>avatar</code> jsonb key to <code>avatar_visible</code> &mdash; the brief proposed the new name, but the existing Wave-30 key is in production and used by mobile; we kept the canonical key to avoid a duplicate-field split.</li>
+      <li>Persisting the accordion open-state across navigations / page reloads &mdash; intentionally collapsed on every route load per Carl&apos;s direction.</li>
+      <li>Backfilling historical consent saves into <code>audit_events</code>. The audit log starts from this migration forward only.</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-29-wave40.3-consent.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave40.3-consent', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

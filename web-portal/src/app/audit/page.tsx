@@ -639,6 +639,8 @@ function kindLabel(kind: string): string {
     'client.create': 'Client create',
     'client.delete': 'Client delete',
     'client.restore': 'Client restore',
+    // Wave 40.3 — set_client_video_consent emission.
+    'client.consent.update': 'Visibility update',
     'member.join': 'Member join',
     'member.role_change': 'Role change',
     'member.remove': 'Member remove',
@@ -701,6 +703,19 @@ function buildDescription(row: AuditRow): string {
       return row.title ? `Deleted client "${row.title}"` : 'Client deleted';
     case 'client.restore':
       return row.title ? `Restored client "${row.title}"` : 'Client restored';
+    case 'client.consent.update': {
+      // Wave 40.3 — meta carries `from`/`to` jsonb. Surface the keys whose
+      // boolean flipped so the practitioner can read the row without
+      // expanding it. Falls back to a generic line when the meta shape is
+      // missing or both bags are equal (server-side guard should prevent
+      // the latter, but defensive).
+      const who = row.clientName ? `${row.clientName}` : 'client';
+      const diffs = describeConsentDiff(row.meta);
+      if (diffs.length === 0) {
+        return `Visibility settings updated for ${who}`;
+      }
+      return `Visibility for ${who}: ${diffs.join(', ')}`;
+    }
     case 'member.join':
       return row.title
         ? `Joined as ${row.title}`
@@ -722,6 +737,40 @@ function buildDescription(row: AuditRow): string {
   }
 }
 
+/**
+ * Wave 40.3 — render a compact diff summary from a `client.consent.update`
+ * row's meta jsonb. Returns one short token per key whose boolean flipped
+ * (e.g. `Avatar on`, `B&W off`). `line_drawing` is excluded — it's locked
+ * true and never moves. Returns `[]` when the meta shape is missing, both
+ * bags are equal, or both bags are empty.
+ */
+function describeConsentDiff(
+  meta: Record<string, unknown> | null,
+): string[] {
+  if (!meta) return [];
+  const from = meta.from as Record<string, unknown> | null | undefined;
+  const to = meta.to as Record<string, unknown> | null | undefined;
+  if (!from || !to || typeof from !== 'object' || typeof to !== 'object') {
+    return [];
+  }
+  // Stable display order: line_drawing skipped, then the practitioner-
+  // facing toggles in the same vertical order as ClientDetailPanel.
+  const order: Array<{ key: string; label: string }> = [
+    { key: 'grayscale', label: 'B&W' },
+    { key: 'original', label: 'Colour' },
+    { key: 'avatar', label: 'Avatar' },
+  ];
+  const diffs: string[] = [];
+  for (const { key, label } of order) {
+    const before = Boolean(from[key]);
+    const after = Boolean(to[key]);
+    if (before !== after) {
+      diffs.push(`${label} ${after ? 'on' : 'off'}`);
+    }
+  }
+  return diffs;
+}
+
 type AuditLink = { href: string; label: string; external: boolean };
 
 function buildLink(row: AuditRow): AuditLink | null {
@@ -730,6 +779,8 @@ function buildLink(row: AuditRow): AuditLink | null {
     case 'client.create':
     case 'client.delete':
     case 'client.restore':
+    // Wave 40.3 — link the consent update through to the client detail page.
+    case 'client.consent.update':
       return {
         href: `/clients/${row.refId}`,
         label: 'Client',
