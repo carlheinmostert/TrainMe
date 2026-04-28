@@ -225,6 +225,60 @@
     </li>
   </ul>
 
+  <h2>E &middot; Portal &mdash; per-viewer-TZ rendering</h2>
+  <ul class="checklist">
+    <li data-num="14" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&check;</button><button class="fail" type="button" aria-label="Fail 14">&times;</button></div>
+      <span class="num">14.</span>
+      <span class="text">Audit page row timestamps render in the practitioner&apos;s browser-local TZ.</span>
+      <ol class="steps">
+        <li data-sub="14.1">Open <code>https://manage.homefit.studio/audit</code> on a Mac whose System Settings &rarr; Date &amp; Time TZ is set to <strong>Africa/Johannesburg</strong> (SAST, UTC+2). Sign in.</li>
+        <li data-sub="14.2">Find a recent <code>plan.publish</code> row whose timestamp you can cross-check against your iPhone clock (publish a plan now if needed; the publish toast on the iPhone shows the exact send-time).</li>
+        <li data-sub="14.3">The Date column for that row reads in <strong>SAST wall time</strong> &mdash; matches the iPhone clock to within a minute. Format is "DD Mon YYYY, HH:MM" (e.g. <code>29 Apr 2026, 14:32</code>) using the browser&apos;s default locale via <code>navigator.language</code>.</li>
+        <li data-sub="14.4">Open System Settings &rarr; Date &amp; Time, switch the TZ to <strong>America/Los_Angeles</strong>. Hard-reload the audit page (Cmd-Shift-R). The same row&apos;s Date column now reads in <strong>Pacific time</strong> (10h behind SAST). Numbers visibly different, calendar day may differ.</li>
+        <li data-sub="14.5">Switch the Mac TZ back to Africa/Johannesburg before continuing.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="15" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 15">&check;</button><button class="fail" type="button" aria-label="Fail 15">&times;</button></div>
+      <span class="num">15.</span>
+      <span class="text">Subtitles &quot;Prepaid via unlock at &hellip;&quot; and &quot;Used at &hellip;&quot; use the same browser-local TZ as the row date column.</span>
+      <ol class="steps">
+        <li data-sub="15.1">Find a <code>plan.publish</code> row whose Description column carries the muted dim-grey <strong>&quot;Prepaid via unlock at {ts}&quot;</strong> subtitle (this requires a session that was unlocked + republished &mdash; reuse one from Wave 39 item 6, or trigger fresh: unlock a locked session, edit, publish).</li>
+        <li data-sub="15.2">Read the subtitle&apos;s timestamp. Read the Date column timestamp on the matching <code>credit.consumption</code> &middot; <code>unlock_plan_for_edit</code> row. <strong>They should be the SAME wall-clock time</strong> (they describe the same DB row).</li>
+        <li data-sub="15.3">On that consumption row, the Description column carries the &quot;Used at {ts}&quot; subtitle. That timestamp should match the publish row&apos;s Date column (also same wall clock). All four cross-references agree within seconds.</li>
+        <li data-sub="15.4">All four timestamps (two row dates + two subtitles) render in the same TZ &mdash; SAST in this test &mdash; not a mix of UTC + local.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="16" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 16">&check;</button><button class="fail" type="button" aria-label="Fail 16">&times;</button></div>
+      <span class="num">16.</span>
+      <span class="text">Pre-hydration / SSR fallback shows UTC briefly without flashing junk.</span>
+      <ol class="steps">
+        <li data-sub="16.1">Hard-reload the audit page (Cmd-Shift-R). Watch the Date column on row 1 closely.</li>
+        <li data-sub="16.2">For one frame after the HTML lands, the timestamp reads in <strong>UTC</strong> (en-ZA medium / short, no TZ-offset adjustment). Within a single frame after hydration, it swaps to browser-local TZ (SAST in this test).</li>
+        <li data-sub="16.3">No flash of empty / NaN / "Invalid Date" text. The transition is from one valid timestamp to another. Informational check &mdash; pre-hydration window is typically too fast to see; if you can&apos;t catch it, mark pass.</li>
+        <li data-sub="16.4">View source on the audit page (right-click &rarr; View Page Source). The HTML body contains the UTC-pinned strings (server-rendered). Confirms the SSR fallback path uses the same formatter.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="17" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 17">&check;</button><button class="fail" type="button" aria-label="Fail 17">&times;</button></div>
+      <span class="num">17.</span>
+      <span class="text">No regressions on the audit page &mdash; filters, kind chips, links, pagination, CSV export still work.</span>
+      <ol class="steps">
+        <li data-sub="17.1">Open the audit filter bar. Select a kind filter (e.g. <strong>Plan publish</strong>). Page reloads, only publish rows remain. Date column still renders in browser-local TZ.</li>
+        <li data-sub="17.2">Apply a date-range filter (from / to). Server-side filter still applies on UTC instants &mdash; no off-by-one-day bug from the client TZ change.</li>
+        <li data-sub="17.3">Click the CSV export button. Download succeeds; CSV opens in a spreadsheet. The TS column in the CSV is unchanged from before this wave (it&apos;s a server-side concern, not the new client component).</li>
+        <li data-sub="17.4">Click the Player link on a <code>plan.publish</code> row &mdash; opens session.homefit.studio in a new tab. Click the Client link on a <code>client.create</code> row &mdash; navigates to <code>/clients/{id}</code>.</li>
+        <li data-sub="17.5">Pagination prev / next buttons work; offset is preserved in the URL.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
   <div class="oos">
     <h3>Out of scope &mdash; reminder</h3>
     <ul>
