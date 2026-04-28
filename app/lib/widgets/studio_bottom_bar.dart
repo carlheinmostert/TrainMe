@@ -35,8 +35,10 @@ class StudioBottomBar extends StatelessWidget {
   final String clientName;
 
   final VoidCallback onBack;
+  final VoidCallback onImport;
   final VoidCallback onPreview;
   final VoidCallback onPublish;
+  final VoidCallback onShare;
   final VoidCallback onPublishLockedTap;
   final VoidCallback onUnlockTap;
   final VoidCallback onShowPublishError;
@@ -50,8 +52,10 @@ class StudioBottomBar extends StatelessWidget {
     required this.publishError,
     required this.clientName,
     required this.onBack,
+    required this.onImport,
     required this.onPreview,
     required this.onPublish,
+    required this.onShare,
     required this.onPublishLockedTap,
     required this.onUnlockTap,
     required this.onShowPublishError,
@@ -196,32 +200,34 @@ class StudioBottomBar extends StatelessWidget {
     final previewActive = hasExercises;
     final hasPublishError = publishError != null && !isPublishing;
     final publishActive = canPublish || hasPublishError;
+    final shareActive = session.isPublished;
 
-    final children = <Widget>[
+    // Wave 38.1 hotfix — restore the original 4-action workflow chain
+    // (Import ▸ Preview ▸ Publish ▸ Share) with state-aware coral
+    // triangles between each action. Center-aligned. Back stays left.
+    // When the plan is locked, the Publish slot is replaced by the
+    // Unlock pill which floats right-aligned (Carl's mockup spec —
+    // Unlock is the ONLY thing on the right; everything else centers).
+    //
+    // Triangle dim rule: a triangle FEEDING INTO a dim icon is also
+    // dim, creating a "chain" read of the workflow gate. Mirrors the
+    // pre-W38 `StudioToolbar` semantics.
+    final centerGroup = <Widget>[
       _ToolbarIconButton(
-        icon: Icons.arrow_back_rounded,
+        icon: Icons.photo_library_outlined,
         active: true,
-        onTap: onBack,
-        tooltip: 'Back to sessions',
+        onTap: onImport,
+        tooltip: 'Import from library',
       ),
-      if (isPlanLocked) ...[
-        _ToolbarIconButton(
-          icon: Icons.slideshow_outlined,
-          active: previewActive,
-          onTap: previewActive ? onPreview : null,
-          tooltip: 'Preview plan',
-        ),
-        const Spacer(),
-        _UnlockPill(onTap: onUnlockTap),
-      ] else ...[
-        const Spacer(),
-        _ToolbarIconButton(
-          icon: Icons.slideshow_outlined,
-          active: previewActive,
-          onTap: previewActive ? onPreview : null,
-          tooltip: 'Preview plan',
-        ),
-        const SizedBox(width: 8),
+      _Triangle(dim: !previewActive),
+      _ToolbarIconButton(
+        icon: Icons.slideshow_outlined,
+        active: previewActive,
+        onTap: previewActive ? onPreview : null,
+        tooltip: 'Preview plan',
+      ),
+      if (!isPlanLocked) ...[
+        _Triangle(dim: !publishActive),
         _PublishToolbarButton(
           session: session,
           isPublishing: isPublishing,
@@ -230,12 +236,20 @@ class StudioBottomBar extends StatelessWidget {
           onTap: publishActive
               ? (hasPublishError ? onShowPublishError : onPublish)
               : null,
-          // Wave 32 mid-grace lock state still shows publish; only the
-          // post-grace lock surfaces the unlock pill. (See
-          // `_isPlanLocked` getter on the screen.)
           onLockedTap: onPublishLockedTap,
         ),
-      ],
+        _Triangle(dim: !shareActive),
+      ] else
+        // Locked: Publish slot is replaced by Unlock (right-aligned).
+        // Share still chains off Preview directly so the visual workflow
+        // ends with Share at the centre group.
+        _Triangle(dim: !shareActive),
+      _ToolbarIconButton(
+        icon: Icons.ios_share,
+        active: shareActive,
+        onTap: shareActive ? onShare : null,
+        tooltip: 'Share link',
+      ),
     ];
 
     return Container(
@@ -243,7 +257,18 @@ class StudioBottomBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
-        children: children,
+        children: [
+          _ToolbarIconButton(
+            icon: Icons.arrow_back_rounded,
+            active: true,
+            onTap: onBack,
+            tooltip: 'Back to sessions',
+          ),
+          const Spacer(),
+          ...centerGroup,
+          const Spacer(),
+          if (isPlanLocked) _UnlockPill(onTap: onUnlockTap),
+        ],
       ),
     );
   }
@@ -477,6 +502,56 @@ class _PublishToolbarButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Small right-pointing coral triangle that sits between toolbar
+/// icons. The chain reads "Import ▸ Preview ▸ Publish ▸ Share". A
+/// triangle FEEDING INTO a dim icon also dims, so the visual workflow
+/// gate is obvious — e.g. Publish→Share triangle dim while the session
+/// is unpublished. Ported from the retired pre-W38 `StudioToolbar` so
+/// the bottom bar carries the same workflow-cue grammar.
+class _Triangle extends StatelessWidget {
+  final bool dim;
+
+  const _Triangle({required this.dim});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 14,
+      height: 44,
+      child: CustomPaint(
+        painter: _TrianglePainter(dim: dim),
+      ),
+    );
+  }
+}
+
+class _TrianglePainter extends CustomPainter {
+  final bool dim;
+
+  _TrianglePainter({required this.dim});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = AppColors.primary
+          .withValues(alpha: dim ? 0.3 : 0.9)
+      ..style = PaintingStyle.fill;
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    const halfWidth = 2.5;
+    const halfHeight = 3.0;
+    final path = Path()
+      ..moveTo(cx - halfWidth, cy - halfHeight)
+      ..lineTo(cx - halfWidth, cy + halfHeight)
+      ..lineTo(cx + halfWidth, cy)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrianglePainter old) => old.dim != dim;
 }
 
 /// Coral-bordered, coral-tinted "🔒 Unlock (1 credit)" stadium pill.

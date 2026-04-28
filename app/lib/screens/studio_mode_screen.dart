@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
@@ -968,8 +969,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                   publishError: _publishError,
                   clientName: _session.clientName,
                   onBack: () => Navigator.of(context).pop(),
+                  onImport: () => _importFromLibrary(),
                   onPreview: _openPreview,
                   onPublish: _publishFromToolbar,
+                  onShare: _shareFromToolbar,
                   // Wave 30 — tapping Publish on a still-mid-grace plan
                   // routes to the unlock sheet (two-tap UX so the
                   // practitioner sees the unlocked state before the
@@ -1951,10 +1954,29 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       );
   }
 
-  // Wave 38 — `_shareFromToolbar` retired. The new bottom toolbar
-  // (back / preview / publish) no longer has a share action; share
-  // affordance is reached from the published-session card via the
-  // dedicated `NetworkShareSheet` in W30.
+  // Wave 38.1 hotfix — Import + Share restored to the bottom toolbar
+  // alongside Preview + Publish; Carl's mockup spec was missing these
+  // two slots in the W38 first cut. Share fires the iOS share sheet
+  // with the published plan URL.
+  Future<void> _shareFromToolbar() async {
+    final url = _session.planUrl;
+    if (url == null) return;
+    try {
+      final box = context.findRenderObject() as RenderBox?;
+      await Share.share(
+        url,
+        sharePositionOrigin: box != null
+            ? box.localToGlobal(Offset.zero) & box.size
+            : const Rect.fromLTWH(0, 0, 100, 100),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Share failed: $e')),
+        );
+      }
+    }
+  }
 
   void _openPreview() {
     HapticFeedback.selectionClick();
