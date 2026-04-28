@@ -612,7 +612,12 @@ class UploadService {
         'exercise_count': nonRestCount,
         // IMPORTANT: do NOT bump version here — only after consume_credit.
         'version': session.version,
-        'created_at': session.createdAt.toIso8601String(),
+        // Wave 39.4 — emit UTC. Postgres timestamptz columns interpret
+        // any naked-offset ISO string in the connection's TZ; the audit
+        // trail and dashboard timestamps both read these as authored,
+        // so non-UTC writes drift across viewers. Always toUtc() before
+        // toIso8601String().
+        'created_at': session.createdAt.toUtc().toIso8601String(),
         'practice_id': practiceId,
         // Wave 27 — NULL means "use the surface default" on the cloud side
         // too; the reset button explicitly writes null so a re-publish
@@ -678,8 +683,9 @@ class UploadService {
         'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
         'exercise_count': nonRestCount,
         'version': newVersion,
-        'created_at': session.createdAt.toIso8601String(),
-        'sent_at': DateTime.now().toIso8601String(),
+        // Wave 39.4 — UTC wire format (see comment in upsertPlan above).
+        'created_at': session.createdAt.toUtc().toIso8601String(),
+        'sent_at': DateTime.now().toUtc().toIso8601String(),
         'practice_id': practiceId,
         'crossfade_lead_ms': session.crossfadeLeadMs,
         'crossfade_fade_ms': session.crossfadeFadeMs,
@@ -853,7 +859,9 @@ class UploadService {
         'version': newVersion,
         'exercise_count': nonRestCount,
         'credits_charged': creditsToCharge,
-        'issued_at': DateTime.now().toIso8601String(),
+        // Wave 39.4 — UTC wire format. Audit page renders this in the
+        // viewer's timezone; non-UTC writes drift by host TZ offset.
+        'issued_at': DateTime.now().toUtc().toIso8601String(),
       };
       if (prepaidUnlockAt is String && prepaidUnlockAt.isNotEmpty) {
         issuanceRow['prepaid_unlock_at'] = prepaidUnlockAt;

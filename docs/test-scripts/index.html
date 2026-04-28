@@ -150,7 +150,7 @@
   <div class="wrap">
     <div class="kicker">homefit.studio · device QA</div>
     <h1>Test scripts</h1>
-    <p class="lede">Active QA for 6 waves (Wave 39 fresh + 5 carryover from older work). Older waves were superseded by later work and have been moved out of the active queue (see Past waves below).</p>
+    <p class="lede">Active QA for 6 waves (Wave 39.4 hotfix fresh + 5 carryover from older work). Wave 39 has been demoted to Past waves now that the hotfix slice supersedes it. Older waves were superseded by later work and have been moved out of the active queue (see Past waves below).</p>
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
@@ -165,11 +165,11 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
-        <a href="./2026-04-28-wave39-bundle.html">
+        <a href="./2026-04-29-wave39.4-hotfix.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 39 — Sticky defaults + photo refresh + audit prepaid + plan opens</div>
-              <div class="scope">Four mixed-surface fixes. <strong>(A)</strong> Sticky per-client defaults (Wave 8) finally propagate forward on the next capture. Synchronous in-memory overlay layered on the SQLite cache &mdash; every override writes to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">StickyDefaults._memoryOverlay</code> before the async pending-op queue spins; the next capture&apos;s prefill consults the overlay first. Edit-then-capture inherits the override even if SQLite hasn&apos;t flushed. <strong>(B)</strong> Studio&apos;s conversion-event listener used to drop events whose row wasn&apos;t in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_session.exercises</code> yet &mdash; the typical race for a fast photo conversion captured as the LAST exercise. Listener now force-refreshes the session from SQLite when it can&apos;t find the row, so spinners clear in-place. <strong>(C)</strong> Audit page surfaces unlock &harr; publish prepayment relationship: new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plan_issuances.prepaid_unlock_at</code> column, threaded through <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">list_practice_audit</code>, rendered as &quot;Prepaid via unlock at &hellip;&quot; / &quot;Used at &hellip;&quot; / &quot;Awaiting republish&quot; subtitles. <strong>(D)</strong> Audit page logs every plan-open as a sage <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plan.opened</code> event with NULL actor rendered as &quot;Client&quot;. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">record_plan_opened</code> RPC inserts the audit row alongside the existing first/last_opened_at stamps. Schema migration: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">supabase/schema_wave39_audit_expansion.sql</code>. <strong>9 items in 4 sections (A: 3 · B: 2 · C: 2 · D: 2).</strong></div>
+              <div class="name">1 · Wave 39.4 — Mobile hotfix (sticky pacing + photo refresh + reachability + UTC timestamps)</div>
+              <div class="scope">Five mobile fixes from Wave 39 device-QA feedback. <strong>(A)</strong> Sticky per-client defaults extend to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">video_reps_per_loop</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">inter_set_rest_seconds</code>. <strong>(B)</strong> Photo last-exercise refresh proper fix: conversion listener now unconditionally reloads the session from SQLite on every <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">done</code> event and merges the conversion payload over the matching row, so spinners clear in-place even when the parent SessionShellScreen&apos;s async refresh races us. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">didUpdateWidget</code> gained an adopt-parent guard. <strong>(C)</strong> Reachability drop-pill latch persists until the practitioner taps the pill again (or backgrounds the app); card taps + upward scrolls no longer reset it. <strong>(D)</strong> When latched, dropped list content is clipped above the toolbar&apos;s top edge (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">ClipRect</code> wrap on the translating list). <strong>(E)</strong> Dart wire timestamps emit UTC at every Postgres-bound site in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">upload_service.dart</code> (4 sites: 2x <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plans.created_at</code>, 1x <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plans.sent_at</code>, 1x <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plan_issuances.issued_at</code>). <strong>13 items in 4 sections (A: 3 &middot; B: 3 &middot; C: 5 &middot; D: 2).</strong></div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -246,6 +246,20 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-04-28-wave39-bundle.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 39 — Sticky defaults + photo refresh + audit prepaid + plan opens (mobile follow-ups rolled into Wave 39.4)</div>
+              <div class="date">2026-04-28</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Complete</span>
+              <div class="results" id="wave39-results">Loading&hellip;</div>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-04-28-wave38-bundle.html">
           <div class="row">

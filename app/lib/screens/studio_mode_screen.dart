@@ -215,7 +215,66 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   void didUpdateWidget(covariant StudioModeScreen old) {
     super.didUpdateWidget(old);
     if (old.session != widget.session) {
-      setState(() => _session = widget.session);
+      // Wave 39.4 — guard against parent re-push regressing fresher
+      // local state. SessionShellScreen runs `_refreshSession` async +
+      // unawaited on capture events; if a stale snapshot resolves AFTER
+      // the conversion listener has already applied a `done` event to
+      // our local copy, the parent's old in-memory row would clobber
+      // the fresh status. Adopt the parent push only when it carries
+      // strictly more information than what we already have:
+      //   - more exercises (a capture-add) wins,
+      //   - same exercise count but at least one row whose
+      //     conversionStatus is fresher (done > converting > pending) wins.
+      // Otherwise we trust the local state (the listener has
+      // self-healed it).
+      if (_shouldAdoptParentSession(widget.session)) {
+        setState(() => _session = widget.session);
+      }
+    }
+  }
+
+  /// Wave 39.4 — returns true when [next] (parent push) is strictly
+  /// fresher than `_session`, false when it would regress local state.
+  ///
+  /// "Fresher" rules, in priority order:
+  ///   1. More exercises in next than local → adopt (capture added a row).
+  ///   2. Fewer exercises in next than local → adopt (delete propagated).
+  ///   3. Same count but any row in next has a fresher conversion
+  ///      status than the matching local row → adopt.
+  ///   4. Otherwise, keep local (the conversion listener has the freshest
+  ///      conversion state; parent's stale refresh would regress it).
+  bool _shouldAdoptParentSession(Session next) {
+    if (next.exercises.length != _session.exercises.length) return true;
+    final localById = <String, ExerciseCapture>{
+      for (final e in _session.exercises) e.id: e,
+    };
+    for (final cand in next.exercises) {
+      final local = localById[cand.id];
+      if (local == null) return true; // a different row id appeared
+      if (_conversionRank(cand.conversionStatus) >
+          _conversionRank(local.conversionStatus)) {
+        return true;
+      }
+      if (_conversionRank(cand.conversionStatus) <
+          _conversionRank(local.conversionStatus)) {
+        return false; // parent is older, keep local
+      }
+    }
+    // Conversion-status tie. Adopt to pick up other field edits.
+    return true;
+  }
+
+  /// Maps [ConversionStatus] to a freshness rank — higher = newer.
+  int _conversionRank(ConversionStatus status) {
+    switch (status) {
+      case ConversionStatus.pending:
+        return 0;
+      case ConversionStatus.converting:
+        return 1;
+      case ConversionStatus.failed:
+        return 2;
+      case ConversionStatus.done:
+        return 3;
     }
   }
 
@@ -244,15 +303,22 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   }
 
   /// Wave 39 (Item 5) — single scroll listener wired to
-  /// `_scrollController`. Two responsibilities:
+  /// `_scrollController`. Single responsibility now:
   ///
-  ///   1. Gate the pill's visibility — show it only when the list has
-  ///      something to scroll. `maxScrollExtent <= 0` means everything
-  ///      already fits; reachability is irrelevant.
-  ///   2. Detect upward-scroll reset of an active latch. While
-  ///      latched, any drop in `pixels` greater than 20pt unlatches.
-  ///      The 20pt threshold filters out tiny physics-driven settle
-  ///      jitter without missing a deliberate flick.
+  ///   - Gate the pill's visibility — show it only when the list has
+  ///     something to scroll. `maxScrollExtent <= 0` means everything
+  ///     already fits; reachability is irrelevant.
+  ///
+  /// Wave 39.4 — the upward-scroll-resets-latch branch was removed.
+  /// QA feedback: the latch should persist until the practitioner
+  /// taps the pill again. Scrolling around the dropped list shouldn't
+  /// snap it back. Card taps don't reset either (M3 also drops
+  /// `_resetReachability` from the card onTap path). Latch state
+  /// changes only via:
+  ///   - `_toggleReachability` (pill tap),
+  ///   - `didChangeAppLifecycleState` (resume from background — we
+  ///      still treat resume as a clean-state reset, since the user's
+  ///      mental model is that backgrounding "ends" the latch).
   void _onReachabilityScroll() {
     if (!_scrollController.hasClients) return;
     final pos = _scrollController.position;
@@ -260,19 +326,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     if (canScroll != _canShowReachabilityPill) {
       setState(() => _canShowReachabilityPill = canScroll);
     }
-    final px = pos.pixels;
-    if (_isReachabilityLatched && (_lastReachabilityScrollPx - px) > 20) {
-      setState(() => _isReachabilityLatched = false);
-    }
-    _lastReachabilityScrollPx = px;
-  }
-
-  /// Wave 39 (Item 5) — reset the latch from any "user interacted with
-  /// the list" path: a card tap. Idempotent so call sites can fire it
-  /// freely.
-  void _resetReachability() {
-    if (!_isReachabilityLatched) return;
-    setState(() => _isReachabilityLatched = false);
+    _lastReachabilityScrollPx = pos.pixels;
   }
 
   /// Wave 39 (Item 5) — toggle the reachability latch from a pill tap.
@@ -354,6 +408,21 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     _conversionSub =
         _conversionService.onConversionUpdate.listen((updated) {
       if (!mounted) return;
+      // Wave 39.4 — the Wave 39 force-refresh-on-listener-miss didn't
+      // hold on device because the parent SessionShellScreen's
+      // unawaited `_refreshSession` could resolve AFTER our listener
+      // applied the `done` payload, regressing the row to the snapshot
+      // it had when the parent originally read SQLite. Two-part fix:
+      //   1. Apply the conversion payload to the in-memory copy
+      //      synchronously (immediate spinner clear).
+      //   2. ALSO kick off an unconditional SQLite reload in the
+      //      background, then merge the conversion event's payload over
+      //      the matching exercise row. This way SQLite is the source
+      //      of truth, parent re-pushes can't regress us, and the
+      //      conversion event always wins for the affected row.
+      // Combined with `didUpdateWidget`'s adopt-parent guard, this is
+      // self-healing against any race between the listener and the
+      // parent's refresh.
       final exercises = List<ExerciseCapture>.from(_session.exercises);
       final idx = exercises.indexWhere((e) => e.id == updated.id);
       if (idx >= 0) {
@@ -361,20 +430,30 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           exercises[idx] = updated;
           _pushSession(_session.copyWith(exercises: exercises));
         });
-        return;
       }
-      // Wave 39 — when the listener can't find the row in our in-memory
-      // session, the most likely cause is a freshly-captured exercise
-      // whose `_refreshSession` hasn't propagated yet (typical for fast
-      // photo conversions captured as the LAST exercise: capture-mode
-      // queues conversion + fires `_refreshSession` in parallel; on a
-      // ~500ms photo pipeline both `converting` AND `done` emits can
-      // arrive before the refresh resolves, leaving the in-memory row
-      // stuck on `converting` until the user navigates away and back).
-      // Force a refresh so SQLite (which already has the latest state
-      // since `_storage.saveExercise(done)` ran inside the conversion
-      // service before the emit) becomes the source of truth.
-      unawaited(_refreshSession());
+      unawaited(_reconcileFromStorage(updated));
+    });
+  }
+
+  /// Wave 39.4 — read the canonical session from SQLite, then merge
+  /// [authoritative] over the matching exercise row before pushing.
+  /// Used by the conversion listener so a `done` event is guaranteed
+  /// to land regardless of any parent-driven re-push race.
+  Future<void> _reconcileFromStorage(ExerciseCapture authoritative) async {
+    final fresh = await widget.storage.getSession(_session.id);
+    if (fresh == null || !mounted) return;
+    final merged = List<ExerciseCapture>.from(fresh.exercises);
+    final i = merged.indexWhere((e) => e.id == authoritative.id);
+    if (i >= 0) {
+      merged[i] = authoritative;
+    } else {
+      // Row not in SQLite yet (extremely rare — saveExercise(done) runs
+      // before the emit in conversion_service.dart). Fall through to
+      // the SQLite snapshot as-is; the next event will reconcile.
+    }
+    if (!mounted) return;
+    setState(() {
+      _pushSession(fresh.copyWith(exercises: merged));
     });
   }
 
@@ -1156,23 +1235,33 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           _recomputeReachabilityVisibility();
         });
 
+        // Wave 39.4 — wrap the translating list in a ClipRect bounded
+        // to the body's available height so dropped content can't bleed
+        // past the toolbar's top edge. Without this, the latched list
+        // leaks downward over the StudioBottomBar (the body's Expanded
+        // box doesn't auto-clip Transform.translate output, and the
+        // outer Stack uses Clip.none for the pill).
+        //
+        // The pill sits OUTSIDE the ClipRect so it stays visible while
+        // anchored bottom-right.
         return Stack(
           clipBehavior: Clip.none,
           children: [
-            // The list — translated when latched.
-            TweenAnimationBuilder<double>(
-              tween: Tween<double>(begin: dy, end: dy),
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOut,
-              builder: (context, value, child) {
-                return Transform.translate(
-                  offset: Offset(0, value),
-                  child: child,
-                );
-              },
-              child: Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: _buildExerciseList(),
+            ClipRect(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: dy, end: dy),
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                builder: (context, value, child) {
+                  return Transform.translate(
+                    offset: Offset(0, value),
+                    child: child,
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: _buildExerciseList(),
+                ),
               ),
             ),
             // Reachability pill — bottom-right, ~12pt clearance above
@@ -1383,11 +1472,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         // default for this client; fall back to 5s".
         stickyCustomDurationPerRep: _stickyCustomDurationPerRep,
         onTap: () {
-          // Wave 39 (Item 5) — tap on any card resets the reachability
-          // latch BEFORE the expand toggle fires, so the list slides
-          // back up as the practitioner engages with the card they
-          // just dragged into thumb-zone.
-          _resetReachability();
+          // Wave 39.4 — card tap no longer resets the reachability
+          // latch. The latch persists until the practitioner taps the
+          // pill again (or backgrounds the app). Engaging with a card
+          // while the list is dropped is the WHOLE POINT of dropping
+          // it; resetting on tap defeated that affordance.
           setState(() {
             _expandedIndex =
                 _expandedIndex == dataIndex ? null : dataIndex;
