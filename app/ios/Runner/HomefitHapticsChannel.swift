@@ -128,6 +128,13 @@ class HomefitHapticsChannel {
         }
 
         do {
+            // Always re-start the engine before each play. CHHapticEngine
+            // auto-stops after brief inactivity (~1-2s) to conserve power.
+            // start() is idempotent — no-op if already running, restarts if
+            // dormant. Without this, the second+ haptic in a session reports
+            // success but the Taptic Engine hardware doesn't fire.
+            try engine.start()
+
             let event = CHHapticEvent(
                 eventType: .hapticTransient,
                 parameters: [
