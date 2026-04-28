@@ -845,6 +845,24 @@ class ApiClient {
     }
   }
 
+  /// `rename_session(p_plan_id, p_new_title)` — Wave 38. Companion to
+  /// [renameClient] but for sessions (cloud table: `plans`). Practitioner-
+  /// driven inline rename on the SessionCard syncs through here. Membership-
+  /// checked SECURITY DEFINER, so the same `42501` / `P0002` shapes apply.
+  ///
+  /// Errors surface as [PostgrestException] for the caller (SyncService) to
+  /// classify. There's no UNIQUE on `plans.title` (duplicate titles are fine
+  /// across sessions in a practice), so no `23505` branch.
+  Future<void> renameSession({
+    required String planId,
+    required String newTitle,
+  }) async {
+    await _guardAuth(() => raw.rpc(
+          'rename_session',
+          params: {'p_plan_id': planId, 'p_new_title': newTitle},
+        ));
+  }
+
   /// `delete_client(p_client_id)` — soft-deletes the client and cascades
   /// a tombstone onto every plan owned by the client (same `deleted_at`
   /// timestamp so [restoreClient] can reverse it selectively).

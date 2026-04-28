@@ -513,6 +513,35 @@ class SyncService {
     return updated;
   }
 
+  /// Local-first session rename (Wave 38). Writes the new title into
+  /// SQLite's `sessions.title` column synchronously, queues a
+  /// `rename_session` op for cloud push. Returns `true` once the local
+  /// write committed; the cloud round-trip happens in the background
+  /// (or on next reconnect). Returns `false` if the session row is
+  /// missing locally — the caller (SessionCard inline edit) reverts the
+  /// optimistic UI in that case.
+  Future<bool> queueRenameSession({
+    required String planId,
+    required String newTitle,
+  }) async {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final trimmed = newTitle.trim();
+    final session = await _storage.getSession(planId);
+    if (session == null) return false;
+    final updated = session.copyWith(title: trimmed);
+    await _storage.saveSession(updated);
+    final op = PendingOp.renameSession(
+      opId: _uuid.v4(),
+      planId: planId,
+      newTitle: trimmed,
+      nowMs: nowMs,
+    );
+    await _storage.enqueuePendingOp(op);
+    await _refreshPendingCount();
+    unawaited(flush());
+    return true;
+  }
+
   /// Local-first delete. Soft-deletes the cached client row AND
   /// cascades a tombstone onto every local session that belongs to the
   /// client. Returns the cascade timestamp (epoch ms) which the caller
@@ -936,6 +965,16 @@ class SyncService {
         );
         await _markCachedClientClean(clientId);
         return true;
+
+      case PendingOpType.renameSession:
+        final planId = op.payload['plan_id'] as String?;
+        final newTitle = op.payload['new_title'] as String?;
+        if (planId == null || newTitle == null) return true;
+        await ApiClient.instance.renameSession(
+          planId: planId,
+          newTitle: newTitle,
+        );
+        return true;
     }
   }
 
@@ -1134,6 +1173,16 @@ class SyncService {
     // rows (schema_fix_delete_restore_idempotent.sql), so any thrown
     // error there is NOT a stale-op condition — let the normal retry
     // path handle it.
+
+    // rename_session raises PostgreSQL P0002 when the plan row has been
+    // deleted server-side after the rename was queued. Drop the op —
+    // there's no row to update.
+    if (type == PendingOpType.renameSession &&
+        e is PostgrestException &&
+        e.code == 'P0002') {
+      return true;
+    }
+
     return false;
   }
 }

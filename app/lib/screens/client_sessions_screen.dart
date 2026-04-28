@@ -719,6 +719,18 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
             isPublishing: _publishingIds.contains(session.id),
             onOpen: () => _openSession(session),
             onDelete: () => _deleteSession(session),
+            // Wave 38 — inline rename writes through SyncService.
+            // Reflect the new title in our in-memory list immediately
+            // so the rest of the row (dashed underline, version line)
+            // re-paints without a roundtrip.
+            onRenamed: (renamed) {
+              if (!mounted) return;
+              setState(() {
+                _sessions = _sessions
+                    .map((s) => s.id == renamed.id ? renamed : s)
+                    .toList(growable: false);
+              });
+            },
           );
         },
       ),
