@@ -60,10 +60,102 @@
     Three slices in one bundle. <strong>(A &middot; mobile)</strong> Camera goes first-class — coral camera icon replaces the library glyph in the Studio toolbar; library import slides into a viewfinder corner button; permanent hint copy under the shutter; slide-up-to-lock recording gesture; right-edge vertical lens pills; sized-up toolbar glyphs. <strong>(B &middot; portal)</strong> Top-bar nav links retired (the dashboard tiles ARE the menu); signed-in email chip + practice-switcher chip cluster on the right of the header; dashboard audit tile renders the 5 most-recent events with sage chips and per-viewer-TZ timestamps; audit kind legend wraps inline (1-2 lines instead of 5); avatar glyph on every <code>/clients</code> row + session-icon parity inside <code>/clients/[id]</code> matching mobile SessionCard; <code>/clients</code> drill-in routing bug fixed (cookie-fallback added to <code>/clients/[id]</code>). <strong>(C &middot; settings + audit)</strong> Configurable system defaults under app Settings + audit Actor column always populated + dedicated Client column.
   </p>
 
-  <h2>A &middot; Mobile Camera (M1–M6)</h2>
-  <div class="placeholder">
-    Reserved for the parallel mobile agent. Items numbered 1–7 (or however many M1–M6 expands to). Once the mobile slice lands, replace this placeholder with the actual checklist.
-  </div>
+  <h2>A &middot; Mobile camera + Studio toolbar refresh</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">1.</span>
+      <span class="text">M1 &middot; Studio toolbar &mdash; Camera replaces Library as slot 1.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open any session in Studio. Look at the bottom toolbar's left-of-centre cluster.</li>
+        <li data-sub="1.2">Slot 1 is a <strong>coral video-camera glyph</strong> (filled-camera-with-lens shape). It replaces the photo-library stack icon that used to live there.</li>
+        <li data-sub="1.3">Tap the camera icon. The shell pages right to Capture mode (same animation as swiping right on the Studio canvas). No bottom-sheet, no modal.</li>
+        <li data-sub="1.4">Swipe back to Studio. Confirm the workflow chain reads <code>Back &middot; Camera &rarr; Preview &rarr; Publish/Unlock &rarr; Share</code> with coral triangles between each step. No second slot for "Library".</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">2.</span>
+      <span class="text">M2 &middot; Library import inside Camera &mdash; bottom-left round button opens iOS multi-select picker.</span>
+      <ol class="steps">
+        <li data-sub="2.1">In Capture mode, look at the bottom-left of the viewfinder (~16pt from screen edges). There's a 44&times;44pt round translucent-black button with a photo-library glyph (rectangle + circle + mountain).</li>
+        <li data-sub="2.2">It sits well below the peek box (which stays mid-left, mid-height). The two affordances don't overlap.</li>
+        <li data-sub="2.3">Tap the library button. The iOS multi-select photo picker opens (Photos &rarr; multi-select sheet, NOT a single-pick page).</li>
+        <li data-sub="2.4">Pick 2 or 3 photos. Confirm.</li>
+        <li data-sub="2.5">Each picked photo fires the SAME peek-box animation that a fresh capture does &mdash; one fly-in animation per photo, with a small stagger so they're visually distinct. The capture count badge increments by N.</li>
+        <li data-sub="2.6">Swipe to Studio. The N imported photos land as new exercise cards in the order they were picked. Each card initially shows a converting spinner; spinners settle to green checks within a few seconds (Wave 39.4 photo-refresh fix).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">3.</span>
+      <span class="text">M3 &middot; Permanent shutter hint &mdash; three states.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Open Capture mode on a fresh client (or reset the simulator's camera-hint flag if needed). Look at the caption directly under the shutter button.</li>
+        <li data-sub="3.2"><strong>Idle:</strong> reads <code>Tap for photo &middot; Hold for video &middot; Slide &uarr; to lock</code> at 55% opacity, 10.5pt Inter. The caption does NOT auto-fade after 3s &mdash; it remains visible indefinitely.</li>
+        <li data-sub="3.3">Press and hold the shutter (without releasing). Caption swaps to <code>Slide finger &uarr; onto &#x1F512; to lock</code>. Still 55% opacity.</li>
+        <li data-sub="3.4">Drag finger up onto the lock target (see item 4); release to snap locked. Caption swaps to <code>Tap &#x2B1B; to stop</code>.</li>
+        <li data-sub="3.5">Stop the recording. Caption returns to the idle copy.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">4.</span>
+      <span class="text">M4 &middot; Slide-up-to-lock recording gesture.</span>
+      <ol class="steps">
+        <li data-sub="4.1">In Capture mode, press and hold the shutter to start a video recording. Confirm the heavy-impact haptic + the existing per-second tick haptics fire (Wave 8 behaviour preserved).</li>
+        <li data-sub="4.2">Within ~200ms of recording start, a <strong>56pt round lock target</strong> fades in directly above the shutter (~80pt centre-to-centre gap). It has a translucent-black background, white border, and a lock-outline glyph.</li>
+        <li data-sub="4.3">Between shutter and lock target, a thin 4pt-wide vertical drag-track gradient is visible.</li>
+        <li data-sub="4.4">While keeping the finger pressed, slide upward onto the lock target. The lock target's background tints coral as your finger crosses the threshold.</li>
+        <li data-sub="4.5">Release the finger ON the lock target. A heavy-impact haptic fires. The lock target turns fully coral. The shutter inner morphs from a red rounded-square to a small WHITE square. Recording continues without your finger pressed.</li>
+        <li data-sub="4.6">Per-second tick haptics keep firing &mdash; recording is genuinely live in hands-free mode.</li>
+        <li data-sub="4.7">Tap the white-square shutter inner. Recording stops cleanly &mdash; light-impact haptic fires, the new exercise card lands in Studio, peek box animates.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">5.</span>
+      <span class="text">M4 fallback &middot; release without locking still stops recording (no regressions).</span>
+      <ol class="steps">
+        <li data-sub="5.1">Press and hold the shutter to start recording. Do NOT drag up.</li>
+        <li data-sub="5.2">Release the finger straight down. Recording stops as it always did &mdash; light haptic, card appears in Studio.</li>
+        <li data-sub="5.3">Repeat: press and hold, drag finger up halfway toward the lock target (NOT all the way), then release while still below the threshold. Recording stops &mdash; the partial drag does not snap-lock.</li>
+        <li data-sub="5.4">Repeat: press and hold, drag onto lock target so it tints coral, then drag back down past the threshold and release. Recording stops normally &mdash; the lock target releases its highlight when the finger leaves the corridor.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">6.</span>
+      <span class="text">M5 &middot; Right-edge vertical lens pills.</span>
+      <ol class="steps">
+        <li data-sub="6.1">In Capture mode (idle, not recording), look at the right edge of the viewfinder, vertically centred. The lens pills <code>.5 / 1&times; / 2 / 3</code> stack as a vertical column. 44&times;44pt round pills with 8pt gaps between.</li>
+        <li data-sub="6.2">The active pill (default <code>1&times;</code>) is inverted &mdash; white background, black text. Inactive pills are translucent black with a hairline white border, white text.</li>
+        <li data-sub="6.3">Tap <code>2</code>. The viewfinder zooms to 2x and the active highlight shifts to the <code>2</code> pill.</li>
+        <li data-sub="6.4">Pinch-zoom on the viewfinder. Zoom level ramps continuously; the active pill highlight tracks within ~15% of each pill's value.</li>
+        <li data-sub="6.5">Start a recording. The lens pills hide while recording is in flight (mid-clip lens switch causes visible jumps). Stop recording &mdash; pills reappear.</li>
+        <li data-sub="6.6">Confirm the lens pills do NOT overlap the lock-drag corridor (centre-vertical of the screen). The slide-up gesture in item 4 should not bump into them.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&times;</button></div>
+      <span class="num">7.</span>
+      <span class="text">M6 &middot; Toolbar glyph swap + sizing bump.</span>
+      <ol class="steps">
+        <li data-sub="7.1">In Studio, study the bottom toolbar. Compare against the Wave 39.4 build (or earlier screenshots) if available.</li>
+        <li data-sub="7.2">Each icon container is now <strong>48&times;48pt</strong> (up from 44). The icons themselves are <strong>28pt</strong> (up from 24). The toolbar reads with more presence; thumb-zone parity with the camera shutter affordance.</li>
+        <li data-sub="7.3">Glyphs are correct: Back arrow (left edge, white) &middot; Camera-with-lens (coral, slot 1) &middot; Play-triangle (Preview, white when active) &middot; Cloud-upload-arrow OR Lock-outline (Publish vs Unlock state) &middot; Share-network (3 connected dots, slot 4).</li>
+        <li data-sub="7.4">Coral triangles between toolbar slots are correspondingly larger (10pt wide &times; 14pt tall, up from 8&times;12). Dim-state triangles (workflow gate not yet reached) read at the same proportionally-bumped size.</li>
+        <li data-sub="7.5">Tap each toolbar icon. The selection-click haptic fires; routing works: Back &rarr; pop, Camera &rarr; Capture mode, Preview &rarr; preview screen, Publish &rarr; publish flow, Share &rarr; iOS share sheet.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
 
   <h2>B &middot; Portal hygiene (P1–P8)</h2>
   <ul class="checklist">

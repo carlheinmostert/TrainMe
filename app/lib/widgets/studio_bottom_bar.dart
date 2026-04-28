@@ -35,7 +35,11 @@ class StudioBottomBar extends StatelessWidget {
   final String clientName;
 
   final VoidCallback onBack;
-  final VoidCallback onImport;
+  /// Wave 40 (M1) — first toolbar slot is now Camera (replaces the
+  /// retired Library slot). Tapping fires the same callback as the
+  /// shell's swipe-left-to-Capture pull tab. Library import has moved
+  /// inside the camera viewfinder (M2).
+  final VoidCallback onCameraTap;
   final VoidCallback onPreview;
   final VoidCallback onPublish;
   final VoidCallback onShare;
@@ -52,7 +56,7 @@ class StudioBottomBar extends StatelessWidget {
     required this.publishError,
     required this.clientName,
     required this.onBack,
-    required this.onImport,
+    required this.onCameraTap,
     required this.onPreview,
     required this.onPublish,
     required this.onShare,
@@ -213,11 +217,15 @@ class StudioBottomBar extends StatelessWidget {
     // dim, creating a "chain" read of the workflow gate. Mirrors the
     // pre-W38 `StudioToolbar` semantics.
     final centerGroup = <Widget>[
+      // Wave 40 (M1) — Camera replaces Library as the first slot. Tap
+      // = same as swipe-left to Capture mode (no modal). Library import
+      // survives inside the camera viewfinder (see M2).
       _ToolbarIconButton(
-        icon: Icons.photo_library_outlined,
+        icon: Icons.videocam_outlined,
         active: true,
-        onTap: onImport,
-        tooltip: 'Import from library',
+        onTap: onCameraTap,
+        tooltip: 'Open camera',
+        accent: true,
       ),
       _Triangle(dim: !previewActive),
       _ToolbarIconButton(
@@ -265,7 +273,7 @@ class StudioBottomBar extends StatelessWidget {
     // pill anchors right (when present), independent of the centre's
     // intrinsic width.
     return Container(
-      height: 44,
+      height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Stack(
         children: [
@@ -418,8 +426,8 @@ class _ToolbarIconButton extends StatelessWidget {
             ? AppColors.textOnDark
             : AppColors.textOnDark.withValues(alpha: 0.45);
     return SizedBox(
-      width: 44,
-      height: 44,
+      width: 48,
+      height: 48,
       child: IconButton(
         onPressed: onTap == null
             ? null
@@ -428,9 +436,9 @@ class _ToolbarIconButton extends StatelessWidget {
                 onTap!();
               },
         padding: EdgeInsets.zero,
-        icon: Icon(icon, color: color, size: 24),
-        iconSize: 24,
-        splashRadius: 22,
+        icon: Icon(icon, color: color, size: 28),
+        iconSize: 28,
+        splashRadius: 24,
         tooltip: tooltip,
       ),
     );
@@ -472,22 +480,22 @@ class _PublishToolbarButton extends StatelessWidget {
     Widget glyph;
     if (isPublishing) {
       glyph = const SizedBox(
-        width: 22,
-        height: 22,
+        width: 24,
+        height: 24,
         child: CircularProgressIndicator(
-          strokeWidth: 2,
+          strokeWidth: 2.4,
           color: AppColors.primary,
         ),
       );
     } else if (hasError) {
-      glyph = const Icon(Icons.error_outline, color: AppColors.error, size: 24);
+      glyph = const Icon(Icons.error_outline, color: AppColors.error, size: 28);
     } else if (publishedClean) {
-      glyph = const Icon(Icons.check_rounded, color: AppColors.circuit, size: 24);
+      glyph = const Icon(Icons.check_rounded, color: AppColors.circuit, size: 28);
     } else {
       final color = canPublish
           ? AppColors.primary
           : AppColors.primary.withValues(alpha: 0.45);
-      glyph = Icon(Icons.cloud_upload_outlined, color: color, size: 24);
+      glyph = Icon(Icons.cloud_upload_outlined, color: color, size: 28);
     }
 
     String tooltip;
@@ -504,10 +512,10 @@ class _PublishToolbarButton extends StatelessWidget {
     return Tooltip(
       message: tooltip,
       child: SizedBox(
-        width: 44,
-        height: 44,
+        width: 48,
+        height: 48,
         child: InkResponse(
-          radius: 22,
+          radius: 24,
           onTap: onTap == null
               ? null
               : () {
@@ -535,8 +543,8 @@ class _Triangle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 14,
-      height: 44,
+      width: 16,
+      height: 48,
       child: CustomPaint(
         painter: _TrianglePainter(dim: dim),
       ),
@@ -551,14 +559,16 @@ class _TrianglePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Wave 40 (M6) — bumped from 8x12 to 10x14 to match the larger
+    // toolbar icons (24 -> 28). Half-extents scale accordingly.
     final paint = Paint()
       ..color = AppColors.primary
           .withValues(alpha: dim ? 0.3 : 0.9)
       ..style = PaintingStyle.fill;
     final cx = size.width / 2;
     final cy = size.height / 2;
-    const halfWidth = 2.5;
-    const halfHeight = 3.0;
+    const halfWidth = 5.0;
+    const halfHeight = 7.0;
     final path = Path()
       ..moveTo(cx - halfWidth, cy - halfHeight)
       ..lineTo(cx - halfWidth, cy + halfHeight)

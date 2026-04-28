@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../config.dart';
@@ -70,14 +71,11 @@ const Set<DeviceOrientation> _kCameraDefaultOrientations = {
 
 class _CaptureModeScreenState extends State<CaptureModeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
-  /// Process-wide flag: once the practitioner has seen the
-  /// "Hold for video" hint in THIS app session, don't show it again
-  /// until the process restarts. Wave 8 spec: surface exactly once
-  /// per session, auto-dismiss on first long-press OR after 3s. We
-  /// deliberately keep this as a static rather than persisting in
-  /// SharedPreferences — the hint is cheap; re-seeing it on the next
-  /// cold start is a gentle reinforcement, not a nag.
-  static bool _longPressHintConsumedThisSession = false;
+  // Wave 40 (M3) — the auto-fading "Hold for video" hint (Wave 8) has
+  // been retired in favour of a PERMANENT caption beneath the shutter
+  // with three states: idle / pressed-recording / locked. The
+  // process-wide static flag and 3s auto-dismiss timer are gone with
+  // it.
 
   // --- Camera state ---
   CameraController? _cameraController;
@@ -108,6 +106,18 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   // --- Recording state ---
   bool _isRecording = false;
 
+  /// Wave 40 (M4) — true once the user has slid their finger up onto
+  /// the lock target and snapped recording into hands-free mode. While
+  /// locked: releasing the shutter does NOT stop recording. Stop is
+  /// triggered by tapping the morphed (white-square) shutter inner.
+  bool _isLocked = false;
+
+  /// Wave 40 (M4) — true while the finger is hovering over the lock
+  /// target rect. Derived from upward-drag distance inside the
+  /// shutter zone (Listener `onPointerMove`); used for the lock
+  /// target's highlight tint + snap-on-release.
+  bool _hoveringLockTarget = false;
+
   /// True between `onLongPressDown` firing and the long-press gesture
   /// ending (end OR cancel OR pointer-up). Acts as a belt-and-braces
   /// flag for the release-gesture fix: if the user lifts their finger
@@ -123,6 +133,13 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// Guards against double-stop when both `onLongPressEnd` and the raw
   /// `onPointerUp` Listener fire for the same release.
   bool _stopInFlight = false;
+
+  /// Wave 40 (M2) — multi-select photo picker for the bottom-left
+  /// library import button inside the camera viewfinder. Each picked
+  /// photo flows through the SAME pipeline as a captured photo
+  /// (peek-box animation + conversion queue entry + StudioCard
+  /// append). No batched silent ingest.
+  final ImagePicker _picker = ImagePicker();
 
   bool _wasRecordingOnBackground = false;
   Timer? _recordingTickTimer;
@@ -148,14 +165,10 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// Controller for the "capture flies into the box" animation.
   late final AnimationController _flyController;
 
-  /// True while the "Hold for video" hint is visible. Shown exactly
-  /// once per process lifetime, auto-dismissed on first long-press OR
-  /// after 3 seconds (whichever comes first). See
-  /// [_longPressHintConsumedThisSession] and [_hintTimer].
-  bool _showLongPressHint = false;
-
-  /// Auto-dismiss timer for the long-press hint.
-  Timer? _hintTimer;
+  /// Wave 40 (M4) — fade controller for the lock-target + drag-track
+  /// overlays. Driven from 0 → 1 over ~200ms once recording starts;
+  /// reverses on stop / cancel.
+  late final AnimationController _lockTargetController;
 
   @override
   void initState() {
@@ -171,24 +184,11 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 420),
     );
-    // Wave 8: long-press-to-record hint. Show once per process; kick
-    // off a 3s auto-dismiss timer. First actual long-press (see
-    // [_onShutterPressDown]) also clears it.
-    if (!_longPressHintConsumedThisSession) {
-      _showLongPressHint = true;
-      _hintTimer = Timer(const Duration(seconds: 3), _dismissLongPressHint);
-    }
+    _lockTargetController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
     _initCamera();
-  }
-
-  void _dismissLongPressHint() {
-    _hintTimer?.cancel();
-    _hintTimer = null;
-    _longPressHintConsumedThisSession = true;
-    if (!mounted) return;
-    if (_showLongPressHint) {
-      setState(() => _showLongPressHint = false);
-    }
   }
 
   @override
@@ -209,10 +209,9 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
     _recordingTickTimer?.cancel();
     _recordingTickTimer = null;
-    _hintTimer?.cancel();
-    _hintTimer = null;
     _cameraController?.dispose();
     _flyController.dispose();
+    _lockTargetController.dispose();
     super.dispose();
   }
 
@@ -248,6 +247,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
       setState(() {
         _isRecording = false;
+        _isLocked = false;
+        _hoveringLockTarget = false;
         _longPressActive = false;
         _pendingStopAfterStart = false;
         _stopInFlight = false;
@@ -256,6 +257,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         _cameraController = null;
         _allowedOrientations = _kCameraDefaultOrientations;
       });
+      _lockTargetController.reverse();
 
       unawaited(_teardownController(controller, salvageRecording: wasRecording));
     } else if (state == AppLifecycleState.resumed) {
@@ -536,20 +538,42 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     if (_isRecording) return;
     _longPressActive = true;
     _pendingStopAfterStart = false;
-    // Wave 8: first long-press of the session kills the hint
-    // immediately so it doesn't linger after the user has obviously
-    // discovered the gesture.
-    if (_showLongPressHint) {
-      _dismissLongPressHint();
-    }
+    _hoveringLockTarget = false;
   }
 
   /// Called on both `onLongPressEnd` (normal release) and the raw
   /// pointer-up / cancel safety net. Idempotent — the first call does
   /// the stop, subsequent calls for the same release are no-ops.
+  ///
+  /// Wave 40 (M4) — if the finger is hovering over the lock target at
+  /// the moment of release, snap into hands-free locked recording
+  /// instead of stopping. While locked: subsequent releases do
+  /// nothing; only a tap on the morphed (white-square) shutter inner
+  /// triggers stop. Below the lock target (i.e. user dragged up,
+  /// changed mind, dragged back down), release stops as normal.
   void _onShutterReleased() {
+    // If we're already locked into hands-free recording, ignore any
+    // stray release events (the finger has been off the shutter for a
+    // while; we keep recording until the practitioner explicitly taps
+    // stop).
+    if (_isLocked) {
+      _longPressActive = false;
+      return;
+    }
+
     if (!_longPressActive && !_isRecording) return;
     _longPressActive = false;
+
+    // Wave 40 (M4) — if the finger released over the lock target,
+    // snap to locked hands-free recording. Recording continues, the
+    // shutter inner morphs to a white square, and the lock target
+    // turns coral. Subsequent stop is via tap on the morphed shutter.
+    if (_isRecording && _hoveringLockTarget && !_stopInFlight) {
+      _snapToLockedRecording();
+      _hoveringLockTarget = false;
+      return;
+    }
+
     if (_isRecording && !_stopInFlight) {
       _stopInFlight = true;
       _stopVideoRecording();
@@ -559,6 +583,45 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       // controller confirms it started.
       _pendingStopAfterStart = true;
     }
+  }
+
+  /// Wave 40 (M4) — snap the active recording into hands-free locked
+  /// mode. Haptic confirmation; setState flips the visuals (lock
+  /// target turns coral, shutter inner morphs to white square,
+  /// hint copy swaps).
+  void _snapToLockedRecording() {
+    HapticFeedback.heavyImpact();
+    setState(() => _isLocked = true);
+  }
+
+  /// Wave 40 (M4) — translates a pointer-move event inside the
+  /// shutter zone into upward drag-distance and updates
+  /// [_hoveringLockTarget]. The lock target sits ~80pt above the
+  /// shutter centre; an upward drag of >= 60pt counts as "on the
+  /// lock target". Only fires while the long-press is active and
+  /// recording is in flight.
+  void _onShutterPointerMove(PointerMoveEvent event) {
+    if (!_longPressActive || _isLocked) return;
+    // localPosition is relative to the Listener (the 80x80 shutter
+    // zone). dy=40 is the centre; dragging up makes dy < 0 relative
+    // to the centre, but we use raw localPosition.dy for the
+    // threshold check directly.
+    final dy = event.localPosition.dy;
+    // Distance dragged upward from the shutter centre (positive when
+    // the finger is ABOVE centre). Centre y = ~40pt inside an 80pt
+    // box.
+    final upward = 40.0 - dy;
+    setState(() {
+      // Lock target lives ~80pt above the shutter (centre-of-target
+      // is bottom: 132 + 28 = 160pt above the screen bottom; shutter
+      // bottom is 28pt; shutter top is 28+80 = 108pt; so the gap from
+      // shutter centre (28+40 = 68pt above bottom) to lock-target
+      // centre (160pt above bottom) is ~92pt). We use a slightly
+      // forgiving threshold of 60pt of upward travel = "on target",
+      // which gives a comfortable corridor without false positives
+      // from finger jitter.
+      _hoveringLockTarget = upward >= 60;
+    });
   }
 
   Future<void> _startVideoRecording() async {
@@ -595,6 +658,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         _recordingSeconds = 0;
         _allowedOrientations = lockedSet;
       });
+      // Wave 40 (M4) — fade in the lock target + drag track.
+      _lockTargetController.forward(from: 0);
 
       // If the user already released during the async start, honour
       // that release now. The tick timer has NOT been started yet, so
@@ -649,9 +714,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       if (mounted) {
         setState(() {
           _isRecording = false;
+          _isLocked = false;
+          _hoveringLockTarget = false;
           _recordingSeconds = 0;
           _allowedOrientations = _kCameraDefaultOrientations;
         });
+        _lockTargetController.reverse();
       }
       return;
     }
@@ -666,9 +734,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       if (mounted) {
         setState(() {
           _isRecording = false;
+          _isLocked = false;
+          _hoveringLockTarget = false;
           _recordingSeconds = 0;
           _allowedOrientations = _kCameraDefaultOrientations;
         });
+        _lockTargetController.reverse();
       }
       return;
     }
@@ -687,9 +758,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       if (!mounted) return;
       setState(() {
         _isRecording = false;
+        _isLocked = false;
+        _hoveringLockTarget = false;
         _recordingSeconds = 0;
         _allowedOrientations = _kCameraDefaultOrientations;
       });
+      _lockTargetController.reverse();
 
       // Haptic confirmation:
       // - user-initiated stop: single light tap
@@ -713,9 +787,12 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       if (mounted) {
         setState(() {
           _isRecording = false;
+          _isLocked = false;
+          _hoveringLockTarget = false;
           _recordingSeconds = 0;
           _allowedOrientations = _kCameraDefaultOrientations;
         });
+        _lockTargetController.reverse();
       }
       // Silent: the count simply doesn't go up.
     }
@@ -782,6 +859,55 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       debugPrint('persistCapture failed: $e');
       return null;
     }
+  }
+
+  /// Wave 40 (M2) — open the iOS multi-select photo picker. For each
+  /// picked photo we fire the SAME pipeline as a captured photo:
+  /// `_persistCapture` writes the file into `raw/`, builds an
+  /// `ExerciseCapture`, queues it for line-drawing conversion, then
+  /// `_onCaptureLanded` plays the peek-box animation and bumps the
+  /// counter. The `await` between each picked file gives the peek-box
+  /// animation a moment to play one-per-import — this is intentional
+  /// per the brief: "no batched silent ingest".
+  ///
+  /// Failures are silent — the count simply doesn't increment for the
+  /// failed file. Cancel (no selection) is a no-op.
+  Future<void> _importFromLibrary() async {
+    if (_isRecording) return;
+    HapticFeedback.selectionClick();
+    try {
+      final picked = await _picker.pickMultipleMedia();
+      if (picked.isEmpty) return;
+      for (final xfile in picked) {
+        final type = _detectMediaType(xfile.path);
+        final exercise = await _persistCapture(xfile.path, type);
+        if (exercise != null && mounted) {
+          _onCaptureLanded(exercise);
+          // A short stagger so the peek-box animation visibly fires
+          // for each picked file. The fly animation is 420ms; we
+          // wait ~280ms so the next photo's animation overlaps the
+          // tail of the previous one without the user perceiving it
+          // as a single batch swoosh.
+          await Future.delayed(const Duration(milliseconds: 280));
+        }
+      }
+    } catch (e) {
+      debugPrint('Library import failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Import failed: $e')),
+        );
+      }
+    }
+  }
+
+  /// Detect media type from file extension. Mirrors the helper in
+  /// `studio_mode_screen.dart` so library imports flow through the
+  /// same pipeline either way.
+  MediaType _detectMediaType(String path) {
+    final ext = p.extension(path).toLowerCase();
+    const videoExts = {'.mov', '.mp4', '.m4v', '.qt', '.avi'};
+    return videoExts.contains(ext) ? MediaType.video : MediaType.photo;
   }
 
   /// How many captures we've added locally beyond widget.session.exercises —
@@ -863,6 +989,17 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
             child: Center(child: _buildPeekBox()),
           ),
 
+          // Wave 40 (M5) — vertical lens stack on the right edge.
+          // 44x44pt pills, 8pt gap, vertically centred. Hidden during
+          // recording (mid-clip lens switch causes visible jumps in
+          // the output) and on devices with no optical variety.
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            child: Center(child: _buildLensColumn()),
+          ),
+
           // Left-edge pull-tab back to Studio — shared chunky pill.
           Positioned.fill(
             child: ShellPullTab(
@@ -871,22 +1008,41 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
             ),
           ),
 
-          // Shutter + lens-switch row — bottom centre. The lens row sits
-          // ABOVE the shutter (inside the same SafeArea) so the two
-          // bottom controls stay grouped.
+          // Wave 40 (M2) — bottom-left library import button. 44x44pt
+          // round, translucent black, photo-stack glyph. Sits well
+          // below the peek box (which is mid-left).
+          Positioned(
+            left: 16,
+            bottom: 36,
+            child: SafeArea(
+              top: false,
+              child: _buildLibraryImportButton(),
+            ),
+          ),
+
+          // Wave 40 (M4) — lock-target overlay + drag track. Both fade
+          // in 200ms after recording starts. Lock target sits 80pt
+          // above the shutter centre; drag track is the corridor
+          // between them. Hit-testing is disabled on these so the
+          // shutter's gesture detector receives the move events for
+          // the upward drag detection.
+          if (_isRecording || _lockTargetController.value > 0)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _buildLockTargetOverlay(),
+              ),
+            ),
+
+          // Shutter — bottom centre. Lens row is now on the right
+          // edge so the shutter has a clean vertical corridor for the
+          // slide-up-to-lock gesture (M4).
           Positioned(
             bottom: 0,
             left: 0,
             right: 0,
             child: SafeArea(
               top: false,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildLensRow(),
-                  _buildShutter(),
-                ],
-              ),
+              child: _buildShutter(),
             ),
           ),
         ],
@@ -1164,32 +1320,32 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     );
   }
 
-  /// Small horizontal row of lens-switch pills, positioned ABOVE the
-  /// shutter (not overlapping it). Only rear-lens selection — the flip
-  /// (front/back) button stays in the top bar.
+  /// Wave 40 (M5) — vertical column of lens-switch pills on the right
+  /// edge of the viewfinder. 44x44pt pills, 8pt gap, vertically
+  /// centred. Active pill inverts (white background, black text) for
+  /// the iPhone Camera-app feel; inactive pills are translucent
+  /// black with a hairline border.
   ///
   /// Hidden when the back camera has no optical variety (just a single
-  /// wide lens) or while recording (mid-clip lens switch causes visible
-  /// jumps in the output).
-  Widget _buildLensRow() {
+  /// wide lens) or while recording (mid-clip lens switch causes
+  /// visible jumps in the output).
+  Widget _buildLensColumn() {
     final isBack = _cameras.isNotEmpty &&
         _activeCameraIndex < _cameras.length &&
         _cameras[_activeCameraIndex].lensDirection ==
             CameraLensDirection.back;
     if (!isBack || _availableLenses.length <= 1 || _isRecording) {
-      return const SizedBox(height: 8);
+      return const SizedBox.shrink();
     }
-
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12, top: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      padding: const EdgeInsets.only(right: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          for (final lens in _availableLenses)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: _buildLensPill(lens),
-            ),
+          for (var i = 0; i < _availableLenses.length; i++) ...[
+            if (i > 0) const SizedBox(height: 8),
+            _buildLensPill(_availableLenses[i]),
+          ],
         ],
       ),
     );
@@ -1201,28 +1357,44 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     // the range — we don't want every pixel of pinch clearing the
     // highlight.
     final active = (_currentZoom - lens).abs() <= lens * 0.15;
-    final bg = active ? AppColors.primary : Colors.black45;
-    final fg = active ? Colors.white : Colors.white70;
+    // Wave 40 (M5) — active inverts to white-on-black instead of the
+    // coral-on-white the row used. Mirrors iPhone Camera's active-lens
+    // pill so the affordance reads as "current selection" without
+    // borrowing the workflow accent.
+    final bg = active
+        ? Colors.white.withValues(alpha: 0.85)
+        : Colors.black.withValues(alpha: 0.55);
+    final fg = active ? Colors.black : Colors.white;
     final label = lens == lens.roundToDouble()
-        ? '${lens.toInt()}x'
-        : '${lens.toStringAsFixed(1).replaceAll(RegExp(r'\.?0+$'), '')}x';
-
+        ? '${lens.toInt()}×'
+        : lens.toStringAsFixed(1).replaceAll(RegExp(r'\.?0+$'), '');
     return Material(
       color: bg,
-      shape: const StadiumBorder(),
+      shape: const CircleBorder(),
       child: InkWell(
-        customBorder: const StadiumBorder(),
+        customBorder: const CircleBorder(),
         onTap: () => _applyZoom(lens),
-        child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: fg,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.3,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: active
+                  ? Colors.transparent
+                  : Colors.white.withValues(alpha: 0.12),
+              width: 1,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: fg,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+              ),
             ),
           ),
         ),
@@ -1230,9 +1402,124 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     );
   }
 
+  /// Wave 40 (M2) — bottom-left library import button. 44x44pt round,
+  /// translucent black, white photo-stack glyph. Tap opens the iOS
+  /// multi-select photo picker; each picked file flows through the
+  /// SAME `_persistCapture` path as a captured photo.
+  Widget _buildLibraryImportButton() {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.5),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: _isRecording ? null : _importFromLibrary,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.12),
+              width: 1,
+            ),
+          ),
+          child: const Icon(
+            Icons.photo_library_outlined,
+            color: Colors.white,
+            size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Wave 40 (M4) — lock-target overlay shown while recording. Lives
+  /// 80pt above the shutter centre, fades in 200ms when recording
+  /// starts, and turns coral when the user has snapped into locked
+  /// hands-free mode. The drag-track is a 4pt-wide vertical gradient
+  /// suggesting the gesture path.
+  ///
+  /// Hit-testing on this overlay is disabled by the parent
+  /// `IgnorePointer` so pointer events go through to the shutter
+  /// gesture detector for the upward-drag detection.
+  Widget _buildLockTargetOverlay() {
+    return AnimatedBuilder(
+      animation: _lockTargetController,
+      builder: (context, _) {
+        final t = _lockTargetController.value;
+        if (t == 0) return const SizedBox.shrink();
+        // Lock target sits centred horizontally, ~132pt above the
+        // bottom of the safe area. Drag track lives in the gap
+        // between shutter (28pt + 80pt = 108pt above bottom) and the
+        // lock-target bottom (132pt) — a 24pt gap, so the track is
+        // 32pt to overlap both edges.
+        final hovering = _hoveringLockTarget;
+        final lockBg = _isLocked
+            ? AppColors.primary
+            : (hovering
+                ? AppColors.primary.withValues(alpha: 0.55)
+                : Colors.black.withValues(alpha: 0.55));
+        final lockBorder = _isLocked || hovering
+            ? AppColors.primary
+            : Colors.white.withValues(alpha: 0.18);
+        return SafeArea(
+          top: false,
+          child: Stack(
+            alignment: Alignment.bottomCenter,
+            children: [
+              // Drag track between shutter and lock target.
+              Positioned(
+                bottom: 108,
+                child: Opacity(
+                  opacity: t,
+                  child: Container(
+                    width: 4,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(2),
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          Colors.white.withValues(alpha: 0.4),
+                          Colors.white.withValues(alpha: 0.1),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              // Lock target round chip.
+              Positioned(
+                bottom: 132,
+                child: Opacity(
+                  opacity: t,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: lockBg,
+                      border: Border.all(color: lockBorder, width: 1),
+                    ),
+                    child: const Icon(
+                      Icons.lock_outline_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildShutter() {
-    // Layered gesture handling — this is the fix for Carl's
-    // release-gesture bug:
+    // Layered gesture handling — Wave 8 background:
     //
     //  * `Listener` catches raw pointer up / cancel events. If the
     //    GestureDetector's long-press recognizer cedes to another
@@ -1242,102 +1529,76 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     //  * `GestureDetector` handles the semantic tap / long-press on
     //    top of that.
     //
-    // `HitTestBehavior.opaque` on both ensures the full 84x84 bounding
-    // box receives pointer events — the previous `deferToChild`
-    // (default) meant transparent corners around the circular button
-    // dropped touches, which is the most likely cause of releases
-    // being missed on-device.
+    // `HitTestBehavior.opaque` on both ensures the full bounding box
+    // receives pointer events — the previous `deferToChild` (default)
+    // meant transparent corners around the circular button dropped
+    // touches.
+    //
+    // Wave 40 (M4) layered on top: the Listener also tracks
+    // `onPointerMove` so we can compute upward drag-delta and detect
+    // the "finger over lock target" condition for the slide-up-to-
+    // lock gesture. While `_isLocked`, the shutter is in stop mode —
+    // a single tap on the morphed (white-square) inner triggers
+    // `_stopVideoRecording()`.
+    final hint = _isLocked
+        ? 'Tap ⬛ to stop'
+        : (_isRecording
+            ? 'Slide finger ↑ onto \u{1F512} to lock'
+            : 'Tap for photo · Hold for video · Slide ↑ to lock');
     return Padding(
       padding: const EdgeInsets.only(bottom: 24, top: 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Wave 8: "Hold for video" hint. First-time users see the
-          // shutter and assume it's tap-only (iOS camera convention);
-          // the long-press video gesture is discoverable but needs a
-          // nudge. Shown exactly once per process session:
-          //   * auto-dismisses after 3s, OR
-          //   * dismisses on first long-press on the shutter.
-          // Coral on dark, small-text per the Wave 8 brief.
-          // AnimatedSwitcher gives a quiet fade-out instead of a hard
-          // disappear when the hint retires.
-          //
-          // Wave 24: a second muted line of guidance sits beneath the
-          // coral hint — "Aim for ~3 reps per video". Same once-per-
-          // process visibility window so it retires alongside the
-          // long-press hint. Reinforces the new
-          // ExerciseCapture.videoRepsPerLoop default of 3 so the
-          // practitioner's instinct + the persistence default agree.
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            child: (_showLongPressHint && !_isRecording)
-                ? const Padding(
-                    key: ValueKey('hold-for-video-hint'),
-                    padding: EdgeInsets.only(bottom: 8),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Hold for video',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 0.4,
-                            color: AppColors.primary,
-                            shadows: [
-                              Shadow(
-                                color: Colors.black54,
-                                blurRadius: 4,
-                                offset: Offset(0, 1),
-                              ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Aim for ~3 reps per video',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 0.3,
-                            color: AppColors.textSecondaryOnDark,
-                            shadows: [
-                              Shadow(
-                                color: Colors.black54,
-                                blurRadius: 4,
-                                offset: Offset(0, 1),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : const SizedBox(
-                    key: ValueKey('hold-for-video-hint-gone'),
-                    height: 0,
-                  ),
-          ),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Listener(
                 behavior: HitTestBehavior.opaque,
+                onPointerMove: _onShutterPointerMove,
                 onPointerUp: (_) => _onShutterReleased(),
                 onPointerCancel: (_) => _onShutterReleased(),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: _isRecording ? null : _capturePhoto,
-                  onLongPressDown: (_) => _onShutterPressDown(),
-                  onLongPressStart: (_) => _startVideoRecording(),
-                  onLongPressEnd: (_) => _onShutterReleased(),
-                  onLongPressCancel: _onShutterReleased,
+                  // Wave 40 (M4) — when locked, a tap on the shutter
+                  // stops recording. Otherwise the tap captures a
+                  // photo (only if not already recording).
+                  onTap: _isLocked
+                      ? () => _stopVideoRecording()
+                      : (_isRecording ? null : _capturePhoto),
+                  onLongPressDown:
+                      _isLocked ? null : (_) => _onShutterPressDown(),
+                  onLongPressStart:
+                      _isLocked ? null : (_) => _startVideoRecording(),
+                  onLongPressEnd:
+                      _isLocked ? null : (_) => _onShutterReleased(),
+                  onLongPressCancel: _isLocked ? null : _onShutterReleased,
                   child: _buildShutterButton(),
                 ),
               ),
             ],
+          ),
+          // Wave 40 (M3) — permanent hint caption beneath the
+          // shutter. Three states (idle / pressed-recording /
+          // locked). 55% opacity, 10.5pt Inter. Replaces the old
+          // auto-fading "Hold for video" two-liner.
+          const SizedBox(height: 8),
+          Text(
+            hint,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 10.5,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.2,
+              color: Colors.white.withValues(alpha: 0.55),
+              shadows: const [
+                Shadow(
+                  color: Colors.black54,
+                  blurRadius: 4,
+                  offset: Offset(0, 1),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -1346,6 +1607,18 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
   Widget _buildShutterButton() {
     const size = 84.0;
+    // Wave 40 (M4) — when locked, the inner morphs from the
+    // recording-red rounded-square into a small WHITE square so the
+    // affordance flips from "I'm recording, hold me" to "tap to stop".
+    final innerColor = _isLocked
+        ? Colors.white
+        : (_isRecording ? AppColors.primary : Colors.white);
+    final innerSize = _isLocked
+        ? 28.0
+        : (_isRecording ? 30.0 : 64.0);
+    final innerRadius = _isLocked
+        ? 4.0
+        : (_isRecording ? 6.0 : 32.0);
     return SizedBox(
       width: size,
       height: size,
@@ -1375,12 +1648,11 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
           ),
           AnimatedContainer(
             duration: const Duration(milliseconds: 180),
-            width: _isRecording ? 30 : 64,
-            height: _isRecording ? 30 : 64,
+            width: innerSize,
+            height: innerSize,
             decoration: BoxDecoration(
-              color: _isRecording ? AppColors.primary : Colors.white,
-              borderRadius:
-                  BorderRadius.circular(_isRecording ? 6 : 32),
+              color: innerColor,
+              borderRadius: BorderRadius.circular(innerRadius),
             ),
           ),
         ],
