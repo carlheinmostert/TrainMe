@@ -769,11 +769,6 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   void _snapToLockedRecording() {
     HomefitHaptics.heavy(); // best-effort; suppressed during mic use
     setState(() => _isLocked = true);
-    // Screen-edge coral flash — visual confirmation that lock engaged.
-    // Replaces haptic feedback which iOS suppresses during recording.
-    _lockFlashController.forward(from: 0).then((_) {
-      if (mounted) _lockFlashController.reverse();
-    });
   }
 
   /// Wave 40 (M4) — translates a pointer-move event inside the
@@ -1239,27 +1234,27 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
             ),
           ),
 
-          // Screen-edge coral flash on lock-engage. IgnorePointer so
-          // it doesn't eat taps. Fades in over 200ms then out over 200ms
-          // (total 400ms driven by _lockFlashController).
-          AnimatedBuilder(
-            animation: _lockFlashController,
-            builder: (context, _) {
-              final v = _lockFlashController.value;
-              if (v == 0) return const SizedBox.shrink();
-              return IgnorePointer(
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: const Color(0xFFFF6B35).withOpacity(v * 0.8),
-                      width: 4,
+          // Screen-edge coral glow while finger is in the armed zone.
+          // Tells the practitioner "you're in the target — release to lock."
+          // Disappears the instant the finger leaves the zone.
+          if (_hoveringLockTarget)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: 1.0,
+                  duration: const Duration(milliseconds: 150),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: const Color(0xFFFF6B35).withOpacity(0.8),
+                        width: 4,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-              );
-            },
-          ),
+              ),
+            ),
         ],
       ),
       ),
