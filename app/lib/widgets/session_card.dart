@@ -6,19 +6,20 @@ import 'package:flutter/services.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/conversion_service.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 
-/// Visual-only session card — one row in a client's session list.
+/// Visual session card — one row in a client's session list.
 ///
-/// Tap opens the session (navigates into the Studio shell). Swipe-left
-/// soft-deletes via the parent's [onDelete]. The card row is purely
-/// navigational: Publish + Share used to live here as trailing icons
-/// but moved into the new Studio toolbar in Wave 18 so every publish
-/// path roots from a single surface. Once the practitioner is inside
-/// the Studio, they have full publish + share control there.
+/// Tap (anywhere except the editable title) opens the session.
+/// Swipe-left soft-deletes via the parent's [onDelete]. Wave 38 adds
+/// inline rename: tapping the title cell drops into a TextField with
+/// autofocus; Enter (or tap-outside) commits the new name through
+/// `SyncService.queueRenameSession` (offline-safe). The badge, lock
+/// row, and rest of the card body stay tappable as nav targets.
 ///
 /// Wave 32 layout:
-///   [icon+badge]  Title (date)                              ›
+///   [icon+badge]  Title (date) ← dashed underline = editable          ›
 ///                 v3 · 25 Apr               ← status row
 ///                 ● Free Edits · 11d 4h left ← lock row (Wave 33 copy)
 ///                 [coral pill: 2 converting...]   ← active only
@@ -26,7 +27,7 @@ import '../theme.dart';
 ///
 /// Failed-conversion retry pill stays — it's a per-exercise concern,
 /// not a publish concern, and the parent list is the natural surface.
-class SessionCard extends StatelessWidget {
+class SessionCard extends StatefulWidget {
   final Session session;
 
   /// Kept for legacy wiring + future reinstatement (a ClientSessionsScreen
@@ -38,13 +39,23 @@ class SessionCard extends StatelessWidget {
   final VoidCallback onOpen;
   final VoidCallback onDelete;
 
+  /// Optional notifier for the parent list — the inline rename writes
+  /// through `SyncService.queueRenameSession` directly, but the parent
+  /// may want to refresh its in-memory list to show the new title
+  /// without the next pull-to-refresh.
+  final ValueChanged<Session>? onRenamed;
+
   const SessionCard({
     super.key,
     required this.session,
     required this.isPublishing,
     required this.onOpen,
     required this.onDelete,
+    this.onRenamed,
   });
+
+  @override
+  State<SessionCard> createState() => _SessionCardState();
 
   /// Lock-grace window MUST mirror `StudioModeScreen._kLockGraceDays`
   /// (Wave 32 = 14 days). Duplicated here as a const so the card can
@@ -56,114 +67,6 @@ class SessionCard extends StatelessWidget {
   /// sage. Matches the colour grammar Carl spec'd in the brief.
   static const Duration _kUrgentWindow = Duration(hours: 24);
   static const Duration _kWarningWindow = Duration(days: 3);
-
-  @override
-  Widget build(BuildContext context) {
-    final exerciseCount = session.exercises.length;
-    final pending = session.pendingConversions;
-
-    final failedConversions = session.exercises
-        .where((e) => e.conversionStatus == ConversionStatus.failed)
-        .toList(growable: false);
-    final hasFailedConversions = failedConversions.isNotEmpty;
-
-    final lockState = _resolveLockState(session);
-
-    return Dismissible(
-      key: ValueKey(session.id),
-      direction: DismissDirection.endToStart,
-      confirmDismiss: (_) async => true,
-      onDismissed: (_) => onDelete(),
-      background: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        decoration: BoxDecoration(
-          color: AppColors.error,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
-      ),
-      child: Card(
-        elevation: 0,
-        color: AppColors.surfaceBase,
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: AppColors.surfaceBorder, width: 1),
-        ),
-        child: InkWell(
-          onTap: onOpen,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: Row(
-              children: [
-                // Leading list-alt badge — sessions are assembled, dosed
-                // plans, not raw capture artefacts. The camera glyph was
-                // too narrow. Wave 32: count badge overlays at bottom-right
-                // (notification-style), so the count is no longer in the
-                // status row text.
-                _LeadingIconBadge(
-                  icon: Icons.list_alt_rounded,
-                  count: exerciseCount,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _cardTitle(session),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textOnDark,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _publishLabel(session),
-                        style: TextStyle(
-                          color: session.version > 0
-                              ? AppColors.circuit
-                              : AppColors.textSecondaryOnDark,
-                          fontSize: 13,
-                        ),
-                      ),
-                      if (lockState != null) ...[
-                        const SizedBox(height: 4),
-                        _LockStateRow(state: lockState),
-                      ],
-                      if (pending > 0) ...[
-                        const SizedBox(height: 6),
-                        _PendingConversionsPill(count: pending),
-                      ],
-                      if (hasFailedConversions) ...[
-                        const SizedBox(height: 6),
-                        _FailedConversionsPill(
-                          failed: failedConversions,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                // Wave 18 — Publish + Share icons moved to the Studio
-                // toolbar. The card now ends with the chevron only so
-                // the row reads as a pure navigation affordance.
-                const Icon(
-                  Icons.chevron_right,
-                  color: AppColors.grey500,
-                  size: 22,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   /// Display title for the card row.
   ///
@@ -239,6 +142,292 @@ class SessionCard extends StatelessWidget {
     }
     final minutes = d.inMinutes;
     return minutes <= 0 ? '1m' : '${minutes}m';
+  }
+}
+
+class _SessionCardState extends State<SessionCard> {
+  bool _editing = false;
+  bool _saving = false;
+  late TextEditingController _controller;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: SessionCard._cardTitle(widget.session));
+  }
+
+  @override
+  void didUpdateWidget(covariant SessionCard old) {
+    super.didUpdateWidget(old);
+    // If the underlying session title changes via a remote refresh
+    // while we're not editing, re-seed the controller so the next
+    // edit starts from the newest value.
+    if (!_editing && old.session.title != widget.session.title) {
+      _controller.text = SessionCard._cardTitle(widget.session);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _enterEdit() {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _editing = true;
+      _controller.text = SessionCard._cardTitle(widget.session);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+      _controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _controller.text.length,
+      );
+    });
+  }
+
+  Future<void> _commit() async {
+    if (_saving) return;
+    final trimmed = _controller.text.trim();
+    final current = SessionCard._cardTitle(widget.session);
+    if (trimmed.isEmpty || trimmed == current) {
+      // Empty or unchanged — drop edit mode without firing the RPC.
+      setState(() {
+        _editing = false;
+        _controller.text = current;
+      });
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final ok = await SyncService.instance.queueRenameSession(
+        planId: widget.session.id,
+        newTitle: trimmed,
+      );
+      if (!mounted) return;
+      if (!ok) {
+        _showError("Couldn't rename — try again.");
+        setState(() {
+          _saving = false;
+          _editing = false;
+          _controller.text = current;
+        });
+        return;
+      }
+      // Optimistic — local SQLite already has the new title; let the
+      // parent know so its in-memory list refreshes without a roundtrip.
+      widget.onRenamed?.call(
+        widget.session.copyWith(title: trimmed),
+      );
+      setState(() {
+        _saving = false;
+        _editing = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      _showError("Couldn't rename — try again.");
+      setState(() {
+        _saving = false;
+        _editing = false;
+        _controller.text = current;
+      });
+    }
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: AppColors.error,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final session = widget.session;
+    final exerciseCount = session.exercises.length;
+    final pending = session.pendingConversions;
+
+    final failedConversions = session.exercises
+        .where((e) => e.conversionStatus == ConversionStatus.failed)
+        .toList(growable: false);
+    final hasFailedConversions = failedConversions.isNotEmpty;
+
+    final lockState = SessionCard._resolveLockState(session);
+
+    return Dismissible(
+      key: ValueKey(session.id),
+      direction: DismissDirection.endToStart,
+      // Wave 38 — disable swipe-to-delete while inline-renaming so a
+      // sloppy swipe on the keyboard area doesn't soft-delete the row
+      // out from under the practitioner.
+      confirmDismiss: (_) async => !_editing,
+      onDismissed: (_) => widget.onDelete(),
+      background: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        decoration: BoxDecoration(
+          color: AppColors.error,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+      ),
+      child: Card(
+        elevation: 0,
+        color: AppColors.surfaceBase,
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: AppColors.surfaceBorder, width: 1),
+        ),
+        child: InkWell(
+          // Wave 38 — when the title is in edit mode, the surrounding
+          // card body must NOT navigate; the keyboard tap-outside flow
+          // hands focus elsewhere first, but a stray tap still
+          // inadvertently popped the user into Studio. Block onTap in
+          // edit mode; the editable title's TapRegion handles
+          // tap-outside to commit.
+          onTap: _editing ? null : widget.onOpen,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              children: [
+                _LeadingIconBadge(
+                  icon: Icons.list_alt_rounded,
+                  count: exerciseCount,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildTitle(session),
+                      const SizedBox(height: 2),
+                      Text(
+                        SessionCard._publishLabel(session),
+                        style: TextStyle(
+                          color: session.version > 0
+                              ? AppColors.circuit
+                              : AppColors.textSecondaryOnDark,
+                          fontSize: 13,
+                        ),
+                      ),
+                      if (lockState != null) ...[
+                        const SizedBox(height: 4),
+                        _LockStateRow(state: lockState),
+                      ],
+                      if (pending > 0) ...[
+                        const SizedBox(height: 6),
+                        _PendingConversionsPill(count: pending),
+                      ],
+                      if (hasFailedConversions) ...[
+                        const SizedBox(height: 6),
+                        _FailedConversionsPill(
+                          failed: failedConversions,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                // Wave 18 — Publish + Share icons moved to the Studio
+                // toolbar. The card now ends with the chevron only so
+                // the row reads as a pure navigation affordance.
+                const Icon(
+                  Icons.chevron_right,
+                  color: AppColors.grey500,
+                  size: 22,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTitle(Session session) {
+    if (!_editing) {
+      // Rest state: dashed underline signalling editability. Tap fires
+      // _enterEdit. The GestureDetector is its own hit zone so the
+      // surrounding card's onTap (which navigates) doesn't compete.
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _enterEdit,
+        child: CustomPaint(
+          painter: _DashedUnderlinePainter(
+            color: AppColors.textSecondaryOnDark,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Text(
+              SessionCard._cardTitle(session),
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: AppColors.textOnDark,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Edit mode: TextField with autofocus. Solid coral underline
+    // surfaces via the InputDecoration's focused border.
+    return Opacity(
+      opacity: _saving ? 0.6 : 1.0,
+      child: TextField(
+        controller: _controller,
+        focusNode: _focusNode,
+        enabled: !_saving,
+        maxLength: 120,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _commit(),
+        // tap-outside: auto-commit. Cheaper than persisting "Cancel"
+        // chrome on every card row.
+        onTapOutside: (_) {
+          if (_focusNode.hasFocus) {
+            _focusNode.unfocus();
+            // Defer to the next frame so the focus event lands first.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && _editing && !_saving) _commit();
+            });
+          }
+        },
+        style: const TextStyle(
+          fontWeight: FontWeight.w600,
+          color: AppColors.primary,
+          fontSize: 14,
+        ),
+        cursorColor: AppColors.primary,
+        decoration: const InputDecoration(
+          counterText: '',
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(vertical: 4, horizontal: 0),
+          border: UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.primary, width: 1.4),
+          ),
+          enabledBorder: UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.primary, width: 1.4),
+          ),
+          focusedBorder: UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.primary, width: 1.4),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -557,4 +746,36 @@ class _CountBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Paints a dashed underline below the child. Mirrors the dashed
+/// underline used on the editable client name in the per-client header
+/// (`client_sessions_screen.dart`) so the rename affordance reads as
+/// the same family across surfaces.
+class _DashedUnderlinePainter extends CustomPainter {
+  final Color color;
+
+  const _DashedUnderlinePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+
+    const dashWidth = 4.0;
+    const dashGap = 3.0;
+    double x = 0;
+    final y = size.height - 0.5;
+    while (x < size.width) {
+      final end = (x + dashWidth).clamp(0.0, size.width);
+      canvas.drawLine(Offset(x, y), Offset(end, y), paint);
+      x += dashWidth + dashGap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedUnderlinePainter old) =>
+      old.color != color;
 }

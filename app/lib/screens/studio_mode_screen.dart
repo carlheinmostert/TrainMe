@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
@@ -27,12 +26,11 @@ import '../widgets/client_consent_sheet.dart';
 import '../widgets/download_original_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/inline_action_tray.dart';
-import '../widgets/inline_editable_text.dart';
 import '../widgets/preset_chip_row.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/shell_pull_tab.dart';
+import '../widgets/studio_bottom_bar.dart';
 import '../widgets/studio_exercise_card.dart';
-import '../widgets/studio_toolbar.dart';
 import '../widgets/treatment_segmented_control.dart';
 import '../widgets/undo_snackbar.dart';
 import '../services/auth_service.dart';
@@ -270,31 +268,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     });
   }
 
-  /// Rename the current session. Writes to [Session.title] — the
-  /// practitioner-editable display name that session cards render — NOT
-  /// [Session.clientName] (which is now a legacy mirror of the parent
-  /// [Client.name] and would make the rename invisible on the session
-  /// list because cards read `title ?? clientName`).
-  void _saveClientName(String newName) {
-    final trimmed = newName.trim();
-    final currentDisplay = _displayTitle(_session);
-    if (trimmed.isEmpty || trimmed == currentDisplay) return;
-    setState(() {
-      _touchAndPush(_session.copyWith(title: trimmed));
-    });
-    unawaited(widget.storage.saveSession(_session).catchError((e, st) {
-      debugPrint('saveSession failed: $e');
-    }));
-  }
-
-  /// Same resolution order as `SessionCard._cardTitle`: title when set,
-  /// else clientName. Used by the inline-edit's initial value so the
-  /// rename field shows whatever the list shows.
-  static String _displayTitle(Session s) {
-    final t = s.title;
-    if (t != null && t.trim().isNotEmpty) return t;
-    return s.clientName;
-  }
+  // Wave 38 — `_saveClientName` + `_displayTitle` retired. The Studio
+  // AppBar that hosted the inline-edit was removed; rename now lives on
+  // the SessionCard (client detail page), which routes through
+  // `SyncService.queueRenameSession` for offline-safe writes.
 
   // ---------------------------------------------------------------------------
   // Publish-lock state
@@ -954,11 +931,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   @override
   Widget build(BuildContext context) {
     // R-09: Studio is portrait-only — bottom-anchored one-handed reach.
+    //
+    // Wave 38 — AppBar retired. Top of Studio is the exercise list with
+    // a 12pt breath above the first card; all chrome (back, preview,
+    // publish, unlock pill, stats, subtitle) lives in the bottom stack
+    // so the practitioner's thumb reaches everything one-handed.
     return OrientationLockGuard(
       allowed: const {DeviceOrientation.portraitUp},
       child: Scaffold(
       backgroundColor: AppColors.surfaceBg,
-      appBar: _buildAppBar(),
       body: Stack(
         children: [
           SafeArea(
@@ -968,12 +949,38 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             // SQLite; writes queue locally via SyncService. Tapping
             // Sign in routes through AuthService.signOut → AuthGate →
             // SignInScreen.
+            //
+            // Wave 38 — bottom: false because the StudioBottomBar wraps
+            // its own SafeArea(top: false, bottom: true) so it sits
+            // above the home indicator without doubling the inset.
+            bottom: false,
             child: Column(
               children: [
                 SessionExpiredBanner(
                   onSignIn: () => AuthService.instance.signOut(),
                 ),
                 Expanded(child: _buildBody()),
+                StudioBottomBar(
+                  session: _session,
+                  isPublishing: _isPublishing,
+                  canPublish: _canPublish,
+                  isPlanLocked: _isPlanLocked,
+                  publishError: _publishError,
+                  clientName: _session.clientName,
+                  onBack: () => Navigator.of(context).pop(),
+                  onPreview: _openPreview,
+                  onPublish: _publishFromToolbar,
+                  // Wave 30 — tapping Publish on a still-mid-grace plan
+                  // routes to the unlock sheet (two-tap UX so the
+                  // practitioner sees the unlocked state before the
+                  // republish).
+                  onPublishLockedTap: _openUnlockSheet,
+                  onUnlockTap: _openUnlockSheet,
+                  onShowPublishError: () {
+                    final err = _publishError;
+                    if (err != null) _showPublishErrorSnackBar(err);
+                  },
+                ),
               ],
             ),
           ),
@@ -989,209 +996,27 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
   }
 
-  PreferredSizeWidget _buildAppBar() {
-    final showUnlockChip = _isPlanLocked;
-    return AppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () => Navigator.of(context).pop(),
-        tooltip: 'Back to sessions',
-      ),
-      title: InlineEditableText(
-        // Show whatever the session list shows — title when set, else
-        // clientName. Keeps the header and the card in sync.
-        initialValue: _displayTitle(_session),
-        onCommit: _saveClientName,
-        textStyle: const TextStyle(
-          fontWeight: FontWeight.w700,
-          fontSize: 20,
-          letterSpacing: -0.5,
-          color: AppColors.textOnDark,
-        ),
-      ),
-      backgroundColor: AppColors.surfaceBase,
-      foregroundColor: AppColors.textOnDark,
-      elevation: 0,
-      // Wave 18.2 — shrink the AppBar from the default 56pt to 48pt so
-      // the title-to-toolbar gap matches the toolbar-to-first-card gap
-      // below. Previously the baseline padding in the 56pt AppBar +
-      // the 40pt toolbar's bottom border opened an asymmetric breath —
-      // the gap above the toolbar read noticeably larger than the gap
-      // below. 48pt brings the header rhythm into balance.
-      toolbarHeight: 48,
-      // Wave 29 — padlock action surfaces only when the plan crossed
-      // the post-open lock window (`first_opened_at + 3 days`).
-      // Tapping opens the unlock-for-edit sheet; success pre-pays a
-      // credit + sets `unlock_credit_prepaid_at` so the next publish
-      // is free.
-      actions: showUnlockChip
-          ? [
-              IconButton(
-                icon: const Icon(Icons.lock_outline),
-                color: AppColors.primary,
-                tooltip: 'Unlock plan for editing',
-                onPressed: _openUnlockSheet,
-              ),
-            ]
-          : null,
-    );
-  }
-
   Widget _buildBody() {
-    // Toolbar renders even when the list is empty so the Import icon
-    // is always reachable. Empty-state message sits below.
-    final toolbar = StudioToolbar(
-      session: _session,
-      isPublishing: _isPublishing,
-      canPublish: _canPublish,
-      isPublishLocked: _isPublishLocked,
-      publishError: _publishError,
-      onImport: _importFromLibrary,
-      onPreview: _openPreview,
-      onPreviewLongPress: () {},
-      onPublish: _publishFromToolbar,
-      // Wave 30 — tapping Publish on a locked plan used to surface a
-      // toaster-only message ("counts as a new version · 1 credit") with
-      // no path forward. Route straight to the unlock sheet (the same
-      // path the padlock chip uses); two-tap UX so the practitioner
-      // sees the unlocked state before committing the next publish.
-      onPublishLockedTap: _openUnlockSheet,
-      onShowPublishError: () {
-        final err = _publishError;
-        if (err != null) _showPublishErrorSnackBar(err);
-      },
-      onShare: _session.isPublished ? _shareFromToolbar : null,
-    );
-
     if (_session.exercises.isEmpty) {
-      return Column(
-        children: [
-          toolbar,
-          // Wave 33 analytics row — even an empty plan can be published
-          // and opened. Render the same conditional logic.
-          _buildOpenedAnalyticsRow(),
-          Expanded(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: _buildEmptyState(),
-              ),
-            ),
-          ),
-        ],
-      );
-    }
-    return Column(
-      children: [
-        toolbar,
-        // Wave 33 — engagement-analytics row above the exercise list.
-        // Returns SizedBox.shrink() for drafts (no header) per spec.
-        _buildOpenedAnalyticsRow(),
-        Expanded(child: _buildExerciseList()),
-      ],
-    );
-  }
-
-  /// Wave 33 — discreet "First opened … · Last opened …" row above the
-  /// exercise list. Three rendering cases:
-  ///   (a) opened ≥1 time → "First opened {date} · Last opened {date}"
-  ///       (collapses to "First & last opened {date}" if same day).
-  ///   (b) published but never opened → "Not yet opened".
-  ///   (c) draft (never published) → row HIDDEN entirely.
-  ///
-  /// Styled muted (text-mute size 12 / Inter / no border) so the row
-  /// reads as analytics, not primary content. Reads from the local
-  /// SQLite mirror (sessions.first_opened_at / sessions.last_opened_at);
-  /// SessionShell reconciles the cloud row on every session open so
-  /// the values are at most one open stale.
-  Widget _buildOpenedAnalyticsRow() {
-    if (!_session.isPublished) {
-      // Draft: hide entirely. The card hasn't been published, so
-      // engagement analytics has nothing to say.
-      return const SizedBox.shrink();
-    }
-    final firstOpened = _session.firstOpenedAt;
-    final lastOpened = _session.lastOpenedAt;
-
-    // Published-but-never-opened: tell the practitioner so. This is the
-    // "I shared the link, has the client looked yet?" signal — useful
-    // even before any exercise edits happen.
-    if (firstOpened == null) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-        child: Row(
-          children: [
-            Icon(
-              Icons.schedule_rounded,
-              size: 13,
-              color: AppColors.textSecondaryOnDark.withValues(alpha: 0.6),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              'Not yet opened',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                color: AppColors.textSecondaryOnDark.withValues(alpha: 0.85),
-              ),
-            ),
-          ],
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: _buildEmptyState(),
         ),
       );
     }
-
-    // Opened ≥1 time. lastOpened may be null on legacy rows (pre-W33
-    // captures) — fall back to firstOpened so the row still shows a
-    // single timestamp rather than mixing null + a value.
-    final last = lastOpened ?? firstOpened;
-    final sameDay = firstOpened.year == last.year &&
-        firstOpened.month == last.month &&
-        firstOpened.day == last.day;
-
-    final label = sameDay
-        ? 'First & last opened ${_formatAnalyticsDate(firstOpened)}'
-        : 'First opened ${_formatAnalyticsDate(firstOpened)}'
-            ' \u00b7 Last opened ${_formatAnalyticsDate(last)}';
-
+    // Wave 38 — 12pt breather above the first card. The list's own
+    // padding (bottom: 8) already cushions below.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-      child: Row(
-        children: [
-          Icon(
-            Icons.visibility_outlined,
-            size: 13,
-            color: AppColors.textSecondaryOnDark.withValues(alpha: 0.6),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                color: AppColors.textSecondaryOnDark.withValues(alpha: 0.85),
-              ),
-            ),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.only(top: 12),
+      child: _buildExerciseList(),
     );
   }
 
-  /// Compact analytics-row date formatter. Same vocabulary the
-  /// SessionCard status row uses ("DD Mon" → "25 Apr") so the surfaces
-  /// agree on date grammar. Hour-resolution would be too granular for
-  /// the at-a-glance signal Carl wants; day resolution reads as
-  /// "engagement", not surveillance.
-  String _formatAnalyticsDate(DateTime dt) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    return '${dt.day} ${months[dt.month - 1]}';
-  }
+  // Wave 38 — `_buildOpenedAnalyticsRow` + `_formatAnalyticsDate` retired.
+  // The "First opened … · Last opened …" line moved into the bottom
+  // stack's stats strip (`StudioBottomBar`); analytics + lock state +
+  // subtitle now stack as a coherent block above the toolbar.
 
   Widget _buildEmptyState() {
     return Column(
@@ -1215,8 +1040,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           ),
         ),
         SizedBox(height: 8),
+        // Wave 38 — Library import dropped from the bottom toolbar; it
+        // re-surfaces inside the gutter's insertion tray once the list
+        // has at least one card. From the empty state, the path is
+        // swipe-right-to-Capture.
         Text(
-          'Swipe right to Capture, or tap the library icon to import.',
+          'Swipe right to Capture your first exercise.',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontFamily: 'Inter',
@@ -1228,11 +1057,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
   }
 
-  // Wave 18 — retired. The exercise-count summary chip + publish-lock
-  // badge lived here; the new StudioToolbar replaces both. Wave 30+31
-  // route the lock affordance through the AppBar padlock chip + the
-  // unlock sheet; edits no longer surface a credit toast (only Publish
-  // materialises a version bump).
+  // Wave 18 — retired the exercise-count summary chip + publish-lock
+  // badge from this position. Wave 30+31 routed the lock affordance
+  // through the AppBar padlock chip + unlock sheet. Wave 38 retired
+  // the AppBar entirely; lock + publish + back live in
+  // `StudioBottomBar` now.
 
   Widget _buildExerciseList() {
     final exercises = _session.exercises;
@@ -2122,25 +1951,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       );
   }
 
-  Future<void> _shareFromToolbar() async {
-    final url = _session.planUrl;
-    if (url == null) return;
-    try {
-      final box = context.findRenderObject() as RenderBox?;
-      await Share.share(
-        url,
-        sharePositionOrigin: box != null
-            ? box.localToGlobal(Offset.zero) & box.size
-            : const Rect.fromLTWH(0, 0, 100, 100),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Share failed: $e')),
-        );
-      }
-    }
-  }
+  // Wave 38 — `_shareFromToolbar` retired. The new bottom toolbar
+  // (back / preview / publish) no longer has a share action; share
+  // affordance is reached from the published-session card via the
+  // dedicated `NetworkShareSheet` in W30.
 
   void _openPreview() {
     HapticFeedback.selectionClick();

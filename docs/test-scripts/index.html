@@ -150,7 +150,7 @@
   <div class="wrap">
     <div class="kicker">homefit.studio · device QA</div>
     <h1>Test scripts</h1>
-    <p class="lede">Active QA for 6 waves (Wave 37 fresh + 5 carryover from older work). Older waves were superseded by later work and have been moved out of the active queue (see Past waves below).</p>
+    <p class="lede">Active QA for 6 waves (Wave 38 fresh + 5 carryover from older work). Older waves were superseded by later work and have been moved out of the active queue (see Past waves below).</p>
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
@@ -165,11 +165,11 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
-        <a href="./2026-04-27-wave37-bundle.html">
+        <a href="./2026-04-28-wave38-bundle.html">
           <div class="row">
             <div>
-              <div class="name">1 · Wave 37 — Inter-set rest in Preview + Studio chevron + photo segmentation no-bands + Home avatar + badge font &minus;10%</div>
-              <div class="scope">Five mixed-surface follow-ups. <strong>(A)</strong> Rep-block stack in in-app Preview now renders rest blocks for pre-Milestone-Q exercises &mdash; one-liner null-coerce at the <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">local_player_server</code> bridge. Cloud RPC verified live (no migration). <strong>(B)</strong> Studio exercise card gets a top-right chevron: muted &rsaquo; collapsed, rotates 90&deg; clockwise + tints coral on expand. Whole header row stays the toggle target. <strong>(C)</strong> Photo body-focus segmentation &mdash; root cause of W36 #6 horizontal bands was an in-place second tent-convolve pass without a temp buffer; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">vImageTentConvolve_ARGB8888</code> doesn't reliably support that. Fix: split into a true ping-pong with a separate <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">scratch</code> buffer. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">os_log</code> diagnostics added on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">category:avatar.capture</code> for stride / kernel / mask state. <strong>(D)</strong> Home client cards now render the body-focus avatar (reuses <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">ClientAvatarGlyph</code>); cards without an avatar look unchanged. <strong>(E)</strong> Session-card count badge font &minus;10%: 13/10 &rarr; 12/9, container stays 21&times;21. <strong>7 items in 5 sections.</strong></div>
+              <div class="name">1 · Wave 38 — Studio bottom-toolbar refactor + SessionCard inline rename</div>
+              <div class="scope">Two tightly-coupled mobile refactors. <strong>(A)</strong> Studio AppBar retired entirely. Top of Studio is now pure exercise list with a 12pt breath above the first card. Title, padlock chip, preview / publish actions, and the "First/Last opened" analytics row all left the top &mdash; they re-grouped at the bottom in a fixed three-row stack: stats &rarr; subtitle (`{date} &middot; {client}`) &rarr; toolbar (back / preview / publish). Locked plans show a coral "&#x1F512; Unlock (1 credit)" pill in place of Publish, right-aligned. Drafts skip the stats strip (~40pt smaller bottom stack). Subtitle ellipsises on long names. <strong>(B)</strong> SessionCard title is inline-editable on the per-client detail page. Dashed grey underline at rest, tap drops into TextField + autofocus + select-all, Enter or tap-outside fires <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">rename_session</code> via SyncService's offline queue. Tapping badge / version row / lock row / chevron still navigates to Studio. New schema migration: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">supabase/schema_wave38_rename_session.sql</code> &mdash; SECURITY DEFINER + practice-membership gated, mirrors <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">rename_client</code>. <strong>7 items in 2 sections (A: 4 items · B: 3 items).</strong></div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -246,6 +246,20 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-04-27-wave37-bundle.html">
+          <div class="row">
+            <div>
+              <div class="name">Wave 37 — Inter-set rest in Preview + Studio chevron + photo segmentation no-bands + Home avatar + badge font &minus;10% (4/7 pass + 1 fail hotfixed; #1/#5 not tested)</div>
+              <div class="date">2026-04-27</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Complete</span>
+              <div class="results" id="wave37-results">Loading…</div>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-04-27-wave36-bundle.html">
           <div class="row">
@@ -815,6 +829,7 @@
           .catch(function() { el.textContent = 'No results yet.'; });
       }
 
+      load('2026-04-27-wave37-bundle.results.json', 'wave37-results');
       load('2026-04-27-wave36-bundle.results.json', 'wave36-results');
       load('2026-04-27-wave35-bundle.results.json', 'wave35-results');
       load('2026-04-27-wave34-bundle.results.json', 'wave34-results');

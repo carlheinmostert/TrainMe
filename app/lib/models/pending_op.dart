@@ -42,6 +42,10 @@ enum PendingOpType {
   /// [ApiClient.uploadRawArchive] outside the queue (best-effort + auto-
   /// retry through Storage's own idempotent upsert path).
   setAvatar,
+
+  /// Rename an existing session / plan (Wave 38). Dispatches
+  /// `rename_session` RPC. Idempotent — last write wins.
+  renameSession,
 }
 
 String _opTypeToWire(PendingOpType t) {
@@ -60,6 +64,8 @@ String _opTypeToWire(PendingOpType t) {
       return 'set_exercise_default';
     case PendingOpType.setAvatar:
       return 'set_avatar';
+    case PendingOpType.renameSession:
+      return 'rename_session';
   }
 }
 
@@ -79,6 +85,8 @@ PendingOpType? _opTypeFromWire(String s) {
       return PendingOpType.setExerciseDefault;
     case 'set_avatar':
       return PendingOpType.setAvatar;
+    case 'rename_session':
+      return PendingOpType.renameSession;
     default:
       return null;
   }
@@ -285,6 +293,27 @@ class PendingOp {
       type: PendingOpType.restoreClient,
       payload: <String, dynamic>{
         'client_id': clientId,
+      },
+      createdAt: nowMs,
+    );
+  }
+
+  /// Queue a `rename_session` op (Wave 38). Idempotent — last write wins.
+  /// Local cache (the `sessions` SQLite table) is updated synchronously
+  /// before this op enqueues; the queued op flushes the new title to the
+  /// cloud `plans.title` column on the next reconnect.
+  factory PendingOp.renameSession({
+    required String opId,
+    required String planId,
+    required String newTitle,
+    required int nowMs,
+  }) {
+    return PendingOp(
+      id: opId,
+      type: PendingOpType.renameSession,
+      payload: <String, dynamic>{
+        'plan_id': planId,
+        'new_title': newTitle,
       },
       createdAt: nowMs,
     );
