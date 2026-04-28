@@ -1,11 +1,6 @@
-import 'dart:developer' as dev;
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../services/auth_service.dart';
-import '../services/portal_links.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 
@@ -17,6 +12,21 @@ import '../theme.dart';
 /// surface affordance. The Settings row still exists (richer copy +
 /// sync-age hint); this chip is the at-a-glance anchor.
 ///
+/// **Apple Reader-App compliance (App Store Review Guideline 3.1.1).**
+/// This widget is **informational only** — it never opens a payment page,
+/// never opens the practice manager, never carries a tappable link. The
+/// Reader-App pattern (Spotify, Netflix, Kindle) permits showing account
+/// state inside the iOS app but disallows any in-app affordance that
+/// nudges the user toward an external purchase flow. Concretely:
+///
+///   - When `balance > 0` we show the count as a static pill (no `onTap`).
+///   - When `balance == 0` we expand to a plain-text sentence reading
+///     "You're out of credits. Top up at manage.homefit.studio when
+///     you're at your computer." — the URL renders as plain text, NOT a
+///     hyperlink, NOT a button. Reviewers consistently accept this
+///     phrasing because it's read-aloud copy and not a tappable
+///     redirect to a payment page.
+///
 /// Behaviour:
 ///   - Reads the active practice id from [AuthService.currentPracticeId].
 ///   - Reads balance from [SyncService.creditBalances] — that notifier
@@ -24,14 +34,12 @@ import '../theme.dart';
 ///     [SyncService.pullAll], and updated locally by
 ///     [SyncService.refreshCreditBalance] after a publish so the number
 ///     ticks down without a manual refresh.
-///   - Tap → launches `manage.homefit.studio/credits?practice=<uuid>`
-///     in the external browser. The portal middleware honours the
-///     query param so the practitioner lands in the same practice they
-///     were just viewing in the app.
 ///
 /// Visual: small dark coral pill (`brandTintBg` border, coral icon +
 /// number, ink-dark text) — matches the [PracticeChip]'s aesthetic so
-/// the two read as peers in the identity row.
+/// the two read as peers in the identity row. Zero-balance state breaks
+/// out of the pill into a wider plain-text line so it can carry the
+/// full sentence without truncating.
 class HomeCreditsChip extends StatelessWidget {
   const HomeCreditsChip({super.key});
 
@@ -47,59 +55,26 @@ class HomeCreditsChip extends StatelessWidget {
           valueListenable: SyncService.instance.creditBalances,
           builder: (context, balances, _) {
             final balance = balances[practiceId];
-            return _CreditsChipVisual(
-              balance: balance,
-              onTap: () => _onTap(context, practiceId),
-            );
+            // Zero-balance state: replace the count pill with a
+            // plain-text sentence. Per the Reader-App rule the URL is
+            // NOT a hyperlink — it reads as flat copy so the
+            // practitioner's expected workflow is "switch to the
+            // laptop and visit the URL there", not "tap here".
+            if (balance == 0) {
+              return const _OutOfCreditsLine();
+            }
+            return _CreditsChipVisual(balance: balance);
           },
         );
       },
     );
   }
-
-  Future<void> _onTap(BuildContext context, String practiceId) async {
-    HapticFeedback.selectionClick();
-    final uri = portalLink('/credits', practiceId: practiceId);
-    // Diagnostic — Wave 30 #8 chased "lands on home" intermittently;
-    // keep this line so a fresh repro can be confirmed against the
-    // actual outbound URL the launcher receives.
-    dev.log('home_credits_chip launch -> $uri', name: 'homefit.chip');
-    bool launched = false;
-    try {
-      launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-    } catch (_) {
-      launched = false;
-    }
-    if (!launched && context.mounted) {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Couldn't open the portal. Try again shortly.",
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 14,
-                color: AppColors.textOnDark,
-              ),
-            ),
-            backgroundColor: AppColors.surfaceRaised,
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 3),
-          ),
-        );
-    }
-  }
 }
 
 class _CreditsChipVisual extends StatelessWidget {
   final int? balance;
-  final VoidCallback onTap;
 
-  const _CreditsChipVisual({required this.balance, required this.onTap});
+  const _CreditsChipVisual({required this.balance});
 
   @override
   Widget build(BuildContext context) {
@@ -107,51 +82,80 @@ class _CreditsChipVisual extends StatelessWidget {
     // jump once the cache lands. A single muted "—" is the lightest
     // hint that the slot is reserved.
     final label = balance == null ? '—' : '$balance';
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppColors.brandTintBg,
         borderRadius: BorderRadius.circular(999),
-        child: Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: AppColors.brandTintBg,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: AppColors.brandTintBorder,
-              width: 1,
+        border: Border.all(
+          color: AppColors.brandTintBorder,
+          width: 1,
+        ),
+        // Faint elevation cue keeps the pill readable on dark; this is
+        // not an interactive surface anymore (Reader-App compliance —
+        // no tap target) but the shadow still anchors it visually.
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 4,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.toll_rounded,
+            size: 14,
+            color: AppColors.primary,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textOnDark,
             ),
-            // Faint elevation cue so it reads as interactive without
-            // shouting — matches the rest of the dark-on-dark chrome.
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x33000000),
-                blurRadius: 4,
-                offset: Offset(0, 1),
-              ),
-            ],
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.toll_rounded,
-                size: 14,
-                color: AppColors.primary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textOnDark,
-                ),
-              ),
-            ],
-          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Plain-text zero-balance line. Reader-App rule: when the practitioner
+/// has no credits, we MAY tell them where to top up — but only as
+/// non-interactive copy. The URL is a string of characters, not a
+/// hyperlink, not an `InkWell`, not wrapped in `launchUrl`. If the
+/// reviewer or a curious tester taps it nothing happens — exactly the
+/// behaviour the guideline expects.
+///
+/// Layout note: the call site wraps this inside a `Row` and we can't
+/// rely on `Flexible` here because [HomeCreditsChip] is several
+/// `ValueListenableBuilder`s deep — `ParentDataWidget` only applies
+/// when it's a direct child of the `Flex`. Instead we cap the width
+/// with a `ConstrainedBox` so the sentence wraps to two lines on
+/// narrow phones without overflowing the row.
+class _OutOfCreditsLine extends StatelessWidget {
+  const _OutOfCreditsLine();
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 220),
+      child: const Text(
+        "You're out of credits. Top up at manage.homefit.studio "
+        "when you're at your computer.",
+        textAlign: TextAlign.right,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 12,
+          height: 1.35,
+          fontWeight: FontWeight.w500,
+          color: AppColors.textSecondaryOnDark,
         ),
       ),
     );

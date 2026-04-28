@@ -40,16 +40,14 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  /// Portal path for the "Top up credits" action. The full URL is built
-  /// at tap time via [portalLink] so the active practice rides as a
-  /// `?practice=<uuid>` query param — without it the portal would
-  /// surface whichever practice the user last picked there, out of
-  /// context with what they're doing in the app. Opens in Safari via
-  /// url_launcher in external mode so the practitioner lands in a real
-  /// browser session (cookies + Supabase auth intact) and — critically —
-  /// Apple Review doesn't see us hosting the credit purchase flow in an
-  /// in-app WebView.
-  static const _creditsTopUpPath = '/credits';
+  // Apple Reader-App compliance (App Store Review Guideline 3.1.1):
+  // there is **no** in-app top-up affordance. Credit balance is shown
+  // for context (and is fine — Spotify/Netflix surface "minutes left"
+  // / "subscription state" the same way), but every tappable path that
+  // leads to the practice manager's `/credits` purchase page has been
+  // stripped from the iOS surface. The zero-balance plain-text hint
+  // lives in [HomeCreditsChip] only — emitting the "manage.homefit.studio"
+  // URL once, as flat copy, is the safest shape for review.
 
   /// Number of times the version row has been tapped in the current
   /// screen lifetime. Seven taps flips [_diagnosticsVisible] on — same
@@ -131,22 +129,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             _CreditBalanceRow(practiceId: practiceId),
                       ),
                       _Divider(),
-                      // Top-up affordance. Carl's Q1 polish: the balance
-                      // row is read-only, so there's no obvious path from
-                      // "I'm low on credits" to "buy more". Opens the
-                      // portal's /credits page in Safari (NOT an in-app
-                      // WebView — Apple review history on payment
-                      // WebViews is sticky). Intentionally avoids any
-                      // IAP-adjacent verbiage ("top up", not "buy",
-                      // "purchase", "subscription") so there's no
-                      // misread of in-app purchase intent.
-                      _ActionRow(
-                        icon: Icons.credit_card_rounded,
-                        label: 'Top up credits',
-                        subtitle: 'Opens homefit.studio in Safari.',
-                        onTap: _signOutPending ? null : _openCreditsTopUp,
-                      ),
-                      _Divider(),
+                      // Apple Reader-App compliance (Guideline 3.1.1):
+                      // the previous "Top up credits" row was an in-app
+                      // CTA opening manage.homefit.studio's payment
+                      // page in Safari. Apple Review treats any link
+                      // that nudges the user toward an external purchase
+                      // for digital goods consumed in-app as a 3.1.1
+                      // violation. Removed entirely. The practitioner
+                      // can still see their balance immediately above;
+                      // the at-zero state in [HomeCreditsChip] surfaces
+                      // a plain-text reminder of where to top up.
                       _ActionRow(
                         icon: Icons.lock_outline_rounded,
                         label: 'Set or change password',
@@ -385,49 +377,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _diagnosticsVisible = true;
       }
     });
-  }
-
-  /// Opens the portal's /credits page in Safari. External-browser mode
-  /// (NOT in-app WebView) so the practitioner arrives at a real browser
-  /// session with their Supabase auth cookies intact and — equally
-  /// important — Apple Review never sees us hosting a payment WebView.
-  /// Silent failure-to-launch surfaces a floating SnackBar with the
-  /// same copy the Network section's portal hand-off uses, for
-  /// consistency.
-  Future<void> _openCreditsTopUp() async {
-    HapticFeedback.selectionClick();
-    final uri = portalLink(
-      _creditsTopUpPath,
-      practiceId: AuthService.instance.currentPracticeId.value,
-    );
-    bool launched = false;
-    try {
-      launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-    } catch (_) {
-      launched = false;
-    }
-    if (!launched && mounted) {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(
-          SnackBar(
-            content: const Text(
-              "Couldn't open the portal. Try again shortly.",
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 14,
-                color: AppColors.textOnDark,
-              ),
-            ),
-            backgroundColor: AppColors.surfaceRaised,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-    }
   }
 
   /// Opens the privacy policy in an in-app browser (Safari View
