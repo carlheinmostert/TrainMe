@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 39.4 Hotfix (sticky pacing + photo refresh + reachability + UTC timestamps)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 39.4 &middot; mobile hotfix QA</div>
+  <h1>Sticky pacing + photo refresh + reachability + UTC timestamps</h1>
+
+  <p class="lede">
+    Five mobile fixes from Wave 39 device-QA feedback. <strong>(A)</strong> Sticky per-client defaults (Wave 8 / Wave 39) extend to two more PACING fields: <code>video_reps_per_loop</code> + <code>inter_set_rest_seconds</code>. They now propagate the same way reps / sets / hold / prep already do &mdash; same in-memory overlay, same RPC. <strong>(B)</strong> Photo last-exercise refresh got a proper fix: the conversion listener now <em>unconditionally</em> reloads the session from SQLite on every <code>done</code> event and merges the conversion payload over the matching row, so spinners clear in-place even when the parent <code>SessionShellScreen</code>'s async refresh races us. <code>didUpdateWidget</code> also gained a guard: parent re-pushes are only adopted when they're strictly fresher (more rows or higher conversion-status rank) than local state. <strong>(C)</strong> Reachability drop-pill latch persists until the practitioner taps the pill again (or backgrounds the app). Card taps and upward scrolls no longer reset it &mdash; latching a list to thumb-zone and immediately tapping a card is the whole point. <strong>(D)</strong> When latched, the dropped list is now clipped above the toolbar's top edge so content can't bleed over Back / Preview / Publish. <strong>(E)</strong> Dart wire timestamps emit UTC at every Postgres-bound site in <code>upload_service.dart</code> (4 sites: 2x <code>plans.created_at</code>, 1x <code>plans.sent_at</code>, 1x <code>plan_issuances.issued_at</code>). Local log files keep host time.
+  </p>
+
+  <h2>A &middot; Sticky pacing fields propagation</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">1.</span>
+      <span class="text">REPS IN VIDEO override propagates to next capture on same client.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open Client A. Create a new session. Capture a video (long-press shutter, ~3s). Wait for conversion to finish.</li>
+        <li data-sub="1.2">Open the exercise card&apos;s PACING accordion. Set REPS IN VIDEO = 5 (the default is 3).</li>
+        <li data-sub="1.3">Swipe right to Capture mode. Long-press shutter and record exercise 2.</li>
+        <li data-sub="1.4">Swipe back to Studio. Open exercise 2&apos;s PACING accordion. REPS IN VIDEO reads <strong>5</strong>, not 3.</li>
+        <li data-sub="1.5">DURATION PER REP for exercise 2 should reflect <code>video_duration / 5</code> (since per-rep derives from the new sticky default).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">2.</span>
+      <span class="text">Inter-set rest override propagates to next capture on same client.</span>
+      <ol class="steps">
+        <li data-sub="2.1">On Client A, in any captured exercise, open PACING. Set POST REP REST (the inter-set rest field) = 30s.</li>
+        <li data-sub="2.2">Capture another exercise on Client A.</li>
+        <li data-sub="2.3">Open exercise 3&apos;s PACING accordion. POST REP REST reads <strong>30s</strong>, not the system default of 15s.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">3.</span>
+      <span class="text">Pacing defaults are isolated per client.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Carry the Client A overrides from items 1 + 2 (REPS IN VIDEO = 5, POST REP REST = 30s).</li>
+        <li data-sub="3.2">Back out to Home. Open Client B (or create a new one). New session. Capture an exercise.</li>
+        <li data-sub="3.3">Open the new exercise card&apos;s PACING accordion. REPS IN VIDEO reads <strong>3</strong> (system default), POST REP REST reads <strong>15s</strong>. The Client A overrides do NOT leak.</li>
+        <li data-sub="3.4">Switch back to Client A &rarr; new session &rarr; capture &rarr; PACING shows REPS IN VIDEO = 5, POST REP REST = 30s. Client A&apos;s map preserved through the round-trip.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B &middot; Photo last-exercise refresh (proper fix)</h2>
+  <ul class="checklist">
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">4.</span>
+      <span class="text">Photo as LAST exercise &mdash; spinner clears in-place within ~1.5s WITHOUT leaving Studio.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Create a new session on any client. Swipe right to Capture mode.</li>
+        <li data-sub="4.2">Tap the shutter (short tap = photo). Photo captures. Swipe LEFT back to Studio immediately.</li>
+        <li data-sub="4.3">Studio shows the photo card with a converting spinner. Wait. Within ~1.5s the spinner crossfades to a green check (conversion done). The card is now interactive &mdash; tap it &rarr; full-screen viewer opens.</li>
+        <li data-sub="4.4">Critical: do NOT navigate away and come back. The fix is that the spinner clears WITHOUT needing to leave Studio + reopen. This was the regression in Wave 39 that we&apos;re re-fixing with the unconditional SQLite reload.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">5.</span>
+      <span class="text">Multiple rapid photo captures &mdash; all clear without intervention.</span>
+      <ol class="steps">
+        <li data-sub="5.1">In a session, swipe to Capture and take 4 photos in rapid succession (one tap, swipe-left-swipe-right-tap, etc &mdash; or just tap shutter 4x in Capture).</li>
+        <li data-sub="5.2">Swipe back to Studio. All 4 cards visible with spinners initially, then within a few seconds all 4 settle to green checks.</li>
+        <li data-sub="5.3">Tap each card &rarr; full-screen viewer opens for each. None stuck on converting.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">6.</span>
+      <span class="text">Mid-list photo capture still updates correctly (regression check).</span>
+      <ol class="steps">
+        <li data-sub="6.1">In Studio, drag a photo card so it&apos;s NOT the last in the list (e.g. capture a video after, or reorder).</li>
+        <li data-sub="6.2">Capture another photo &mdash; doesn&apos;t matter where in the list. Spinner appears, then clears within ~1.5s. Position in the list is correct.</li>
+        <li data-sub="6.3">Capture sequence: photo &rarr; video &rarr; photo &rarr; video. All four cards eventually settle to a green check. None get stuck on converting.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C &middot; Reachability latch + clip</h2>
+  <ul class="checklist">
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&times;</button></div>
+      <span class="num">7.</span>
+      <span class="text">With pill latched: tapping any exercise card does NOT reset the latch.</span>
+      <ol class="steps">
+        <li data-sub="7.1">Open a session with 3+ exercises so the reachability pill appears bottom-right. Tap the pill once &mdash; list slides down ~50%, pill arrow flips up.</li>
+        <li data-sub="7.2">Tap any exercise card body. The card EXPANDS (DOSE / PACING accordions become available) &mdash; but the list STAYS dropped. Pill arrow remains flipped up.</li>
+        <li data-sub="7.3">Edit a field on the expanded card. Latch persists; list does not snap up.</li>
+        <li data-sub="7.4">Collapse the card (tap it again, or tap another card). Latch still persists.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&times;</button></div>
+      <span class="num">8.</span>
+      <span class="text">With pill latched: scrolling the list up does NOT reset the latch.</span>
+      <ol class="steps">
+        <li data-sub="8.1">Latch the list down via the pill.</li>
+        <li data-sub="8.2">Scroll the list up by a small flick or drag (~30pt). The list scrolls within its dropped window, but the dropped position itself does not snap back to the default.</li>
+        <li data-sub="8.3">Pill arrow stays flipped up.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&times;</button></div>
+      <span class="num">9.</span>
+      <span class="text">Tap pill again &mdash; latch releases, list slides back up.</span>
+      <ol class="steps">
+        <li data-sub="9.1">From the latched-down state, tap the pill once.</li>
+        <li data-sub="9.2">List slides back up to the default position. Pill arrow flips back to down.</li>
+        <li data-sub="9.3">Sole way to manually un-latch (other than backgrounding the app).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="10" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&times;</button></div>
+      <span class="num">10.</span>
+      <span class="text">Background &amp; resume: latch is released on resume.</span>
+      <ol class="steps">
+        <li data-sub="10.1">Latch the list down via the pill.</li>
+        <li data-sub="10.2">Send the app to the background (home gesture). Wait a couple seconds. Reopen homefit.</li>
+        <li data-sub="10.3">Studio is back at the default (un-latched) position. Pill arrow shows down.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="11" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&times;</button></div>
+      <span class="num">11.</span>
+      <span class="text">When latched, dropped list content is clipped above the toolbar&apos;s top edge.</span>
+      <ol class="steps">
+        <li data-sub="11.1">Latch the list down. Look at the bottom of the screen, just above the StudioBottomBar (Back / Preview / Publish row).</li>
+        <li data-sub="11.2">No exercise card content is visible BELOW the toolbar&apos;s top edge or behind the toolbar buttons. The list ends cleanly at the toolbar boundary.</li>
+        <li data-sub="11.3">The reachability pill itself is still visible bottom-right ~12pt above the toolbar &mdash; only the LIST content is clipped, not the pill.</li>
+        <li data-sub="11.4">Repeat with various session lengths (3, 6, 10 exercises) to confirm clipping holds at all densities.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>D &middot; UTC timestamps (mobile half)</h2>
+  <ul class="checklist">
+    <li data-num="12" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&check;</button><button class="fail" type="button" aria-label="Fail 12">&times;</button></div>
+      <span class="num">12.</span>
+      <span class="text">Publish a plan &mdash; new <code>plan_issuances.issued_at</code> is in UTC.</span>
+      <ol class="steps">
+        <li data-sub="12.1">Open or create a session with at least 1 exercise. Hit Publish (consumes 1 credit).</li>
+        <li data-sub="12.2">Note the WALL-CLOCK time at moment of publish (e.g. 14:32 SAST).</li>
+        <li data-sub="12.3">Open the portal &rarr; Audit. Newest <code>plan.publish</code> row shows the matching wall-clock time in the viewer&apos;s local TZ. (Audit page renders UTC &rarr; viewer TZ; if the row had been written in SAST it would render 2h ahead.)</li>
+        <li data-sub="12.4">If you&apos;re overseas (in a non-SAST TZ), confirm the dashboard / audit timestamp matches YOUR local clock at the moment of publish.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="13" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&check;</button><button class="fail" type="button" aria-label="Fail 13">&times;</button></div>
+      <span class="num">13.</span>
+      <span class="text"><code>plans.sent_at</code> + <code>plans.created_at</code> are in UTC.</span>
+      <ol class="steps">
+        <li data-sub="13.1">Either run a SQL query against the latest publish (<code>select sent_at, created_at from plans where id = '...'</code>) or eyeball via the portal&apos;s plan detail page.</li>
+        <li data-sub="13.2">Both timestamps look correct relative to the publish wall-clock time. If they were 2h ahead, the SAST regression has not been fixed.</li>
+        <li data-sub="13.3">If you don&apos;t have SQL access: focus on item 12&apos;s portal Audit row &mdash; that&apos;s sourced from <code>plan_issuances.issued_at</code> which uses the same <code>DateTime.now().toUtc()</code> emitter.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope &mdash; reminder</h3>
+    <ul>
+      <li>The portal-side dashboard timestamp item (P1) is owned by the portal-agent slice of Wave 39.4. Carl&apos;s wave-39 results JSON flagged it; track it in the portal&apos;s separate test script.</li>
+      <li>No backfill of historical <code>plan_issuances.issued_at</code> rows. Carl explicitly said no backfill &mdash; the SAST drift on existing rows stays as a known historical artefact.</li>
+      <li>Local log timestamps (<code>raw_archive_error.log</code>, capture-screen haptic ticks, diagnostics dump) intentionally keep host time. Those files are read by humans on the device, not by Postgres / portal.</li>
+      <li>The unified-preview WebView bridge (<code>unified_preview_scheme_bridge.dart</code>) emits ISO timestamps for in-process JSON handoff to the local web player. No server round-trip; no UTC normalisation needed.</li>
+      <li>Mobile player&apos;s &quot;Show me&quot; consent override is unchanged. Wave 39.4 doesn&apos;t touch playback.</li>
+    </ul>
+  </div>
+
+</div>
+<script>
+  (function() {
+    var SLUG = '2026-04-29-wave39.4-hotfix.results.json';
+    var ENDPOINT = '/api/test-results/' + SLUG;
+    var LS_KEY = 'homefit-test-state::' + location.pathname;
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+    fetch(ENDPOINT, {cache: 'no-store'}).then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+      .catch(function() {}).finally(apply);
+    function apply() {
+      document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var entry = state[num];
+        if (!entry) { li.setAttribute('data-status', ''); return; }
+        li.setAttribute('data-status', entry.status || '');
+        var input = li.querySelector('.note');
+        if (input) input.value = entry.note || '';
+      });
+    }
+    function save() {
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      fetch(ENDPOINT, { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({wave: 'wave39.4-hotfix', updatedAt: new Date().toISOString(), items: state})
+      }).catch(function() {});
+    }
+    document.querySelectorAll('.checklist > li[data-num]').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var passBtn = li.querySelector('button.pass');
+      var failBtn = li.querySelector('button.fail');
+      var noteInput = li.querySelector('.note');
+      function setPlaceholder(status) {
+        if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+        else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+        else noteInput.placeholder = '';
+      }
+      passBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'pass' ? '' : 'pass';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else state[num] = {status: 'pass', note: noteInput.value || ''};
+        save();
+      });
+      failBtn.addEventListener('click', function() {
+        var current = li.getAttribute('data-status') || '';
+        var next = current === 'fail' ? '' : 'fail';
+        li.setAttribute('data-status', next); setPlaceholder(next);
+        if (!next) delete state[num]; else { state[num] = {status: 'fail', note: noteInput.value || ''}; setTimeout(function() { noteInput.focus(); }, 10); }
+        save();
+      });
+      noteInput.addEventListener('input', function() {
+        var status = li.getAttribute('data-status') || '';
+        if (!status) return;
+        state[num] = {status: status, note: noteInput.value || ''};
+        save();
+      });
+    });
+  })();
+</script>
+</body>
+</html>

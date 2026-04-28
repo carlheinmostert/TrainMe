@@ -55,6 +55,10 @@ class StickyDefaults {
   static const String fPrepSeconds = ClientDefaultsApi.fPrepSeconds;
   static const String fCustomDurationSeconds =
       ClientDefaultsApi.fCustomDurationSeconds;
+  // Wave 39.4 — Pacing fields that previously bypassed sticky propagation.
+  static const String fVideoRepsPerLoop = ClientDefaultsApi.fVideoRepsPerLoop;
+  static const String fInterSetRestSeconds =
+      ClientDefaultsApi.fInterSetRestSeconds;
 
   /// Wave 39 — in-memory write-through overlay keyed by client id. Every
   /// [recordOverride] writes here SYNCHRONOUSLY (before the async pending-
@@ -136,6 +140,11 @@ class StickyDefaults {
       prepSeconds: exercise.prepSeconds ?? _asInt(defaults[fPrepSeconds]),
       customDurationSeconds: exercise.customDurationSeconds ??
           _asInt(defaults[fCustomDurationSeconds]),
+      // Wave 39.4 — Pacing fields. Mirror the same `??`-guarded pattern.
+      videoRepsPerLoop: exercise.videoRepsPerLoop ??
+          _asInt(defaults[fVideoRepsPerLoop]),
+      interSetRestSeconds: exercise.interSetRestSeconds ??
+          _asInt(defaults[fInterSetRestSeconds]),
     );
   }
 
@@ -268,6 +277,21 @@ class StickyDefaults {
         clientId: clientId,
         field: fCustomDurationSeconds,
         value: after.customDurationSeconds,
+      );
+    }
+    // Wave 39.4 — Pacing fields fan-out.
+    if (before.videoRepsPerLoop != after.videoRepsPerLoop) {
+      recordOverride(
+        clientId: clientId,
+        field: fVideoRepsPerLoop,
+        value: after.videoRepsPerLoop,
+      );
+    }
+    if (before.interSetRestSeconds != after.interSetRestSeconds) {
+      recordOverride(
+        clientId: clientId,
+        field: fInterSetRestSeconds,
+        value: after.interSetRestSeconds,
       );
     }
   }

@@ -21,9 +21,16 @@ import 'api_client.dart';
 ///
 ///   set_client_exercise_default(p_client_id, p_field, p_value JSONB) -> void
 ///
-/// Seven permitted field keys (Wire constants below):
+/// Permitted field keys (Wire constants below):
 ///   reps, sets, hold_seconds, include_audio, preferred_treatment,
-///   prep_seconds, custom_duration_seconds.
+///   prep_seconds, custom_duration_seconds, video_reps_per_loop,
+///   inter_set_rest_seconds.
+///
+/// Wave 39.4 — `video_reps_per_loop` and `inter_set_rest_seconds`
+/// joined the sticky set so the PACING accordion's "REPS IN VIDEO" +
+/// inter-set rest fields propagate across captures the same way the
+/// other fields do. The RPC writes any key into the
+/// `client_exercise_defaults` JSONB column; no schema change required.
 class ClientDefaultsApi {
   ClientDefaultsApi._();
 
@@ -38,6 +45,9 @@ class ClientDefaultsApi {
   static const String fPreferredTreatment = 'preferred_treatment';
   static const String fPrepSeconds = 'prep_seconds';
   static const String fCustomDurationSeconds = 'custom_duration_seconds';
+  // Wave 39.4 — Pacing fields that previously bypassed sticky propagation.
+  static const String fVideoRepsPerLoop = 'video_reps_per_loop';
+  static const String fInterSetRestSeconds = 'inter_set_rest_seconds';
 
   /// The full set of fields considered "sticky" for new-capture
   /// pre-fill. Used by the propagation layer to walk every field once.
@@ -49,6 +59,8 @@ class ClientDefaultsApi {
     fPreferredTreatment,
     fPrepSeconds,
     fCustomDurationSeconds,
+    fVideoRepsPerLoop,
+    fInterSetRestSeconds,
   ];
 
   SupabaseClient get _raw => Supabase.instance.client;
