@@ -173,6 +173,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// when the parent push adds the exercise to our list.
   final Map<String, ExerciseCapture> _pendingConversions = {};
 
+  /// Wave 17 — in-memory plan analytics summary, fetched once on init
+  /// for published plans. Null = not yet fetched or unavailable.
+  PlanAnalyticsSummary? _planAnalytics;
+
 
   @override
   void initState() {
@@ -197,6 +201,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // client so the DURATION PER REP control can seed Manual from the
     // client's last-used value (not just the hard-coded 5s).
     unawaited(_loadStickyCustomDurationPerRep());
+    // Wave 17 — fetch plan analytics for published plans.
+    unawaited(_fetchPlanAnalytics());
   }
 
   /// Wave 18.7 — load the client's sticky `custom_duration_per_rep`
@@ -226,6 +232,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       }
     } catch (e) {
       debugPrint('studio: loadStickyCustomDurationPerRep failed: $e');
+    }
+  }
+
+  /// Wave 17 — fetch plan analytics for published plans. Best-effort;
+  /// failure silently leaves [_planAnalytics] null (exercise cards render
+  /// without the stats bar). Called once on init.
+  Future<void> _fetchPlanAnalytics() async {
+    if (!_session.isPublished) return;
+    final summary =
+        await ApiClient.instance.getPlanAnalyticsSummary(_session.id);
+    if (!mounted) return;
+    if (summary != null) {
+      setState(() => _planAnalytics = summary);
     }
   }
 
@@ -1623,6 +1642,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         // seeding DURATION PER REP's Manual mode. Null means "no sticky
         // default for this client; fall back to 5s".
         stickyCustomDurationPerRep: _stickyCustomDurationPerRep,
+        // Wave 17 — per-exercise analytics stats from the in-memory
+        // plan analytics summary. Null when no data is available.
+        analyticsStats: _planAnalytics?.exerciseStats[exercise.id],
         onTap: () {
           // Wave 39.4 — card tap no longer resets the reachability
           // latch. The latch persists until the practitioner taps the

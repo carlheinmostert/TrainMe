@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../config.dart';
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
+import '../services/api_client.dart';
 import '../theme.dart';
 import '../theme/motion.dart';
 import 'inline_editable_text.dart';
@@ -131,6 +132,13 @@ class StudioExerciseCard extends StatefulWidget {
   /// means "no sticky default, fall back to 5s".
   final int? stickyCustomDurationPerRep;
 
+  /// Wave 17 — per-exercise analytics stats (viewed / completed /
+  /// skipped). Null when analytics data is unavailable (unpublished plan,
+  /// analytics not yet fetched, or no events recorded for this exercise).
+  /// Rendered as a single muted line below the exercise name inside the
+  /// collapsed card header.
+  final ExerciseAnalyticsStats? analyticsStats;
+
   const StudioExerciseCard({
     super.key,
     required this.exercise,
@@ -144,6 +152,7 @@ class StudioExerciseCard extends StatefulWidget {
     required this.onDelete,
     this.onDownloadOriginal,
     this.stickyCustomDurationPerRep,
+    this.analyticsStats,
   });
 
   @override
@@ -508,6 +517,11 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
                       ),
                     ),
                   ),
+                  // Wave 17 — per-exercise analytics stats bar.
+                  if (widget.analyticsStats != null) ...[
+                    const SizedBox(height: 3),
+                    _ExerciseStatsBar(stats: widget.analyticsStats!),
+                  ],
                 ],
               ),
             ),
@@ -2092,6 +2106,36 @@ class InlineNumericEditor extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Wave 17 — per-exercise analytics stats bar. Single line of 10.5pt
+/// Inter muted text: "N/M viewed · N/M completed · N skipped".
+class _ExerciseStatsBar extends StatelessWidget {
+  final ExerciseAnalyticsStats stats;
+
+  const _ExerciseStatsBar({required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = stats.viewed + stats.skipped;
+    if (total == 0) return const SizedBox.shrink();
+    final parts = <String>[
+      '${stats.viewed}/$total viewed',
+      '${stats.completed}/$total completed',
+      if (stats.skipped > 0) '${stats.skipped} skipped',
+    ];
+    return Text(
+      parts.join(' \u00b7 '),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        fontFamily: 'Inter',
+        fontSize: 10.5,
+        fontWeight: FontWeight.w400,
+        color: AppColors.textSecondaryOnDark,
       ),
     );
   }

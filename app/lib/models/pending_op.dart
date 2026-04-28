@@ -221,6 +221,7 @@ class PendingOp {
     required bool grayscaleAllowed,
     required bool colourAllowed,
     bool? avatarAllowed,
+    bool? analyticsAllowed,
     required int nowMs,
   }) {
     return PendingOp(
@@ -234,6 +235,8 @@ class PendingOp {
         // routes to the 3-arg shim). Non-null carries the explicit intent
         // and routes to the 4-arg fn.
         if (avatarAllowed != null) 'avatar_allowed': avatarAllowed,
+        // Wave 17 — analytics consent. Null = preserve existing value.
+        if (analyticsAllowed != null) 'analytics_allowed': analyticsAllowed,
       },
       createdAt: nowMs,
     );

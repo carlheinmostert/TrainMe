@@ -602,15 +602,18 @@ class SyncService {
     required bool grayscaleAllowed,
     required bool colourAllowed,
     bool? avatarAllowed,
+    bool? analyticsAllowed,
   }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final current = await _loadCachedClientRaw(clientId);
     if (current == null) return null;
     final nextAvatar = avatarAllowed ?? current.avatarAllowed;
+    final nextAnalytics = analyticsAllowed ?? current.analyticsAllowed;
     final updated = current.copyWith(
       grayscaleAllowed: grayscaleAllowed,
       colourAllowed: colourAllowed,
       avatarAllowed: nextAvatar,
+      analyticsAllowed: nextAnalytics,
       // Wave 29 — stamp locally so the publish-gate passes immediately;
       // server-side `set_client_video_consent` re-stamps to its own now()
       // when the queued op flushes.
@@ -624,6 +627,7 @@ class SyncService {
       grayscaleAllowed: grayscaleAllowed,
       colourAllowed: colourAllowed,
       avatarAllowed: nextAvatar,
+      analyticsAllowed: nextAnalytics,
       nowMs: nowMs,
     );
     await _storage.enqueuePendingOp(op);
@@ -895,6 +899,8 @@ class SyncService {
         // which preserves the existing avatar value. When present, the
         // 4-arg path stamps it explicitly.
         final avatar = op.payload['avatar_allowed'] as bool?;
+        // Wave 17 — analytics consent. Optional; null preserves existing.
+        final analytics = op.payload['analytics_allowed'] as bool?;
         if (clientId == null || grayscale == null || colour == null) return true;
         final ok = await ApiClient.instance.setClientVideoConsent(
           clientId: clientId,
@@ -902,6 +908,7 @@ class SyncService {
           grayscaleAllowed: grayscale,
           colourAllowed: colour,
           avatarAllowed: avatar,
+          analyticsAllowed: analytics,
         );
         if (!ok) {
           throw Exception('set_client_video_consent returned false');

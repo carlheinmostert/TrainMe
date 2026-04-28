@@ -51,6 +51,7 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
   late bool _grayscaleAllowed;
   late bool _colourAllowed;
   late bool _avatarAllowed;
+  late bool _analyticsAllowed;
   bool _saving = false;
 
   @override
@@ -59,6 +60,7 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
     _grayscaleAllowed = widget.client.grayscaleAllowed;
     _colourAllowed = widget.client.colourAllowed;
     _avatarAllowed = widget.client.avatarAllowed;
+    _analyticsAllowed = widget.client.analyticsAllowed;
   }
 
   Future<void> _save() async {
@@ -74,6 +76,7 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
         grayscaleAllowed: _grayscaleAllowed,
         colourAllowed: _colourAllowed,
         avatarAllowed: _avatarAllowed,
+        analyticsAllowed: _analyticsAllowed,
       );
       if (!mounted) return;
       if (cached == null) {
@@ -90,6 +93,7 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
         grayscaleAllowed: _grayscaleAllowed,
         colourAllowed: _colourAllowed,
         avatarAllowed: _avatarAllowed,
+        analyticsAllowed: _analyticsAllowed,
       );
       widget.onSaved?.call(updated);
       Navigator.of(context).pop(updated);
@@ -189,6 +193,18 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
                 value: _avatarAllowed,
                 onChanged: (v) => setState(() => _avatarAllowed = v),
                 highlight: widget.highlightAvatar,
+              ),
+              const SizedBox(height: 20),
+              _sectionHeader('Analytics'),
+              const SizedBox(height: 4),
+              _row(
+                icon: Icons.bar_chart_rounded,
+                title: 'Anonymous usage analytics',
+                subtitle:
+                    'Track which exercises are completed or skipped '
+                    '— helps you refine plans.',
+                value: _analyticsAllowed,
+                onChanged: (v) => setState(() => _analyticsAllowed = v),
               ),
               // Future consent groups slot in below this line — e.g.
               // outcome-tracking, data sharing, reminder messaging.
