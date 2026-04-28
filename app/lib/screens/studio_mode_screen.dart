@@ -489,14 +489,51 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         unawaited(_reconcileFromStorage(updated, seqAtEvent));
       } else {
         // Exercise not in our list yet — the parent's async refresh
-        // hasn't pushed it. Buffer the event; didUpdateWidget will
-        // replay it when the exercise appears. This is the root cause
-        // of the "last photo spinner won't clear" bug: fast photo
-        // conversions (~200ms) outrace the parent's SQLite read.
-        _pendingConversions[updated.id] = updated;
+        // hasn't pushed it. Fast photo conversions (~200ms) outrace
+        // the parent's SQLite read. Fix: read the session from SQLite
+        // ourselves (the exercise IS there — capture mode saved it)
+        // and append it with the fresh conversion state.
+        unawaited(_fetchAndAppendMissing(updated));
       }
     });
   }
+
+  /// Read the full session from SQLite (where the exercise IS stored
+  /// since capture mode saves before queuing conversion), find the
+  /// missing exercise, overlay the conversion result, and append to
+  /// our in-memory list. This bypasses the parent-push timing entirely.
+  Future<void> _fetchAndAppendMissing(ExerciseCapture updated) async {
+    final fresh = await widget.storage.getSession(_session.id);
+    if (fresh == null || !mounted) return;
+    // Find the exercise in the fresh session.
+    final fromSqlite = fresh.exercises.where((e) => e.id == updated.id);
+    if (fromSqlite.isEmpty) return; // shouldn't happen, but guard
+    // Use the conversion event's status (fresher than SQLite's).
+    final resolved = fromSqlite.first.copyWith(
+      conversionStatus: updated.conversionStatus,
+      convertedFilePath: updated.convertedFilePath,
+      thumbnailPath: updated.thumbnailPath,
+      videoDurationMs: updated.videoDurationMs,
+      archiveFilePath: updated.archiveFilePath,
+      archivedAt: updated.archivedAt,
+      segmentedRawFilePath: updated.segmentedRawFilePath,
+      maskFilePath: updated.maskFilePath,
+    );
+    _conversionSeq++;
+    if (!mounted) return;
+    setState(() {
+      final exercises = List<ExerciseCapture>.from(_session.exercises);
+      // Check again in case a parent push arrived while we were reading.
+      final idx = exercises.indexWhere((e) => e.id == updated.id);
+      if (idx >= 0) {
+        exercises[idx] = resolved;
+      } else {
+        exercises.add(resolved);
+      }
+      _pushSession(_session.copyWith(exercises: exercises));
+    });
+  }
+
 
   /// Wave 40.6 — read the canonical session from SQLite, then merge
   /// [authoritative] over the matching exercise row before pushing.
