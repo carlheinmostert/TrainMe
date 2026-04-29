@@ -241,7 +241,7 @@ export function ClientDetailPanel({
           <style>{`details > summary::-webkit-details-marker{display:none}`}</style>
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <h2 className="font-heading text-base font-semibold text-ink">
-              Visibility
+              Client consent
             </h2>
             <span className="inline-flex shrink-0 items-center rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
               {grantedToggles}/{totalToggles} granted

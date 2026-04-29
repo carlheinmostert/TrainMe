@@ -552,13 +552,10 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
           const SizedBox(height: 10),
           Row(
             children: [
-              // Wave 40.3 — chip now mirrors the portal's <details> header:
-              // "Visibility · {granted}/{total} granted". The chip is the
-              // collapsed-state header; tapping expands into the existing
-              // bottom sheet which serves as the mobile twin of the portal
-              // accordion. R-11 parity intact.
+              // Consent chip — collapsed-state header; tapping expands
+              // into the bottom sheet (mobile twin of the portal accordion).
               _ConsentChip(
-                label: 'Visibility',
+                label: 'Client consent',
                 grantedCount: _consentGrantedCount(_client),
                 totalCount: 5,
                 onTap: () => _openConsent(),
