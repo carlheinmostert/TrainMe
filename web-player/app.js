@@ -4236,10 +4236,21 @@ async function init() {
         const setIdx = parseInt(section.getAttribute('data-set-index'), 10);
         const repIdx = parseInt(block.getAttribute('data-rep-index'), 10);
         if (Number.isNaN(setIdx) || Number.isNaN(repIdx)) return;
+        emitAnalyticsEvent('exercise_navigation_jump', slides[currentIndex]?.id || null, {
+          from_set: currentSetIndex,
+          to_set: setIdx,
+          to_rep: repIdx,
+          method: 'rep_stack',
+        });
         jumpToRep(setIdx, repIdx);
       } else if (block.classList.contains('rep-stack-block--rest')) {
         const restIdx = parseInt(block.getAttribute('data-rest-index'), 10);
         if (Number.isNaN(restIdx)) return;
+        emitAnalyticsEvent('exercise_navigation_jump', slides[currentIndex]?.id || null, {
+          from_set: currentSetIndex,
+          to_set: restIdx,
+          method: 'rep_stack_rest',
+        });
         jumpToRest(restIdx);
       }
     });
