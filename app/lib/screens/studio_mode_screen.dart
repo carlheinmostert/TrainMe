@@ -177,6 +177,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// for published plans. Null = not yet fetched or unavailable.
   PlanAnalyticsSummary? _planAnalytics;
 
+  /// Periodic re-fetch of `_planAnalytics` while the Studio screen is
+  /// mounted. Events land server-side as the client opens / completes
+  /// the plan, but the practitioner's already-open Studio view never
+  /// updates without a poll. 30s cadence is the lightest path before
+  /// adding realtime subscriptions. Also re-triggered on app foreground
+  /// in `didChangeAppLifecycleState` for the common case where the
+  /// practitioner watches the client use the plan on web while the
+  /// phone is backgrounded.
+  Timer? _analyticsPollTimer;
+
 
   @override
   void initState() {
@@ -203,6 +213,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     unawaited(_loadStickyCustomDurationPerRep());
     // Wave 17 — fetch plan analytics for published plans.
     unawaited(_fetchPlanAnalytics());
+    // Poll plan analytics while the screen is mounted so the
+    // practitioner sees fresh open / completion stats without leaving
+    // the screen. `_fetchPlanAnalytics` is fire-and-forget and
+    // self-guards against `!mounted` + unpublished plans.
+    _analyticsPollTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _fetchPlanAnalytics(),
+    );
   }
 
   /// Wave 18.7 — load the client's sticky `custom_duration_per_rep`
@@ -350,6 +368,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   void dispose() {
     _conversionSub?.cancel();
     _lockTimer?.cancel();
+    _analyticsPollTimer?.cancel();
     _pulseController.dispose();
     // Wave 39 (Item 5) — unwire reachability hooks before super.
     WidgetsBinding.instance.removeObserver(this);
@@ -365,8 +384,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed && _isReachabilityLatched) {
-      setState(() => _isReachabilityLatched = false);
+    if (state == AppLifecycleState.resumed) {
+      if (_isReachabilityLatched) {
+        setState(() => _isReachabilityLatched = false);
+      }
+      // Common case: practitioner watches the client use the plan on
+      // web while the phone is backgrounded. Coming back to the app
+      // should show fresh stats without waiting up to 30s for the
+      // periodic poll.
+      unawaited(_fetchPlanAnalytics());
     }
   }
 
