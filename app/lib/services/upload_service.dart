@@ -1050,6 +1050,21 @@ class UploadService {
     required Session session,
     required String practiceId,
   }) async {
+    // Pre-fetch existing files in the raw-archive directory for this plan.
+    // Skip uploads for files that already exist (same pattern as media).
+    final existingRaw = <String>{};
+    try {
+      final listing = await _api.listRawArchive(
+        prefix: '$practiceId/${session.id}',
+      );
+      for (final item in listing) {
+        existingRaw.add('$practiceId/${session.id}/${item.name}');
+      }
+      debugPrint('_uploadRawArchives: ${existingRaw.length} files already in raw-archive');
+    } catch (e) {
+      debugPrint('_uploadRawArchives: list failed, checking rawArchiveUploadedAt only: $e');
+    }
+
     for (final exercise in session.exercises) {
       if (exercise.isRest) continue;
       if (exercise.rawArchiveUploadedAt != null) continue;
@@ -1068,15 +1083,23 @@ class UploadService {
       }
 
       final storagePath = '$practiceId/${session.id}/${exercise.id}.mp4';
-      // This is THE silent-failure site that motivated Wave 7 — the
-      // missing-vault-secret outage (2026-04-20) manifested as every
-      // raw-archive upload being rejected by Storage, and the bare
-      // debugPrint swallow hid it for weeks.
-      //
-      // We explicitly type the loudSwallow generic as `bool` and return
-      // `true` on success so we can branch on `ok == true` below. Using
-      // `Future<void>` would make the return `void?`, which Dart forbids
-      // comparing with null.
+
+      // Skip if already in storage (existence check from listing above).
+      if (existingRaw.contains(storagePath)) {
+        debugPrint('_uploadRawArchives: skip $storagePath (exists)');
+        // Still stamp locally so future publishes skip the listing check too.
+        await loudSwallow(
+          () => _storage.saveExercise(
+            exercise.copyWith(rawArchiveUploadedAt: DateTime.now()),
+          ),
+          kind: 'raw_archive_local_stamp',
+          source: 'UploadService._uploadRawArchives',
+          severity: 'info',
+          swallow: true,
+        );
+        continue;
+      }
+
       final ok = await loudSwallow<bool>(
         () async {
           await _api.uploadRawArchive(path: storagePath, file: file);
@@ -1174,6 +1197,10 @@ class UploadService {
       final segMime = isPhotoSegmented ? 'image/jpeg' : 'video/mp4';
       final segStoragePath =
           '$practiceId/${session.id}/${exercise.id}$segSuffix';
+      if (existingRaw.contains(segStoragePath)) {
+        debugPrint('_uploadRawArchives: skip $segStoragePath (exists)');
+        continue;
+      }
       await loudSwallow<bool>(
         () async {
           await _api.uploadRawArchive(
@@ -1264,6 +1291,10 @@ class UploadService {
             : (ext == '.heic' ? 'image/heic' : 'image/jpeg');
         final storagePath =
             '$practiceId/${session.id}/${exercise.id}$normalisedExt';
+        if (existingRaw.contains(storagePath)) {
+          debugPrint('_uploadRawArchives: skip photo $storagePath (exists)');
+          continue;
+        }
         await loudSwallow<bool>(
           () async {
             await _api.uploadRawArchive(
@@ -1321,6 +1352,10 @@ class UploadService {
       }
       final maskStoragePath =
           '$practiceId/${session.id}/${exercise.id}.mask.mp4';
+      if (existingRaw.contains(maskStoragePath)) {
+        debugPrint('_uploadRawArchives: skip $maskStoragePath (exists)');
+        continue;
+      }
       await loudSwallow<bool>(
         () async {
           await _api.uploadRawArchive(path: maskStoragePath, file: maskFile);

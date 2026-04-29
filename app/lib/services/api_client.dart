@@ -660,11 +660,17 @@ class ApiClient {
         ));
   }
 
-  /// List files in the media bucket under [prefix]. Returns file objects
-  /// with metadata including size. Used by the publish skip-if-unchanged
-  /// optimisation to avoid re-uploading identical files.
+  /// List files in the media bucket under [prefix]. Used by the publish
+  /// skip-if-unchanged optimisation to avoid re-uploading identical files.
   Future<List<FileObject>> listMedia({required String prefix}) async {
     return await _guardAuth(() => raw.storage.from(mediaBucket).list(
+          path: prefix,
+        ));
+  }
+
+  /// List files in the raw-archive bucket under [prefix].
+  Future<List<FileObject>> listRawArchive({required String prefix}) async {
+    return await _guardAuth(() => raw.storage.from(rawArchiveBucket).list(
           path: prefix,
         ));
   }
