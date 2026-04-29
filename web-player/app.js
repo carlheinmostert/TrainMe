@@ -1506,6 +1506,11 @@ function endLongPress(commit) {
     p.classList.remove('is-paused')
   );
   if (commit && target >= 0 && target !== source && target !== currentIndex) {
+    emitAnalyticsEvent('exercise_navigation_jump', null, {
+      from_slide: currentIndex,
+      to_slide: target,
+      method: 'pill',
+    });
     jumpToSlide(target);
   }
 }
@@ -4461,7 +4466,14 @@ async function init() {
         const pill = e.target.closest ? e.target.closest('.pill[data-slide]') : null;
         if (!pill) return;
         const idx = Number(pill.getAttribute('data-slide'));
-        if (Number.isFinite(idx) && idx !== currentIndex) jumpToSlide(idx);
+        if (Number.isFinite(idx) && idx !== currentIndex) {
+          emitAnalyticsEvent('exercise_navigation_jump', null, {
+            from_slide: currentIndex,
+            to_slide: idx,
+            method: 'pill',
+          });
+          jumpToSlide(idx);
+        }
       });
       // Re-choose size tier on viewport resize — rebuild is cheap.
       // Wave 28: debounce ~150ms so a rapid portrait↔landscape rotation
