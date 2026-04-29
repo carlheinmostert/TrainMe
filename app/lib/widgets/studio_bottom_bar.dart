@@ -218,23 +218,14 @@ class StudioBottomBar extends StatelessWidget {
     // Triangle dim rule: a triangle FEEDING INTO a dim icon is also
     // dim, creating a "chain" read of the workflow gate. Mirrors the
     // pre-W38 `StudioToolbar` semantics.
-    final centerGroup = <Widget>[
+    // Workflow chain: Camera → Preview → Publish → Share inside a
+    // raised pill. Download sits right-aligned outside the pill as a
+    // utility action (cloud_download_outlined — inverse of Publish's
+    // cloud_upload_outlined).
+    final workflowChildren = <Widget>[
       // Wave 40 (M1) — Camera replaces Library as the first slot. Tap
       // = same as swipe-left to Capture mode (no modal). Library import
       // survives inside the camera viewfinder (see M2).
-      //
-      // Wave 40.4 (M1.1) — glyph + colour:
-      //   * `Icons.photo_camera_outlined` matches the `ShellPullTab`
-      //     swipe-tab-to-Camera indicator on the right edge of Studio.
-      //     Carl's QA: "I like the camera icon, not the video camera
-      //     icon" + "icon for the camera is not the same as the one on
-      //     the tab where we swipe left on. They should both be the
-      //     same icon."
-      //   * `accent: false` (default) — slot icons render in white. The
-      //     coral triangles between slots ARE the workflow indicator;
-      //     the icons themselves stay calm. Coral is reserved for
-      //     state-driven cues (e.g. the locked-state Unlock icon
-      //     below).
       _ToolbarIconButton(
         icon: Icons.photo_camera_outlined,
         active: true,
@@ -279,45 +270,51 @@ class StudioBottomBar extends StatelessWidget {
         onTap: shareActive ? onShare : null,
         tooltip: 'Share link',
       ),
-      _ToolbarIconButton(
-        icon: Icons.download_outlined,
-        active: hasExercises,
-        onTap: hasExercises ? onDownload : null,
-        tooltip: 'Save to Photos',
-      ),
     ];
 
-    // Wave 38.1.1 polish — center the workflow group on the SCREEN
-    // midpoint (not biased by Back's 44pt on the left). Stack lets the
-    // central Row truly center while Back anchors left and the Unlock
-    // pill anchors right (when present), independent of the centre's
-    // intrinsic width.
+    // The workflow pill wraps the four core actions in a subtle raised
+    // background to visually elevate them as the primary flow.
+    final workflowPill = Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: workflowChildren,
+      ),
+    );
+
+    // Layout: [ Back | [workflow pill] .......... Download ]
+    // Back stays far-left (navigation, not workflow). Workflow pill
+    // left-of-centre. Download right-aligned utility action.
     return Container(
       height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Stack(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Truly-centred workflow group.
-          Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: centerGroup,
-            ),
-          ),
           // Back button — left anchor.
-          Align(
-            alignment: Alignment.centerLeft,
-            child: _ToolbarIconButton(
-              icon: Icons.arrow_back_rounded,
-              active: true,
-              onTap: onBack,
-              tooltip: 'Back to sessions',
-            ),
+          _ToolbarIconButton(
+            icon: Icons.arrow_back_rounded,
+            active: true,
+            onTap: onBack,
+            tooltip: 'Back to sessions',
           ),
-          // Wave 39.1 — Unlock pill retired. Unlock now lives IN the
-          // workflow chain (replacing Publish when locked) so the
-          // toolbar fits naturally and stays centred.
+          const SizedBox(width: 4),
+          // Workflow pill.
+          workflowPill,
+          // Flexible gap pushes Download to the right edge.
+          const Spacer(),
+          // Download — right-aligned, no background.
+          _ToolbarIconButton(
+            icon: Icons.cloud_download_outlined,
+            active: hasExercises,
+            onTap: hasExercises ? onDownload : null,
+            tooltip: 'Save to Photos',
+          ),
         ],
       ),
     );
