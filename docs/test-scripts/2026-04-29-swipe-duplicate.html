@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Swipe-right-to-duplicate exercise</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Swipe duplicate &middot; Studio exercise duplication</div>
+  <h1>Swipe-right-to-duplicate exercise (deep copy)</h1>
+
+  <p class="lede">
+    Right-swipe on a Studio exercise card immediately duplicates it below the original. Deep copy: fresh UUID, all metadata + all media files physically copied. Undo via R-01 SnackBar. Rest periods are excluded. <strong>5 items.</strong>
+  </p>
+
+  <h2>Studio &middot; swipe-right-to-duplicate</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#x2713;</button><button class="fail" type="button" aria-label="Fail 1">&#x2717;</button></div>
+      <span class="num">1.</span>
+      <span class="text">Right-swipe on a video exercise duplicates it below with same thumbnail + metadata.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open an existing session with at least one video exercise in Studio.</li>
+        <li data-sub="1.2">Swipe RIGHT on the video exercise card. A coral "Duplicate" label with copy icon should reveal on the left as you swipe.</li>
+        <li data-sub="1.3">Complete the swipe. The card snaps back into place and a new card appears directly below it.</li>
+        <li data-sub="1.4">Verify the duplicate has the same name, thumbnail, reps, sets, hold, and notes as the original.</li>
+        <li data-sub="1.5">Verify the "Duplicated &middot; Undo" SnackBar appears at the bottom.</li>
+        <li data-sub="1.6">Verify position numbers updated: if original was #3, duplicate is now #4 and subsequent exercises shifted.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#x2713;</button><button class="fail" type="button" aria-label="Fail 2">&#x2717;</button></div>
+      <span class="num">2.</span>
+      <span class="text">Right-swipe on a photo exercise duplicates it with same thumbnail + metadata.</span>
+      <ol class="steps">
+        <li data-sub="2.1">In a session with a photo exercise, swipe RIGHT on the photo card.</li>
+        <li data-sub="2.2">Duplicate appears below. Verify thumbnail matches the original photo.</li>
+        <li data-sub="2.3">Expand both cards and compare all fields (name, reps, sets, hold, notes). They should match.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#x2713;</button><button class="fail" type="button" aria-label="Fail 3">&#x2717;</button></div>
+      <span class="num">3.</span>
+      <span class="text">Undo removes the duplicate cleanly.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Duplicate any exercise via right-swipe.</li>
+        <li data-sub="3.2">Tap "Undo" on the SnackBar within 5 seconds.</li>
+        <li data-sub="3.3">The duplicate disappears. Position numbers revert to their original values.</li>
+        <li data-sub="3.4">Leave Studio, come back. Verify the duplicate is truly gone (not just hidden).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#x2713;</button><button class="fail" type="button" aria-label="Fail 4">&#x2717;</button></div>
+      <span class="num">4.</span>
+      <span class="text">Duplicate inside a circuit stays in the same circuit.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Create or open a session with a circuit (two or more linked exercises).</li>
+        <li data-sub="4.2">Right-swipe on one of the circuit exercises.</li>
+        <li data-sub="4.3">The duplicate appears below the original, still inside the same circuit (circuit rail bracket includes it).</li>
+        <li data-sub="4.4">Verify the circuit header still shows the correct exercise count.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#x2713;</button><button class="fail" type="button" aria-label="Fail 5">&#x2717;</button></div>
+      <span class="num">5.</span>
+      <span class="text">Rest period: swipe does nothing.</span>
+      <ol class="steps">
+        <li data-sub="5.1">In a session with a rest period, try to right-swipe on the rest bar.</li>
+        <li data-sub="5.2">The rest bar should not duplicate. (Rest rows only support swipe-left-to-delete.)</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+</div>
+
+<script>
+const SLUG = '2026-04-29-swipe-duplicate';
+const SERVER = 'http://localhost:3457';
+
+function load() {
+  try {
+    const raw = localStorage.getItem('qa_' + SLUG);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    document.querySelectorAll('.checklist > li').forEach(li => {
+      const n = li.dataset.num;
+      if (data[n]) {
+        li.dataset.status = data[n].status || '';
+        const inp = li.querySelector('.note');
+        if (inp && data[n].note) inp.value = data[n].note;
+      }
+    });
+  } catch (_) {}
+}
+
+function save() {
+  const data = {};
+  document.querySelectorAll('.checklist > li').forEach(li => {
+    const n = li.dataset.num;
+    const note = li.querySelector('.note');
+    data[n] = { status: li.dataset.status || '', note: note ? note.value : '' };
+  });
+  localStorage.setItem('qa_' + SLUG, JSON.stringify(data));
+  fetch(SERVER + '/api/test-results/' + SLUG + '.json', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  }).catch(() => {});
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  load();
+  document.querySelectorAll('.checklist > li').forEach(li => {
+    li.querySelector('.vote .pass').addEventListener('click', () => {
+      li.dataset.status = li.dataset.status === 'pass' ? '' : 'pass';
+      save();
+    });
+    li.querySelector('.vote .fail').addEventListener('click', () => {
+      li.dataset.status = li.dataset.status === 'fail' ? '' : 'fail';
+      save();
+    });
+    const note = li.querySelector('.note');
+    if (note) note.addEventListener('input', save);
+  });
+});
+</script>
+</body>
+</html>
