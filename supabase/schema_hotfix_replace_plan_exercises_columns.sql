@@ -90,7 +90,6 @@ BEGIN
       -- Columns below were missing from the SEC-2 rewrite:
       inter_set_rest_seconds,
       video_reps_per_loop,
-      video_duration_ms,
       start_offset_ms,
       end_offset_ms,
       aspect_ratio,
@@ -116,7 +115,6 @@ BEGIN
       -- Restored columns:
       NULLIF(r->>'inter_set_rest_seconds', '')::integer,
       NULLIF(r->>'video_reps_per_loop', '')::integer,
-      NULLIF(r->>'video_duration_ms', '')::integer,
       NULLIF(r->>'start_offset_ms', '')::integer,
       NULLIF(r->>'end_offset_ms', '')::integer,
       NULLIF(r->>'aspect_ratio', '')::double precision,
