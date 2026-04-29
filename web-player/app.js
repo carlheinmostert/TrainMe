@@ -1198,7 +1198,9 @@ function buildMedia(exercise, index) {
     // icon. Lives in its own overlay layer so it's clickable without
     // competing with the card's tap-to-pause gesture (stopPropagation
     // in toggleMuteButton).
-    const muteButton = exercise.include_audio ? `
+    // Mute toggle always visible — the client can override the
+    // practitioner's include_audio default at any time.
+    const muteButton = `
       <button
         type="button"
         class="mute-toggle"
@@ -1213,7 +1215,7 @@ function buildMedia(exercise, index) {
           }
         </svg>
       </button>
-    ` : '';
+    `;
     // Dual-video crossfade (Wave 19.7). Two stacked <video> elements
     // share the same source — the "active" one plays normally; ~250ms
     // before it reaches `duration` we preroll the inactive one and swap
@@ -3394,16 +3396,7 @@ function toggleMute() {
   try { localStorage.setItem('homefit-muted', isMuted ? 'true' : 'false'); } catch (_) {}
   const videos = $cardTrack ? $cardTrack.querySelectorAll('video') : [];
   videos.forEach((video) => {
-    // include_audio is encoded on the slide, not the <video> element;
-    // pull it back through the card wrapper's data-media-index.
-    const card = video.closest('.exercise-card');
-    const idx = card ? Number(card.getAttribute('data-index')) : NaN;
-    const slide = Number.isFinite(idx) ? slides[idx] : null;
-    if (!slide || !slide.include_audio) {
-      // Publish-time muted — leave it muted regardless.
-      video.muted = true;
-      return;
-    }
+    // Client can always override — no include_audio gate.
     video.muted = isMuted;
   });
   // Redraw every visible mute button (glyph + a11y state).
@@ -3430,13 +3423,7 @@ function toggleMute() {
 function applyMuteStateToAllVideos() {
   const videos = $cardTrack ? $cardTrack.querySelectorAll('video') : [];
   videos.forEach((video) => {
-    const card = video.closest('.exercise-card');
-    const idx = card ? Number(card.getAttribute('data-index')) : NaN;
-    const slide = Number.isFinite(idx) ? slides[idx] : null;
-    if (!slide || !slide.include_audio) {
-      video.muted = true;
-      return;
-    }
+    // Client can always override — no include_audio gate.
     video.muted = isMuted;
   });
 }
