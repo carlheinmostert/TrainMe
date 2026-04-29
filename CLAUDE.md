@@ -63,14 +63,16 @@ Surfaces required to match:
 
 - **Mobile app:** Flutter 3.41.6 (Dart 3.11.4)
 - **Native video pipeline:** iOS Swift + AVFoundation (AVAssetReader/Writer + vImage/Accelerate) via platform channel. Handles H.264/HEVC directly. Native code at `app/ios/Runner/VideoConverterChannel.swift`.
+- **Native haptic channel:** `HomefitHapticsChannel.swift` — `UIImpactFeedbackGenerator`-based platform channel. Note: iOS suppresses ALL vibration during active AVCaptureSession mic use (hardware-level protection). Use visual feedback (coral border glow) for camera UX instead.
 - **OpenCV binding:** `opencv_dart` v2.x (builds from source via hooks — not the old prebuilt pod that broke)
-- **Local storage:** SQLite via `sqflite`. Schema version 13. All paths stored relative via `PathResolver`.
-- **Conversion service:** Singleton pattern, survives screen navigation. FIFO queue processes captures sequentially.
+- **Local storage:** SQLite via `sqflite`. All paths stored relative via `PathResolver`.
+- **Conversion service:** Singleton pattern, survives screen navigation. FIFO queue processes captures sequentially. Studio uses `AutomaticKeepAliveClientMixin` to survive PageView page-swaps (without it, swiping to Camera disposed Studio and killed the conversion listener — root cause of the photo-spinner bug).
 - **Raw-video archive pipeline:** After conversion, the raw capture is AVAssetExportSession-compressed to 720p H.264 and archived locally at `{Documents}/archive/{exerciseId}.mp4`. 90-day retention. Cloud upload to a private bucket is deferred until the auth story is fully in place (backlog item).
 - **Backend:** Supabase (yrwcofhovrcydootivjx.supabase.co). **CLI is linked** — Claude sessions can run migrations directly via `supabase db query --linked ...` instead of asking Carl to paste SQL in the dashboard.
   - **Tenancy:** `practices` + `practice_members` (role=owner|practitioner) form the tenancy boundary. A trainer can belong to multiple practices; first-ever sign-in claims the Carl-sentinel practice. Fresh sign-ins auto-create a personal practice.
-  - **Clients:** `clients` table (practice-scoped; unique on `(practice_id, name)`) carries the per-client `video_consent` jsonb `{line_drawing, grayscale, original}`. `line_drawing` is always true (de-identified by pipeline; consent can't be withdrawn). `plans.client_id` FK → `clients.id` (nullable on legacy rows; populated by `upsert_client` on new publishes). Client-management RPCs: `upsert_client`, `set_client_video_consent`, `get_client_by_id`, `list_practice_clients` (all SECURITY DEFINER + practice-membership checks).
+  - **Clients:** `clients` table (practice-scoped; unique on `(practice_id, name)`) carries the per-client `video_consent` jsonb `{line_drawing, grayscale, original, avatar, analytics_allowed}`. `line_drawing` is always true (de-identified by pipeline; consent can't be withdrawn). `analytics_allowed` gates plan-usage analytics collection on the web player. `plans.client_id` FK → `clients.id` (nullable on legacy rows; populated by `upsert_client` on new publishes). Client-management RPCs: `upsert_client`, `set_client_video_consent`, `get_client_by_id`, `list_practice_clients` (all SECURITY DEFINER + practice-membership checks).
   - **Plan data:** `plans`, `exercises` with full data model (circuits, rest periods, audio, custom durations, versions, thumbnails). `plans.practice_id` + `plans.first_opened_at` + `plans.client_id`.
+  - **Analytics (Wave 17):** `client_sessions` (one row per unique visitor session on a plan), `plan_analytics_events` (append-only, 13 event types from `plan_opened` through `exercise_navigation_jump`), `plan_analytics_daily_aggregate` (pre-rolled daily stats), `plan_analytics_opt_outs` (client opt-out records). 7 RPCs: `record_plan_event`, `record_session_start`, `get_plan_analytics`, `get_exercise_analytics`, `opt_out_plan_analytics`, `check_analytics_opt_out`, `get_plan_analytics_summary`. Client consent via `analytics_allowed` key in `video_consent` jsonb (practitioner-toggled) + client-side consent banner on web player. RLS scoped by practice membership.
   - **Billing:** `credit_ledger` (append-only, consumption/purchase/refund/adjustment) + `plan_issuances` (append-only audit of every publish) + `pending_payments` (PayFast intent). Credit cost: `ceil(non_rest_count / 8)` clamped to `[1, 3]`. Treatment switching on the player (line-drawing / B&W / original) is free — both files are stored once, consent gates playback.
   - **Atomic credit consumption:** `consume_credit(p_practice_id, p_plan_id, p_credits)` SECURITY DEFINER fn with FOR UPDATE locking. Called from publish flow. Accompanying `practice_credit_balance`, `practice_has_credits`.
   - **`credit_ledger` is RPC-write-only** — clients cannot INSERT/UPDATE/DELETE; only `consume_credit` / `refund_credit` (SECURITY DEFINER, owner `postgres`) may write. `authenticated` keeps SELECT (scoped by `credit_ledger_select_own` RLS policy); `anon` has no access at all. Purchases land via the PayFast webhook + sandbox bounce-back using the service-role key. See `supabase/schema_milestone_e_revoke_credit_ledger_writes.sql`.
@@ -83,7 +85,7 @@ Surfaces required to match:
 - **Web player:** Static HTML/CSS/JS on Vercel, auto-deploys from GitHub (`web-player/` directory)
 - **Domain:** Hostinger DNS, CNAME `session` → `cname.vercel-dns.com` (updated to `00596c638d4cefd8.vercel-dns-017.com.` per Vercel's new IP range)
 - **OG meta tags:** Vercel Edge Middleware (`web-player/middleware.js`) serves bot-friendly HTML for WhatsApp link previews
-- **Service worker:** `web-player/sw.js` caches app shell for offline. Current cache name `homefit-player-v16-three-treatment` — bump on major changes.
+- **Service worker:** `web-player/sw.js` caches app shell for offline. Current cache name `homefit-player-v75` — bump on major changes.
 
 ## Key Domain Model
 
@@ -101,14 +103,17 @@ Surfaces required to match:
 - **Rest periods** — `mediaType: rest`. Compact inline bars between exercise cards. Auto-inserted every N minutes (N learned from user's drag behaviour, default 10).
 - **Plan versions** — increments on each Publish. URL stays the same; client always sees latest via the `get_plan_full` RPC.
 - **Credit** — unit of publishing capacity. One plan = 1 credit (1-8 exercises), 2 credits (9-15), 3 credits (16+). Purchased in bundles via PayFast on the web portal. Consumed atomically on publish.
+- **Client session** (`client_sessions`) — one row per unique visitor session on a published plan. Tracks anonymous session-level engagement.
+- **Plan analytics event** (`plan_analytics_events`) — append-only, 13 event types: `plan_opened`, `exercise_started`, `exercise_completed`, `exercise_skipped`, `workout_started`, `workout_completed`, `workout_paused`, `workout_resumed`, `treatment_changed`, `body_focus_toggled`, `rest_skipped`, `rest_extended`, `exercise_navigation_jump`. Consent-gated via `analytics_allowed` key in the client's `video_consent` jsonb.
+- **Analytics opt-out** (`plan_analytics_opt_outs`) — client-initiated opt-out per plan (via `/what-we-share` page). Stops all future event recording for that plan.
 
 ## Feature State
 
 ### Trainer App
 - **IA**: **Clients-as-Home spine** (R-11 twin of portal `/clients` + `/clients/[id]`). Home is the clients list with a `New Client` FAB; tap a client → `ClientSessionsScreen` with its editable name (dashed underline) + consent chip + per-client session list + `New Session` FAB. No quick-capture escape hatch — capture is always client-first.
 - **Session shell** — horizontal PageView with Studio (edit) and Camera (capture) modes. Session creation carries the parent `client_id`. Session title format: `{DD Mon YYYY HH:MM}` (client prefix retired — client context is implicit in the nav).
-- **Camera mode** — full-screen shutter, short-press = photo, long-press = video. Per-second haptic ticks + pulsing red dot during recording. 30s auto-stop with double-tap haptic. Pinch-to-zoom + 0.5x/1x/2x/3x lens pills. Peek box at left edge shows last thumbnail + count.
-- **Studio mode** — bottom-anchored list (one-handed reach). Gutter Rail + Inline Action Tray + Thumbnail Peek + Circuit Control Sheet per `docs/design/project/components.md`. Studio header inline-edit writes `session.title` (not `clientName` — that's now a legacy mirror of `client.name`). Layout blow-out bug fixed: `CrossAxisAlignment.stretch` in Row with unbounded vertical was the root cause.
+- **Camera mode** — full-screen shutter, short-press = photo, long-press = video. Pulsing red dot during recording. 30s auto-stop. Pinch-to-zoom + right-edge vertical lens pills (0.5x ultrawide via CameraDescription swap, 1x/2x/3x). Slide-up-to-lock recording gesture with coral screen-edge border glow in armed zone (visual feedback replaces haptics which iOS suppresses during mic use). Permanent shutter hint (3 states: idle/recording/locked). Camera icon on Studio toolbar; library moved to viewfinder bottom-left. Peek box at left edge shows last thumbnail + count.
+- **Studio mode** — bottom-anchored list (one-handed reach). Gutter Rail + Inline Action Tray + Thumbnail Peek + Circuit Control Sheet per `docs/design/project/components.md`. Studio header inline-edit writes `session.title` (not `clientName` — that's now a legacy mirror of `client.name`). Right-swipe on exercise card = swipe-to-duplicate (deep copy + undo via SnackBar). Treatment-aware video thumbnails: 3 variants per video (line from converted, B&W with body-focus from raw, color without body-focus from raw). Toolbar icons white-default (coral reserved for state cues); 48px toolbar, 28px icons. Uses `AutomaticKeepAliveClientMixin` to survive PageView page-swaps.
 - **Progress-pill matrix** — empty pills, full-coral completed, sage rest, 3-number ETA, luxurious bottom row. Replaces the linear progress bar on both player + preview.
 - **Native conversion pipeline** — iOS AVAssetReader/Writer + vImage/Accelerate. Two-zone rendering: body-zone crisp via Vision person segmentation, background-zone dimmed via the `backgroundDim` constant. **Line-drawing tuning LOCKED at v6**: see `VideoConverterChannel.swift` top-of-file comment. BGRA byte-order bug fixed mid-tune.
 - **Raw archive pipeline** — 720p H.264 local archive AND cloud upload to private `raw-archive` Supabase bucket on publish (best-effort; non-blocking). Three-treatment feature pulls from this at playback time.
@@ -120,6 +125,8 @@ Surfaces required to match:
 - **Offline-first** (Milestone K) — `SyncService` + cache tables mirror cloud; all client reads from cache; client create/rename/consent writes go through `pending_ops` FIFO queue, flushed on reconnect. Subtle chip top of Home: "N pending" / "Offline". Publish stays online-only.
 - **Build-marker** — short git SHA via `--dart-define=GIT_SHA=$(git rev-parse --short HEAD)`. Rendered at 35% opacity in the HomefitLogo footer on Home only.
 - **Publish** — pre-flight file check → `consume_credit` RPC → plan version bump → media upload → exercises upsert → orphan cleanup → raw-archive best-effort upload → `plan_issuances` audit. Compensating refund ledger row on any post-consume failure.
+- **Plan analytics** (Wave 17) — analytics consent toggle in client consent section. Per-client session cards show plan stats (Opened N x, X/Y completed, last Nh ago). Per-exercise stats bar with icons (eye/check/skip) for view/completion/skip counts.
+- **Sticky defaults** (Wave 39.4) — `videoRepsPerLoop` + `interSetRestSeconds` carried forward from the client's last exercise via `client_exercise_defaults`.
 
 ### Client Web Player (session.homefit.studio)
 - Anonymous read via `get_plan_full` RPC (single enumerated anon surface in `web-player/api.js`). Never queries tables directly.
@@ -135,12 +142,18 @@ Surfaces required to match:
 - Timer chip is the sole pause/play control — three modes: prep / running / paused. Tap to skip prep or toggle pause.
 - Swipe / nav-chevron skips any slide including rest. Cancels current timer cleanly.
 - WhatsApp OG preview via Vercel Edge Middleware.
-- Service worker caches app shell + video media (with content-type validation). Cache name bumped on major changes; current: `homefit-player-v16-three-treatment`.
-- CSP + HSTS + Permissions-Policy headers.
+- Service worker caches app shell + video media (with content-type validation). Cache name bumped on major changes; current: `homefit-player-v75`.
+- **Analytics consent banner** (Wave 17) — "Help {TrainerName} help you" banner on first visit. 12 event emitters (`plan_opened` through `rest_extended`) + 13th `exercise_navigation_jump` (pill + rep-stack taps). Completion CTA at workout end. `/what-we-share` transparency page with stop-sharing button. Opt-in gated by practitioner's `analytics_allowed` consent key.
+- **Lazy video loading** — videos built with `data-src` + `preload="none"`, loaded on demand (current +/- 2 slides). Prevents Safari WebKit crash on large plans (46+ simultaneous video elements). Autoplay waits for `canplay` event.
+- **Network-first media** in service worker (prevents stale/partial video caching). Cache name: `homefit-player-v75`.
+- CSP + HSTS + Permissions-Policy headers. Inline scripts moved to external `.js` files for CSP `script-src 'self'` compliance.
 
 ### Web Portal (manage.homefit.studio — live on Vercel)
 - Next.js 15 App Router (pinned to 15.5.15 for CVE-2025-66478 patch), @supabase/ssr cookie-based auth, Tailwind with brand tokens.
-- Pages: Sign-In gate → Dashboard (practice switcher + credit balance) → Credits (bundle list + PayFast checkout) → Audit (plan_issuances table) → Members (owner-only invite UI).
+- **Navigation:** top-bar nav stripped (dashboard tiles ARE the menu). Right-cluster header: practice switcher + signed-in email chip.
+- Pages: Sign-In gate → Dashboard (5 stat tiles, each clickable, credit balance + 5 most recent audit events with real data) → Clients (drill-in with client avatars via signed URLs from `raw-archive` bucket) → Credits (bundle list + PayFast checkout) → Audit (plan_issuances table with kind chips wrapping inline, full actor coverage 14/14 kinds, dedicated Client column) → Members (owner-only invite UI).
+- **Client consent redesign** (Wave 40.3) — consent section collapsed by default (`<details>` accordion). Avatar consent toggle surfaced. `client.consent.update` audit event with `{from, to}` diff payload. Label: "Client consent" (was "Visibility").
+- **Audit timestamps** render in browser-local timezone via `<ClientTime>` component.
 - PayFast sandbox integration live; production merchant account pending.
 - Never receives service role key — all writes via Supabase Edge Functions (`payfast-webhook`).
 - Deployed to Vercel project `homefit-web-portal` under team `carlheinmosterts-projects`. DNS: `manage.homefit.studio` CNAME → `00596c638d4cefd8.vercel-dns-017.com.` at Hostinger. TLS via Vercel (auto-renew).
@@ -149,9 +162,12 @@ Surfaces required to match:
 
 ## Current Phase
 
-**MVP is in active QA.** Target shipped well ahead of 2026-05-02. Both surfaces (mobile + portal) are live, converged on a client-spine IA, offline-first on mobile, three-treatment playback wired, referral loop shipped with 5% lifetime credit-rebate model, line-drawing aesthetic LOCKED at v6. Carl has been running device QA; no open bugs on the live stack.
+**MVP shipped, active polish + analytics (2026-04-29).** Target hit well ahead of 2026-05-02. Both surfaces (mobile + portal) live, client-spine IA, offline-first on mobile, three-treatment playback, referral loop with 5% lifetime credit-rebate model, line-drawing aesthetic LOCKED at v6. **App Store readiness wave landed 2026-04-28** — bundle ID rebranded to `studio.homefit.app`, version `1.0.0+1`, privacy manifest + nutrition label declared, privacy/terms scaffolds live at `manage.homefit.studio/privacy|terms`, Reader-App compliance pattern in place (no in-app purchase paths), iOS app icon shipped. **Post-TestFlight-prep waves (2026-04-28/29):** camera UX overhaul (slide-to-lock, 0.5x ultrawide, visual feedback), portal chrome polish (stripped nav, right-cluster header, client avatars, full audit actor coverage 14/14), plan analytics (Wave 17 — 13 event types, consent banner, transparency page, per-exercise stats on mobile), swipe-to-duplicate, lazy video loading for large plans. Now blocked only on Carl-side items (Apple Developer activation, Hostinger redirects, lawyer red-pen).
 
-**👉 For a fresh-session handoff, read `docs/CHECKPOINT_2026-04-26.md` first.** Captures Waves 27 → 32 (~6 days, 30 commits): per-plan crossfade tuner + native dual-video retrofit, full landscape orientation support, structural-edit lock policy (3d → 14d) with explicit unlock affordance, publish-time consent gate, Home credits chip + portal practice-context handoff, Studio card cleanup (PLAYBACK retired), Network share sheet + retire of standalone screen, body-focus on session preview, client avatar with body-focus blur (NEW feature: Vision segmentation + Gaussian-blur composite), SessionCard consolidation (count badge overlay + lock-state indicator). Schema rolled v25 → v31 across the stretch. Earlier checkpoints (`2026-04-24`, `2026-04-23`, `2026-04-22`, `2026-04-21`, `2026-04-20`, `2026-04-20-late`) remain authoritative for their era.
+**👉 For a fresh-session handoff:**
+- `docs/TESTFLIGHT_PREP.md` — what's needed for the first upload + Carl's checklist
+- `docs/CHECKPOINT_2026-04-26.md` — recent feature waves 27 → 32 (per-plan crossfade tuner, native dual-video retrofit, landscape support, 14-day structural-edit lock, publish-time consent gate, Home credits chip, body-focus blur, SessionCard consolidation; schema v25 → v31)
+- Earlier checkpoints (`2026-04-24`, `2026-04-23`, `2026-04-22`, `2026-04-21`, `2026-04-20`, `2026-04-20-late`) remain authoritative for their era.
 
 **Milestones complete:**
 - **A** — Schema (practices, practice_members, credit_ledger, plan_issuances, plan.practice_id, plan.first_opened_at).
@@ -169,6 +185,26 @@ Surfaces required to match:
 - **R-12 dashboard hygiene** — portal dashboard is 5 stat tiles, every tile clickable, `/network` broke out referral UI to its own page, nav expanded to Clients · Credits · Network · Audit · Members · Account (Members owner-only).
 - **Offline-first** (Milestone K) — `SyncService` + cache tables (`cached_clients`, `cached_practices`, `cached_credit_balance`, `pending_ops`) + `connectivity_plus` listener + `upsert_client_with_id` RPC for client-generated UUIDs. All reads from cache; all client writes queued. Publish stays online-only.
 - **Line-drawing tuning LOCKED at v6** — `edgeThresholdLo=1, edgeThresholdHi=0.88, lineAlpha=0.96, backgroundDim=0.70`. See `VideoConverterChannel.swift` top-of-file comment; aesthetic signoff is load-bearing, don't tweak without explicit Carl sign-off.
+
+**Shipped 2026-04-28/29 (Waves 39.4, 40.x, 17):**
+- **Wave 39.4** — sticky defaults extended to `videoRepsPerLoop` + `interSetRestSeconds`. Photo last-exercise refresh fix (AutomaticKeepAliveClientMixin on Studio). Reachability drop-pill latch persists until manual untoggle. Dart wire timestamps forced to UTC at all Postgres-bound `upload_service.dart` sites. Portal audit timestamps render in browser-local TZ via `<ClientTime>` component.
+- **Wave 40 (M1-M6 + P1-P8)** — camera icon replaces Library on Studio toolbar; library moved to viewfinder bottom-left. Permanent shutter hint (3 states). Slide-up-to-lock recording gesture with coral border glow. 0.5x ultrawide via CameraDescription swap. Right-edge vertical lens pills. Toolbar icons white-default (coral reserved for state cues), size bump 44→48/24→28. Portal: top-bar nav stripped, right-cluster practice switcher + email chip, dashboard audit card with real data, audit kind chips wrap inline, client avatar images via signed URLs, `/clients` drill-in routing fix, session-icon parity.
+- **Wave 40.1** — audit actor never NULL for `plan.opened` (derives via `plan_issuances.trainer_id`). Dedicated Client column on audit table.
+- **Wave 40.3** — client consent section collapsed by default on portal + mobile. Avatar consent toggle surfaced. `client.consent.update` audit event with `{from, to}` diff payload. Label renamed "Visibility" → "Client consent".
+- **Wave 40.4** — portal client avatar image rendering (signed URLs via `list_practice_clients` + `get_client_by_id` returning `avatar_url`).
+- **Wave 40.5** — full actor coverage on audit feed: 14/14 kinds (was 5/14). Schema: `credit_ledger.trainer_id`, `clients.created_by_user_id`, `clients.deleted_by_user_id`. 9 RPCs updated. Native haptic platform channel (`HomefitHapticsChannel.swift`).
+- **Wave 40.6** — photo last-exercise refresh FINAL fix (AutomaticKeepAliveClientMixin). Treatment-aware video thumbnails (3 variants per video). Visual lock-engage feedback (coral border glow replaces haptics during mic use). Haptic channel simplified to `UIImpactFeedbackGenerator`.
+- **Wave 17 — Analytics** — schema: `client_sessions`, `plan_analytics_events`, `plan_analytics_daily_aggregate`, `plan_analytics_opt_outs` + 7 RPCs + RLS. Web player: consent banner, 12+1 event emitters, completion CTA, `/what-we-share` transparency page with stop-sharing button. Mobile: analytics consent toggle, plan stats under session cards, per-exercise stats bar. Retention cron documented (not deployed).
+- **Swipe-to-duplicate** — right-swipe on Studio exercise card deep-copies exercise (new UUID, files copied, inserted below). Undo via SnackBar.
+- **Web player lazy video loading** — `data-src` + `preload="none"`, loaded on demand (current +/- 2 slides). Prevents Safari crash on large plans. Network-first media in service worker. CSP fix (inline scripts → external files). Cache v75.
+
+**Shipped 2026-04-28 (TestFlight prep wave):**
+- **Bundle ID rebrand** (PR #125) — `com.raidme.raidme` → `studio.homefit.app` across pbxproj × 6 configs, Info.plist URL scheme, `AppConfig.oauthRedirectUrl`, install scripts, os_log subsystems. Version bumped `0.1.0+1` → `1.0.0+1`. Android `applicationId`, macOS, Dart `name: raidme` package, MethodChannel names, and `raidme.db` SQLite filename deliberately untouched (separate refactors, not blocking TestFlight). When SIWA / Google re-enabled later, `studio.homefit.app://` needs adding to Supabase auth redirect allowlist + Google/Apple OAuth client config.
+- **Privacy manifest + App Store Connect nutrition label** (PR #122) — `app/ios/Runner/PrivacyInfo.xcprivacy` populated with 8 `NSPrivacyCollectedDataTypes` entries (email, name, photos-or-videos, audio, other-user-content, user-id, purchase-history, product-interaction — all linked, none tracking). `NSPrivacyTracking=false`. `docs/app-store-connect-privacy.md` is Carl's click-through guide for the manual ASC privacy form — must mirror the manifest.
+- **Privacy + Terms scaffold** (PR #123) — `web-portal/src/app/privacy/page.tsx` (21 sections, POPIA-aligned, sub-processors table, retention windows, bracketed placeholders for legal-pending wording) + `web-portal/src/app/terms/page.tsx` (15 sections, lighter scaffold). Settings → Legal section (Privacy + Terms) opens both URLs in `LaunchMode.inAppBrowserView` (Safari View Controller). `docs/PRIVACY_DEPLOYMENT.md` is the Hostinger 301-redirect runbook (`homefit.studio/privacy|terms` → `manage.homefit.studio/...`).
+- **Reader-App compliance** (PR #124) — stripped every in-app credit-purchase path. Removed Settings "Top up credits" `_ActionRow` + `_openCreditsTopUp` method, de-tappified the home credits chip (was `InkWell` opening manage.homefit.studio), trimmed "Buy more via manage.homefit.studio" copy from snackbars + `PublishResult.toErrorString`. Zero-balance state shows plain text "You're out of credits. Top up at manage.homefit.studio." — non-tappable. Network section's `/dashboard` link kept (referral, not commerce). Locked in `feedback_ios_reader_app.md` memory entry.
+- **App icon redesign** (PR #127 → #131, eight iterations) — replaced Flutter blue-F placeholder with a 3×3 grid of **square** (5×5, deliberately divergent from canonical 5:3) coral pills with sage centre on dark `#0F1117`, scaled to 65% canvas width for iOS icon-grid breathing room. Geometry in `tools/icon-render/render_app_icon.py`. Icon-only divergence — matrix logo on web/mobile keeps canonical 5:3. Locked in `feedback_app_icon_divergence.md` memory entry.
+- **App Store metadata draft** — `docs/app-store-metadata.md`: subtitle locked at `Visual plans clients follow.` (28 chars), support URL `mailto:support@homefit.studio`, primary category Health & Fitness (secondary Productivity), description ~2,400 chars within budget, age-rating questionnaire mapping (4+ result; flag UGC + medical/treatment as Mild). `support@homefit.studio` mailbox setup pending Carl.
 
 **Shipped 2026-04-24:**
 - **Wave 22 — Photos three-treatment parity** — photos finally match videos. Mobile uploads raw color JPG to `raw-archive` (consent-gated) alongside the line-drawing JPG to `media`. `get_plan_full` returns 3 URLs per photo. Web player applies CSS `filter: grayscale(1) contrast(1.05)` on `<img class="is-grayscale">` for B&W (single source). `schema_wave22_photos_three_treatment.sql`.
@@ -195,7 +231,9 @@ Surfaces required to match:
 - **D2** publish-screen practice picker polish.
 - Three-treatment end-to-end validation on device (vault secret is set; needs capture → publish → switch to B&W with consent granted round-trip).
 - Referral loop end-to-end validation (create via /r/{code}, sandbox purchase, verify ledger rows).
-- POPIA privacy page + terms of service (legal review pending).
+- POPIA privacy page + terms of service — scaffolds shipped 2026-04-28 (PR #123) at `manage.homefit.studio/privacy|terms`. ZA lawyer red-pen pending; bracketed placeholders flag the spots needing wording.
+- Hostinger 301 redirects: `homefit.studio/privacy|terms` → `manage.homefit.studio/...`. Runbook at `docs/PRIVACY_DEPLOYMENT.md`. One-line rules in hPanel; not done yet (currently the apex serves the parked-domain placeholder which Apple Review will reject).
+- `support@homefit.studio` mailbox — referenced as the App Store support URL; Carl to set up at Hostinger alongside `privacy@`.
 - PayFast production cutover (blocked on Carl's merchant account).
 - Dead-code sweep (PR #10 flagged `_PrepFlashWrapper`, `_TimerRingPainter`, `_PulseMarkPainter` etc.).
 - `supabase/schema.sql` refresh via `supabase db dump`.
@@ -204,7 +242,7 @@ Surfaces required to match:
 
 **Blocked on Carl:**
 - PayFast production merchant account signup.
-- Apple Developer Program activation (flip `_appleEnabled = true` + restore Apple button when ready).
+- Apple Developer Program activation (Individual enrollment per 2026-04-28; flip `_appleEnabled = true` + restore Apple button when ready). First TestFlight upload then targets bundle ID `studio.homefit.app`.
 - Legal review of privacy + TOS copy.
 
 **Deferred past MVP:**
@@ -229,6 +267,11 @@ Surfaces required to match:
 - **VPN interference:** resolved 2026-04-18 — Carl confirms `install-device.sh` now runs with NordVPN on. `xcrun devicectl` + Claude API coexist fine. Keep the split-tunneling note in case it recurs after a NordVPN / iOS update.
 - **Google Sign-In nonce mismatch:** iOS `GoogleSignIn` 8.x auto-injects a nonce claim into the id_token; Flutter `google_sign_in` v6/v7 never exposes the raw nonce to Dart; Supabase `signInWithIdToken` rejects. Parked — MVP ships with email + password + magic link. See `docs/BACKLOG_GOOGLE_SIGNIN.md` for the full post-mortem and re-enablement options.
 - **Claude Code operations note:** Running agents in background (`run_in_background: true`) lets Claude respond while long builds run. Never use `flutter run` — it's interactive and spawns lldb processes that don't clean up. Use `flutter build ios --debug --simulator` + `xcrun simctl install` + `xcrun simctl launch` instead.
+- **iOS haptic suppression during mic use (2026-04-28):** iOS suppresses ALL vibration hardware while an `AVCaptureSession` with audio input is active. No API bypass exists (`UIImpactFeedbackGenerator`, `CHHapticEngine`, `AudioServicesPlaySystemSound` all fail silently). Use visual feedback (coral border glow, pulsing indicators) for camera/recording UX. See `gotcha_ios_haptic_mic_suppression.md`.
+- **PageView disposes offscreen pages (2026-04-28):** Without `AutomaticKeepAliveClientMixin`, swiping away from a PageView child disposes it — killing stream subscriptions and state. Root cause of the photo-spinner bug that survived 7 fix attempts. Any `StatefulWidget` in a PageView that subscribes to streams MUST use `AutomaticKeepAliveClientMixin`. See `gotcha_pageview_keepalive.md`.
+- **Schema migration column preservation (2026-04-28):** When re-creating an RPC via `CREATE OR REPLACE FUNCTION`, carry forward EVERY column from the existing `RETURNS TABLE`. Wave 40.5 dropped `client_exercise_defaults` and `avatar_url` from `list_practice_clients`, silently wiping sticky defaults on every sync. Always read the existing function signature first (`\df+ public.<fn_name>`) before writing a migration. See `feedback_schema_migration_column_preservation.md`.
+- **Safari CSP blocks inline `<script>` (2026-04-28):** CSP `script-src 'self'` blocks inline script tags. Move all scripts to external `.js` files. Caught on the `/what-we-share` page.
+- **Safari service worker caching is aggressive:** needs cache name bumps + explicit `unregister()` for testing. Network-first strategy for media prevents stale/partial video caching.
 - **Offline-first guarantee (2026-04-19):** Home / ClientSessions / PracticeChip / Settings credit-balance all read from SQLite cache first (`cached_clients`, `cached_practices`, `cached_credit_balance`). Client create / rename / consent operations queue into `pending_ops` and flush the moment connectivity returns. Publish stays online-only by design — credit consumption is load-bearing. See `app/lib/services/sync_service.dart` for the orchestrator.
 
 ## Business Case (validated)
@@ -262,7 +305,11 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 ## Key Documents
 
 - `CLAUDE.md` — this file
-- **`docs/CHECKPOINT_2026-04-22.md` — READ FIRST on fresh session.** Studio-UI polish marathon (Wave 18 chain through 18.8), two Supabase migrations, paused web-player wireframe workshop, how-to-resume. Earlier checkpoints (`2026-04-21.md`, `2026-04-20.md`, `2026-04-20-late.md`) remain for historical reference.
+- **`docs/TESTFLIGHT_PREP.md` — READ FIRST for upload readiness.** Bundle ID rebrand summary, what's needed for App Store Connect record creation, Carl's pre-upload checklist. Updated 2026-04-28.
+- **`docs/CHECKPOINT_2026-04-26.md`** — most recent feature-wave checkpoint (Waves 27 → 32, schema v25 → v31). Earlier checkpoints (`2026-04-24`, `2026-04-22`, `2026-04-21`, `2026-04-20`, `2026-04-20-late`) remain for historical reference.
+- `docs/app-store-metadata.md` — App Store listing copy: name, subtitle, description, keywords, support/marketing URLs, age-rating answers, App Review notes template. Subtitle + support URL locked.
+- `docs/app-store-connect-privacy.md` — click-through checklist for the manual ASC App Privacy form. Mirrors `PrivacyInfo.xcprivacy`.
+- `docs/PRIVACY_DEPLOYMENT.md` — Hostinger 301-redirect runbook for `homefit.studio/privacy|terms` → `manage.homefit.studio/...`.
 - `docs/POV_BRIEF.md` — Proof-of-value brief with vision and build plan (historic; POV passed)
 - `docs/MVP_PLAN.md` — Active 14-day plan to 2026-05-02 (Melissa onboarding + referral loop + PayFast prod + polish)
 - `docs/MARKET_RESEARCH.md` — Competitive landscape + business case validation
@@ -300,6 +347,9 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 - `install-device.sh` — Physical iPhone release build + install (runs with VPN on)
 - `web-portal/` — Next.js practice-manager + credits portal
 - `tools/filter-workbench/` — Python Streamlit tool for filter parameter tuning (blocked on cloud raw archive for real tuning)
+- `tools/icon-render/render_app_icon.py` — Python/Pillow renderer for the iOS app icon set. Pill geometry deliberately diverges from the canonical matrix logo (5×5 squares vs 5:3 rest-bars) — see `feedback_app_icon_divergence.md` memory.
+- `app/ios/Runner/PrivacyInfo.xcprivacy` — Apple privacy manifest. 8 collected-data-type declarations; must mirror `docs/app-store-connect-privacy.md` and the App Store Connect form Carl fills in.
+- `web-portal/src/app/privacy/page.tsx` + `web-portal/src/app/terms/page.tsx` — POPIA-aligned scaffolds with bracketed placeholders for legal-pending wording.
 
 ## Development Guidelines
 
