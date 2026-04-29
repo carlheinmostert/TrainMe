@@ -710,19 +710,14 @@ class UploadService {
       final mediaUrls = <String, String>{}; // exerciseId -> media URL
       final thumbUrls = <String, String?>{}; // exerciseId -> thumbnail URL
 
-      // Pre-fetch remote file sizes for this plan's directory.
-      final existingFiles = <String, int>{}; // path -> size in bytes
+      // Pre-fetch existing file names in this plan's storage directory.
+      final existingFiles = <String>{}; // set of known remote paths
       try {
         final listing = await _api.listMedia(prefix: '${session.id}');
         for (final item in listing) {
-          final name = item.name;
-          if (name != null) {
-            existingFiles['${session.id}/$name'] =
-                (item.metadata?['size'] as int?) ??
-                (item.metadata?['contentLength'] as int?) ??
-                -1;
-          }
+          existingFiles.add('${session.id}/${item.name}');
         }
+        debugPrint('uploadPlan: ${existingFiles.length} files already in storage');
       } catch (e) {
         // List failed — fall through to upload everything (safe default).
         debugPrint('uploadPlan: media list failed, uploading all: $e');
@@ -736,12 +731,9 @@ class UploadService {
         final file = File(filePath);
         final ext = p.extension(filePath);
         final storagePath = '${session.id}/${exercise.id}$ext';
-        final localSize = await file.length();
-        final remoteSize = existingFiles[storagePath] ?? -1;
-
-        if (remoteSize == localSize && localSize > 0) {
-          // File already exists with matching size — skip upload.
-          debugPrint('uploadPlan: skip $storagePath (${localSize}b match)');
+        if (existingFiles.contains(storagePath)) {
+          // File already exists in storage — skip upload.
+          debugPrint('uploadPlan: skip $storagePath (exists)');
         } else {
           await _api.uploadMedia(path: storagePath, file: file);
           uploadedPaths.add(storagePath);
@@ -753,11 +745,8 @@ class UploadService {
           final thumbFile = File(thumbPath);
           if (await thumbFile.exists()) {
             final thumbStoragePath = '${session.id}/${exercise.id}_thumb.jpg';
-            final thumbLocalSize = await thumbFile.length();
-            final thumbRemoteSize = existingFiles[thumbStoragePath] ?? -1;
-
-            if (thumbRemoteSize == thumbLocalSize && thumbLocalSize > 0) {
-              debugPrint('uploadPlan: skip $thumbStoragePath (thumb match)');
+            if (existingFiles.contains(thumbStoragePath)) {
+              debugPrint('uploadPlan: skip $thumbStoragePath (exists)');
             } else {
               await _api.uploadMedia(path: thumbStoragePath, file: thumbFile);
               uploadedPaths.add(thumbStoragePath);
