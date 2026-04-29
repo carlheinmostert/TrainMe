@@ -2111,8 +2111,8 @@ class InlineNumericEditor extends StatelessWidget {
   }
 }
 
-/// Wave 17 — per-exercise analytics stats bar. Single line of 10.5pt
-/// Inter muted text: "N/M viewed · N/M completed · N skipped".
+/// Wave 17 — per-exercise analytics stats bar. Compact icon row:
+/// {eye} N/M · {check} N/M · {skip} N
 class _ExerciseStatsBar extends StatelessWidget {
   final ExerciseAnalyticsStats stats;
 
@@ -2122,21 +2122,37 @@ class _ExerciseStatsBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final total = stats.viewed + stats.skipped;
     if (total == 0) return const SizedBox.shrink();
-    final parts = <String>[
-      '${stats.viewed}/$total viewed',
-      '${stats.completed}/$total completed',
-      if (stats.skipped > 0) '${stats.skipped} skipped',
-    ];
-    return Text(
-      parts.join(' \u00b7 '),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        fontFamily: 'Inter',
-        fontSize: 10.5,
-        fontWeight: FontWeight.w400,
-        color: AppColors.textSecondaryOnDark,
-      ),
+
+    const style = TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 10.5,
+      fontWeight: FontWeight.w400,
+      color: AppColors.textSecondaryOnDark,
+    );
+    const iconSize = 13.0;
+    const iconColor = AppColors.textSecondaryOnDark;
+    const separator = Padding(
+      padding: EdgeInsets.symmetric(horizontal: 4),
+      child: Text('\u00b7', style: style),
+    );
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.visibility_outlined, size: iconSize, color: iconColor),
+        const SizedBox(width: 2),
+        Text('${stats.viewed}/$total', style: style),
+        separator,
+        Icon(Icons.check_circle_outline, size: iconSize, color: iconColor),
+        const SizedBox(width: 2),
+        Text('${stats.completed}/$total', style: style),
+        if (stats.skipped > 0) ...[
+          separator,
+          Icon(Icons.skip_next_outlined, size: iconSize, color: iconColor),
+          const SizedBox(width: 2),
+          Text('${stats.skipped}', style: style),
+        ],
+      ],
     );
   }
 }
