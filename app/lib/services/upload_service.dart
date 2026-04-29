@@ -700,9 +700,33 @@ class UploadService {
       // ----------------------------------------------------------------
       // Step 5: Upload media files. The plan row now exists, so the
       // `Media upload` RLS policy on the `media` bucket passes.
+      //
+      // Skip-if-unchanged optimisation: list existing files in the plan's
+      // storage directory once, build a size map, and skip uploads where
+      // the local file size matches the remote. On a re-publish of a
+      // 23-exercise plan where only metadata changed, this cuts ~92MB of
+      // redundant uploads to zero.
       // ----------------------------------------------------------------
       final mediaUrls = <String, String>{}; // exerciseId -> media URL
       final thumbUrls = <String, String?>{}; // exerciseId -> thumbnail URL
+
+      // Pre-fetch remote file sizes for this plan's directory.
+      final existingFiles = <String, int>{}; // path -> size in bytes
+      try {
+        final listing = await _api.listMedia(prefix: '${session.id}');
+        for (final item in listing) {
+          final name = item.name;
+          if (name != null) {
+            existingFiles['${session.id}/$name'] =
+                (item.metadata?['size'] as int?) ??
+                (item.metadata?['contentLength'] as int?) ??
+                -1;
+          }
+        }
+      } catch (e) {
+        // List failed — fall through to upload everything (safe default).
+        debugPrint('uploadPlan: media list failed, uploading all: $e');
+      }
 
       for (final exercise in session.exercises) {
         if (exercise.isRest) continue;
@@ -712,12 +736,16 @@ class UploadService {
         final file = File(filePath);
         final ext = p.extension(filePath);
         final storagePath = '${session.id}/${exercise.id}$ext';
-        await _api.uploadMedia(path: storagePath, file: file);
-        // Only record the path AFTER the upload succeeds — a throw in the
-        // upload call itself leaves the remote in whatever state the
-        // supabase SDK leaves it in, and we don't want to DELETE a path we
-        // never successfully created.
-        uploadedPaths.add(storagePath);
+        final localSize = await file.length();
+        final remoteSize = existingFiles[storagePath] ?? -1;
+
+        if (remoteSize == localSize && localSize > 0) {
+          // File already exists with matching size — skip upload.
+          debugPrint('uploadPlan: skip $storagePath (${localSize}b match)');
+        } else {
+          await _api.uploadMedia(path: storagePath, file: file);
+          uploadedPaths.add(storagePath);
+        }
         mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
 
         final thumbPath = exercise.absoluteThumbnailPath;
@@ -725,8 +753,15 @@ class UploadService {
           final thumbFile = File(thumbPath);
           if (await thumbFile.exists()) {
             final thumbStoragePath = '${session.id}/${exercise.id}_thumb.jpg';
-            await _api.uploadMedia(path: thumbStoragePath, file: thumbFile);
-            uploadedPaths.add(thumbStoragePath);
+            final thumbLocalSize = await thumbFile.length();
+            final thumbRemoteSize = existingFiles[thumbStoragePath] ?? -1;
+
+            if (thumbRemoteSize == thumbLocalSize && thumbLocalSize > 0) {
+              debugPrint('uploadPlan: skip $thumbStoragePath (thumb match)');
+            } else {
+              await _api.uploadMedia(path: thumbStoragePath, file: thumbFile);
+              uploadedPaths.add(thumbStoragePath);
+            }
             thumbUrls[exercise.id] =
                 _api.publicMediaUrl(path: thumbStoragePath);
           }

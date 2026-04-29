@@ -660,6 +660,15 @@ class ApiClient {
         ));
   }
 
+  /// List files in the media bucket under [prefix]. Returns file objects
+  /// with metadata including size. Used by the publish skip-if-unchanged
+  /// optimisation to avoid re-uploading identical files.
+  Future<List<FileObject>> listMedia({required String prefix}) async {
+    return await _guardAuth(() => raw.storage.from(mediaBucket).list(
+          path: prefix,
+        ));
+  }
+
   /// Return the public URL for an object at [path] in the media bucket.
   /// Non-async — the client computes this locally.
   String publicMediaUrl({required String path}) {
