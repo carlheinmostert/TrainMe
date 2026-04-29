@@ -43,6 +43,7 @@ class StudioBottomBar extends StatelessWidget {
   final VoidCallback onPreview;
   final VoidCallback onPublish;
   final VoidCallback onShare;
+  final VoidCallback onDownload;
   final VoidCallback onPublishLockedTap;
   final VoidCallback onUnlockTap;
   final VoidCallback onShowPublishError;
@@ -60,6 +61,7 @@ class StudioBottomBar extends StatelessWidget {
     required this.onPreview,
     required this.onPublish,
     required this.onShare,
+    required this.onDownload,
     required this.onPublishLockedTap,
     required this.onUnlockTap,
     required this.onShowPublishError,
@@ -276,6 +278,12 @@ class StudioBottomBar extends StatelessWidget {
         active: shareActive,
         onTap: shareActive ? onShare : null,
         tooltip: 'Share link',
+      ),
+      _ToolbarIconButton(
+        icon: Icons.download_outlined,
+        active: hasExercises,
+        onTap: hasExercises ? onDownload : null,
+        tooltip: 'Save to Photos',
       ),
     ];
 
@@ -501,13 +509,11 @@ class _PublishToolbarButton extends StatelessWidget {
       );
     } else if (hasError) {
       glyph = const Icon(Icons.error_outline, color: AppColors.error, size: 28);
-    } else if (publishedClean) {
-      glyph = const Icon(Icons.check_rounded, color: AppColors.circuit, size: 28);
     } else {
-      // Wave 40.5 — publish icon renders white (matching other toolbar
-      // slots per the "single accent colour" rule). Coral is reserved
-      // for state cues (lock icon, triangles). Dim when not publishable.
-      final color = canPublish
+      // Wave 41 — checkmark state retired. The publish button always
+      // shows cloud_upload_outlined; success is communicated via a
+      // dismissible SnackBar toast instead.
+      final color = canPublish || publishedClean
           ? AppColors.textOnDark
           : AppColors.textOnDark.withValues(alpha: 0.45);
       glyph = Icon(Icons.cloud_upload_outlined, color: color, size: 28);
