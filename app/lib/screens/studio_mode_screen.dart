@@ -1035,6 +1035,164 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
   }
 
+  /// Swipe-right-to-duplicate: deep-copy the exercise at [index] including
+  /// all media files, insert the clone at [index + 1], shift positions, and
+  /// show an undo SnackBar per R-01 (no confirmation dialog).
+  Future<void> _duplicateExercise(int index) async {
+    final original = _session.exercises[index];
+    if (original.isRest) return; // rest periods skip duplication
+
+    final newId = const Uuid().v4();
+
+    // Deep-copy files. Each helper resolves the original's relative path,
+    // copies to a new path with the new exercise ID, and returns the
+    // relative path for storage. Skips gracefully if the source doesn't
+    // exist.
+    String? newRawFilePath;
+    String? newConvertedFilePath;
+    String? newThumbnailPath;
+    String? newArchiveFilePath;
+    String? newSegmentedRawFilePath;
+    String? newMaskFilePath;
+
+    try {
+      newRawFilePath = await _copyExerciseFile(
+        original.rawFilePath, original.id, newId,
+      );
+      newConvertedFilePath = await _copyExerciseFile(
+        original.convertedFilePath, original.id, newId,
+      );
+      newThumbnailPath = await _copyExerciseFile(
+        original.thumbnailPath, original.id, newId,
+      );
+      // Also copy color + line thumbnail variants if they exist.
+      await _copyThumbnailVariant(original.id, newId, '_thumb_color.jpg');
+      await _copyThumbnailVariant(original.id, newId, '_thumb_line.jpg');
+
+      newArchiveFilePath = await _copyExerciseFile(
+        original.archiveFilePath, original.id, newId,
+      );
+      newSegmentedRawFilePath = await _copyExerciseFile(
+        original.segmentedRawFilePath, original.id, newId,
+      );
+      newMaskFilePath = await _copyExerciseFile(
+        original.maskFilePath, original.id, newId,
+      );
+    } catch (e) {
+      debugPrint('duplicateExercise file copy failed: $e');
+      // Continue with whatever we managed to copy.
+    }
+
+    // Build the duplicate exercise with a fresh UUID and position + 1.
+    final duplicate = ExerciseCapture(
+      id: newId,
+      position: original.position + 1,
+      rawFilePath: newRawFilePath ?? original.rawFilePath,
+      convertedFilePath: newConvertedFilePath,
+      thumbnailPath: newThumbnailPath,
+      mediaType: original.mediaType,
+      conversionStatus: original.conversionStatus,
+      reps: original.reps,
+      sets: original.sets,
+      holdSeconds: original.holdSeconds,
+      notes: original.notes,
+      name: original.name,
+      createdAt: DateTime.now(),
+      sessionId: original.sessionId,
+      circuitId: original.circuitId,
+      includeAudio: original.includeAudio,
+      customDurationSeconds: original.customDurationSeconds,
+      prepSeconds: original.prepSeconds,
+      interSetRestSeconds: original.interSetRestSeconds,
+      videoDurationMs: original.videoDurationMs,
+      archiveFilePath: newArchiveFilePath,
+      archivedAt: original.archivedAt,
+      segmentedRawFilePath: newSegmentedRawFilePath,
+      maskFilePath: newMaskFilePath,
+      preferredTreatment: original.preferredTreatment,
+      startOffsetMs: original.startOffsetMs,
+      endOffsetMs: original.endOffsetMs,
+      videoRepsPerLoop: original.videoRepsPerLoop,
+      aspectRatio: original.aspectRatio,
+      rotationQuarters: original.rotationQuarters,
+    );
+
+    // Insert at index + 1 and shift all subsequent positions.
+    final exercises = List<ExerciseCapture>.from(_session.exercises);
+    exercises.insert(index + 1, duplicate);
+    for (var i = index + 2; i < exercises.length; i++) {
+      exercises[i] = exercises[i].copyWith(position: i);
+    }
+
+    setState(() {
+      _touchAndPush(_session.copyWith(exercises: exercises));
+      // Adjust expanded index if it shifted.
+      if (_expandedIndex != null && _expandedIndex! > index) {
+        _expandedIndex = _expandedIndex! + 1;
+      }
+    });
+
+    // Persist: save the new exercise + update positions on shifted ones.
+    unawaited(
+      widget.storage.saveExercise(duplicate).catchError((e, st) {
+        debugPrint('saveExercise (duplicate) failed: $e');
+      }),
+    );
+    _saveExerciseOrder();
+
+    showUndoSnackBar(
+      context,
+      label: 'Duplicated · Undo',
+      onUndo: () async {
+        // Remove the duplicate from SQLite + delete its copied files.
+        await widget.storage.deleteExercise(duplicate.id);
+        await _refreshSession();
+      },
+    );
+  }
+
+  /// Copy a single exercise file, replacing [oldId] with [newId] in the
+  /// filename. Returns the new relative path, or null if the source is
+  /// null or doesn't exist.
+  Future<String?> _copyExerciseFile(
+    String? relativePath,
+    String oldId,
+    String newId,
+  ) async {
+    if (relativePath == null || relativePath.isEmpty) return null;
+    final absSource = PathResolver.resolve(relativePath);
+    final sourceFile = File(absSource);
+    if (!sourceFile.existsSync()) return null;
+
+    // Replace the old exercise ID in the filename with the new one.
+    final newRelative = relativePath.replaceAll(oldId, newId);
+    final absDest = PathResolver.resolve(newRelative);
+
+    // Ensure the destination directory exists.
+    final destDir = Directory(p.dirname(absDest));
+    if (!destDir.existsSync()) {
+      destDir.createSync(recursive: true);
+    }
+
+    await sourceFile.copy(absDest);
+    return newRelative;
+  }
+
+  /// Copy a thumbnail variant (e.g. `_thumb_color.jpg`) if it exists.
+  /// These variants live next to the primary thumbnail but use a different
+  /// suffix.
+  Future<void> _copyThumbnailVariant(
+    String oldId,
+    String newId,
+    String suffix,
+  ) async {
+    final thumbDir = p.join(PathResolver.docsDir, 'thumbnails');
+    final sourceFile = File(p.join(thumbDir, '$oldId$suffix'));
+    if (!sourceFile.existsSync()) return;
+    final destPath = p.join(thumbDir, '$newId$suffix');
+    await sourceFile.copy(destPath);
+  }
+
   // ---------------------------------------------------------------------------
   // Circuits
   // ---------------------------------------------------------------------------
@@ -1709,8 +1867,35 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       );
       cardContent = Dismissible(
         key: ValueKey('swipe_${exercise.id}'),
-        direction: DismissDirection.endToStart,
+        direction: DismissDirection.horizontal,
+        // Left-to-right swipe background: duplicate.
         background: Container(
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.only(left: 20),
+          margin: const EdgeInsets.symmetric(vertical: 2),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.85),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.copy_outlined, color: Colors.white, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Duplicate',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Right-to-left swipe background: delete.
+        secondaryBackground: Container(
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 20),
           margin: const EdgeInsets.symmetric(vertical: 2),
@@ -1724,7 +1909,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             size: 24,
           ),
         ),
-        confirmDismiss: (_) async => true,
+        confirmDismiss: (direction) async {
+          if (direction == DismissDirection.startToEnd) {
+            // Right-swipe → duplicate, then return false to keep
+            // the card in place.
+            unawaited(_duplicateExercise(dataIndex));
+            return false;
+          }
+          // Left-swipe → delete (dismiss the card).
+          return true;
+        },
         onDismissed: (_) => _deleteExercise(dataIndex),
         child: cardBody,
       );
