@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v78-video-loading-gate';
+const PLAYER_VERSION = 'v79-hardening';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -392,6 +392,173 @@ let workoutTimer = null;
 let workoutStartTime = null;
 
 // ------------------------------------------------------------------
+// v79-hardening (HIGH 1) — signed URL expiry guard.
+//
+// B&W/Original treatment video URLs are pgjwt-signed with a 1-hour TTL.
+// A long workout + pauses can exceed this, causing a 403 → black frame.
+// We listen for `error` events on <video> elements, re-fetch the plan,
+// swap URLs, and retry. Max one retry per video to avoid infinite loops.
+// ------------------------------------------------------------------
+const _videoRetrySet = new Set(); // video element IDs that already retried
+let _urlRefreshInFlight = false;
+
+async function handleVideoError(evt) {
+  const video = evt.target;
+  if (!video || video.tagName !== 'VIDEO') return;
+  const videoId = video.id;
+  if (!videoId || _videoRetrySet.has(videoId)) return; // already retried once
+  _videoRetrySet.add(videoId);
+
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  if (!planId) return;
+
+  // Show subtle refreshing indicator
+  const card = video.closest('.exercise-card');
+  let refreshLabel = null;
+  if (card) {
+    refreshLabel = document.createElement('div');
+    refreshLabel.className = 'video-refresh-indicator';
+    refreshLabel.textContent = 'Refreshing\u2026';
+    card.appendChild(refreshLabel);
+  }
+
+  try {
+    // Coalesce multiple errors into a single re-fetch
+    if (!_urlRefreshInFlight) {
+      _urlRefreshInFlight = true;
+      const fresh = await fetchPlan(planId);
+      if (fresh && fresh.exercises) {
+        // Update the exercises array in our slides with fresh URLs
+        const freshExMap = {};
+        fresh.exercises.forEach(function (ex) { freshExMap[ex.id] = ex; });
+        slides.forEach(function (s, idx) {
+          const f = freshExMap[s.id];
+          if (!f) return;
+          s.line_drawing_url = f.line_drawing_url;
+          s.grayscale_url = f.grayscale_url;
+          s.original_url = f.original_url;
+          s.grayscale_segmented_url = f.grayscale_segmented_url;
+          s.original_segmented_url = f.original_segmented_url;
+          s.mask_url = f.mask_url;
+        });
+      }
+      _urlRefreshInFlight = false;
+    }
+
+    // Re-resolve the URL for this video's slide
+    const cardEl = video.closest('.exercise-card');
+    const idx = cardEl ? Number(cardEl.getAttribute('data-index')) : NaN;
+    const slide = Number.isFinite(idx) ? slides[idx] : null;
+    if (slide) {
+      const newUrl = resolveTreatmentUrl(slide, slideTreatment(slide));
+      if (newUrl) {
+        video.setAttribute('data-src', newUrl);
+        video.setAttribute('src', newUrl);
+        video.load();
+      }
+    }
+  } catch (err) {
+    console.warn('[homefit] URL refresh failed:', err);
+  } finally {
+    if (refreshLabel) {
+      setTimeout(function () { refreshLabel.remove(); }, 2000);
+    }
+  }
+}
+
+// ------------------------------------------------------------------
+// v79-hardening (HIGH 2) — background tab / screen lock timer drift.
+//
+// When the client locks their phone or switches tabs, setInterval is
+// throttled. On return we fast-forward remainingSeconds by wall-clock
+// elapsed, re-sync the set machine, and resume video.
+// ------------------------------------------------------------------
+let _backgroundedAt = null;
+
+function onVisibilityChange() {
+  if (document.hidden) {
+    _backgroundedAt = Date.now();
+  } else {
+    if (!_backgroundedAt || !isWorkoutMode || !isTimerRunning) {
+      _backgroundedAt = null;
+      return;
+    }
+    const elapsedMs = Date.now() - _backgroundedAt;
+    _backgroundedAt = null;
+    const elapsedSec = Math.floor(elapsedMs / 1000);
+    if (elapsedSec <= 0) return;
+
+    // Fast-forward remaining seconds
+    remainingSeconds = Math.max(0, remainingSeconds - elapsedSec);
+
+    // Fast-forward the set-phase machine
+    if (!isRestSlide()) {
+      let ticksLeft = elapsedSec;
+      while (ticksLeft > 0 && remainingSeconds >= 0) {
+        if (setPhaseRemaining > ticksLeft) {
+          setPhaseRemaining -= ticksLeft;
+          ticksLeft = 0;
+        } else {
+          ticksLeft -= setPhaseRemaining;
+          setPhaseRemaining = 0;
+          // Trigger phase advance
+          if (setPhase === 'set' && interSetRestForSlide > 0) {
+            setPhase = 'rest';
+            setPhaseRemaining = interSetRestForSlide;
+          } else if (setPhase === 'rest') {
+            const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
+            if (!isLastSet) {
+              currentSetIndex++;
+              setPhase = 'set';
+              setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+            } else {
+              // Exhausted all sets — clamp
+              setPhaseRemaining = 0;
+              break;
+            }
+          } else {
+            // No breather — advance set
+            const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
+            if (!isLastSet) {
+              currentSetIndex++;
+              setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+            } else {
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (remainingSeconds <= 0) {
+      // Timer expired while backgrounded
+      remainingSeconds = 0;
+      clearWorkoutTimer();
+      isTimerRunning = false;
+      onTimerComplete();
+      return;
+    }
+
+    // Resume video playback if in a set phase
+    if (setPhase !== 'rest') {
+      const cv = getActiveVideoForSlide(currentIndex);
+      if (cv && cv.paused) {
+        cv.play().catch(function () {});
+      }
+    }
+
+    // Repaint everything
+    updateUI();
+    updateRepStack();
+    updateBreatherOverlay();
+    updateRestCountdownOverlay();
+    updateProgressMatrix();
+    updateTimelineBar();
+  }
+}
+document.addEventListener('visibilitychange', onVisibilityChange);
+
+// ------------------------------------------------------------------
 // Milestone Q — Post Rep Breather state.
 //
 // Tracks the per-exercise set/rest structure for the active slide so
@@ -490,7 +657,18 @@ function prepSecondsFor(slide) {
 // icon on any video card flips this flag; we push the new value to
 // every rendered <video> element without touching its paused/playing
 // state. Persists across slide changes within the same session.
-let isMuted = false;
+//
+// v79-hardening: isMuted now defaults to true and all videos render with
+// `muted` attribute to guarantee Safari autoplay. After "Start Workout"
+// (a user gesture), we unmute videos that have audio. The user can
+// toggle mute via the speaker button. State persists to localStorage.
+let isMuted = (function () {
+  try {
+    const stored = localStorage.getItem('homefit-muted');
+    if (stored === 'false') return false;
+  } catch (_) {}
+  return true;
+})();
 
 // Segmented-background-effect opt-out (Milestone P toggle — 2026-04-23).
 //
@@ -1009,15 +1187,10 @@ function buildMedia(exercise, index) {
   }
 
   if (exercise.media_type === 'video') {
-    // Muted attribute gating:
-    //   * exercise.include_audio === false → always muted (publish-time
-    //     opt-out; the client never hears audio for this exercise).
-    //   * exercise.include_audio === true + runtime isMuted=true → muted
-    //     (Wave 3 decouple — the speaker overlay toggled the runtime flag
-    //     without pausing playback).
-    //   * exercise.include_audio === true + runtime isMuted=false → audio on.
-    const shouldMute = !exercise.include_audio || isMuted;
-    const mutedAttr = shouldMute ? 'muted' : '';
+    // v79-hardening: ALWAYS render muted to guarantee Safari autoplay.
+    // After "Start Workout" (user gesture) we programmatically unmute
+    // videos that have audio and whose isMuted flag is false.
+    const mutedAttr = 'muted';
     const posterAttr = exercise.thumbnail_url ? `poster="${escapeHTML(exercise.thumbnail_url)}"` : '';
     // Mute affordance — only rendered when the exercise ships with
     // audio (no point showing a mute button on a silent clip). Tap
@@ -2659,6 +2832,23 @@ function startWorkout() {
   // Hide the start button
   $startWorkoutBtn.hidden = true;
 
+  // v79-hardening (HIGH 3): now inside a user gesture, apply the
+  // persisted mute preference to all videos. Renders initially muted for
+  // Safari autoplay; this call unmutes where appropriate.
+  applyMuteStateToAllVideos();
+
+  // v79-hardening (MEDIUM 2): auto-dismiss the consent banner when
+  // "Start Workout" is tapped. Treat undecided as "declined for this
+  // session" — don't persist to localStorage so it reappears next load.
+  if (analyticsConsented === null) {
+    analyticsConsented = false;
+    const consentBanner = document.getElementById('analytics-consent-banner');
+    if (consentBanner) {
+      consentBanner.classList.remove('is-visible');
+      setTimeout(function () { consentBanner.remove(); }, 400);
+    }
+  }
+
   // Top-stack v1 — request browser fullscreen so the video fills the
   // viewport. Must be inside the button's click gesture; the browser
   // rejects the API call otherwise.
@@ -3200,6 +3390,7 @@ function handleMediaTap(e) {
  */
 function toggleMute() {
   isMuted = !isMuted;
+  try { localStorage.setItem('homefit-muted', isMuted ? 'true' : 'false'); } catch (_) {}
   const videos = $cardTrack ? $cardTrack.querySelectorAll('video') : [];
   videos.forEach((video) => {
     // include_audio is encoded on the slide, not the <video> element;
@@ -3226,6 +3417,26 @@ function toggleMute() {
     svg.innerHTML = isMuted
       ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'
       : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>';
+  });
+}
+
+/**
+ * v79-hardening: apply current isMuted state to all live <video>
+ * elements. Called from startWorkout() (which runs inside a user gesture
+ * so Safari allows unmuting) and from toggleMute(). Separated from
+ * toggleMute so we can apply without flipping the flag.
+ */
+function applyMuteStateToAllVideos() {
+  const videos = $cardTrack ? $cardTrack.querySelectorAll('video') : [];
+  videos.forEach((video) => {
+    const card = video.closest('.exercise-card');
+    const idx = card ? Number(card.getAttribute('data-index')) : NaN;
+    const slide = Number.isFinite(idx) ? slides[idx] : null;
+    if (!slide || !slide.include_audio) {
+      video.muted = true;
+      return;
+    }
+    video.muted = isMuted;
   });
 }
 
@@ -4428,6 +4639,9 @@ async function init() {
     // trim window so preroll fires at the trimmed end, not natural end.
     $cardViewport.addEventListener('loadedmetadata', onVideoLoadedMetadata, true);
     $cardViewport.addEventListener('timeupdate', onVideoTimeUpdate, true);
+    // v79-hardening (HIGH 1): delegated error handler catches expired
+    // signed URLs (403 → MediaError) and re-fetches plan data.
+    $cardViewport.addEventListener('error', handleVideoError, true);
     $cardViewport.addEventListener('touchstart', onTouchStart, { passive: true });
     $cardViewport.addEventListener('touchmove', onTouchMove, { passive: true });
     $cardViewport.addEventListener('touchend', onTouchEnd);
@@ -4634,6 +4848,39 @@ async function init() {
   } catch (err) {
     console.error('Failed to load plan:', err);
     $loading.hidden = true;
+
+    // v79-hardening (MEDIUM 1): distinguish network errors from
+    // empty-plan / not-found responses. TypeError is the standard
+    // fetch network-error type; also catch any error that doesn't look
+    // like our own 'Plan not found' / 'Empty plan' strings.
+    const isNetwork = (
+      err instanceof TypeError ||
+      (err && err.message && !/plan not found|empty plan/i.test(err.message))
+    );
+
+    const $errorTitle = document.getElementById('error-title');
+    const $errorText = document.getElementById('error-text');
+    const $retryBtn = document.getElementById('error-retry-btn');
+
+    if (isNetwork) {
+      if ($errorTitle) $errorTitle.textContent = 'No internet connection';
+      if ($errorText) $errorText.textContent =
+        'Connect to Wi-Fi or mobile data and try again.';
+      if ($retryBtn) {
+        $retryBtn.hidden = false;
+        $retryBtn.onclick = function () {
+          $error.hidden = true;
+          $loading.hidden = false;
+          $loading.classList.remove('fade-out');
+          init();
+        };
+      }
+    } else {
+      if ($errorTitle) $errorTitle.textContent = 'Plan not found';
+      if ($errorText) $errorText.textContent =
+        'This link may have expired or the plan may no longer be available. Contact your practitioner for a new link.';
+      if ($retryBtn) $retryBtn.hidden = true;
+    }
     $error.hidden = false;
   }
 }
