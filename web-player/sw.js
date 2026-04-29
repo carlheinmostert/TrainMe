@@ -9,7 +9,7 @@
 // together — bumping one without the other will leave the version label
 // stale on a freshly-cached client. Convention: keep `homefit-player-`
 // prefix here; drop it in PLAYER_VERSION.
-const CACHE_NAME = 'homefit-player-v72-what-we-share-csp-fix';
+const CACHE_NAME = 'homefit-player-v73-media-network-first';
 
 // App shell files — always cached
 const APP_SHELL = [
@@ -68,7 +68,12 @@ self.addEventListener('fetch', (event) => {
 
   // Media assets (images, videos from Supabase storage): cache on fetch
   if (isMediaRequest(request)) {
-    event.respondWith(cacheFirstStrategy(request));
+    // Network-first for media. Cache-first caused stale/partial videos
+    // to persist when the client opened a plan before the publish upload
+    // fully completed — the SW cached the partial response and served it
+    // forever. Network-first always fetches the latest from CDN; cache
+    // is only a fallback when offline.
+    event.respondWith(networkFirstStrategy(request));
     return;
   }
 
