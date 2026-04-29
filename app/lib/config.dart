@@ -103,29 +103,31 @@ class AppConfig {
   /// by `claim_referral_code` (see schema_milestone_m_credit_model.sql).
   static const int referralSignupBonusCredits = 5;
 
-  /// Credit cost by plan size (non-rest exercise count).
-  /// 1-8 exercises  → 1 credit
-  /// 9-15 exercises → 2 credits
-  /// 16+ exercises  → 3 credits (clamped)
-  static const int creditsPerSmallPlan = 1; // 1-8 exercises
-  static const int creditsPerMediumPlan = 2; // 9-15 exercises
-  static const int creditsPerLargePlan = 3; // 16+ exercises
+  /// Duration threshold for the 2-credit tier, in seconds.
+  /// Plans whose estimated total duration exceeds this are charged 2 credits;
+  /// all others are 1 credit. 75 minutes = 4500 seconds.
+  static const int creditDurationThresholdSeconds = 75 * 60; // 4500s
 }
 
-/// Credit cost for a plan given its non-rest exercise count.
+/// Credit cost for a plan based on estimated total duration of non-rest
+/// exercises.
 ///
-/// Formula: `ceil(count / 8)` clamped to `[1, 3]`.
-///   1-8   → 1 credit
-///   9-15  → 2 credits  (9/8 = 1.125 → ceil = 2)
-///   16+   → 3 credits  (clamped)
+/// Model (duration-based):
+///   - 1 credit for any plan where estimated duration ≤ 75 minutes
+///   - 2 credits for any plan where estimated duration > 75 minutes
 ///
-/// An empty plan (count == 0) is billed at the minimum of 1 credit so the
-/// audit row is never zero — if we ever see `credits_charged = 0` in
-/// `plan_issuances` it means the clamp was bypassed, which is a bug.
-int creditCostFor(int exerciseCount) {
-  if (exerciseCount <= 0) return AppConfig.creditsPerSmallPlan;
-  final raw = ((exerciseCount + 7) ~/ 8); // ceil(n/8)
-  if (raw <= AppConfig.creditsPerSmallPlan) return AppConfig.creditsPerSmallPlan;
-  if (raw >= AppConfig.creditsPerLargePlan) return AppConfig.creditsPerLargePlan;
-  return raw;
+/// The 75-minute threshold is purely anti-abuse; the vast majority of
+/// real-world plans fall well under it.
+///
+/// [nonRestExerciseDurationSeconds] is the sum of
+/// `ExerciseCapture.estimatedDurationSeconds` for every non-rest exercise
+/// in the session. The caller computes this — see `upload_service.dart`.
+///
+/// An empty plan (duration == 0) is billed at 1 credit so the audit row
+/// is never zero.
+int creditCostForDuration(int nonRestExerciseDurationSeconds) {
+  if (nonRestExerciseDurationSeconds > AppConfig.creditDurationThresholdSeconds) {
+    return 2;
+  }
+  return 1;
 }
