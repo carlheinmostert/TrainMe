@@ -9,7 +9,7 @@
 // together — bumping one without the other will leave the version label
 // stale on a freshly-cached client. Convention: keep `homefit-player-`
 // prefix here; drop it in PLAYER_VERSION.
-const CACHE_NAME = 'homefit-player-v77-treatment-path-compare';
+const CACHE_NAME = 'homefit-player-v78-video-loading-gate';
 
 // App shell files — always cached
 const APP_SHELL = [

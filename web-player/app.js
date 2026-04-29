@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v77-treatment-path-compare';
+const PLAYER_VERSION = 'v78-video-loading-gate';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -2727,9 +2727,56 @@ function enterWorkoutPhaseForCurrent() {
     // is the single source of truth for the rest countdown.
     startTimer();
   } else {
-    // Exercise — run 15s prep runway, then startTimer()
-    startPrepPhase();
+    // Exercise — check if video is ready. If not (lazy-loaded, still
+    // buffering), show a loading indicator and defer the prep phase
+    // until the video has data. Prevents timers running on a black/still
+    // screen.
+    var video = getActiveVideoForSlide(currentIndex);
+    if (video && video.readyState < 2) { // < HAVE_CURRENT_DATA
+      showVideoLoadingOverlay();
+      video.addEventListener('canplay', function onReady() {
+        video.removeEventListener('canplay', onReady);
+        hideVideoLoadingOverlay();
+        if (currentIndex === slides.indexOf(slide)) {
+          startPrepPhase();
+        }
+      });
+      // Safety timeout — don't wait forever if canplay never fires
+      setTimeout(function() {
+        hideVideoLoadingOverlay();
+        if (currentIndex === slides.indexOf(slide)) {
+          startPrepPhase();
+        }
+      }, 8000);
+    } else {
+      startPrepPhase();
+    }
   }
+}
+
+/** Overlay shown while waiting for a lazy-loaded video to buffer. */
+function showVideoLoadingOverlay() {
+  var existing = document.getElementById('video-loading-overlay');
+  if (existing) return;
+  var overlay = document.createElement('div');
+  overlay.id = 'video-loading-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(15,17,23,0.7);z-index:9999;';
+  overlay.innerHTML = '<div style="text-align:center;color:#F0F0F5;font-family:Inter,sans-serif;">' +
+    '<div style="width:32px;height:32px;border:3px solid rgba(255,107,53,0.3);border-top-color:#FF6B35;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>' +
+    '<div style="font-size:13px;opacity:0.7;">Loading video\u2026</div></div>';
+  // Add keyframe if not already present
+  if (!document.getElementById('video-loading-spin')) {
+    var style = document.createElement('style');
+    style.id = 'video-loading-spin';
+    style.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(style);
+  }
+  document.body.appendChild(overlay);
+}
+
+function hideVideoLoadingOverlay() {
+  var el = document.getElementById('video-loading-overlay');
+  if (el) el.remove();
 }
 
 /**
