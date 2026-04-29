@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -1524,6 +1525,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                   onPreview: _openPreview,
                   onPublish: _publishFromToolbar,
                   onShare: _shareFromToolbar,
+                  onDownload: _downloadAllToPhotos,
                   // Wave 30 — tapping Publish on a still-mid-grace plan
                   // routes to the unlock sheet (two-tap UX so the
                   // practitioner sees the unlocked state before the
@@ -2397,8 +2399,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     if (result.success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Published v${result.version}'),
-          duration: const Duration(seconds: 2),
+          content: const Text('Published \u2713'),
+          duration: const Duration(days: 1),
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: AppColors.primary,
+            onPressed: () {
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            },
+          ),
         ),
       );
     } else if (result.isUnconsentedTreatments) {
@@ -2648,6 +2657,95 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           SnackBar(content: Text('Share failed: $e')),
         );
       }
+    }
+  }
+
+  /// Wave 41 — download all raw captures (videos + photos) in the
+  /// current session to the iOS Camera Roll. Skips rest periods and
+  /// exercises with no raw file. Uses `photo_manager` for the actual
+  /// PHPhotoLibrary write, same as `OriginalVideoService.saveToPhotos`.
+  Future<void> _downloadAllToPhotos() async {
+    // Collect saveable exercises — skip rests and exercises with no raw file.
+    final saveable = _session.exercises.where((e) {
+      if (e.isRest) return false;
+      final rawPath = e.absoluteRawFilePath;
+      if (rawPath.isEmpty) return false;
+      return File(rawPath).existsSync();
+    }).toList();
+
+    if (saveable.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No exercise files to save'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Request addOnly permission.
+    final state = await PhotoManager.requestPermissionExtend(
+      requestOption: const PermissionRequestOption(
+        iosAccessLevel: IosAccessLevel.addOnly,
+      ),
+    );
+    if (!state.hasAccess) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Photos permission denied — open Settings to allow'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
+    int saved = 0;
+    final total = saveable.length;
+
+    for (final exercise in saveable) {
+      if (!mounted) return;
+      saved++;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$saved/$total saving\u2026'),
+          duration: const Duration(seconds: 30),
+        ),
+      );
+
+      final file = File(exercise.absoluteRawFilePath);
+      try {
+        if (exercise.mediaType == MediaType.video) {
+          await PhotoManager.editor.saveVideo(
+            file,
+            title: p.basename(file.path),
+          );
+        } else {
+          // Photo — save as image.
+          await PhotoManager.editor.saveImageWithPath(
+            file.path,
+            title: p.basename(file.path),
+          );
+        }
+      } catch (e) {
+        // Best-effort — log and continue with next file.
+        debugPrint('Failed to save ${exercise.name}: $e');
+      }
+    }
+
+    if (mounted) {
+      final label = total == 1
+          ? '1 file saved to Photos'
+          : '$total files saved to Photos';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(label),
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
   }
 
