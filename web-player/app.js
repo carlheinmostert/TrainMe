@@ -789,6 +789,11 @@ function renderPlan() {
   // top-stack renderer updateActiveSlideHeader() + updateCardNotes().
   $cardTrack.innerHTML = slides.map((slide, i) => buildCard(slide, i)).join('');
 
+  // Lazy-load videos for the first slide + neighbours. Videos are built
+  // with data-src (not src) to prevent Safari crashing on 46 simultaneous
+  // preload="auto" elements.
+  lazyLoadNearbyVideos(currentIndex);
+
   // Prime the top-stack header + notes overlay for the first slide.
   updateActiveSlideHeader();
   updateCardNotes();
@@ -1062,27 +1067,27 @@ function buildMedia(exercise, index) {
         <video
           id="video-${index}"
           class="video-loop-slot ${grayscaleClass}"
-          src="${escapeHTML(resolvedUrl)}"
+          data-src="${escapeHTML(resolvedUrl)}"
           data-treatment="${slideT}"
           data-active="true"
           data-loop-slot="a"
           playsinline
           loop
           ${mutedAttr}
-          preload="auto"
+          preload="none"
           ${posterAttr}
         ></video>
         <video
           id="video-${index}-b"
           class="video-loop-slot ${grayscaleClass}"
-          src="${escapeHTML(resolvedUrl)}"
+          data-src="${escapeHTML(resolvedUrl)}"
           data-treatment="${slideT}"
           data-active="false"
           data-loop-slot="b"
           playsinline
           loop
           muted
-          preload="auto"
+          preload="none"
           ${posterAttr}
           aria-hidden="true"
         ></video>
@@ -1806,7 +1811,39 @@ function clearPrepTimer() {
   isPrepPhase = false;
 }
 
+/**
+ * Lazy-load videos for slides near the current index. Videos are created
+ * with `data-src` (not `src`) and `preload="none"` to prevent Safari from
+ * buffering all 46 elements at once (which crashes WebKit on iOS).
+ * This function sets `src` from `data-src` for the current slide ± 1
+ * and calls `load()`. Slides further away have their `src` removed to
+ * free memory.
+ */
+function lazyLoadNearbyVideos(centerIdx) {
+  if (!$cardTrack) return;
+  const WINDOW = 1; // load current ± 1 slide
+  $cardTrack.querySelectorAll('video[data-src]').forEach((v) => {
+    const card = v.closest('.exercise-card');
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const near = Math.abs(idx - centerIdx) <= WINDOW;
+    const hasSrc = v.hasAttribute('src') && v.getAttribute('src');
+    if (near && !hasSrc) {
+      v.setAttribute('src', v.getAttribute('data-src'));
+      v.preload = 'auto';
+      v.load();
+    } else if (!near && hasSrc) {
+      v.pause();
+      v.removeAttribute('src');
+      v.preload = 'none';
+      v.load(); // reset the media element
+    }
+  });
+}
+
 function autoPlayCurrentVideo() {
+  lazyLoadNearbyVideos(currentIndex);
   const currentVideo = getActiveVideoForSlide(currentIndex);
   if (!currentVideo) return;
   currentVideo.play().catch((err) => {
@@ -3250,13 +3287,17 @@ function rebindVideoSources() {
     // override. Keep the data-attribute + grayscale CSS class in sync with
     // the live treatment so a forced-B&W slide actually goes greyscale even
     // when the underlying URL didn't change.
+    // Always update data-src so lazy-loading picks up the new URL.
+    videoEl.setAttribute('data-src', nextUrl);
     videoEl.setAttribute('data-treatment', slideT);
     videoEl.classList.toggle('is-grayscale', slideT === 'bw');
     // getAttribute is the raw attribute text; videoEl.src is the
     // resolved absolute URL (prefixed with the origin). Compare via
-    // the attribute for a stable check.
+    // the attribute for a stable check. If the video hasn't been
+    // lazy-loaded yet (no src), skip the src swap — lazyLoadNearbyVideos
+    // will pick up data-src when the slide becomes active.
     const currentAttr = videoEl.getAttribute('src');
-    if (currentAttr === nextUrl) return;
+    if (!currentAttr || currentAttr === nextUrl) return;
 
     const isActive = idx === currentIndex;
     const wasPlaying = isActive && !videoEl.paused && !videoEl.ended;
