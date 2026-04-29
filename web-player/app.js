@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v76-treatment-css-only';
+const PLAYER_VERSION = 'v77-treatment-path-compare';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -3304,26 +3304,17 @@ function rebindVideoSources() {
     videoEl.setAttribute('data-treatment', slideT);
     videoEl.classList.toggle('is-grayscale', slideT === 'bw');
 
-    // Determine if the treatment change actually needs a src swap.
-    // B&W ↔ Original use the same underlying raw video (different signed
-    // URLs but same file). Swapping src causes an unnecessary pause +
-    // potential black screen from the dual-crossfade pair losing sync.
-    // Only swap src when switching to/from Line Drawing (genuinely
-    // different file — converted vs raw).
-    const wasLine = prevTreatment === 'line';
-    const isLine = slideT === 'line';
-    const needsSrcSwap = wasLine !== isLine; // one side is line, other isn't
-
     const currentAttr = videoEl.getAttribute('src');
     if (!currentAttr) return; // not lazy-loaded yet
 
-    if (!needsSrcSwap) {
-      // CSS-only change (B&W ↔ Original). No src swap, no pause.
-      // The is-grayscale toggle above handles the visual change.
-      return;
-    }
-
-    if (currentAttr === nextUrl) return; // same URL, nothing to do
+    // Compare file PATHS (strip ?token= signed URL params). If the
+    // path is identical, the treatment change is CSS-only (e.g. B&W ↔
+    // Original = same raw file, just grayscale filter toggle). If paths
+    // differ, the actual video file changed (line ↔ raw, segmented ↔
+    // non-segmented) and we need a src swap.
+    var currentPath = currentAttr.split('?')[0];
+    var nextPath = nextUrl.split('?')[0];
+    if (currentPath === nextPath) return; // same file, CSS handles it
 
     const isActive = idx === currentIndex;
     const wasPlaying = isActive && !videoEl.paused && !videoEl.ended;
