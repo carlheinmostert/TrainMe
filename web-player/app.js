@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v79-hardening';
+const PLAYER_VERSION = 'v80-prep-dedup';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -2924,20 +2924,21 @@ function enterWorkoutPhaseForCurrent() {
     var video = getActiveVideoForSlide(currentIndex);
     if (video && video.readyState < 2) { // < HAVE_CURRENT_DATA
       showVideoLoadingOverlay();
+      var prepFired = false;
+      var safetyTimer = null;
+      var slideAtEntry = currentIndex;
+      function fireOnce() {
+        if (prepFired || currentIndex !== slideAtEntry) return;
+        prepFired = true;
+        if (safetyTimer) clearTimeout(safetyTimer);
+        hideVideoLoadingOverlay();
+        startPrepPhase();
+      }
       video.addEventListener('canplay', function onReady() {
         video.removeEventListener('canplay', onReady);
-        hideVideoLoadingOverlay();
-        if (currentIndex === slides.indexOf(slide)) {
-          startPrepPhase();
-        }
+        fireOnce();
       });
-      // Safety timeout — don't wait forever if canplay never fires
-      setTimeout(function() {
-        hideVideoLoadingOverlay();
-        if (currentIndex === slides.indexOf(slide)) {
-          startPrepPhase();
-        }
-      }, 8000);
+      safetyTimer = setTimeout(fireOnce, 8000);
     } else {
       startPrepPhase();
     }
