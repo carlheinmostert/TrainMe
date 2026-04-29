@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v75-lazy-video';
+const PLAYER_VERSION = 'v76-treatment-css-only';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -3300,15 +3300,30 @@ function rebindVideoSources() {
     // when the underlying URL didn't change.
     // Always update data-src so lazy-loading picks up the new URL.
     videoEl.setAttribute('data-src', nextUrl);
+    const prevTreatment = videoEl.getAttribute('data-treatment') || 'line';
     videoEl.setAttribute('data-treatment', slideT);
     videoEl.classList.toggle('is-grayscale', slideT === 'bw');
-    // getAttribute is the raw attribute text; videoEl.src is the
-    // resolved absolute URL (prefixed with the origin). Compare via
-    // the attribute for a stable check. If the video hasn't been
-    // lazy-loaded yet (no src), skip the src swap — lazyLoadNearbyVideos
-    // will pick up data-src when the slide becomes active.
+
+    // Determine if the treatment change actually needs a src swap.
+    // B&W ↔ Original use the same underlying raw video (different signed
+    // URLs but same file). Swapping src causes an unnecessary pause +
+    // potential black screen from the dual-crossfade pair losing sync.
+    // Only swap src when switching to/from Line Drawing (genuinely
+    // different file — converted vs raw).
+    const wasLine = prevTreatment === 'line';
+    const isLine = slideT === 'line';
+    const needsSrcSwap = wasLine !== isLine; // one side is line, other isn't
+
     const currentAttr = videoEl.getAttribute('src');
-    if (!currentAttr || currentAttr === nextUrl) return;
+    if (!currentAttr) return; // not lazy-loaded yet
+
+    if (!needsSrcSwap) {
+      // CSS-only change (B&W ↔ Original). No src swap, no pause.
+      // The is-grayscale toggle above handles the visual change.
+      return;
+    }
+
+    if (currentAttr === nextUrl) return; // same URL, nothing to do
 
     const isActive = idx === currentIndex;
     const wasPlaying = isActive && !videoEl.paused && !videoEl.ended;
