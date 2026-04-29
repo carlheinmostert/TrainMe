@@ -233,6 +233,31 @@
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
+    <li data-num="16" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 16">&#10003;</button><button class="fail" type="button" aria-label="Fail 16">&#10005;</button></div>
+      <span class="num">16.</span>
+      <span class="text">Stop-sharing button on contextual <code>/what-we-share?p={planId}</code> is enabled and fires <code>revokeAnalyticsConsent</code>.</span>
+      <ol class="steps">
+        <li data-sub="16.1">Open a plan URL, accept the consent banner ("Yes, share").</li>
+        <li data-sub="16.2">Open <code>/what-we-share?p={planId}</code> in the same browser (new tab or click the "What's shared?" link).</li>
+        <li data-sub="16.3">The "Stop sharing for this plan" button is enabled (not greyed out), hint text is gone.</li>
+        <li data-sub="16.4">Click the button. It shows "Stopping..." then green confirmation: "Stopped. {name} won't see new data from this plan."</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="17" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 17">&#10003;</button><button class="fail" type="button" aria-label="Fail 17">&#10005;</button></div>
+      <span class="num">17.</span>
+      <span class="text">Tapping a progress pill to jump forward generates an <code>exercise_navigation_jump</code> event.</span>
+      <ol class="steps">
+        <li data-sub="17.1">Open a plan with 3+ exercises. Accept analytics consent.</li>
+        <li data-sub="17.2">Start the workout. Let the first exercise play briefly.</li>
+        <li data-sub="17.3">Tap the 3rd pill in the progress matrix to jump forward.</li>
+        <li data-sub="17.4">Verify in Supabase (<code>plan_analytics_events</code>) that an <code>exercise_navigation_jump</code> row appeared with <code>from_slide</code>, <code>to_slide</code>, and <code>method: "pill"</code> in <code>event_data</code>.</li>
+        <li data-sub="17.5">Tap a pill behind the current slide to jump backward. Verify another event row.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
   </ul>
 </div>
 
