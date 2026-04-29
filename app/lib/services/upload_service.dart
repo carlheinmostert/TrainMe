@@ -698,61 +698,70 @@ class UploadService {
       });
 
       // ----------------------------------------------------------------
-      // Step 5: Upload media files. The plan row now exists, so the
-      // `Media upload` RLS policy on the `media` bucket passes.
+      // Step 5: Upload media files.
       //
-      // Skip-if-unchanged optimisation: list existing files in the plan's
-      // storage directory once, build a size map, and skip uploads where
-      // the local file size matches the remote. On a re-publish of a
-      // 23-exercise plan where only metadata changed, this cuts ~92MB of
-      // redundant uploads to zero.
+      // Fast-path: if EVERY non-rest exercise already has
+      // `rawArchiveUploadedAt` set, all files were uploaded in a prior
+      // publish and nothing was re-captured. Skip ALL upload loops —
+      // zero list calls, zero uploads, zero network for files. Just
+      // build the URL map from the known path pattern.
       // ----------------------------------------------------------------
       final mediaUrls = <String, String>{}; // exerciseId -> media URL
       final thumbUrls = <String, String?>{}; // exerciseId -> thumbnail URL
 
-      // Pre-fetch existing file names in this plan's storage directory.
-      final existingFiles = <String>{}; // set of known remote paths
-      try {
-        final listing = await _api.listMedia(prefix: '${session.id}');
-        for (final item in listing) {
-          existingFiles.add('${session.id}/${item.name}');
+      final nonRestExercises =
+          session.exercises.where((e) => !e.isRest).toList();
+      final allPreviouslyUploaded = nonRestExercises.isNotEmpty &&
+          nonRestExercises.every((e) => e.rawArchiveUploadedAt != null);
+
+      if (allPreviouslyUploaded) {
+        debugPrint('uploadPlan: metadata-only republish — skipping all file uploads');
+        for (final exercise in nonRestExercises) {
+          final ext = p.extension(
+            exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath,
+          );
+          final storagePath = '${session.id}/${exercise.id}$ext';
+          mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
+          if (exercise.absoluteThumbnailPath != null) {
+            thumbUrls[exercise.id] = _api.publicMediaUrl(
+                path: '${session.id}/${exercise.id}_thumb.jpg');
+          }
         }
-        debugPrint('uploadPlan: ${existingFiles.length} files already in storage');
-      } catch (e) {
-        // List failed — fall through to upload everything (safe default).
-        debugPrint('uploadPlan: media list failed, uploading all: $e');
-      }
+      } else {
+        // Some exercises are new — list + upload as needed.
+        final existingFiles = <String>{};
+        try {
+          final listing = await _api.listMedia(prefix: '${session.id}');
+          for (final item in listing) {
+            existingFiles.add('${session.id}/${item.name}');
+          }
+        } catch (_) {}
 
-      for (final exercise in session.exercises) {
-        if (exercise.isRest) continue;
+        for (final exercise in nonRestExercises) {
+          final filePath =
+              exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath;
+          final file = File(filePath);
+          final ext = p.extension(filePath);
+          final storagePath = '${session.id}/${exercise.id}$ext';
+          if (!existingFiles.contains(storagePath)) {
+            await _api.uploadMedia(path: storagePath, file: file);
+            uploadedPaths.add(storagePath);
+          }
+          mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
 
-        final filePath =
-            exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath;
-        final file = File(filePath);
-        final ext = p.extension(filePath);
-        final storagePath = '${session.id}/${exercise.id}$ext';
-        if (existingFiles.contains(storagePath)) {
-          // File already exists in storage — skip upload.
-          debugPrint('uploadPlan: skip $storagePath (exists)');
-        } else {
-          await _api.uploadMedia(path: storagePath, file: file);
-          uploadedPaths.add(storagePath);
-        }
-        mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
-
-        final thumbPath = exercise.absoluteThumbnailPath;
-        if (thumbPath != null) {
-          final thumbFile = File(thumbPath);
-          if (await thumbFile.exists()) {
-            final thumbStoragePath = '${session.id}/${exercise.id}_thumb.jpg';
-            if (existingFiles.contains(thumbStoragePath)) {
-              debugPrint('uploadPlan: skip $thumbStoragePath (exists)');
-            } else {
-              await _api.uploadMedia(path: thumbStoragePath, file: thumbFile);
-              uploadedPaths.add(thumbStoragePath);
+          final thumbPath = exercise.absoluteThumbnailPath;
+          if (thumbPath != null) {
+            final thumbFile = File(thumbPath);
+            if (await thumbFile.exists()) {
+              final thumbStoragePath = '${session.id}/${exercise.id}_thumb.jpg';
+              if (!existingFiles.contains(thumbStoragePath)) {
+                await _api.uploadMedia(
+                    path: thumbStoragePath, file: thumbFile);
+                uploadedPaths.add(thumbStoragePath);
+              }
+              thumbUrls[exercise.id] =
+                  _api.publicMediaUrl(path: thumbStoragePath);
             }
-            thumbUrls[exercise.id] =
-                _api.publicMediaUrl(path: thumbStoragePath);
           }
         }
       }
@@ -1050,8 +1059,14 @@ class UploadService {
     required Session session,
     required String practiceId,
   }) async {
-    // Pre-fetch existing files in the raw-archive directory for this plan.
-    // Skip uploads for files that already exist (same pattern as media).
+    // Fast-path: if all exercises already uploaded, skip entirely.
+    final nonRest = session.exercises.where((e) => !e.isRest).toList();
+    if (nonRest.every((e) => e.rawArchiveUploadedAt != null)) {
+      debugPrint('_uploadRawArchives: all previously uploaded — skipping entirely');
+      return;
+    }
+
+    // Some exercises need uploading. List existing files once.
     final existingRaw = <String>{};
     try {
       final listing = await _api.listRawArchive(
@@ -1060,10 +1075,7 @@ class UploadService {
       for (final item in listing) {
         existingRaw.add('$practiceId/${session.id}/${item.name}');
       }
-      debugPrint('_uploadRawArchives: ${existingRaw.length} files already in raw-archive');
-    } catch (e) {
-      debugPrint('_uploadRawArchives: list failed, checking rawArchiveUploadedAt only: $e');
-    }
+    } catch (_) {}
 
     for (final exercise in session.exercises) {
       if (exercise.isRest) continue;
