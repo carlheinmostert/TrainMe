@@ -2709,12 +2709,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     for (final exercise in saveable) {
       if (!mounted) return;
       saved++;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$saved/$total saving\u2026'),
-          duration: const Duration(seconds: 30),
-        ),
-      );
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('$saved/$total saving\u2026'),
+            duration: const Duration(seconds: 30),
+          ),
+        );
 
       final file = File(exercise.absoluteRawFilePath);
       try {
@@ -2740,7 +2742,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       final label = total == 1
           ? '1 file saved to Photos'
           : '$total files saved to Photos';
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
         SnackBar(
           content: Text(label),
           duration: const Duration(seconds: 3),
