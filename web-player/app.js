@@ -1815,13 +1815,16 @@ function clearPrepTimer() {
  * Lazy-load videos for slides near the current index. Videos are created
  * with `data-src` (not `src`) and `preload="none"` to prevent Safari from
  * buffering all 46 elements at once (which crashes WebKit on iOS).
- * This function sets `src` from `data-src` for the current slide ± 1
- * and calls `load()`. Slides further away have their `src` removed to
- * free memory.
+ *
+ * This function sets `src` from `data-src` for the current slide ± 2.
+ * Previously-loaded videos are NEVER unloaded — removing `src` from a
+ * loaded video causes stuttering when the user navigates back. The
+ * initial `preload="none"` + no `src` prevents the crash; once loaded,
+ * videos stay in memory.
  */
 function lazyLoadNearbyVideos(centerIdx) {
   if (!$cardTrack) return;
-  const WINDOW = 1; // load current ± 1 slide
+  const WINDOW = 2; // load current ± 2 slides
   $cardTrack.querySelectorAll('video[data-src]').forEach((v) => {
     const card = v.closest('.exercise-card');
     if (!card) return;
@@ -1833,12 +1836,8 @@ function lazyLoadNearbyVideos(centerIdx) {
       v.setAttribute('src', v.getAttribute('data-src'));
       v.preload = 'auto';
       v.load();
-    } else if (!near && hasSrc) {
-      v.pause();
-      v.removeAttribute('src');
-      v.preload = 'none';
-      v.load(); // reset the media element
     }
+    // Do NOT unload distant videos — causes stuttering on back-navigation.
   });
 }
 
@@ -1846,9 +1845,21 @@ function autoPlayCurrentVideo() {
   lazyLoadNearbyVideos(currentIndex);
   const currentVideo = getActiveVideoForSlide(currentIndex);
   if (!currentVideo) return;
-  currentVideo.play().catch((err) => {
-    console.warn('video autoplay blocked:', err);
-  });
+  // If the video has data, play immediately. If not (just lazy-loaded),
+  // wait for `canplay` before calling play(). Prevents the silent
+  // rejection that Safari produces when play() is called on an empty source.
+  if (currentVideo.readyState >= 2) { // HAVE_CURRENT_DATA
+    currentVideo.play().catch((err) => {
+      console.warn('video autoplay blocked:', err);
+    });
+  } else {
+    currentVideo.addEventListener('canplay', function onCanPlay() {
+      currentVideo.removeEventListener('canplay', onCanPlay);
+      currentVideo.play().catch((err) => {
+        console.warn('video autoplay blocked:', err);
+      });
+    });
+  }
   // Wave 19.7 — install the crossfade + rep-tick detector for this slide.
   // No-op if it's already armed, a photo/rest slide, or shorter than the
   // crossfade-min threshold (handler falls back to native loop in that
