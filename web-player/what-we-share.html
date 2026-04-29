@@ -258,14 +258,16 @@
     return;
   }
 
-  // Enable the stop-sharing button if we have a session ID in localStorage.
-  // This check runs independently of the personalisation RPC below — the
-  // button must work even if getPlanSharingContext fails or returns null.
+  // Enable the stop-sharing button. Try localStorage first (set by the
+  // web player when consent is granted). If no session ID in localStorage
+  // (e.g. user arrived from the mobile app, not Safari), create one via
+  // the startAnalyticsSession RPC so the button always works when a
+  // plan context is present.
   var sessionKey = 'homefit-session-id-' + planId;
   var sessionId = null;
   try { sessionId = localStorage.getItem(sessionKey); } catch (_) {}
 
-  if (sessionId) {
+  function wireStopButton(sid) {
     stopBtn.disabled = false;
     stopHint.textContent = '';
 
@@ -273,13 +275,11 @@
       stopBtn.disabled = true;
       stopBtn.textContent = 'Stopping\u2026';
 
-      window.HomefitApi.revokeAnalyticsConsent(planId, sessionId).then(function () {
+      window.HomefitApi.revokeAnalyticsConsent(planId, sid).then(function () {
         stopBtn.style.display = 'none';
         stopConfirm.style.display = 'block';
         stopConfirm.textContent = 'Stopped. ' + practitionerName +
           ' won\'t see new data from this plan.';
-
-        // Clear the consent decision in localStorage so no more events fire.
         try {
           localStorage.setItem('homefit-analytics-consent-' + planId, 'no');
         } catch (_) {}
@@ -290,6 +290,23 @@
         stopHint.style.color = '#EF4444';
       });
     });
+  }
+
+  if (sessionId) {
+    wireStopButton(sessionId);
+  } else {
+    // No localStorage session — create one on the fly.
+    window.HomefitApi.startAnalyticsSession(planId, 'what-we-share')
+      .then(function (sid) {
+        if (sid) {
+          try { localStorage.setItem(sessionKey, sid); } catch (_) {}
+          wireStopButton(sid);
+        }
+        // If null, analytics disabled for this client — button stays disabled.
+      })
+      .catch(function () {
+        // RPC failed — button stays disabled.
+      });
   }
 
   // Contextual variant — fetch practitioner name for personalised greeting.
