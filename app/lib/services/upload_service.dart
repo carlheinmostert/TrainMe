@@ -83,7 +83,7 @@ class PublishResult {
   final String? url;
   final int? version;
 
-  /// Credits charged for this publish (computed via [creditCostFor]). Set
+  /// Credits charged for this publish (computed via [creditCostForDuration]). Set
   /// only on success; null otherwise. Milestone D: reflects the DB truth —
   /// the `consume_credit` RPC actually decrements the ledger. Future UI can
   /// show "Used N credits".
@@ -374,8 +374,13 @@ class UploadService {
       'uploadPlan: trainer=$trainerId practice=$practiceId '
       'session.practiceId=$sessionPracticeId cached=$cachedPracticeId',
     );
-    final nonRestCount = session.exercises.where((e) => !e.isRest).length;
-    final creditsToCharge = creditCostFor(nonRestCount);
+    final nonRestExercises = session.exercises.where((e) => !e.isRest);
+    final nonRestCount = nonRestExercises.length;
+    final totalDurationSeconds = nonRestExercises.fold<int>(
+      0,
+      (sum, e) => sum + e.estimatedDurationSeconds,
+    );
+    final creditsToCharge = creditCostForDuration(totalDurationSeconds);
 
     // Resolve the LIVE client name. `session.clientName` is a legacy
     // mirror of `clients.name` — it was frozen at session creation and
