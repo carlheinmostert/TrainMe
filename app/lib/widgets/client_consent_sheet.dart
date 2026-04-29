@@ -111,137 +111,158 @@ class _ClientConsentSheetState extends State<ClientConsentSheet> {
   @override
   Widget build(BuildContext context) {
     final name = widget.client.name.isEmpty ? 'your client' : widget.client.name;
+    // Cap the sheet at 90% of screen height so it grows with content but
+    // never fills the entire screen — leaves the tap-to-dismiss target
+    // along the top edge intact when content is short.
+    final maxHeight = MediaQuery.of(context).size.height * 0.9;
     return SafeArea(
       top: false,
       child: Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom,
         ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 18),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceBorder,
-                    borderRadius: BorderRadius.circular(2),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+            // Pinned drag handle (top) + scrollable consent sections
+            // (middle) + pinned Save button (bottom). Without this the
+            // Save button gets pushed off-screen on smaller iPhones once
+            // the analytics section (Wave 17) was added.
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 18),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceBorder,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
-              Text(
-                'What can $name see as?',
-                style: const TextStyle(
-                  fontFamily: 'Montserrat',
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textOnDark,
-                  letterSpacing: -0.3,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Line drawing always works. Grayscale and colour are your '
-                "client's call — ask once, toggle on.",
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  color: AppColors.textSecondaryOnDark,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 20),
-              _sectionHeader('Video treatment'),
-              const SizedBox(height: 4),
-              _row(
-                icon: Icons.brush_outlined,
-                title: 'Line drawing',
-                subtitle: 'Always available — de-identifies the client',
-                value: true,
-                onChanged: null,
-              ),
-              const Divider(height: 1, color: AppColors.surfaceBorder),
-              _row(
-                icon: Icons.filter_b_and_w_rounded,
-                title: 'Black & white',
-                subtitle: 'Real footage in grayscale',
-                value: _grayscaleAllowed,
-                onChanged: (v) => setState(() => _grayscaleAllowed = v),
-              ),
-              const Divider(height: 1, color: AppColors.surfaceBorder),
-              _row(
-                icon: Icons.videocam_outlined,
-                title: 'Original colour',
-                subtitle: 'Unmodified video',
-                value: _colourAllowed,
-                onChanged: (v) => setState(() => _colourAllowed = v),
-              ),
-              const SizedBox(height: 20),
-              _sectionHeader('Profile'),
-              const SizedBox(height: 4),
-              _row(
-                icon: Icons.account_circle_outlined,
-                title: 'Avatar still',
-                subtitle:
-                    'Single capture with the background blurred — replaces '
-                    'the initials circle on this client.',
-                value: _avatarAllowed,
-                onChanged: (v) => setState(() => _avatarAllowed = v),
-                highlight: widget.highlightAvatar,
-              ),
-              const SizedBox(height: 20),
-              _sectionHeader('Analytics'),
-              const SizedBox(height: 4),
-              _row(
-                icon: Icons.bar_chart_rounded,
-                title: 'Anonymous usage analytics',
-                subtitle:
-                    'Track which exercises are completed or skipped '
-                    '— helps you refine plans.',
-                value: _analyticsAllowed,
-                onChanged: (v) => setState(() => _analyticsAllowed = v),
-              ),
-              // Future consent groups slot in below this line — e.g.
-              // outcome-tracking, data sharing, reminder messaging.
-              // Each new group: _sectionHeader('<title>') + its rows,
-              // preceded by a SizedBox(height: 20) spacer. Keep the
-              // Save button the last child of this Column.
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _saving ? null : _save,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'What can $name see as?',
+                          style: const TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textOnDark,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Line drawing always works. Grayscale and colour are your '
+                          "client's call — ask once, toggle on.",
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            color: AppColors.textSecondaryOnDark,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        _sectionHeader('Video treatment'),
+                        const SizedBox(height: 4),
+                        _row(
+                          icon: Icons.brush_outlined,
+                          title: 'Line drawing',
+                          subtitle: 'Always available — de-identifies the client',
+                          value: true,
+                          onChanged: null,
+                        ),
+                        const Divider(height: 1, color: AppColors.surfaceBorder),
+                        _row(
+                          icon: Icons.filter_b_and_w_rounded,
+                          title: 'Black & white',
+                          subtitle: 'Real footage in grayscale',
+                          value: _grayscaleAllowed,
+                          onChanged: (v) => setState(() => _grayscaleAllowed = v),
+                        ),
+                        const Divider(height: 1, color: AppColors.surfaceBorder),
+                        _row(
+                          icon: Icons.videocam_outlined,
+                          title: 'Original colour',
+                          subtitle: 'Unmodified video',
+                          value: _colourAllowed,
+                          onChanged: (v) => setState(() => _colourAllowed = v),
+                        ),
+                        const SizedBox(height: 20),
+                        _sectionHeader('Profile'),
+                        const SizedBox(height: 4),
+                        _row(
+                          icon: Icons.account_circle_outlined,
+                          title: 'Avatar still',
+                          subtitle:
+                              'Single capture with the background blurred — replaces '
+                              'the initials circle on this client.',
+                          value: _avatarAllowed,
+                          onChanged: (v) => setState(() => _avatarAllowed = v),
+                          highlight: widget.highlightAvatar,
+                        ),
+                        const SizedBox(height: 20),
+                        _sectionHeader('Analytics'),
+                        const SizedBox(height: 4),
+                        _row(
+                          icon: Icons.bar_chart_rounded,
+                          title: 'Anonymous usage analytics',
+                          subtitle:
+                              'Track which exercises are completed or skipped '
+                              '— helps you refine plans.',
+                          value: _analyticsAllowed,
+                          onChanged: (v) => setState(() => _analyticsAllowed = v),
+                        ),
+                        // Future consent groups slot in above this line —
+                        // e.g. outcome-tracking, data sharing, reminder
+                        // messaging. Each new group: _sectionHeader('<title>')
+                        // + its rows, preceded by a SizedBox(height: 20)
+                        // spacer. The scrollable middle absorbs additional
+                        // content; the Save button stays pinned below.
+                      ],
+                    ),
                   ),
                 ),
-                child: _saving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Colors.white),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: _saving ? null : _save,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    ),
+                  ),
+                  child: _saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Text(
+                          'Save',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      )
-                    : const Text(
-                        'Save',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
