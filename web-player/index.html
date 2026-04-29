@@ -41,10 +41,18 @@
   <div id="error" class="error-screen" hidden>
     <div class="error-content">
       <div class="error-icon">!</div>
-      <h2 class="error-title">Plan not found</h2>
-      <p class="error-text">This link may have expired or the plan may no longer be available. Contact your practitioner for a new link.</p>
+      <h2 class="error-title" id="error-title">Plan not found</h2>
+      <p class="error-text" id="error-text">This link may have expired or the plan may no longer be available. Contact your practitioner for a new link.</p>
+      <button id="error-retry-btn" class="error-retry-btn" type="button" hidden>Retry</button>
     </div>
   </div>
+
+  <!-- No-JS fallback -->
+  <noscript>
+    <div style="text-align:center;padding:48px 24px;color:#9CA3AF;font-family:Inter,sans-serif;">
+      This exercise plan requires JavaScript. Please enable it in your browser settings.
+    </div>
+  </noscript>
 
   <!-- Main app ===============================================================
        Top-stack v2.2 layout (Wave 19.3 — 2026-04-22):

@@ -2452,3 +2452,47 @@ body.is-fullscreen .playpause-toggle {
   background: rgba(255, 107, 53, 0.20);
   border-color: var(--c-brand);
 }
+
+/* ── Reduced motion a11y ─────────────────────────────────────── */
+/* Disables all animations (pill pulse, prep flash, breather fade,
+   completion glow, rep-stack pulse) for motion-sensitive users
+   while preserving functional state changes. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Error retry button ──────────────────────────────────────── */
+.error-retry-btn {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 10px 28px;
+  font: var(--t-label-lg);
+  color: var(--c-ink-primary);
+  background: var(--c-brand);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.error-retry-btn:hover {
+  background: var(--c-brand-dark);
+}
+
+/* ── Video refresh indicator (URL expiry retry) ──────────────── */
+.video-refresh-indicator {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font: var(--t-label-sm);
+  color: var(--c-ink-secondary);
+  background: rgba(15, 17, 23, 0.75);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  z-index: 20;
+}
