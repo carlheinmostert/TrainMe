@@ -9,6 +9,7 @@ import '../models/exercise_set.dart';
 import '../services/api_client.dart';
 import '../theme.dart';
 import 'exercise_editor_sheet.dart';
+import 'inline_editable_text.dart';
 
 /// Studio defaults — the global seed values for non-set persistence
 /// fields. Per-set values (reps, hold, weight, breather) live on
@@ -133,8 +134,11 @@ class StudioExerciseCard extends StatelessWidget {
               width: showFocusedBorder ? 2 : 1,
             ),
           ),
+          // crossAxisAlignment: center so the 72-pt thumbnail lines up
+          // vertically with the title + trigger row stack instead of
+          // sitting visually high above the title's first baseline.
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               _Thumbnail(
                 exercise: exercise,
@@ -152,6 +156,8 @@ class StudioExerciseCard extends StatelessWidget {
                       isCustomised: exerciseIsCustomised(exercise),
                       onGearTap: () =>
                           _openSheet(context, ExerciseEditorTab.settings),
+                      onRename: (next) =>
+                          onUpdate(exercise.copyWith(name: next)),
                     ),
                     const SizedBox(height: 10),
                     _TriggerRow(
@@ -289,11 +295,13 @@ class _TitleRow extends StatelessWidget {
   final String title;
   final bool isCustomised;
   final VoidCallback onGearTap;
+  final ValueChanged<String> onRename;
 
   const _TitleRow({
     required this.title,
     required this.isCustomised,
     required this.onGearTap,
+    required this.onRename,
   });
 
   @override
@@ -302,11 +310,10 @@ class _TitleRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+          child: InlineEditableText(
+            initialValue: title,
+            onCommit: onRename,
+            textStyle: const TextStyle(
               fontFamily: 'Montserrat',
               fontSize: 16,
               fontWeight: FontWeight.w700,
@@ -400,16 +407,11 @@ class _TriggerRow extends StatelessWidget {
           child: _TriggerButton(
             label: 'Notes',
             summary: notesSummary ?? 'Add notes…',
-            summaryStyle: TextStyle(
+            summaryStyle: const TextStyle(
               fontFamily: 'Inter',
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              fontStyle: notesSummary == null
-                  ? FontStyle.normal
-                  : FontStyle.italic,
-              color: notesSummary == null
-                  ? AppColors.textSecondaryOnDark
-                  : AppColors.textSecondaryOnDark,
+              color: AppColors.textSecondaryOnDark,
             ),
             onTap: onNotesTap,
           ),
@@ -489,8 +491,13 @@ class _TriggerButton extends StatelessWidget {
 // Summary builders
 // =============================================================================
 
-/// Build the Dose summary string. Uniform sets collapse to "N × R"
-/// (optionally `@ kg`); pyramid sets fan out via slashes.
+/// Build the Dose summary string. Mirrors the web-player canonical
+/// decoded grammar (web-player/app.js buildDecodedGrammar) with full
+/// words on the practitioner surface:
+///   Uniform:   `3 sets · 10 reps · @ 15 kg · 5s hold`
+///   Pyramid:   `8/10/12 reps · @ 12.5/15/17.5 kg · 5s hold`
+///   Bodyweight: `3 sets · 10 reps · 30s hold`
+///   Rest:      `Rest · 30s`
 String _doseSummary(ExerciseCapture exercise) {
   if (exercise.isRest) {
     final secs = exercise.restHoldSeconds ?? StudioDefaults.restSeconds;
@@ -502,52 +509,38 @@ String _doseSummary(ExerciseCapture exercise) {
   final repsAll = sets.map((s) => s.reps).toList();
   final holdAll = sets.map((s) => s.holdSeconds).toList();
   final weightAll = sets.map((s) => s.weightKg).toList();
-  final breatherAll = sets.map((s) => s.breatherSecondsAfter).toList();
 
   final repsUniform = repsAll.toSet().length == 1;
   final holdUniform = holdAll.toSet().length == 1;
   final weightUniform = weightAll.toSet().length == 1;
-  final breatherUniform = breatherAll.toSet().length == 1;
+  final allBodyweight = weightAll.every((w) => w == null);
 
   final parts = <String>[];
 
-  // Reps + sets clause.
   if (repsUniform) {
-    parts.add('${sets.length} × ${repsAll.first}');
+    parts.add('${sets.length} sets');
+    parts.add('${repsAll.first} reps');
   } else {
-    parts.add(repsAll.join('/'));
+    parts.add('${repsAll.join('/')} reps');
   }
 
-  // Weight clause — only render when at least one set has a weight.
-  final allBodyweight = weightAll.every((w) => w == null);
   if (!allBodyweight) {
     if (weightUniform && weightAll.first != null) {
       parts.add('@ ${_formatKg(weightAll.first!)} kg');
     } else {
       final formatted = weightAll
-          .map((w) => w == null ? '—' : _formatKg(w))
+          .map((w) => w == null ? 'BW' : _formatKg(w))
           .join('/');
       parts.add('@ $formatted kg');
     }
-  } else {
-    parts.add('bodyweight');
   }
 
-  // Hold clause — surface only when any set has a hold.
   if (holdAll.any((h) => h > 0)) {
     if (holdUniform) {
-      parts.add('${holdAll.first} s hold');
+      parts.add('${holdAll.first}s hold');
     } else {
-      parts.add('${holdAll.join('/')} s hold');
+      parts.add('${holdAll.join('/')}s hold');
     }
-  }
-
-  // Breather clause — only when uniform AND non-default-ish, or when
-  // varied. Skip if every set has 60 s after to keep summary lean.
-  if (!breatherUniform) {
-    parts.add('${breatherAll.join('/')} s rest');
-  } else if (breatherAll.first != 60) {
-    parts.add('${breatherAll.first} s rest');
   }
 
   return parts.join(' · ');
@@ -560,10 +553,12 @@ String _formatKg(double kg) {
   return kg.toStringAsFixed(1);
 }
 
-/// Returns the truncated notes summary, or null when notes are empty.
+/// Returns the first line of notes, or null when notes are empty.
+/// Width-based truncation is the trigger button's job (maxLines:1 +
+/// TextOverflow.ellipsis).
 String? _notesSummary(ExerciseCapture exercise) {
   final notes = exercise.notes?.trim();
   if (notes == null || notes.isEmpty) return null;
-  if (notes.length <= 50) return '"$notes"';
-  return '"${notes.substring(0, 50).trimRight()}…"';
+  final firstLine = notes.split('\n').first.trim();
+  return firstLine.isEmpty ? null : firstLine;
 }
