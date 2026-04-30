@@ -293,12 +293,34 @@ class ExerciseCapture {
   });
 
   /// Create a new capture with a generated UUID.
+  ///
+  /// Per-set DOSE wave: video + photo captures are seeded with a
+  /// synthetic first set (10 reps, no hold, bodyweight, 30s breather)
+  /// up-front so every consumer (Studio card summary, sticky-defaults
+  /// prefill, conversion service re-read, publish flow) sees a non-empty
+  /// `sets` list from the moment the capture is minted. Round 2
+  /// hardening — the previous Round 1 fix only seeded inside
+  /// `withPersistenceDefaults()`, which got skipped on the camera
+  /// capture path AND clobbered by the conversion service's bare
+  /// `fromMap` re-read. Seeding at the factory removes both holes.
   factory ExerciseCapture.create({
     required int position,
     required String rawFilePath,
     required MediaType mediaType,
     String? sessionId,
   }) {
+    final seedSets = mediaType == MediaType.rest
+        ? const <ExerciseSet>[]
+        : <ExerciseSet>[
+            ExerciseSet.create(
+              position: 1,
+              reps: 10,
+              holdSeconds: 0,
+              weightKg: null,
+              breatherSecondsAfter: 30,
+            ),
+          ];
+    final seedVideoReps = mediaType == MediaType.video ? 3 : null;
     return ExerciseCapture(
       id: const Uuid().v4(),
       position: position,
@@ -306,6 +328,8 @@ class ExerciseCapture {
       mediaType: mediaType,
       createdAt: DateTime.now(),
       sessionId: sessionId,
+      sets: seedSets,
+      videoRepsPerLoop: seedVideoReps,
     );
   }
 

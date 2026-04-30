@@ -153,16 +153,15 @@ class ConversionService extends ChangeNotifier {
       // defaulted columns back to null on every conversion, and the
       // publish path (which reads from SQLite) would ship the nulls to
       // Supabase. Reading fresh inherits the defaulted columns.
-      // Mirrors the post-_convert re-read at line ~161 below.
-      final freshAtStartRows = await _storage.db.query(
-        'exercises',
-        where: 'id = ?',
-        whereArgs: [queued.id],
-        limit: 1,
-      );
-      final exercise = freshAtStartRows.isNotEmpty
-          ? ExerciseCapture.fromMap(freshAtStartRows.first)
-          : queued;
+      //
+      // Round 2 — use [getExerciseById] so child sets come along for the
+      // ride. The previous bare fromMap re-read returned an exercise
+      // with `sets: const []`, then saveExercise(converting) called
+      // `_replaceExerciseSetsTxn(toPersist.id, toPersist.sets)` which
+      // DELETED the seeded set written by withPersistenceDefaults a few
+      // ms earlier. Card showed "No sets yet" forever after.
+      final freshAtStart = await _storage.getExerciseById(queued.id);
+      final exercise = freshAtStart ?? queued;
 
       final converting = exercise.copyWith(
         conversionStatus: ConversionStatus.converting,
@@ -181,14 +180,9 @@ class ConversionService extends ChangeNotifier {
         // _convert). Without this, the copyWith below would use
         // `converting` which still has thumbnailPath: null, overwriting
         // the thumbnail that was saved to the DB mid-conversion.
-        final freshRows = await _storage.db.query(
-          'exercises',
-          where: 'id = ?',
-          whereArgs: [exercise.id],
-        );
-        final base = freshRows.isNotEmpty
-            ? ExerciseCapture.fromMap(freshRows.first)
-            : converting;
+        // Round 2 — use [getExerciseById] so seeded child sets survive.
+        // See the freshAtStart comment above for the full root-cause.
+        final base = (await _storage.getExerciseById(exercise.id)) ?? converting;
 
         var done = base.copyWith(
           convertedFilePath: PathResolver.toRelative(result.convertedPath),
@@ -352,15 +346,10 @@ class ConversionService extends ChangeNotifier {
           // structured handler.
         }
 
-        // Re-read from the database to preserve thumbnailPath.
-        final freshRows = await _storage.db.query(
-          'exercises',
-          where: 'id = ?',
-          whereArgs: [exercise.id],
-        );
-        final base = freshRows.isNotEmpty
-            ? ExerciseCapture.fromMap(freshRows.first)
-            : converting;
+        // Re-read from the database to preserve thumbnailPath. Round 2 —
+        // getExerciseById hydrates child sets so the failure-path save
+        // doesn't wipe the seeded first set.
+        final base = (await _storage.getExerciseById(exercise.id)) ?? converting;
 
         final failed = base.copyWith(
           conversionStatus: ConversionStatus.failed,
