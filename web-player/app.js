@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v81-per-set';
+const PLAYER_VERSION = 'v82-wave42-overrides';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -366,21 +366,15 @@ function treatmentFromWire(wire) {
 function slideTreatment(exercise) {
   const hasGray = !!(exercise && (exercise.grayscale_segmented_url || exercise.grayscale_url));
   const hasOrig = !!(exercise && (exercise.original_segmented_url || exercise.original_url));
-  // Wave 19.6 — client-controlled override beats the practitioner's pick
-  // when the client has explicitly chosen a treatment in the gear popover.
-  // 'auto' (default) defers to the per-exercise practitioner preference.
-  // For a forced treatment we still defensively fall back to 'line' if the
-  // URL isn't available (the segment is disabled in that case, but a stale
-  // localStorage value from a different plan could land us here).
-  if (clientTreatmentOverride !== 'auto') {
-    if (clientTreatmentOverride === 'line') return 'line';
-    if (clientTreatmentOverride === 'bw') return hasGray ? 'bw' : 'line';
-    if (clientTreatmentOverride === 'original') return hasOrig ? 'original' : 'line';
-  }
-  const candidate = treatmentFromWire(exercise && exercise.preferred_treatment);
+  // Wave 42 — per-exercise client overrides. getEffective() returns the
+  // practitioner's per-exercise preferred_treatment by default; the gear
+  // panel can override per-exercise. Defensive fallback to 'line' when
+  // the chosen treatment's URL is absent (consent removed mid-session,
+  // legacy plan, etc.).
+  const candidate = getEffective(exercise, 'treatment');
   if (candidate === 'bw' && !hasGray) return 'line';
   if (candidate === 'original' && !hasOrig) return 'line';
-  return candidate;
+  return candidate || 'line';
 }
 
 // Workout timer state
@@ -661,102 +655,113 @@ function prepSecondsFor(slide) {
   return PREP_SECONDS;
 }
 
-// Runtime mute state for the client-facing player. Decoupled from
-// play/pause (Wave 3 fix — test items 3 / 4 / 5). Tapping the speaker
-// icon on any video card flips this flag; we push the new value to
-// every rendered <video> element without touching its paused/playing
-// state. Persists across slide changes within the same session.
-//
-// v79-hardening: isMuted now defaults to true and all videos render with
-// `muted` attribute to guarantee Safari autoplay. After "Start Workout"
-// (a user gesture), we unmute videos that have audio. The user can
-// toggle mute via the speaker button. State persists to localStorage.
-let isMuted = (function () {
-  try {
-    const stored = localStorage.getItem('homefit-muted');
-    if (stored === 'false') return false;
-  } catch (_) {}
-  return true;
-})();
+// Wave 42 — per-exercise client overrides keyed by plan + exercise + property.
+// Resolves effective state as `clientOverrides[exId]?.[prop] ?? practitionerDefault[exId][prop]`.
+// One JSON blob per plan in localStorage; reset by the gear-panel "Reset to
+// practitioner defaults" button. Replaces the prior global flags
+// (homefit-muted, homefit.playback.segmentedEffect, homefit.playback.treatment::*).
+const OVERRIDES_KEY_PREFIX = 'homefit.overrides::';
+const OVERRIDE_PROPS = ['muted', 'treatment', 'bodyFocus'];
+const TREATMENT_VALUES = ['line', 'bw', 'original'];
+let clientOverrides = {}; // { [exerciseId]: { muted?, treatment?, bodyFocus? } }
 
-// Segmented-background-effect opt-out (Milestone P toggle — 2026-04-23).
-//
-// When ON (default) the Color + B&W treatments prefer the segmented
-// dual-output mp4 that dims the background behind the body. When OFF
-// they play the untouched raw-archive original. Line treatment is
-// unaffected either way — it's a separate pipeline.
-//
-// Per-device preference: read from localStorage at boot, written back
-// on toggle. No server round-trip. Key is explicit + namespaced so
-// future playback prefs (inter-set rest, autoplay-next, ...) can stack
-// under `homefit.playback.*`.
-const SEGMENTED_EFFECT_STORAGE_KEY = 'homefit.playback.segmentedEffect';
-let segmentedEffectEnabled = readSegmentedEffectPreference();
+function overridesStorageKey(planId) {
+  return OVERRIDES_KEY_PREFIX + (planId || 'unknown');
+}
 
-function readSegmentedEffectPreference() {
+function loadClientOverrides(planId) {
   try {
-    const raw = window.localStorage.getItem(SEGMENTED_EFFECT_STORAGE_KEY);
-    if (raw === 'off') return false;
-    // Default ON — treat any other value (including nulls, legacy data,
-    // or a future 'on') as enabled. The toggle only stores 'on' | 'off'.
-    return true;
+    const raw = window.localStorage.getItem(overridesStorageKey(planId));
+    if (!raw) { clientOverrides = {}; return; }
+    const parsed = JSON.parse(raw);
+    clientOverrides = parsed && typeof parsed === 'object' ? parsed : {};
   } catch (_) {
-    // Private-mode Safari / blocked storage — fall back to the default.
-    return true;
+    clientOverrides = {};
   }
 }
 
-function writeSegmentedEffectPreference(enabled) {
+function saveClientOverrides(planId) {
   try {
-    window.localStorage.setItem(SEGMENTED_EFFECT_STORAGE_KEY, enabled ? 'on' : 'off');
+    window.localStorage.setItem(overridesStorageKey(planId), JSON.stringify(clientOverrides));
   } catch (_) {
-    // Best-effort; if storage is blocked the in-memory flag still drives
-    // this session's playback — we just lose persistence across reloads.
+    // Storage blocked — in-memory map still drives this session.
   }
 }
 
-// ----------------------------------------------------------------
-// Client-controlled "Show me" treatment override (Wave 19.6).
-//
-// In `auto` mode (default) the player honours the practitioner's
-// per-exercise `preferred_treatment` (the legacy slideTreatment()
-// behaviour). In `line` / `bw` / `original` mode every video AND photo
-// slide is forced to that treatment, ignoring per-exercise picks
-// (Wave 22 — photos joined the three-treatment system). Rest slides
-// are unaffected.
-//
-// Stored per-plan (different plans may have different consent posture,
-// so a global preference would surface "this plan doesn't have B&W"
-// confusion when switching between clients on a shared device). The
-// resolved planId is appended to the namespace at boot.
-//
-// Wire-storage values: 'auto' | 'line' | 'bw' | 'original'.
-// ----------------------------------------------------------------
-const TREATMENT_OVERRIDE_STORAGE_PREFIX = 'homefit.playback.treatment::';
-const VALID_OVERRIDES = ['auto', 'line', 'bw', 'original'];
-
-let clientTreatmentOverride = 'auto';
-
-function treatmentOverrideStorageKey(planId) {
-  return TREATMENT_OVERRIDE_STORAGE_PREFIX + (planId || 'unknown');
+function clearAllOverrides(planId) {
+  clientOverrides = {};
+  try { window.localStorage.removeItem(overridesStorageKey(planId)); } catch (_) {}
 }
 
-function readClientTreatmentOverride(planId) {
-  try {
-    const raw = window.localStorage.getItem(treatmentOverrideStorageKey(planId));
-    if (raw && VALID_OVERRIDES.indexOf(raw) !== -1) return raw;
-    return 'auto';
-  } catch (_) {
-    return 'auto';
+function hasAnyOverrides() {
+  for (const k in clientOverrides) {
+    if (Object.prototype.hasOwnProperty.call(clientOverrides, k)) {
+      const entry = clientOverrides[k];
+      if (entry && typeof entry === 'object') {
+        for (const p in entry) {
+          if (Object.prototype.hasOwnProperty.call(entry, p)) return true;
+        }
+      }
+    }
   }
+  return false;
 }
 
-function writeClientTreatmentOverride(planId, value) {
-  try {
-    window.localStorage.setItem(treatmentOverrideStorageKey(planId), value);
-  } catch (_) {
-    // Storage blocked — in-memory flag still drives this session.
+/**
+ * Practitioner default for [prop] on [exercise]. Source-of-truth for the
+ * resolver fallback — also used by the gear panel to decide whether a
+ * setOverride() write should clear the entry (= matches default) or
+ * persist it (= diverges from default).
+ *
+ *   muted     → !exercise.include_audio (silent clip → muted by default)
+ *   treatment → exercise.preferred_treatment ('line'|'grayscale'|'original'
+ *               → 'line'|'bw'|'original'); null/missing → 'line'
+ *   bodyFocus → exercise.body_focus !== false (NULL/true → true)
+ */
+function practitionerDefaultFor(exercise, prop) {
+  if (!exercise) {
+    if (prop === 'muted') return true;
+    if (prop === 'treatment') return 'line';
+    if (prop === 'bodyFocus') return true;
+    return null;
   }
+  if (prop === 'muted') return !exercise.include_audio;
+  if (prop === 'treatment') return treatmentFromWire(exercise.preferred_treatment);
+  if (prop === 'bodyFocus') return exercise.body_focus !== false;
+  return null;
+}
+
+/** Effective state = client override if set, else practitioner default. */
+function getEffective(exercise, prop) {
+  if (!exercise) return practitionerDefaultFor(exercise, prop);
+  const entry = clientOverrides[exercise.id];
+  if (entry && Object.prototype.hasOwnProperty.call(entry, prop)) {
+    return entry[prop];
+  }
+  return practitionerDefaultFor(exercise, prop);
+}
+
+function setOverride(exId, prop, value, defaultValue) {
+  if (!exId) return;
+  if (value === defaultValue) {
+    if (clientOverrides[exId]) {
+      delete clientOverrides[exId][prop];
+      // Drop the empty container so hasAnyOverrides() stays accurate.
+      let empty = true;
+      for (const k in clientOverrides[exId]) {
+        if (Object.prototype.hasOwnProperty.call(clientOverrides[exId], k)) {
+          empty = false;
+          break;
+        }
+      }
+      if (empty) delete clientOverrides[exId];
+    }
+  } else {
+    if (!clientOverrides[exId]) clientOverrides[exId] = {};
+    clientOverrides[exId][prop] = value;
+  }
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  saveClientOverrides(planId);
 }
 
 // Timing constants (from config.dart)
@@ -1246,35 +1251,13 @@ function buildMedia(exercise, index) {
   }
 
   if (exercise.media_type === 'video') {
-    // v79-hardening: ALWAYS render muted to guarantee Safari autoplay.
-    // After "Start Workout" (user gesture) we programmatically unmute
-    // videos that have audio and whose isMuted flag is false.
+    // Wave 42 — the standalone mute speaker button on the player chrome
+    // was retired; the gear panel is the only entry point for mute.
+    // We still render `muted` on the <video> element for Safari autoplay
+    // compliance; applyMuteStateToAllVideos() unmutes per-exercise
+    // effective state inside the Start Workout user gesture.
     const mutedAttr = 'muted';
     const posterAttr = exercise.thumbnail_url ? `poster="${escapeHTML(exercise.thumbnail_url)}"` : '';
-    // Mute affordance — only rendered when the exercise ships with
-    // audio (no point showing a mute button on a silent clip). Tap
-    // flips isMuted, re-syncs every live <video> element, redraws the
-    // icon. Lives in its own overlay layer so it's clickable without
-    // competing with the card's tap-to-pause gesture (stopPropagation
-    // in toggleMuteButton).
-    // Mute toggle always visible — the client can override the
-    // practitioner's include_audio default at any time.
-    const muteButton = `
-      <button
-        type="button"
-        class="mute-toggle"
-        data-video-index="${index}"
-        aria-label="${isMuted ? 'Unmute audio' : 'Mute audio'}"
-        aria-pressed="${isMuted ? 'true' : 'false'}"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          ${isMuted
-            ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'
-            : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>'
-          }
-        </svg>
-      </button>
-    `;
     // Dual-video crossfade (Wave 19.7). Two stacked <video> elements
     // share the same source — the "active" one plays normally; ~250ms
     // before it reaches `duration` we preroll the inactive one and swap
@@ -1326,7 +1309,6 @@ function buildMedia(exercise, index) {
           aria-hidden="true"
         ></video>
       </div>
-      ${muteButton}
     `;
   }
 
@@ -1399,18 +1381,20 @@ function buildMedia(exercise, index) {
  */
 function resolveTreatmentUrl(exercise, treatment) {
   if (!exercise) return null;
+  // Wave 42 — body focus is now per-exercise (PR #146 schema) overlaid
+  // by client overrides via getEffective().
+  const bodyFocusOn = getEffective(exercise, 'bodyFocus');
   if (treatment === 'bw') {
-    if (segmentedEffectEnabled) {
+    if (bodyFocusOn) {
       return exercise.grayscale_segmented_url || exercise.grayscale_url || null;
     }
-    // Toggle OFF — skip the segmented variant entirely and play the
+    // Body focus OFF — skip the segmented variant and play the
     // untouched original. When the raw original is missing we still
-    // fall through to the segmented copy so the slide can play at all
-    // (rare — would only happen on a mangled upload).
+    // fall through to the segmented copy so the slide can play at all.
     return exercise.grayscale_url || exercise.grayscale_segmented_url || null;
   }
   if (treatment === 'original') {
-    if (segmentedEffectEnabled) {
+    if (bodyFocusOn) {
       return exercise.original_segmented_url || exercise.original_url || null;
     }
     return exercise.original_url || exercise.original_segmented_url || null;
@@ -1980,11 +1964,11 @@ function goTo(index) {
   // the new active slide and hide them on the old one.
   updatePlayPauseToggle();
   updatePrepOverlay();
-  // Wave 19.6 — Enhanced Background switch enabled-state depends on the
-  // CURRENT slide's effective treatment when in `auto` mode. Re-evaluate
-  // on every slide change so a swipe from a forced-line slide to a colour
-  // slide flips the switch back to enabled.
-  updateEnhancedBackgroundEnabled();
+  // Wave 42 — repaint the gear panel against the new active slide so
+  // the per-exercise effective state shown matches what's playing. Also
+  // applies muted state because mute is per-exercise.
+  paintGearPanel();
+  applyMuteStateToAllVideos();
 
   // Auto-play the current slide's video (muted, looped). Safari's autoplay
   // policy may block this if there hasn't been a user gesture yet — swallow
@@ -3487,15 +3471,8 @@ function resumeTimer() {
  * touchend doesn't pause/resume by accident.
  */
 function handleMediaTap(e) {
-  // Mute button intercepts first — it's inside .card-media but must NOT
-  // trigger pause/resume. Taking the early return keeps play/pause
-  // decoupled from the mute toggle (Wave 3 — test items 3 / 4 / 5).
-  const muteBtn = e.target.closest ? e.target.closest('.mute-toggle') : null;
-  if (muteBtn) {
-    e.stopPropagation();
-    toggleMute();
-    return;
-  }
+  // Wave 42 — the inline mute button was retired in favour of the gear
+  // panel. Mute is now per-exercise via clientOverrides.
   if (!isWorkoutMode) return;
   if (swipeState.didSwipe) {
     swipeState.didSwipe = false;
@@ -3522,71 +3499,50 @@ function handleMediaTap(e) {
 }
 
 /**
- * Toggle runtime mute across every live <video> element. Decoupled from
- * playback state (Wave 3 fix — test items 3 / 4 / 5): a tap on the
- * speaker icon NEVER pauses. Also redraws the mute-toggle glyph so the
- * icon reflects the current state immediately.
- *
- * Respects the publish-time `include_audio` flag — if the exercise
- * didn't ship with audio, its video stays muted regardless (no button
- * is rendered for that exercise in the first place).
- */
-function toggleMute() {
-  isMuted = !isMuted;
-  try { localStorage.setItem('homefit-muted', isMuted ? 'true' : 'false'); } catch (_) {}
-  const videos = $cardTrack ? $cardTrack.querySelectorAll('video') : [];
-  videos.forEach((video) => {
-    // Client can always override — no include_audio gate.
-    video.muted = isMuted;
-  });
-  // Redraw every visible mute button (glyph + a11y state).
-  const buttons = $cardTrack
-    ? $cardTrack.querySelectorAll('.mute-toggle')
-    : [];
-  buttons.forEach((btn) => {
-    btn.setAttribute('aria-pressed', isMuted ? 'true' : 'false');
-    btn.setAttribute('aria-label', isMuted ? 'Unmute audio' : 'Mute audio');
-    const svg = btn.querySelector('svg');
-    if (!svg) return;
-    svg.innerHTML = isMuted
-      ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'
-      : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>';
-  });
-}
-
-/**
- * v79-hardening: apply current isMuted state to all live <video>
- * elements. Called from startWorkout() (which runs inside a user gesture
- * so Safari allows unmuting) and from toggleMute(). Separated from
- * toggleMute so we can apply without flipping the flag.
+ * Wave 42 — apply per-exercise effective mute state to every live
+ * <video> element. The mute speaker icon was retired (gear panel only);
+ * this function is called from startWorkout() (inside a user gesture so
+ * Safari allows unmuting) and any time a mute override changes via the
+ * gear panel.
  */
 function applyMuteStateToAllVideos() {
-  const videos = $cardTrack ? $cardTrack.querySelectorAll('video') : [];
+  if (!$cardTrack) return;
+  const videos = $cardTrack.querySelectorAll('video[id^="video-"]');
   videos.forEach((video) => {
-    // Client can always override — no include_audio gate.
-    video.muted = isMuted;
+    const card = video.closest('.exercise-card');
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const slide = slides[idx];
+    if (!slide) return;
+    // Crossfade slot B stays muted always — only the active slot reflects
+    // the effective mute state. This matches the legacy behaviour where
+    // only one slot ever played audio.
+    if (video.getAttribute('data-loop-slot') === 'b') {
+      video.muted = true;
+      return;
+    }
+    video.muted = !!getEffective(slide, 'muted');
   });
 }
 
 // ============================================================
-// Settings popover — per-device playback preferences
+// Wave 42 — Consolidated gear panel (per-exercise client overrides)
 // ============================================================
 //
-// Currently hosts the Milestone P segmented-effect toggle. Shaped to
-// grow: the popover is a vertical stack of .settings-row entries, each
-// an independent label+switch pair. Add a row by duplicating the
-// existing <label> block in index.html + binding a change handler
-// here. No global settings-bus needed at this scale.
+// Replaces the legacy three-control split (mute speaker, segmented
+// treatment control, gear-popover Body Focus toggle) with a single
+// gear panel exposing all three as per-exercise overrides on top of
+// the practitioner's per-exercise defaults.
 //
-// State lives in module-scope flags (e.g. segmentedEffectEnabled) that
-// `resolveTreatmentUrl` + other renderers read directly. No event bus.
+// State lives in `clientOverrides` (defined near the top of this file).
+// The resolver getEffective(exercise, prop) is the single source of
+// truth for muted / treatment / bodyFocus — every renderer + every
+// <video> sync goes through it.
 
 const $btnSettings = document.getElementById('btn-settings');
 const $settingsPopover = document.getElementById('settings-popover');
-const $toggleSegmentedEffect = document.getElementById('toggle-segmented-effect');
-const $toggleSegmentedEffectHint = document.getElementById('toggle-segmented-effect-hint');
-const $treatmentOverride = document.getElementById('treatment-override');
-const $enhancedBackgroundRow = document.getElementById('enhanced-background-row');
+const $resetOverridesBtn = document.getElementById('reset-overrides-btn');
 
 // Plan-level consent rollup. `get_plan_full` only emits grayscale_url /
 // original_url on exercises the client has consented to that treatment for —
@@ -3606,20 +3562,13 @@ function recomputePlanConsent() {
   }
 }
 
-/** Sync the hint copy to the current toggle state. */
-function updateSegmentedEffectHint() {
-  if (!$toggleSegmentedEffectHint) return;
-  $toggleSegmentedEffectHint.textContent = segmentedEffectEnabled
-    ? 'Body in focus — background dimmed'
-    : 'Original untouched';
-}
-
 /** Open / close the settings popover. */
 function setSettingsPopoverOpen(open) {
   if (!$settingsPopover || !$btnSettings) return;
   if (open) {
     $settingsPopover.hidden = false;
-    // Next frame so the transition runs from closed → open.
+    // Repaint state when opening so the panel reflects the active slide.
+    paintGearPanel();
     requestAnimationFrame(() => {
       $settingsPopover.setAttribute('data-open', 'true');
     });
@@ -3627,8 +3576,6 @@ function setSettingsPopoverOpen(open) {
   } else {
     $settingsPopover.setAttribute('data-open', 'false');
     $btnSettings.setAttribute('aria-expanded', 'false');
-    // Wait for the fade-out to complete before hiding — matches the
-    // 160ms transition in styles.css.
     setTimeout(() => {
       if ($settingsPopover.getAttribute('data-open') !== 'true') {
         $settingsPopover.hidden = true;
@@ -3639,21 +3586,6 @@ function setSettingsPopoverOpen(open) {
 
 function isSettingsPopoverOpen() {
   return !!($settingsPopover && $settingsPopover.getAttribute('data-open') === 'true');
-}
-
-/**
- * Apply a change to the segmented-effect toggle: persist the new
- * value, update the hint copy, and re-point every rendered <video>
- * whose treatment URL just changed. Keeps the current slide's
- * playback position and playing state so the swap is invisible if
- * the client is mid-workout.
- */
-function applySegmentedEffectChange(nextEnabled) {
-  if (nextEnabled === segmentedEffectEnabled) return;
-  segmentedEffectEnabled = nextEnabled;
-  writeSegmentedEffectPreference(segmentedEffectEnabled);
-  updateSegmentedEffectHint();
-  rebindVideoSources();
 }
 
 /**
@@ -3761,97 +3693,164 @@ function rebindVideoSources() {
 }
 
 // ----------------------------------------------------------------
-// "Show me" segmented control (Wave 19.6)
+// Wave 42 — Gear panel painters + handlers
 // ----------------------------------------------------------------
 
-/**
- * Repaint the segmented control — active state, disabled state for
- * unconsented options, ARIA. Always reflects `clientTreatmentOverride`
- * + `planHasGrayscaleConsent` + `planHasOriginalConsent`.
- */
-function paintTreatmentOverride() {
-  if (!$treatmentOverride) return;
-  const segments = $treatmentOverride.querySelectorAll('.treatment-segment');
-  segments.forEach((seg) => {
-    const t = seg.getAttribute('data-treatment');
-    let disabled = false;
-    if (t === 'bw' && !planHasGrayscaleConsent) disabled = true;
-    if (t === 'original' && !planHasOriginalConsent) disabled = true;
-    seg.classList.toggle('is-disabled', disabled);
-    seg.setAttribute('aria-disabled', disabled ? 'true' : 'false');
-    if (disabled) {
-      seg.setAttribute('title', "Your practitioner hasn't enabled this format");
-    } else {
-      seg.removeAttribute('title');
-    }
-    const isActive = !disabled && clientTreatmentOverride === t;
-    seg.classList.toggle('is-active', isActive);
-    seg.setAttribute('aria-checked', isActive ? 'true' : 'false');
-    seg.setAttribute('tabindex', isActive ? '0' : '-1');
-  });
-}
+/** SVG markup for the mute/body-focus state icons. */
+const ICON_AUDIO_ON = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>';
+const ICON_AUDIO_OFF = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>';
+const ICON_BODY_FOCUS_ON = '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor"/>';
+const ICON_BODY_FOCUS_OFF = '<circle cx="12" cy="12" r="9"/>';
 
 /**
- * Apply a new override value: persist, rebind every video source, and
- * re-evaluate the Enhanced Background switch's enabled state (the new
- * override may flip the current effective treatment to/from line).
+ * Repaint every row in the gear panel from `clientOverrides` + the
+ * active slide's practitioner defaults. Called on open and after any
+ * mutation. No-ops when the panel isn't in the DOM.
  */
-function applyClientTreatmentOverride(next) {
-  if (!next || VALID_OVERRIDES.indexOf(next) === -1) return;
-  if (next === clientTreatmentOverride) return;
-  // -- Wave 17 analytics: treatment_switched --
-  if (analyticsConsented === true) {
-    var activeSlide = slides[currentIndex];
-    // Map internal keys to wire values for the event payload.
-    var fromWire = clientTreatmentOverride === 'bw' ? 'grayscale' : clientTreatmentOverride;
-    var toWire = next === 'bw' ? 'grayscale' : next;
-    emitAnalyticsEvent('treatment_switched', activeSlide ? activeSlide.id : null, {
-      from: fromWire,
-      to: toWire,
+function paintGearPanel() {
+  if (!$settingsPopover) return;
+  const slide = slides[currentIndex];
+
+  // Mute row
+  const muteBtn = $settingsPopover.querySelector('.settings-row-btn[data-prop="muted"]');
+  if (muteBtn) {
+    const muted = !!getEffective(slide, 'muted');
+    const overridden = !!(slide && clientOverrides[slide.id] && Object.prototype.hasOwnProperty.call(clientOverrides[slide.id], 'muted'));
+    muteBtn.classList.toggle('is-overridden', overridden);
+    muteBtn.classList.toggle('is-on', !muted);
+    muteBtn.setAttribute('aria-pressed', muted ? 'false' : 'true');
+    muteBtn.setAttribute('aria-label', muted ? 'Unmute audio' : 'Mute audio');
+    const iconHost = muteBtn.querySelector('[data-state-icon]');
+    if (iconHost) {
+      iconHost.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${muted ? ICON_AUDIO_OFF : ICON_AUDIO_ON}</svg>`;
+    }
+  }
+
+  // Treatment pills
+  const treatmentRow = $settingsPopover.querySelector('.settings-row-segmented[data-prop="treatment"]');
+  if (treatmentRow) {
+    const effective = getEffective(slide, 'treatment') || 'line';
+    const overridden = !!(slide && clientOverrides[slide.id] && Object.prototype.hasOwnProperty.call(clientOverrides[slide.id], 'treatment'));
+    treatmentRow.classList.toggle('is-overridden', overridden);
+    const pills = treatmentRow.querySelectorAll('.treatment-pills > button');
+    pills.forEach((pill) => {
+      const v = pill.getAttribute('data-value');
+      let disabled = false;
+      if (v === 'bw' && !planHasGrayscaleConsent) disabled = true;
+      if (v === 'original' && !planHasOriginalConsent) disabled = true;
+      pill.classList.toggle('is-disabled', disabled);
+      pill.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+      if (disabled) {
+        pill.setAttribute('title', "Your practitioner hasn't enabled this format");
+      } else {
+        pill.removeAttribute('title');
+      }
+      const active = !disabled && effective === v;
+      pill.classList.toggle('is-active', active);
+      pill.classList.toggle('is-overridden', active && overridden);
+      pill.setAttribute('aria-checked', active ? 'true' : 'false');
     });
   }
-  clientTreatmentOverride = next;
-  const planId = (plan && plan.id) || getPlanIdFromURL();
-  writeClientTreatmentOverride(planId, clientTreatmentOverride);
-  paintTreatmentOverride();
-  rebindVideoSources();
-  updateEnhancedBackgroundEnabled();
+
+  // Body focus row
+  const bfBtn = $settingsPopover.querySelector('.settings-row-btn[data-prop="bodyFocus"]');
+  if (bfBtn) {
+    const slideT = slide && slide.media_type === 'video' ? slideTreatment(slide) : 'line';
+    const bfDisabled = slideT === 'line';
+    const bfOn = !!getEffective(slide, 'bodyFocus');
+    const overridden = !!(slide && clientOverrides[slide.id] && Object.prototype.hasOwnProperty.call(clientOverrides[slide.id], 'bodyFocus'));
+    bfBtn.classList.toggle('is-disabled', bfDisabled);
+    bfBtn.classList.toggle('is-overridden', overridden && !bfDisabled);
+    bfBtn.classList.toggle('is-on', bfOn);
+    bfBtn.disabled = bfDisabled;
+    bfBtn.setAttribute('aria-pressed', bfOn ? 'true' : 'false');
+    bfBtn.setAttribute('aria-label', bfOn ? 'Body focus on' : 'Body focus off');
+    if (bfDisabled) {
+      bfBtn.setAttribute('title', 'Body focus applies to colour playback only');
+    } else {
+      bfBtn.removeAttribute('title');
+    }
+    const iconHost = bfBtn.querySelector('[data-state-icon]');
+    if (iconHost) {
+      iconHost.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${bfOn ? ICON_BODY_FOCUS_ON : ICON_BODY_FOCUS_OFF}</svg>`;
+    }
+  }
+
+  // Reset button
+  if ($resetOverridesBtn) {
+    const any = hasAnyOverrides();
+    $resetOverridesBtn.classList.toggle('is-empty', !any);
+    $resetOverridesBtn.disabled = !any;
+  }
 }
 
 /**
- * The Enhanced Background switch dims the video background. There's
- * nothing to dim on a line-drawing slide, so the switch is disabled
- * (visible-but-greyed) whenever the *current effective* treatment is
- * 'line'. In `auto` mode the effective treatment is per-slide, so this
- * runs on every slide change. With a forced override the disabled-ness
- * is constant until the override flips.
+ * Mute toggle handler — flips the per-exercise mute override on the
+ * active slide and re-applies muted state to every <video>.
  */
-function updateEnhancedBackgroundEnabled() {
-  if (!$enhancedBackgroundRow || !$toggleSegmentedEffect) return;
+function onGearMuteClick() {
   const slide = slides[currentIndex];
-  // Only video slides have a treatment to consider — for rest / photo
-  // slides we leave the switch enabled (its preference still drives
-  // future video slides).
-  let effective = 'line';
-  if (slide && slide.media_type === 'video') {
-    effective = slideTreatment(slide);
-  } else if (clientTreatmentOverride !== 'auto') {
-    effective = clientTreatmentOverride;
-  } else {
-    // Fall back to scanning the active slide; if it's not a video we
-    // assume the switch should remain enabled.
-    effective = 'bw';
+  if (!slide) return;
+  const currentEffective = !!getEffective(slide, 'muted');
+  const next = !currentEffective;
+  const def = practitionerDefaultFor(slide, 'muted');
+  setOverride(slide.id, 'muted', next, def);
+  applyMuteStateToAllVideos();
+  paintGearPanel();
+}
+
+/**
+ * Treatment pill handler — sets the per-exercise treatment override on
+ * the active slide and rebinds video/photo sources.
+ */
+function onGearTreatmentClick(value) {
+  const slide = slides[currentIndex];
+  if (!slide) return;
+  if (TREATMENT_VALUES.indexOf(value) === -1) return;
+  // Block unconsented treatments at the click layer (the pill is also
+  // visually disabled, but defence in depth).
+  if (value === 'bw' && !planHasGrayscaleConsent) return;
+  if (value === 'original' && !planHasOriginalConsent) return;
+
+  const previousEffective = getEffective(slide, 'treatment') || 'line';
+
+  // Wave 17 analytics — emit on actual treatment flips.
+  if (analyticsConsented === true && previousEffective !== value) {
+    const fromWire = previousEffective === 'bw' ? 'grayscale' : previousEffective;
+    const toWire = value === 'bw' ? 'grayscale' : value;
+    emitAnalyticsEvent('treatment_switched', slide.id, { from: fromWire, to: toWire });
   }
-  const disabled = effective === 'line';
-  $enhancedBackgroundRow.classList.toggle('is-disabled', disabled);
-  if (disabled) {
-    $enhancedBackgroundRow.setAttribute('title', 'Background dimming applies to colour playback only');
-  } else {
-    $enhancedBackgroundRow.removeAttribute('title');
-  }
-  // Native `disabled` on the input prevents stray taps even if the
-  // pointer-events:none CSS is bypassed (e.g. keyboard tab).
-  $toggleSegmentedEffect.disabled = disabled;
+
+  const def = practitionerDefaultFor(slide, 'treatment');
+  setOverride(slide.id, 'treatment', value, def);
+  rebindVideoSources();
+  paintGearPanel();
+}
+
+/**
+ * Body focus toggle — flips the per-exercise body-focus override on
+ * the active slide and rebinds video sources (segmented vs. raw file
+ * differ at the URL level).
+ */
+function onGearBodyFocusClick() {
+  const slide = slides[currentIndex];
+  if (!slide) return;
+  const slideT = slide.media_type === 'video' ? slideTreatment(slide) : 'line';
+  if (slideT === 'line') return; // disabled state guard
+  const next = !getEffective(slide, 'bodyFocus');
+  const def = practitionerDefaultFor(slide, 'bodyFocus');
+  setOverride(slide.id, 'bodyFocus', next, def);
+  rebindVideoSources();
+  paintGearPanel();
+}
+
+/** Reset button — drop every override for the active plan. */
+function onGearResetClick() {
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  clearAllOverrides(planId);
+  applyMuteStateToAllVideos();
+  rebindVideoSources();
+  paintGearPanel();
 }
 
 /**
@@ -4838,20 +4837,28 @@ async function init() {
     // future-proof + cheap).
     loopState.clear();
 
-    // Wave 19.6 — load the persisted "Show me" override for THIS plan and
+    // Wave 42 — load per-exercise client overrides for THIS plan and
     // compute the plan-wide consent rollup BEFORE the first render so
     // slideTreatment() has correct state when buildCard() resolves URLs.
     recomputePlanConsent();
-    clientTreatmentOverride = readClientTreatmentOverride(plan && plan.id);
-    // Defensive: a stale localStorage value pointing at a now-unconsented
-    // treatment falls back to 'auto' (and persists the correction).
-    if (clientTreatmentOverride === 'bw' && !planHasGrayscaleConsent) {
-      clientTreatmentOverride = 'auto';
-      writeClientTreatmentOverride(plan && plan.id, 'auto');
-    } else if (clientTreatmentOverride === 'original' && !planHasOriginalConsent) {
-      clientTreatmentOverride = 'auto';
-      writeClientTreatmentOverride(plan && plan.id, 'auto');
+    loadClientOverrides(plan && plan.id);
+    // Defensive: drop any treatment override whose value points at an
+    // unconsented treatment (consent could have been revoked since the
+    // last visit). Persist the correction.
+    let overridesDirty = false;
+    for (const exId in clientOverrides) {
+      if (!Object.prototype.hasOwnProperty.call(clientOverrides, exId)) continue;
+      const entry = clientOverrides[exId];
+      if (!entry) continue;
+      if (entry.treatment === 'bw' && !planHasGrayscaleConsent) {
+        delete entry.treatment;
+        overridesDirty = true;
+      } else if (entry.treatment === 'original' && !planHasOriginalConsent) {
+        delete entry.treatment;
+        overridesDirty = true;
+      }
     }
+    if (overridesDirty) saveClientOverrides(plan && plan.id);
 
     // Render
     renderPlan();
@@ -4933,72 +4940,39 @@ async function init() {
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
-    // Settings popover — opens on click, closes on outside click / Esc.
-    // The checkbox drives the segmented-effect opt-out (Milestone P).
+    // Wave 42 — Consolidated gear panel: per-exercise client overrides
+    // for muted / treatment / bodyFocus. Single entry point; no global
+    // chrome surfaces these controls anymore.
     if ($btnSettings && $settingsPopover) {
-      // Prime the visible state from the persisted preference before
-      // the first interaction, so reopens reflect what's actually live.
-      if ($toggleSegmentedEffect) {
-        $toggleSegmentedEffect.checked = segmentedEffectEnabled;
-      }
-      updateSegmentedEffectHint();
+      paintGearPanel();
 
       $btnSettings.addEventListener('click', (e) => {
         e.stopPropagation();
         setSettingsPopoverOpen(!isSettingsPopoverOpen());
       });
-      // Clicks inside the popover must NOT bubble to the document-level
-      // outside-click handler below — stop at the popover boundary.
       $settingsPopover.addEventListener('click', (e) => {
         e.stopPropagation();
       });
-      if ($toggleSegmentedEffect) {
-        // The toggle dispatches its visual flip via CSS `:checked`, which
-        // makes the switch FEEL responsive even when the JS handler never
-        // runs. The Wave 19.4 device QA caught a path where iOS Safari
-        // routed the tap through the surrounding label without ever
-        // firing `change` on the input, so the bind below leaned only on
-        // `change` and the rebind never happened — visually the switch
-        // moved, but the dimmed-background source stayed glued. Wiring
-        // both `change` AND `click` (deferred to the next tick so
-        // `.checked` has already settled to its post-toggle value)
-        // closes that gap. Idempotency is handled by
-        // applySegmentedEffectChange's early-exit when the state didn't
-        // actually flip, so the duplicate fire is harmless.
-        const handleSegmentedToggle = () => {
-          // Disabled state guard: when the active treatment is line there's
-          // nothing to dim, so no-op even if the gesture leaks through.
-          if ($toggleSegmentedEffect.disabled) return;
-          applySegmentedEffectChange(!!$toggleSegmentedEffect.checked);
-        };
-        $toggleSegmentedEffect.addEventListener('change', handleSegmentedToggle);
-        $toggleSegmentedEffect.addEventListener('click', () => {
-          // Defer one tick — Safari fires `click` before the implicit
-          // checkbox toggle has updated `.checked` on some code paths.
-          setTimeout(handleSegmentedToggle, 0);
+
+      const muteBtn = $settingsPopover.querySelector('.settings-row-btn[data-prop="muted"]');
+      if (muteBtn) muteBtn.addEventListener('click', onGearMuteClick);
+
+      const treatmentRow = $settingsPopover.querySelector('.settings-row-segmented[data-prop="treatment"]');
+      if (treatmentRow) {
+        treatmentRow.addEventListener('click', (e) => {
+          const pill = e.target && e.target.closest ? e.target.closest('.treatment-pills > button') : null;
+          if (!pill) return;
+          if (pill.classList.contains('is-disabled')) return;
+          const v = pill.getAttribute('data-value');
+          onGearTreatmentClick(v);
         });
       }
 
-      // Wave 19.6 — "Show me" segmented override. Click on a segment
-      // applies it (or no-ops if disabled). Paint once now so the
-      // initial popover open reflects the persisted state + consent.
-      if ($treatmentOverride) {
-        paintTreatmentOverride();
-        updateEnhancedBackgroundEnabled();
-        $treatmentOverride.addEventListener('click', (e) => {
-          const seg = e.target && e.target.closest ? e.target.closest('.treatment-segment') : null;
-          if (!seg) return;
-          if (seg.classList.contains('is-disabled')) {
-            // Stays in the popover; tooltip carries the explanation.
-            return;
-          }
-          const next = seg.getAttribute('data-treatment');
-          applyClientTreatmentOverride(next);
-        });
-      }
-      // Outside-click closes the popover. Capture=true so we see the
-      // event before other handlers (card-viewport taps, etc.) can
-      // swallow it.
+      const bfBtn = $settingsPopover.querySelector('.settings-row-btn[data-prop="bodyFocus"]');
+      if (bfBtn) bfBtn.addEventListener('click', onGearBodyFocusClick);
+
+      if ($resetOverridesBtn) $resetOverridesBtn.addEventListener('click', onGearResetClick);
+
       document.addEventListener('click', (e) => {
         if (!isSettingsPopoverOpen()) return;
         const t = e.target;

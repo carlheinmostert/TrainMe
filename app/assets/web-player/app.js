@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v69-photo-treatment-override-fix';
+const PLAYER_VERSION = 'v82-wave42-overrides';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -104,6 +104,231 @@ let slides = [];
 let currentIndex = 0;
 let swipeState = { active: false, startX: 0, startY: 0, currentX: 0, startTime: 0, didSwipe: false };
 
+// ============================================================
+// Wave 17 — Analytics consent + event tracking state
+// ============================================================
+//
+// Session lifecycle: on plan load, startAnalyticsSession is called.
+// If it returns a session ID, the banner is shown (unless localStorage
+// records a prior decision). Consent drives whether events fire.
+//
+// `analyticsSessionId` — the session UUID from the server, or null if
+// analytics is practitioner-disabled for this client.
+// `analyticsConsented` — true once the client taps "Yes, share";
+// false if "No thanks"; null before the decision.
+// `analyticsTrainerName` — practitioner display name for banner copy.
+// `analyticsSlideViewedAt` — timestamp map per slide index, for
+// computing watched duration on skip/complete.
+
+let analyticsSessionId = null;
+let analyticsConsented = null;
+let analyticsTrainerName = 'your practitioner';
+let analyticsSlideViewedAt = {};
+let analyticsCompletedSlides = {};
+let analyticsPlanOpenTime = null;
+let pauseStartedAt = null;
+
+/**
+ * Detect a coarse user-agent bucket for the analytics session.
+ * No fingerprinting — just the browser family + form factor.
+ */
+function detectUserAgentBucket() {
+  try {
+    const ua = navigator.userAgent || '';
+    const isMobile = /Mobi|Android/i.test(ua);
+    if (/CriOS/i.test(ua) || (/Chrome/i.test(ua) && !/Edg/i.test(ua))) {
+      return isMobile ? 'chrome_mobile' : 'chrome_desktop';
+    }
+    if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) {
+      return isMobile ? 'mobile_safari' : 'safari_desktop';
+    }
+    if (/Firefox/i.test(ua)) {
+      return isMobile ? 'firefox_mobile' : 'firefox_desktop';
+    }
+    return 'other';
+  } catch (_) {
+    return 'other';
+  }
+}
+
+/** localStorage key for persisted consent decision. */
+function analyticsConsentKey(planId) {
+  return 'homefit-analytics-consent-' + (planId || '');
+}
+
+/** localStorage key for the analytics session ID. */
+function analyticsSessionKey(planId) {
+  return 'homefit-session-id-' + (planId || '');
+}
+
+/**
+ * Emit an analytics event if consent has been granted.
+ * `plan_opened` is the exception — it fires regardless (per design doc).
+ */
+function emitAnalyticsEvent(kind, exerciseId, data) {
+  if (!analyticsSessionId) return;
+  // plan_opened fires even without consent (for banner funnel metrics).
+  if (kind !== 'plan_opened' && analyticsConsented !== true) return;
+  window.HomefitApi.logAnalyticsEvent(analyticsSessionId, kind, exerciseId, data);
+}
+
+/**
+ * Show the consent banner (slides in from top).
+ */
+function showConsentBanner() {
+  const existing = document.getElementById('analytics-consent-banner');
+  if (existing) return; // already showing
+
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  const banner = document.createElement('div');
+  banner.id = 'analytics-consent-banner';
+  banner.className = 'analytics-consent-banner';
+  banner.innerHTML =
+    '<div class="analytics-consent-inner">' +
+      '<p class="analytics-consent-title">Help ' + escapeHTML(analyticsTrainerName) + ' help you.</p>' +
+      '<p class="analytics-consent-body">We\'ll share which exercises you complete, and when. Nothing else.<br>You can stop this anytime.</p>' +
+      '<div class="analytics-consent-actions">' +
+        '<button class="analytics-consent-btn analytics-consent-decline" type="button">No thanks</button>' +
+        '<button class="analytics-consent-btn analytics-consent-accept" type="button">Yes, share</button>' +
+      '</div>' +
+      '<a class="analytics-consent-link" href="/what-we-share' + (planId ? '?p=' + encodeURIComponent(planId) : '') + '" target="_blank" rel="noopener">What\'s shared? \u2192</a>' +
+    '</div>';
+
+  document.body.appendChild(banner);
+  // Force reflow then add the visible class for the slide-in animation.
+  void banner.offsetWidth;
+  banner.classList.add('is-visible');
+
+  banner.querySelector('.analytics-consent-accept').addEventListener('click', function () {
+    onConsentDecision(true);
+  });
+  banner.querySelector('.analytics-consent-decline').addEventListener('click', function () {
+    onConsentDecision(false);
+  });
+}
+
+function onConsentDecision(granted) {
+  analyticsConsented = granted;
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+
+  // Persist to localStorage so repeat opens don't re-prompt.
+  try {
+    localStorage.setItem(analyticsConsentKey(planId), granted ? 'yes' : 'no');
+  } catch (_) { /* quota errors etc */ }
+
+  // Write to server.
+  window.HomefitApi.setAnalyticsConsent(analyticsSessionId, granted);
+
+  // Dismiss the banner.
+  const banner = document.getElementById('analytics-consent-banner');
+  if (banner) {
+    banner.classList.remove('is-visible');
+    setTimeout(function () { banner.remove(); }, 400);
+  }
+}
+
+/**
+ * Initialise analytics for the loaded plan. Called once in init() after
+ * the plan renders. Async — fires network calls but never blocks the
+ * player render path.
+ */
+async function initAnalytics() {
+  if (window.HomefitApi.isLocalSurface()) return;
+
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  if (!planId) return;
+
+  analyticsPlanOpenTime = Date.now();
+
+  // Start a server session.
+  const sessionId = await window.HomefitApi.startAnalyticsSession(planId, detectUserAgentBucket());
+
+  if (!sessionId) {
+    // Practitioner disabled analytics for this client. No banner, no events.
+    return;
+  }
+
+  analyticsSessionId = sessionId;
+
+  // Persist session ID so the transparency page can read it.
+  try {
+    localStorage.setItem(analyticsSessionKey(planId), sessionId);
+  } catch (_) {}
+
+  // Fetch practitioner name for the banner copy.
+  var ctx = await window.HomefitApi.getPlanSharingContext(planId);
+  if (ctx && ctx.practitioner_name) {
+    analyticsTrainerName = ctx.practitioner_name;
+  }
+
+  // Fire plan_opened regardless of consent (per design doc).
+  emitAnalyticsEvent('plan_opened', null, {
+    referrer: (typeof document !== 'undefined' && document.referrer) || null,
+  });
+
+  // Check localStorage for a prior consent decision.
+  var stored = null;
+  try {
+    stored = localStorage.getItem(analyticsConsentKey(planId));
+  } catch (_) {}
+
+  if (stored === 'yes') {
+    analyticsConsented = true;
+    // Re-confirm with the server in case localStorage drifted.
+    window.HomefitApi.setAnalyticsConsent(analyticsSessionId, true);
+  } else if (stored === 'no') {
+    analyticsConsented = false;
+  } else {
+    // No prior decision — show the consent banner.
+    showConsentBanner();
+  }
+}
+
+/**
+ * Wire the beforeunload / pagehide event for `plan_closed`.
+ */
+function installAnalyticsCloseHandler() {
+  var closeFired = false;
+  function onClose() {
+    if (closeFired) return;
+    closeFired = true;
+    if (!analyticsSessionId || analyticsConsented !== true) return;
+    var elapsed = analyticsPlanOpenTime ? Date.now() - analyticsPlanOpenTime : 0;
+    var eventData = {
+      elapsed_ms: elapsed,
+      slide_index_at_close: currentIndex,
+    };
+    // Use fetch with keepalive for reliability on page close.
+    // keepalive allows the request to outlive the page. Fallback to
+    // fire-and-forget emitAnalyticsEvent if it throws.
+    try {
+      fetch(
+        window.HomefitApi.SUPABASE_URL + '/rest/v1/rpc/log_analytics_event',
+        {
+          method: 'POST',
+          headers: {
+            'apikey': window.HomefitApi.SUPABASE_ANON_KEY,
+            'Authorization': 'Bearer ' + window.HomefitApi.SUPABASE_ANON_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_session_id: analyticsSessionId,
+            p_event_kind: 'plan_closed',
+            p_exercise_id: null,
+            p_event_data: eventData,
+          }),
+          keepalive: true,
+        },
+      );
+    } catch (_) {
+      emitAnalyticsEvent('plan_closed', null, eventData);
+    }
+  }
+  // pagehide is more reliable than beforeunload on mobile Safari.
+  window.addEventListener('pagehide', onClose);
+  window.addEventListener('beforeunload', onClose);
+}
+
 // Three-treatment playback — PER SLIDE, driven by exercise.preferred_treatment.
 //
 // The practitioner sets a treatment per exercise in the Studio card;
@@ -141,21 +366,15 @@ function treatmentFromWire(wire) {
 function slideTreatment(exercise) {
   const hasGray = !!(exercise && (exercise.grayscale_segmented_url || exercise.grayscale_url));
   const hasOrig = !!(exercise && (exercise.original_segmented_url || exercise.original_url));
-  // Wave 19.6 — client-controlled override beats the practitioner's pick
-  // when the client has explicitly chosen a treatment in the gear popover.
-  // 'auto' (default) defers to the per-exercise practitioner preference.
-  // For a forced treatment we still defensively fall back to 'line' if the
-  // URL isn't available (the segment is disabled in that case, but a stale
-  // localStorage value from a different plan could land us here).
-  if (clientTreatmentOverride !== 'auto') {
-    if (clientTreatmentOverride === 'line') return 'line';
-    if (clientTreatmentOverride === 'bw') return hasGray ? 'bw' : 'line';
-    if (clientTreatmentOverride === 'original') return hasOrig ? 'original' : 'line';
-  }
-  const candidate = treatmentFromWire(exercise && exercise.preferred_treatment);
+  // Wave 42 — per-exercise client overrides. getEffective() returns the
+  // practitioner's per-exercise preferred_treatment by default; the gear
+  // panel can override per-exercise. Defensive fallback to 'line' when
+  // the chosen treatment's URL is absent (consent removed mid-session,
+  // legacy plan, etc.).
+  const candidate = getEffective(exercise, 'treatment');
   if (candidate === 'bw' && !hasGray) return 'line';
   if (candidate === 'original' && !hasOrig) return 'line';
-  return candidate;
+  return candidate || 'line';
 }
 
 // Workout timer state
@@ -165,6 +384,181 @@ let remainingSeconds = 0;
 let totalSeconds = 0;
 let workoutTimer = null;
 let workoutStartTime = null;
+
+// ------------------------------------------------------------------
+// v79-hardening (HIGH 1) — signed URL expiry guard.
+//
+// B&W/Original treatment video URLs are pgjwt-signed with a 1-hour TTL.
+// A long workout + pauses can exceed this, causing a 403 → black frame.
+// We listen for `error` events on <video> elements, re-fetch the plan,
+// swap URLs, and retry. Max one retry per video to avoid infinite loops.
+// ------------------------------------------------------------------
+const _videoRetrySet = new Set(); // video element IDs that already retried
+let _urlRefreshInFlight = false;
+
+async function handleVideoError(evt) {
+  const video = evt.target;
+  if (!video || video.tagName !== 'VIDEO') return;
+  const videoId = video.id;
+  if (!videoId || _videoRetrySet.has(videoId)) return; // already retried once
+  _videoRetrySet.add(videoId);
+
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  if (!planId) return;
+
+  // Show subtle refreshing indicator
+  const card = video.closest('.exercise-card');
+  let refreshLabel = null;
+  if (card) {
+    refreshLabel = document.createElement('div');
+    refreshLabel.className = 'video-refresh-indicator';
+    refreshLabel.textContent = 'Refreshing\u2026';
+    card.appendChild(refreshLabel);
+  }
+
+  try {
+    // Coalesce multiple errors into a single re-fetch
+    if (!_urlRefreshInFlight) {
+      _urlRefreshInFlight = true;
+      const fresh = await fetchPlan(planId);
+      if (fresh && fresh.exercises) {
+        // Update the exercises array in our slides with fresh URLs
+        const freshExMap = {};
+        fresh.exercises.forEach(function (ex) { freshExMap[ex.id] = ex; });
+        slides.forEach(function (s, idx) {
+          const f = freshExMap[s.id];
+          if (!f) return;
+          s.line_drawing_url = f.line_drawing_url;
+          s.grayscale_url = f.grayscale_url;
+          s.original_url = f.original_url;
+          s.grayscale_segmented_url = f.grayscale_segmented_url;
+          s.original_segmented_url = f.original_segmented_url;
+          s.mask_url = f.mask_url;
+        });
+      }
+      _urlRefreshInFlight = false;
+    }
+
+    // Re-resolve the URL for this video's slide
+    const cardEl = video.closest('.exercise-card');
+    const idx = cardEl ? Number(cardEl.getAttribute('data-index')) : NaN;
+    const slide = Number.isFinite(idx) ? slides[idx] : null;
+    if (slide) {
+      const newUrl = resolveTreatmentUrl(slide, slideTreatment(slide));
+      if (newUrl) {
+        video.setAttribute('data-src', newUrl);
+        video.setAttribute('src', newUrl);
+        video.load();
+      }
+    }
+  } catch (err) {
+    console.warn('[homefit] URL refresh failed:', err);
+  } finally {
+    if (refreshLabel) {
+      setTimeout(function () { refreshLabel.remove(); }, 2000);
+    }
+  }
+}
+
+// ------------------------------------------------------------------
+// v79-hardening (HIGH 2) — background tab / screen lock timer drift.
+//
+// When the client locks their phone or switches tabs, setInterval is
+// throttled. On return we fast-forward remainingSeconds by wall-clock
+// elapsed, re-sync the set machine, and resume video.
+// ------------------------------------------------------------------
+let _backgroundedAt = null;
+
+function onVisibilityChange() {
+  if (document.hidden) {
+    _backgroundedAt = Date.now();
+  } else {
+    if (!_backgroundedAt || !isWorkoutMode || !isTimerRunning) {
+      _backgroundedAt = null;
+      return;
+    }
+    const elapsedMs = Date.now() - _backgroundedAt;
+    _backgroundedAt = null;
+    const elapsedSec = Math.floor(elapsedMs / 1000);
+    if (elapsedSec <= 0) return;
+
+    // Fast-forward remaining seconds
+    remainingSeconds = Math.max(0, remainingSeconds - elapsedSec);
+
+    // Fast-forward the set-phase machine — Wave 41 per-set aware.
+    // Each set carries its own breather_seconds_after; we read it
+    // from the active set on every phase transition.
+    if (!isRestSlide()) {
+      const slide = slides[currentIndex];
+      const playSets = playSetsForSlide(slide);
+      let ticksLeft = elapsedSec;
+      while (ticksLeft > 0 && remainingSeconds >= 0) {
+        if (setPhaseRemaining > ticksLeft) {
+          setPhaseRemaining -= ticksLeft;
+          ticksLeft = 0;
+        } else {
+          ticksLeft -= setPhaseRemaining;
+          setPhaseRemaining = 0;
+          // Trigger phase advance
+          const breatherForActiveSet = getBreatherForSet(slide, currentSetIndex);
+          if (setPhase === 'set' && breatherForActiveSet > 0) {
+            setPhase = 'rest';
+            setPhaseRemaining = breatherForActiveSet;
+            interSetRestForSlide = breatherForActiveSet;
+          } else if (setPhase === 'rest') {
+            const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
+            if (!isLastSet) {
+              currentSetIndex++;
+              setPhase = 'set';
+              const nextSet = playSets[currentSetIndex];
+              setPhaseRemaining = calculatePerSetSeconds(nextSet, slide);
+            } else {
+              // Exhausted all sets — clamp
+              setPhaseRemaining = 0;
+              break;
+            }
+          } else {
+            // No breather — advance set
+            const isLastSet = currentSetIndex >= totalSetsForSlide - 1;
+            if (!isLastSet) {
+              currentSetIndex++;
+              const nextSet = playSets[currentSetIndex];
+              setPhaseRemaining = calculatePerSetSeconds(nextSet, slide);
+            } else {
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (remainingSeconds <= 0) {
+      // Timer expired while backgrounded
+      remainingSeconds = 0;
+      clearWorkoutTimer();
+      isTimerRunning = false;
+      onTimerComplete();
+      return;
+    }
+
+    // Resume video playback if in a set phase
+    if (setPhase !== 'rest') {
+      const cv = getActiveVideoForSlide(currentIndex);
+      if (cv && cv.paused) {
+        cv.play().catch(function () {});
+      }
+    }
+
+    // Repaint everything
+    updateUI();
+    updateRepStack();
+    updateBreatherOverlay();
+    updateRestCountdownOverlay();
+    updateProgressMatrix();
+    updateTimelineBar();
+  }
+}
+document.addEventListener('visibilitychange', onVisibilityChange);
 
 // ------------------------------------------------------------------
 // Milestone Q — Post Rep Breather state.
@@ -178,7 +572,8 @@ let workoutStartTime = null;
 // Current set index (0-based). Incremented when the in-set timer hits
 // zero; bumped again at the end of the breather.
 let currentSetIndex = 0;
-// Total sets for the active slide (cached; same as slides[currentIndex].sets).
+// Total sets for the active slide (cached; same as
+// playSetsForSlide(slides[currentIndex]).length post Wave 41).
 let totalSetsForSlide = 1;
 // 'set' | 'rest'. 'rest' means we're inside the inter-set breather.
 let setPhase = 'set';
@@ -260,91 +655,113 @@ function prepSecondsFor(slide) {
   return PREP_SECONDS;
 }
 
-// Runtime mute state for the client-facing player. Decoupled from
-// play/pause (Wave 3 fix — test items 3 / 4 / 5). Tapping the speaker
-// icon on any video card flips this flag; we push the new value to
-// every rendered <video> element without touching its paused/playing
-// state. Persists across slide changes within the same session.
-let isMuted = false;
+// Wave 42 — per-exercise client overrides keyed by plan + exercise + property.
+// Resolves effective state as `clientOverrides[exId]?.[prop] ?? practitionerDefault[exId][prop]`.
+// One JSON blob per plan in localStorage; reset by the gear-panel "Reset to
+// practitioner defaults" button. Replaces the prior global flags
+// (homefit-muted, homefit.playback.segmentedEffect, homefit.playback.treatment::*).
+const OVERRIDES_KEY_PREFIX = 'homefit.overrides::';
+const OVERRIDE_PROPS = ['muted', 'treatment', 'bodyFocus'];
+const TREATMENT_VALUES = ['line', 'bw', 'original'];
+let clientOverrides = {}; // { [exerciseId]: { muted?, treatment?, bodyFocus? } }
 
-// Segmented-background-effect opt-out (Milestone P toggle — 2026-04-23).
-//
-// When ON (default) the Color + B&W treatments prefer the segmented
-// dual-output mp4 that dims the background behind the body. When OFF
-// they play the untouched raw-archive original. Line treatment is
-// unaffected either way — it's a separate pipeline.
-//
-// Per-device preference: read from localStorage at boot, written back
-// on toggle. No server round-trip. Key is explicit + namespaced so
-// future playback prefs (inter-set rest, autoplay-next, ...) can stack
-// under `homefit.playback.*`.
-const SEGMENTED_EFFECT_STORAGE_KEY = 'homefit.playback.segmentedEffect';
-let segmentedEffectEnabled = readSegmentedEffectPreference();
+function overridesStorageKey(planId) {
+  return OVERRIDES_KEY_PREFIX + (planId || 'unknown');
+}
 
-function readSegmentedEffectPreference() {
+function loadClientOverrides(planId) {
   try {
-    const raw = window.localStorage.getItem(SEGMENTED_EFFECT_STORAGE_KEY);
-    if (raw === 'off') return false;
-    // Default ON — treat any other value (including nulls, legacy data,
-    // or a future 'on') as enabled. The toggle only stores 'on' | 'off'.
-    return true;
+    const raw = window.localStorage.getItem(overridesStorageKey(planId));
+    if (!raw) { clientOverrides = {}; return; }
+    const parsed = JSON.parse(raw);
+    clientOverrides = parsed && typeof parsed === 'object' ? parsed : {};
   } catch (_) {
-    // Private-mode Safari / blocked storage — fall back to the default.
-    return true;
+    clientOverrides = {};
   }
 }
 
-function writeSegmentedEffectPreference(enabled) {
+function saveClientOverrides(planId) {
   try {
-    window.localStorage.setItem(SEGMENTED_EFFECT_STORAGE_KEY, enabled ? 'on' : 'off');
+    window.localStorage.setItem(overridesStorageKey(planId), JSON.stringify(clientOverrides));
   } catch (_) {
-    // Best-effort; if storage is blocked the in-memory flag still drives
-    // this session's playback — we just lose persistence across reloads.
+    // Storage blocked — in-memory map still drives this session.
   }
 }
 
-// ----------------------------------------------------------------
-// Client-controlled "Show me" treatment override (Wave 19.6).
-//
-// In `auto` mode (default) the player honours the practitioner's
-// per-exercise `preferred_treatment` (the legacy slideTreatment()
-// behaviour). In `line` / `bw` / `original` mode every video AND photo
-// slide is forced to that treatment, ignoring per-exercise picks
-// (Wave 22 — photos joined the three-treatment system). Rest slides
-// are unaffected.
-//
-// Stored per-plan (different plans may have different consent posture,
-// so a global preference would surface "this plan doesn't have B&W"
-// confusion when switching between clients on a shared device). The
-// resolved planId is appended to the namespace at boot.
-//
-// Wire-storage values: 'auto' | 'line' | 'bw' | 'original'.
-// ----------------------------------------------------------------
-const TREATMENT_OVERRIDE_STORAGE_PREFIX = 'homefit.playback.treatment::';
-const VALID_OVERRIDES = ['auto', 'line', 'bw', 'original'];
-
-let clientTreatmentOverride = 'auto';
-
-function treatmentOverrideStorageKey(planId) {
-  return TREATMENT_OVERRIDE_STORAGE_PREFIX + (planId || 'unknown');
+function clearAllOverrides(planId) {
+  clientOverrides = {};
+  try { window.localStorage.removeItem(overridesStorageKey(planId)); } catch (_) {}
 }
 
-function readClientTreatmentOverride(planId) {
-  try {
-    const raw = window.localStorage.getItem(treatmentOverrideStorageKey(planId));
-    if (raw && VALID_OVERRIDES.indexOf(raw) !== -1) return raw;
-    return 'auto';
-  } catch (_) {
-    return 'auto';
+function hasAnyOverrides() {
+  for (const k in clientOverrides) {
+    if (Object.prototype.hasOwnProperty.call(clientOverrides, k)) {
+      const entry = clientOverrides[k];
+      if (entry && typeof entry === 'object') {
+        for (const p in entry) {
+          if (Object.prototype.hasOwnProperty.call(entry, p)) return true;
+        }
+      }
+    }
   }
+  return false;
 }
 
-function writeClientTreatmentOverride(planId, value) {
-  try {
-    window.localStorage.setItem(treatmentOverrideStorageKey(planId), value);
-  } catch (_) {
-    // Storage blocked — in-memory flag still drives this session.
+/**
+ * Practitioner default for [prop] on [exercise]. Source-of-truth for the
+ * resolver fallback — also used by the gear panel to decide whether a
+ * setOverride() write should clear the entry (= matches default) or
+ * persist it (= diverges from default).
+ *
+ *   muted     → !exercise.include_audio (silent clip → muted by default)
+ *   treatment → exercise.preferred_treatment ('line'|'grayscale'|'original'
+ *               → 'line'|'bw'|'original'); null/missing → 'line'
+ *   bodyFocus → exercise.body_focus !== false (NULL/true → true)
+ */
+function practitionerDefaultFor(exercise, prop) {
+  if (!exercise) {
+    if (prop === 'muted') return true;
+    if (prop === 'treatment') return 'line';
+    if (prop === 'bodyFocus') return true;
+    return null;
   }
+  if (prop === 'muted') return !exercise.include_audio;
+  if (prop === 'treatment') return treatmentFromWire(exercise.preferred_treatment);
+  if (prop === 'bodyFocus') return exercise.body_focus !== false;
+  return null;
+}
+
+/** Effective state = client override if set, else practitioner default. */
+function getEffective(exercise, prop) {
+  if (!exercise) return practitionerDefaultFor(exercise, prop);
+  const entry = clientOverrides[exercise.id];
+  if (entry && Object.prototype.hasOwnProperty.call(entry, prop)) {
+    return entry[prop];
+  }
+  return practitionerDefaultFor(exercise, prop);
+}
+
+function setOverride(exId, prop, value, defaultValue) {
+  if (!exId) return;
+  if (value === defaultValue) {
+    if (clientOverrides[exId]) {
+      delete clientOverrides[exId][prop];
+      // Drop the empty container so hasAnyOverrides() stays accurate.
+      let empty = true;
+      for (const k in clientOverrides[exId]) {
+        if (Object.prototype.hasOwnProperty.call(clientOverrides[exId], k)) {
+          empty = false;
+          break;
+        }
+      }
+      if (empty) delete clientOverrides[exId];
+    }
+  } else {
+    if (!clientOverrides[exId]) clientOverrides[exId] = {};
+    clientOverrides[exId][prop] = value;
+  }
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  saveClientOverrides(planId);
 }
 
 // Timing constants (from config.dart)
@@ -564,6 +981,11 @@ function renderPlan() {
   // top-stack renderer updateActiveSlideHeader() + updateCardNotes().
   $cardTrack.innerHTML = slides.map((slide, i) => buildCard(slide, i)).join('');
 
+  // Lazy-load videos for the first slide + neighbours. Videos are built
+  // with data-src (not src) to prevent Safari crashing on 46 simultaneous
+  // preload="auto" elements.
+  lazyLoadNearbyVideos(currentIndex);
+
   // Prime the top-stack header + notes overlay for the first slide.
   updateActiveSlideHeader();
   updateCardNotes();
@@ -662,41 +1084,91 @@ function buildPrepOverlay() {
 }
 
 /**
- * Decoded grammar for the active slide — flat list of prescription tokens
- * that gets appended to the exercise name on the single-line title row.
- *   Standalone exercise: `3 sets · 10 reps · 5s hold`
- *   Circuit exercise:    `10 reps · 5s hold`  (sets suppressed — circuits own the count)
- *   Rest:                `30s rest`
+ * Wave 41 — decoded grammar for the active slide. Reads `slide.sets[]`
+ * (post per-set DOSE refactor) and produces a per-set summary:
+ *   Uniform:           `3 × 10 @ 15 kg · 60 s rest`
+ *   Pyramid (varied):  `10/8/6 @ 12.5/15/17.5 kg · 60 s rest`
+ *   Bodyweight:        `3 × 10 · 30 s hold · 60 s rest`
+ *   Mixed breathers:   `3 sets · varied`
+ *   Circuit (1 set):   `10 reps @ 15 kg · 30 s hold`  (round count owned by matrix)
+ *   Rest:              `30 s rest`
+ *
  * Returns a plain string (no HTML) — the caller sets textContent.
  */
 function buildDecodedGrammar(slide) {
   if (!slide) return '';
   if (slide.media_type === 'rest') {
-    const secs = Number.parseInt(slide.hold_seconds, 10)
-      || Number.parseInt(slide.custom_duration_seconds, 10)
-      || 30;
-    return `${secs}s rest`;
+    const v = slide.rest_seconds;
+    const secs = (v != null && Number.isFinite(Number(v)) && Number(v) > 0)
+      ? Math.round(Number(v))
+      : 30;
+    return `${secs} s rest`;
+  }
+
+  const playSets = playSetsForSlide(slide);
+  if (!playSets.length) return '';
+
+  const isCircuit = !!slide.circuitRound;
+
+  // Helpers for shape detection.
+  const repsList = playSets.map((s) => s.reps);
+  const weightsList = playSets.map((s) => s.weight_kg);
+  const holdsList = playSets.map((s) => s.hold_seconds);
+  const breathersList = playSets.map((s) => s.breather_seconds_after);
+
+  const repsUniform = repsList.every((r) => r === repsList[0]);
+  const weightsUniform = weightsList.every((w) => w === weightsList[0]);
+  const holdsUniform = holdsList.every((h) => h === holdsList[0]);
+  const breathersUniform = breathersList.every((b) => b === breathersList[0]);
+  const allBodyweight = weightsList.every((w) => w == null);
+
+  // Circuit slides represent ONE set per round; the round count is
+  // surfaced by the matrix. Drop the `N ×` prefix.
+  if (isCircuit) {
+    const set = playSets[0];
+    const parts = [];
+    parts.push(`${set.reps} reps`);
+    if (set.weight_kg != null) parts.push(`@ ${formatWeightKg(set.weight_kg)}`);
+    if (set.hold_seconds > 0) parts.push(`${set.hold_seconds} s hold`);
+    return parts.join(' · ');
+  }
+
+  // Mixed breathers (varied schemes that aren't reducible to a single
+  // tagline) collapse to a "varied" tail per the brief.
+  if (!breathersUniform && (!repsUniform || !weightsUniform)) {
+    return `${playSets.length} sets · varied`;
   }
 
   const parts = [];
-  const isCircuit = !!slide.circuitRound;
-  const setsRaw = Number.parseInt(slide.sets, 10);
-  const repsRaw = Number.parseInt(slide.reps, 10);
-  const holdRaw = Number.parseInt(slide.hold_seconds, 10);
-  const hasSets = Number.isFinite(setsRaw) && setsRaw > 0;
-  const hasReps = Number.isFinite(repsRaw) && repsRaw > 0;
-  const hasHold = Number.isFinite(holdRaw) && holdRaw > 0;
-  // Wave 19.4: full defaults — every exercise reads as `{sets} sets · {reps}
-  // reps [· Ts hold]`. The earlier isometric short-circuit (suppressed reps
-  // when only hold was captured) caused three consecutive circuit exercises
-  // to show "30s hold", "10 reps", and "5 reps" — visibly inconsistent. Now
-  // reps always shows (defaulting to 10 when null); hold appends when set.
-  const sets = hasSets ? setsRaw : 3;
-  const reps = hasReps ? repsRaw : 10;
+  if (repsUniform && weightsUniform) {
+    // Uniform shape — `N × R [@ W kg]`
+    let head = `${playSets.length} × ${repsList[0]}`;
+    if (!allBodyweight) head += ` @ ${formatWeightKg(weightsList[0])}`;
+    parts.push(head);
+  } else {
+    // Pyramid / varied reps or weights — emit slash-joined sequences.
+    const repsStr = repsList.join('/');
+    if (allBodyweight) {
+      parts.push(repsStr);
+    } else if (weightsUniform) {
+      parts.push(`${repsStr} @ ${formatWeightKg(weightsList[0])}`);
+    } else {
+      const weightsStr = weightsList
+        .map((w) => (w == null ? 'BW' : formatWeightKg(w).replace(' kg', '')))
+        .join('/');
+      parts.push(`${repsStr} @ ${weightsStr} kg`);
+    }
+  }
 
-  if (!isCircuit) parts.push(`${sets} sets`);
-  parts.push(`${reps} reps`);
-  if (hasHold) parts.push(`${holdRaw}s hold`);
+  if (holdsUniform && holdsList[0] > 0) {
+    parts.push(`${holdsList[0]} s hold`);
+  } else if (!holdsUniform && holdsList.some((h) => h > 0)) {
+    parts.push('varied hold');
+  }
+
+  if (breathersUniform && breathersList[0] > 0) {
+    parts.push(`${breathersList[0]} s rest`);
+  }
 
   return parts.join(' · ');
 }
@@ -779,38 +1251,13 @@ function buildMedia(exercise, index) {
   }
 
   if (exercise.media_type === 'video') {
-    // Muted attribute gating:
-    //   * exercise.include_audio === false → always muted (publish-time
-    //     opt-out; the client never hears audio for this exercise).
-    //   * exercise.include_audio === true + runtime isMuted=true → muted
-    //     (Wave 3 decouple — the speaker overlay toggled the runtime flag
-    //     without pausing playback).
-    //   * exercise.include_audio === true + runtime isMuted=false → audio on.
-    const shouldMute = !exercise.include_audio || isMuted;
-    const mutedAttr = shouldMute ? 'muted' : '';
+    // Wave 42 — the standalone mute speaker button on the player chrome
+    // was retired; the gear panel is the only entry point for mute.
+    // We still render `muted` on the <video> element for Safari autoplay
+    // compliance; applyMuteStateToAllVideos() unmutes per-exercise
+    // effective state inside the Start Workout user gesture.
+    const mutedAttr = 'muted';
     const posterAttr = exercise.thumbnail_url ? `poster="${escapeHTML(exercise.thumbnail_url)}"` : '';
-    // Mute affordance — only rendered when the exercise ships with
-    // audio (no point showing a mute button on a silent clip). Tap
-    // flips isMuted, re-syncs every live <video> element, redraws the
-    // icon. Lives in its own overlay layer so it's clickable without
-    // competing with the card's tap-to-pause gesture (stopPropagation
-    // in toggleMuteButton).
-    const muteButton = exercise.include_audio ? `
-      <button
-        type="button"
-        class="mute-toggle"
-        data-video-index="${index}"
-        aria-label="${isMuted ? 'Unmute audio' : 'Mute audio'}"
-        aria-pressed="${isMuted ? 'true' : 'false'}"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          ${isMuted
-            ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'
-            : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>'
-          }
-        </svg>
-      </button>
-    ` : '';
     // Dual-video crossfade (Wave 19.7). Two stacked <video> elements
     // share the same source — the "active" one plays normally; ~250ms
     // before it reaches `duration` we preroll the inactive one and swap
@@ -837,32 +1284,31 @@ function buildMedia(exercise, index) {
         <video
           id="video-${index}"
           class="video-loop-slot ${grayscaleClass}"
-          src="${escapeHTML(resolvedUrl)}"
+          data-src="${escapeHTML(resolvedUrl)}"
           data-treatment="${slideT}"
           data-active="true"
           data-loop-slot="a"
           playsinline
           loop
           ${mutedAttr}
-          preload="auto"
+          preload="none"
           ${posterAttr}
         ></video>
         <video
           id="video-${index}-b"
           class="video-loop-slot ${grayscaleClass}"
-          src="${escapeHTML(resolvedUrl)}"
+          data-src="${escapeHTML(resolvedUrl)}"
           data-treatment="${slideT}"
           data-active="false"
           data-loop-slot="b"
           playsinline
           loop
           muted
-          preload="auto"
+          preload="none"
           ${posterAttr}
           aria-hidden="true"
         ></video>
       </div>
-      ${muteButton}
     `;
   }
 
@@ -935,18 +1381,20 @@ function buildMedia(exercise, index) {
  */
 function resolveTreatmentUrl(exercise, treatment) {
   if (!exercise) return null;
+  // Wave 42 — body focus is now per-exercise (PR #146 schema) overlaid
+  // by client overrides via getEffective().
+  const bodyFocusOn = getEffective(exercise, 'bodyFocus');
   if (treatment === 'bw') {
-    if (segmentedEffectEnabled) {
+    if (bodyFocusOn) {
       return exercise.grayscale_segmented_url || exercise.grayscale_url || null;
     }
-    // Toggle OFF — skip the segmented variant entirely and play the
+    // Body focus OFF — skip the segmented variant and play the
     // untouched original. When the raw original is missing we still
-    // fall through to the segmented copy so the slide can play at all
-    // (rare — would only happen on a mangled upload).
+    // fall through to the segmented copy so the slide can play at all.
     return exercise.grayscale_url || exercise.grayscale_segmented_url || null;
   }
   if (treatment === 'original') {
-    if (segmentedEffectEnabled) {
+    if (bodyFocusOn) {
       return exercise.original_segmented_url || exercise.original_url || null;
     }
     return exercise.original_url || exercise.original_segmented_url || null;
@@ -1023,14 +1471,21 @@ function chooseMatrixSizeTier(columnCount, viewportWidth) {
 // eslint-disable-next-line no-unused-vars
 function pillGrammarLabel(slide) {
   if (slide.media_type === 'rest') return '';
+  // Wave 41 — read off slide.sets[]. For a uniform scheme we surface
+  // `S|R|H`; for varied schemes we collapse to `R*` so the pill still
+  // fits in tight chrome.
+  const playSets = playSetsForSlide(slide);
+  if (!playSets.length) return '';
   const parts = [];
   const isCircuit = !!slide.circuitRound;
-  const sets = Number.parseInt(slide.sets, 10);
-  const reps = Number.parseInt(slide.reps, 10);
-  const hold = Number.parseInt(slide.hold_seconds, 10);
-  if (!isCircuit && Number.isFinite(sets)) parts.push(String(sets));
-  if (Number.isFinite(reps)) parts.push(String(reps));
-  if (Number.isFinite(hold) && hold > 0) parts.push(String(hold));
+  const repsList = playSets.map((s) => s.reps);
+  const holdsList = playSets.map((s) => s.hold_seconds);
+  const repsUniform = repsList.every((r) => r === repsList[0]);
+  const holdsUniform = holdsList.every((h) => h === holdsList[0]);
+
+  if (!isCircuit) parts.push(String(playSets.length));
+  parts.push(repsUniform ? String(repsList[0]) : `${repsList[0]}*`);
+  if (holdsUniform && holdsList[0] > 0) parts.push(String(holdsList[0]));
   return parts.join('|');
 }
 
@@ -1281,6 +1736,11 @@ function endLongPress(commit) {
     p.classList.remove('is-paused')
   );
   if (commit && target >= 0 && target !== source && target !== currentIndex) {
+    emitAnalyticsEvent('exercise_navigation_jump', null, {
+      from_slide: currentIndex,
+      to_slide: target,
+      method: 'pill',
+    });
     jumpToSlide(target);
   }
 }
@@ -1437,6 +1897,43 @@ function escapeHTML(str) {
 function goTo(index) {
   if (index < 0 || index >= slides.length) return;
 
+  // -- Wave 17 analytics: evaluate the LEAVING slide before switching. --
+  var leavingIndex = currentIndex;
+  var leavingSlide = slides[leavingIndex];
+  if (leavingSlide && isWorkoutMode && analyticsConsented === true) {
+    var viewedAt = analyticsSlideViewedAt[leavingIndex];
+    var watchedMs = viewedAt ? Date.now() - viewedAt : 0;
+    var slideDur = calculateDuration(leavingSlide) * 1000;
+    var watchedPct = slideDur > 0 ? watchedMs / slideDur : 0;
+
+    if (leavingSlide.media_type !== 'rest') {
+      if (analyticsCompletedSlides[leavingIndex]) {
+        // Already completed — navigating back counts as replay.
+        if (index === leavingIndex) { /* no-op on same-slide */ }
+      } else if (watchedPct >= 0.8 || remainingSeconds <= 0) {
+        analyticsCompletedSlides[leavingIndex] = true;
+        emitAnalyticsEvent('exercise_completed', leavingSlide.id, {
+          watched_ms: Math.round(watchedMs),
+          threshold_met: watchedPct >= 0.8,
+        });
+      } else if (watchedPct < 0.2 && watchedMs > 500) {
+        emitAnalyticsEvent('exercise_skipped', leavingSlide.id, {
+          watched_ms: Math.round(watchedMs),
+        });
+      }
+    }
+  }
+
+  // -- Wave 17 analytics: detect replay (navigating back to a completed slide). --
+  if (isWorkoutMode && analyticsConsented === true && analyticsCompletedSlides[index]) {
+    var replaySlide = slides[index];
+    if (replaySlide && replaySlide.media_type !== 'rest') {
+      emitAnalyticsEvent('exercise_replayed', replaySlide.id, {
+        from_ms: analyticsSlideViewedAt[index] ? Date.now() - analyticsSlideViewedAt[index] : 0,
+      });
+    }
+  }
+
   // Pause any playing videos on current card
   pauseAllVideos();
 
@@ -1449,6 +1946,17 @@ function goTo(index) {
   clearPrepTimer();
 
   currentIndex = index;
+
+  // -- Wave 17 analytics: record when this slide was first viewed. --
+  if (isWorkoutMode) {
+    analyticsSlideViewedAt[index] = Date.now();
+    var activeSlide = slides[index];
+    if (activeSlide && activeSlide.media_type !== 'rest') {
+      emitAnalyticsEvent('exercise_viewed', activeSlide.id, {
+        slide_position: index,
+      });
+    }
+  }
   updateUI();
   // After a jump, recompute immediately so we don't wait 1s for the ticker.
   updateTimelineBar();
@@ -1456,11 +1964,11 @@ function goTo(index) {
   // the new active slide and hide them on the old one.
   updatePlayPauseToggle();
   updatePrepOverlay();
-  // Wave 19.6 — Enhanced Background switch enabled-state depends on the
-  // CURRENT slide's effective treatment when in `auto` mode. Re-evaluate
-  // on every slide change so a swipe from a forced-line slide to a colour
-  // slide flips the switch back to enabled.
-  updateEnhancedBackgroundEnabled();
+  // Wave 42 — repaint the gear panel against the new active slide so
+  // the per-exercise effective state shown matches what's playing. Also
+  // applies muted state because mute is per-exercise.
+  paintGearPanel();
+  applyMuteStateToAllVideos();
 
   // Auto-play the current slide's video (muted, looped). Safari's autoplay
   // policy may block this if there hasn't been a user gesture yet — swallow
@@ -1477,6 +1985,19 @@ function goTo(index) {
 
 function goNext() {
   if (isWorkoutMode) {
+    // -- Wave 17 analytics: rest_shortened when skipping a rest slide early. --
+    if (analyticsConsented === true) {
+      var skipSlide = slides[currentIndex];
+      if (skipSlide && skipSlide.media_type === 'rest' && remainingSeconds > 0) {
+        var scheduledMs = calculateDuration(skipSlide) * 1000;
+        var viewedAt = analyticsSlideViewedAt[currentIndex];
+        var actualMs = viewedAt ? Date.now() - viewedAt : 0;
+        emitAnalyticsEvent('rest_shortened', null, {
+          scheduled_ms: Math.round(scheduledMs),
+          actual_ms: Math.round(actualMs),
+        });
+      }
+    }
     // Stop current timer when skipping
     clearWorkoutTimer();
     clearPrepTimer();
@@ -1515,12 +2036,55 @@ function clearPrepTimer() {
   isPrepPhase = false;
 }
 
+/**
+ * Lazy-load videos for slides near the current index. Videos are created
+ * with `data-src` (not `src`) and `preload="none"` to prevent Safari from
+ * buffering all 46 elements at once (which crashes WebKit on iOS).
+ *
+ * This function sets `src` from `data-src` for the current slide ± 2.
+ * Previously-loaded videos are NEVER unloaded — removing `src` from a
+ * loaded video causes stuttering when the user navigates back. The
+ * initial `preload="none"` + no `src` prevents the crash; once loaded,
+ * videos stay in memory.
+ */
+function lazyLoadNearbyVideos(centerIdx) {
+  if (!$cardTrack) return;
+  const WINDOW = 2; // load current ± 2 slides
+  $cardTrack.querySelectorAll('video[data-src]').forEach((v) => {
+    const card = v.closest('.exercise-card');
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const near = Math.abs(idx - centerIdx) <= WINDOW;
+    const hasSrc = v.hasAttribute('src') && v.getAttribute('src');
+    if (near && !hasSrc) {
+      v.setAttribute('src', v.getAttribute('data-src'));
+      v.preload = 'auto';
+      v.load();
+    }
+    // Do NOT unload distant videos — causes stuttering on back-navigation.
+  });
+}
+
 function autoPlayCurrentVideo() {
+  lazyLoadNearbyVideos(currentIndex);
   const currentVideo = getActiveVideoForSlide(currentIndex);
   if (!currentVideo) return;
-  currentVideo.play().catch((err) => {
-    console.warn('video autoplay blocked:', err);
-  });
+  // If the video has data, play immediately. If not (just lazy-loaded),
+  // wait for `canplay` before calling play(). Prevents the silent
+  // rejection that Safari produces when play() is called on an empty source.
+  if (currentVideo.readyState >= 2) { // HAVE_CURRENT_DATA
+    currentVideo.play().catch((err) => {
+      console.warn('video autoplay blocked:', err);
+    });
+  } else {
+    currentVideo.addEventListener('canplay', function onCanPlay() {
+      currentVideo.removeEventListener('canplay', onCanPlay);
+      currentVideo.play().catch((err) => {
+        console.warn('video autoplay blocked:', err);
+      });
+    });
+  }
   // Wave 19.7 — install the crossfade + rep-tick detector for this slide.
   // No-op if it's already armed, a photo/rest slide, or shorter than the
   // crossfade-min threshold (handler falls back to native loop in that
@@ -1753,16 +2317,26 @@ function paintActiveRepBlock() {
   // elapsed proportion of the set phase, not video loop count. Same
   // logic for photos and videos; active block doubles as a per-rep
   // progress bar via `activeFillPct`.
+  // Wave 41 — read reps from the active set object so pyramids /
+  // varied breathers paint correctly.
   let repsInSet = 0;
   let activeFillPct = 0;
+  const playSetsActive = playSetsForSlide(slide);
   if (isWorkoutMode && setPhase === 'set') {
-    const totalReps = slide.reps || 0;
-    const perSet = calculatePerSetSeconds(slide);
-    if (totalReps > 0 && perSet > 0) {
+    const activeSet = playSetsActive[Math.min(currentSetIndex, playSetsActive.length - 1)];
+    const totalReps = (activeSet && activeSet.reps) || 0;
+    const perSet = calculatePerSetSeconds(activeSet, slide);
+    // The breather is baked into perSet; subtract it for the rep-fill
+    // window so the active rep block reaches 100% at "last rep" and
+    // the breather plays its own sage block.
+    const breatherForActive = activeSet ? (activeSet.breather_seconds_after || 0) : 0;
+    const physicalSet = Math.max(1, perSet - breatherForActive);
+    if (totalReps > 0 && physicalSet > 0) {
       const elapsedInSet = Math.max(0, perSet - setPhaseRemaining);
-      const perRep = perSet / totalReps;
-      repsInSet = Math.min(totalReps, Math.floor(elapsedInSet / perRep));
-      const intraRep = elapsedInSet - (repsInSet * perRep);
+      const elapsedInPhysical = Math.min(physicalSet, elapsedInSet);
+      const perRep = physicalSet / totalReps;
+      repsInSet = Math.min(totalReps, Math.floor(elapsedInPhysical / perRep));
+      const intraRep = elapsedInPhysical - (repsInSet * perRep);
       activeFillPct = Math.max(0, Math.min(100, (intraRep / perRep) * 100));
     }
   }
@@ -2044,126 +2618,175 @@ function onKeyDown(e) {
 // ============================================================
 
 /**
- * Milestone Q — return the practitioner-configured inter-set rest
- * ("Post Rep Breather") for a slide, clamped to 0 for null values.
- * Legacy rows (null) compute WITHOUT any inter-set rest — this is a
- * deliberate behaviour change on re-publish, acceptable per the brief.
- * The 30s REST_BETWEEN_SETS baseline is retired.
+ * Wave 41 — return the per-rep video duration in seconds for a given
+ * slide. Photos default to SECONDS_PER_REP. Videos derive from
+ * `video_duration_ms / video_reps_per_loop` (legacy null reps_per_loop
+ * treated as 1 — preserves pre-Wave-24 timing on old plans).
  */
-function getInterSetRestSeconds(slide) {
-  const v = slide.inter_set_rest_seconds;
-  if (v === null || v === undefined) return 0;
-  return Math.max(0, Number(v) | 0);
+function perRepSecondsForSlide(slide) {
+  if (!slide) return SECONDS_PER_REP;
+  if (slide.media_type === 'video') {
+    const videoDurMs = slide.video_duration_ms || 0;
+    const videoReps = slide.video_reps_per_loop || 1;
+    if (videoDurMs > 0 && videoReps > 0) {
+      return (videoDurMs / 1000) / videoReps;
+    }
+  }
+  return SECONDS_PER_REP;
 }
 
 /**
- * Wave 21 follow-up (Carl 2026-04-24): for slides that are part of a
- * circuit, the per-slide structure is "do {reps} reps of THIS exercise
- * once, then advance to the next circuit member." There is no concept
- * of multiple sets within a single circuit slide — the circuit cycles
- * (3 rounds, etc.) are already unrolled by `unrollExercises()` into
- * separate slides. So a slide tagged with `circuitRound` is always a
- * 1-set slide regardless of what the practitioner set on `slide.sets`.
+ * Wave 41 — coerce a per-set entry to safe defaults. Used by
+ * playSetsForSlide() and the rep-stack rendering, both of which need
+ * to defend against unexpected nulls (e.g. a circuit slide whose
+ * `sets[]` came back empty from the server).
+ */
+function _coerceSet(rawSet) {
+  if (!rawSet) {
+    return { reps: 10, hold_seconds: 0, weight_kg: null, breather_seconds_after: 0 };
+  }
+  return {
+    reps: Math.max(1, Number(rawSet.reps) || 10),
+    hold_seconds: Math.max(0, Number(rawSet.hold_seconds) || 0),
+    weight_kg: rawSet.weight_kg == null ? null : Number(rawSet.weight_kg),
+    breather_seconds_after: Math.max(0, Number(rawSet.breather_seconds_after) || 0),
+  };
+}
+
+/**
+ * Wave 41 — return the actual sets[] this slide will play, after
+ * applying circuit-cycle expansion / trimming.
  *
- * Standalone (non-circuit) slides honour the practitioner's `sets`
- * field, defaulting to 1 when null/0.
+ * Standalone (non-circuit) slides: just slide.sets[] verbatim.
+ *
+ * Circuit slides (each round is a separate slide via unrollExercises):
+ *   - The slide represents ONE round of one exercise inside the
+ *     circuit. We only play ONE set on this slide, picked from the
+ *     slide's authored `sets[]`:
+ *     • round index N maps to `sets[N - 1]` when present
+ *     • round index N maps to `sets[last]` when N > sets.length
+ *       (replay the final set on every extra round)
+ *   - Trimming is implicit: if cycles < sets.length, the unroller
+ *     never produces those rounds, so they never reach the player.
+ *
+ * Always returns at least one set (synthesises a single-set fallback
+ * when slide.sets[] is empty — protects against legacy / partial
+ * data without crashing the timer).
+ */
+function playSetsForSlide(slide) {
+  if (!slide) return [_coerceSet(null)];
+  const raw = Array.isArray(slide.sets) ? slide.sets : [];
+
+  if (slide.circuitRound) {
+    if (raw.length === 0) return [_coerceSet(null)];
+    const idx = Math.min(slide.circuitRound - 1, raw.length - 1);
+    return [_coerceSet(raw[idx])];
+  }
+
+  if (raw.length === 0) return [_coerceSet(null)];
+  return raw.map(_coerceSet);
+}
+
+/**
+ * Backwards-compat helper retained for call sites that just need the
+ * count (matrix sizing, rep-stack key, jump math). Uses
+ * playSetsForSlide() for circuit-aware truth.
  */
 function effectiveSetsForSlide(slide) {
   if (!slide) return 1;
-  if (slide.circuitRound) return 1;
-  return Math.max(1, slide.sets || 1);
+  return playSetsForSlide(slide).length;
 }
 
 /**
- * Per-set duration in seconds. Exposed as a helper so the set/rest
- * state machine can derive set boundaries consistently with the total
- * exercise duration.
+ * Wave 41 — per-set duration in seconds for one entry of slide.sets[].
  *
- * Wave 24 derivation (single source of truth, replaces the manual
- * `custom_duration_seconds` override that the practitioner UI used to
- * expose):
+ *   per_rep = perRepSecondsForSlide(slide)
+ *   per_set = (set.reps × per_rep)
+ *           + (set.reps × set.hold_seconds)   // hold every rep
+ *           + set.breather_seconds_after
  *
- *   video_reps = slide.video_reps_per_loop ?? 1   // null = legacy 1-rep
- *   target_reps = slide.reps || 10
- *   video_dur_s = (slide.video_duration_ms || 0) / 1000
- *
- *   if (video_dur_s > 0 && video_reps > 0):
- *     per_rep = video_dur_s / video_reps
- *     per_set = target_reps × per_rep + (slide.hold_seconds || 0)
- *   else if (slide.custom_duration_seconds):
- *     // legacy fallback only — pre-Wave-24 plans persisted a manual
- *     // override before the field was retired from the UI. We honour
- *     // it on read so old plans keep playing at their old timing.
- *     per_set = total / sets   (clamped to 1)
- *   else:
- *     // photos + ancient legacy with no video probe + no override
- *     per_set = target_reps × SECONDS_PER_REP + hold
- *
- * The fractional-loop case (target_reps not a multiple of video_reps,
- * e.g. 10 target / 3 in video → per_rep = 1/3 of video) is handled
- * naturally: per_set covers the wall-clock budget the slide should
- * play for; the video element loops itself across the runway and the
- * slide advances when the wall-clock budget elapses. No mid-loop
- * fractional pause logic — Carl's "duration is truth" rule from
- * earlier today still applies.
- *
- * Mirror in mobile: `ExerciseCapture.estimatedDurationSeconds` in
- * app/lib/models/exercise_capture.dart uses the same derivation.
+ * The set's trailing breather is BAKED IN to the per-set total —
+ * calculateDuration() sums these directly without re-adding rest. The
+ * old `inter_set_rest_seconds` × N formula is gone.
  */
-function calculatePerSetSeconds(slide) {
-  const targetReps = slide.reps || 10;
-  const holdPerSet = slide.hold_seconds || 0;
-  const videoDurMs = slide.video_duration_ms || 0;
-  const videoReps = slide.video_reps_per_loop || 1;
-
-  if (videoDurMs > 0 && videoReps > 0) {
-    const perRep = (videoDurMs / 1000) / videoReps;
-    return Math.max(1, Math.round((targetReps * perRep) + holdPerSet));
+function calculatePerSetSeconds(setOrSlide, maybeSlide) {
+  // Two-arg signature: (set, slide) — preferred. Single-arg legacy
+  // signature: (slide) — maps to the currently-active set on that
+  // slide. The single-arg path covers ~10 call sites that have always
+  // assumed uniform-sets timing; we honour their ask by reading the
+  // active set off the global state machine.
+  let set;
+  let slide;
+  if (
+    setOrSlide
+    && typeof setOrSlide === 'object'
+    && 'media_type' in setOrSlide
+    && !('breather_seconds_after' in setOrSlide)
+  ) {
+    slide = setOrSlide;
+    const playSets = playSetsForSlide(slide);
+    const activeIdx = Math.max(0, Math.min(currentSetIndex || 0, playSets.length - 1));
+    set = playSets[activeIdx];
+  } else {
+    set = setOrSlide;
+    slide = maybeSlide;
   }
 
-  // Legacy fallback path — pre-Wave-24 plans that captured a manual
-  // override before the UI was retired. Same arithmetic as before.
-  if (slide.custom_duration_seconds) {
-    const sets = effectiveSetsForSlide(slide);
-    if (sets <= 1) return slide.custom_duration_seconds;
-    return Math.max(1, Math.floor(slide.custom_duration_seconds / sets));
-  }
-
-  return (targetReps * SECONDS_PER_REP) + holdPerSet;
+  const perRep = perRepSecondsForSlide(slide);
+  const reps = Math.max(1, (set && set.reps) || 1);
+  const hold = Math.max(0, (set && set.hold_seconds) || 0);
+  const breather = Math.max(0, (set && set.breather_seconds_after) || 0);
+  // Hold seconds historically applied per-rep (an isometric beat at
+  // each rep apex). Keep that contract on the per-set total; the
+  // brief's formula `(per_rep × reps) + (hold × reps) + breather`
+  // matches.
+  const phys = (reps * perRep) + (reps * hold);
+  return Math.max(1, Math.round(phys + breather));
 }
 
 /**
- * Calculate the total duration in seconds for an exercise slide.
+ * Wave 41 — total duration in seconds for an exercise slide.
  *
- * Wave 21 math (trailing rest):
- *   exercise_total = sets × per_set
- *                  + sets × COALESCE(inter_set_rest_seconds, 0)
+ * Rest slides: `slide.rest_seconds` (with sensible 30s fallback when
+ * the value is missing — protects against partial migration data).
  *
- * Every set is followed by a rest — the trailing rest after the last
- * set is the "you're done, breathe before the next exercise" cue.
- *
- * Wave 24 — `per_set` is the new derivation in
- * [calculatePerSetSeconds] (videoDuration / videoRepsPerLoop). The
- * legacy `custom_duration_seconds` branch lives on inside
- * `calculatePerSetSeconds` for pre-Wave-24 plans, so this top-level
- * function no longer special-cases it: it always goes through
- * per_set × sets + restTotal. Same total either way for legacy plans
- * (custom_duration_seconds historically stored the per-set TOTAL
- * across reps; the inner branch divides by sets to get per_set, which
- * we then multiply back here — algebra holds).
+ * Exercise slides: sum of per-set durations from playSetsForSlide().
+ * Each per-set total already includes its own
+ * `breather_seconds_after`, so no extra rest math at this layer.
  */
 function calculateDuration(slide) {
   if (slide.media_type === 'rest') {
-    return slide.hold_seconds || slide.custom_duration_seconds || 30;
+    const v = slide.rest_seconds;
+    if (v == null || !Number.isFinite(Number(v)) || Number(v) <= 0) return 30;
+    return Math.max(1, Math.round(Number(v)));
   }
 
-  // Circuits are always 1 set per slide — see effectiveSetsForSlide.
-  const sets = effectiveSetsForSlide(slide);
-  const breather = getInterSetRestSeconds(slide);
-  const restTotal = sets * breather;
+  const playSets = playSetsForSlide(slide);
+  let total = 0;
+  for (const s of playSets) {
+    total += calculatePerSetSeconds(s, slide);
+  }
+  return Math.max(1, total);
+}
 
-  const perSet = calculatePerSetSeconds(slide);
-  return (perSet * sets) + restTotal;
+/**
+ * Wave 41 — compatibility shim for the small handful of call sites
+ * that still ask "what's THIS set's trailing breather?". Returns the
+ * `breather_seconds_after` on the active set, or 0 when out of range.
+ */
+function getBreatherForSet(slide, setIndex) {
+  const playSets = playSetsForSlide(slide);
+  if (setIndex < 0 || setIndex >= playSets.length) return 0;
+  return Math.max(0, playSets[setIndex].breather_seconds_after || 0);
+}
+
+/**
+ * Pre-Wave-41 helper — kept under its old name so the visibilitychange
+ * fast-forward + a couple of legacy call sites continue to compile.
+ * Returns the trailing breather of the currently-active set.
+ */
+function getInterSetRestSeconds(slide) {
+  return getBreatherForSet(slide, currentSetIndex || 0);
 }
 
 /**
@@ -2320,6 +2943,23 @@ function startWorkout() {
   // Hide the start button
   $startWorkoutBtn.hidden = true;
 
+  // v79-hardening (HIGH 3): now inside a user gesture, apply the
+  // persisted mute preference to all videos. Renders initially muted for
+  // Safari autoplay; this call unmutes where appropriate.
+  applyMuteStateToAllVideos();
+
+  // v79-hardening (MEDIUM 2): auto-dismiss the consent banner when
+  // "Start Workout" is tapped. Treat undecided as "declined for this
+  // session" — don't persist to localStorage so it reappears next load.
+  if (analyticsConsented === null) {
+    analyticsConsented = false;
+    const consentBanner = document.getElementById('analytics-consent-banner');
+    if (consentBanner) {
+      consentBanner.classList.remove('is-visible');
+      setTimeout(function () { consentBanner.remove(); }, 400);
+    }
+  }
+
   // Top-stack v1 — request browser fullscreen so the video fills the
   // viewport. Must be inside the button's click gesture; the browser
   // rejects the API call otherwise.
@@ -2330,6 +2970,15 @@ function startWorkout() {
     // unchanged, so manually kick off the workout phase.
     autoPlayCurrentVideo();
     enterWorkoutPhaseForCurrent();
+    // -- Wave 17 analytics: record the first slide as viewed since goTo()
+    // won't fire for index 0 when we're already there. --
+    analyticsSlideViewedAt[0] = Date.now();
+    if (analyticsConsented === true) {
+      var firstSlide = slides[0];
+      if (firstSlide && firstSlide.media_type !== 'rest') {
+        emitAnalyticsEvent('exercise_viewed', firstSlide.id, { slide_position: 0 });
+      }
+    }
   } else {
     goTo(0);
   }
@@ -2379,9 +3028,57 @@ function enterWorkoutPhaseForCurrent() {
     // is the single source of truth for the rest countdown.
     startTimer();
   } else {
-    // Exercise — run 15s prep runway, then startTimer()
-    startPrepPhase();
+    // Exercise — check if video is ready. If not (lazy-loaded, still
+    // buffering), show a loading indicator and defer the prep phase
+    // until the video has data. Prevents timers running on a black/still
+    // screen.
+    var video = getActiveVideoForSlide(currentIndex);
+    if (video && video.readyState < 2) { // < HAVE_CURRENT_DATA
+      showVideoLoadingOverlay();
+      var prepFired = false;
+      var safetyTimer = null;
+      var slideAtEntry = currentIndex;
+      function fireOnce() {
+        if (prepFired || currentIndex !== slideAtEntry) return;
+        prepFired = true;
+        if (safetyTimer) clearTimeout(safetyTimer);
+        hideVideoLoadingOverlay();
+        startPrepPhase();
+      }
+      video.addEventListener('canplay', function onReady() {
+        video.removeEventListener('canplay', onReady);
+        fireOnce();
+      });
+      safetyTimer = setTimeout(fireOnce, 8000);
+    } else {
+      startPrepPhase();
+    }
   }
+}
+
+/** Overlay shown while waiting for a lazy-loaded video to buffer. */
+function showVideoLoadingOverlay() {
+  var existing = document.getElementById('video-loading-overlay');
+  if (existing) return;
+  var overlay = document.createElement('div');
+  overlay.id = 'video-loading-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(15,17,23,0.7);z-index:9999;';
+  overlay.innerHTML = '<div style="text-align:center;color:#F0F0F5;font-family:Inter,sans-serif;">' +
+    '<div style="width:32px;height:32px;border:3px solid rgba(255,107,53,0.3);border-top-color:#FF6B35;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>' +
+    '<div style="font-size:13px;opacity:0.7;">Loading video\u2026</div></div>';
+  // Add keyframe if not already present
+  if (!document.getElementById('video-loading-spin')) {
+    var style = document.createElement('style');
+    style.id = 'video-loading-spin';
+    style.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(style);
+  }
+  document.body.appendChild(overlay);
+}
+
+function hideVideoLoadingOverlay() {
+  var el = document.getElementById('video-loading-overlay');
+  if (el) el.remove();
 }
 
 /**
@@ -2401,11 +3098,17 @@ function beginSetMachineForCurrent() {
     return;
   }
   currentSetIndex = 0;
-  // Circuits are always 1 set per slide — see effectiveSetsForSlide.
-  totalSetsForSlide = effectiveSetsForSlide(slide);
+  // Wave 41 — circuit slides resolve to 1 set (one round = one set
+  // chosen from the authored sets[]). Standalone slides play every
+  // authored set in order. playSetsForSlide() handles both.
+  const playSets = playSetsForSlide(slide);
+  totalSetsForSlide = playSets.length;
   setPhase = 'set';
-  setPhaseRemaining = calculatePerSetSeconds(slide);
-  interSetRestForSlide = getInterSetRestSeconds(slide);
+  setPhaseRemaining = calculatePerSetSeconds(playSets[0], slide);
+  // The breather is per-set; cache the FIRST set's breather here for
+  // legacy consumers that still read `interSetRestForSlide`. Phase
+  // transitions refresh this from the active set.
+  interSetRestForSlide = playSets[0].breather_seconds_after || 0;
 }
 
 /**
@@ -2570,18 +3273,23 @@ function isRestSlide() {
  * advances to the next slide.
  */
 function advanceSetPhase() {
+  // Wave 41 — read breather + next-set duration off the active set
+  // object so pyramid / varied schemes flow correctly. The single
+  // cached `interSetRestForSlide` is updated alongside for legacy
+  // consumers (rest-fill paint, viz-change fast-forward).
+  const slide = slides[currentIndex];
+  const playSets = playSetsForSlide(slide);
+
   if (setPhase === 'set') {
-    // Wave 21 — every set (INCLUDING the last) is now followed by a
-    // rest if the practitioner configured one. The trailing rest gives
-    // the client a "you're done, breathe" cue before the slide
-    // advances. Duration math (calculateDuration) was updated to add
-    // the trailing rest's seconds, so remainingSeconds won't drop to 0
-    // at the end of the last set anymore — it's the trailing rest's
-    // tick that drives the slide-complete transition.
-    if (interSetRestForSlide > 0) {
+    // Every set (INCLUDING the last) is followed by its own
+    // breather_seconds_after when > 0. The trailing rest gives the
+    // client a "you're done, breathe" cue before the slide advances.
+    const activeBreather = getBreatherForSet(slide, currentSetIndex);
+    if (activeBreather > 0) {
       // Enter breather. Pause the video at its current frame (no reset).
       setPhase = 'rest';
-      setPhaseRemaining = interSetRestForSlide;
+      setPhaseRemaining = activeBreather;
+      interSetRestForSlide = activeBreather;
       pauseActiveVideoForBreather();
     } else {
       // No breather — skip straight to the next set, keep the video
@@ -2591,7 +3299,9 @@ function advanceSetPhase() {
       if (isLastSet) return;
       currentSetIndex++;
       setPhase = 'set';
-      setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+      const nextSet = playSets[currentSetIndex];
+      setPhaseRemaining = calculatePerSetSeconds(nextSet, slide);
+      interSetRestForSlide = nextSet.breather_seconds_after || 0;
     }
   } else {
     // rest → next set. Bump set index, resume video. Trailing rest
@@ -2600,7 +3310,9 @@ function advanceSetPhase() {
     if (isLastSet) return;
     currentSetIndex++;
     setPhase = 'set';
-    setPhaseRemaining = calculatePerSetSeconds(slides[currentIndex]);
+    const nextSet = playSets[currentSetIndex];
+    setPhaseRemaining = calculatePerSetSeconds(nextSet, slide);
+    interSetRestForSlide = nextSet.breather_seconds_after || 0;
     resumeActiveVideoAfterBreather();
   }
   updateRepStack();
@@ -2642,6 +3354,37 @@ function resumeActiveVideoAfterBreather() {
 function onTimerComplete() {
   hideTimerDisplay();
 
+  // -- Wave 17 analytics: mark completed slide + detect rest_extended. --
+  if (analyticsConsented === true) {
+    var completingSlide = slides[currentIndex];
+    if (completingSlide) {
+      if (completingSlide.media_type === 'rest') {
+        // Check if rest ran past its scheduled time.
+        var viewedAt = analyticsSlideViewedAt[currentIndex];
+        var actualMs = viewedAt ? Date.now() - viewedAt : 0;
+        var scheduledMs = calculateDuration(completingSlide) * 1000;
+        if (actualMs > scheduledMs + 1500) {
+          // User let rest extend past schedule (>1.5s tolerance for timer drift).
+          emitAnalyticsEvent('rest_extended', null, {
+            scheduled_ms: Math.round(scheduledMs),
+            actual_ms: Math.round(actualMs),
+          });
+        }
+      } else {
+        // Exercise timer completed — mark as completed.
+        if (!analyticsCompletedSlides[currentIndex]) {
+          analyticsCompletedSlides[currentIndex] = true;
+          var viewedAtEx = analyticsSlideViewedAt[currentIndex];
+          var watchedMs = viewedAtEx ? Date.now() - viewedAtEx : 0;
+          emitAnalyticsEvent('exercise_completed', completingSlide.id, {
+            watched_ms: Math.round(watchedMs),
+            threshold_met: true,
+          });
+        }
+      }
+    }
+  }
+
   const nextIndex = currentIndex + 1;
   if (nextIndex >= slides.length) {
     finishWorkout();
@@ -2658,6 +3401,19 @@ function onTimerComplete() {
  */
 function pauseTimer() {
   if (!isTimerRunning) return;
+
+  // -- Wave 17 analytics: pause_tapped --
+  if (analyticsConsented === true) {
+    var activeSlide = slides[currentIndex];
+    var viewedAt = analyticsSlideViewedAt[currentIndex];
+    var elapsedMs = viewedAt ? Date.now() - viewedAt : 0;
+    emitAnalyticsEvent('pause_tapped', activeSlide ? activeSlide.id : null, {
+      elapsed_ms: Math.round(elapsedMs),
+    });
+  }
+  // Track when the pause started so resume can compute pause_duration_ms.
+  pauseStartedAt = Date.now();
+
   isTimerRunning = false;
   clearWorkoutTimer();
   // Keep the video in sync so it doesn't keep playing while the timer is paused.
@@ -2678,6 +3434,17 @@ function pauseTimer() {
  */
 function resumeTimer() {
   if (isTimerRunning) return;
+
+  // -- Wave 17 analytics: resume_tapped --
+  if (analyticsConsented === true) {
+    var pauseDur = pauseStartedAt ? Date.now() - pauseStartedAt : 0;
+    var activeSlide = slides[currentIndex];
+    emitAnalyticsEvent('resume_tapped', activeSlide ? activeSlide.id : null, {
+      pause_duration_ms: Math.round(pauseDur),
+    });
+  }
+  pauseStartedAt = null;
+
   isTimerRunning = true;
   workoutTimer = setInterval(onTimerTick, 1000);
   // Resume video playback alongside the timer — BUT ONLY if we're in a
@@ -2704,15 +3471,8 @@ function resumeTimer() {
  * touchend doesn't pause/resume by accident.
  */
 function handleMediaTap(e) {
-  // Mute button intercepts first — it's inside .card-media but must NOT
-  // trigger pause/resume. Taking the early return keeps play/pause
-  // decoupled from the mute toggle (Wave 3 — test items 3 / 4 / 5).
-  const muteBtn = e.target.closest ? e.target.closest('.mute-toggle') : null;
-  if (muteBtn) {
-    e.stopPropagation();
-    toggleMute();
-    return;
-  }
+  // Wave 42 — the inline mute button was retired in favour of the gear
+  // panel. Mute is now per-exercise via clientOverrides.
   if (!isWorkoutMode) return;
   if (swipeState.didSwipe) {
     swipeState.didSwipe = false;
@@ -2739,65 +3499,50 @@ function handleMediaTap(e) {
 }
 
 /**
- * Toggle runtime mute across every live <video> element. Decoupled from
- * playback state (Wave 3 fix — test items 3 / 4 / 5): a tap on the
- * speaker icon NEVER pauses. Also redraws the mute-toggle glyph so the
- * icon reflects the current state immediately.
- *
- * Respects the publish-time `include_audio` flag — if the exercise
- * didn't ship with audio, its video stays muted regardless (no button
- * is rendered for that exercise in the first place).
+ * Wave 42 — apply per-exercise effective mute state to every live
+ * <video> element. The mute speaker icon was retired (gear panel only);
+ * this function is called from startWorkout() (inside a user gesture so
+ * Safari allows unmuting) and any time a mute override changes via the
+ * gear panel.
  */
-function toggleMute() {
-  isMuted = !isMuted;
-  const videos = $cardTrack ? $cardTrack.querySelectorAll('video') : [];
+function applyMuteStateToAllVideos() {
+  if (!$cardTrack) return;
+  const videos = $cardTrack.querySelectorAll('video[id^="video-"]');
   videos.forEach((video) => {
-    // include_audio is encoded on the slide, not the <video> element;
-    // pull it back through the card wrapper's data-media-index.
     const card = video.closest('.exercise-card');
-    const idx = card ? Number(card.getAttribute('data-index')) : NaN;
-    const slide = Number.isFinite(idx) ? slides[idx] : null;
-    if (!slide || !slide.include_audio) {
-      // Publish-time muted — leave it muted regardless.
+    if (!card) return;
+    const idx = Number(card.getAttribute('data-index'));
+    if (!Number.isFinite(idx)) return;
+    const slide = slides[idx];
+    if (!slide) return;
+    // Crossfade slot B stays muted always — only the active slot reflects
+    // the effective mute state. This matches the legacy behaviour where
+    // only one slot ever played audio.
+    if (video.getAttribute('data-loop-slot') === 'b') {
       video.muted = true;
       return;
     }
-    video.muted = isMuted;
-  });
-  // Redraw every visible mute button (glyph + a11y state).
-  const buttons = $cardTrack
-    ? $cardTrack.querySelectorAll('.mute-toggle')
-    : [];
-  buttons.forEach((btn) => {
-    btn.setAttribute('aria-pressed', isMuted ? 'true' : 'false');
-    btn.setAttribute('aria-label', isMuted ? 'Unmute audio' : 'Mute audio');
-    const svg = btn.querySelector('svg');
-    if (!svg) return;
-    svg.innerHTML = isMuted
-      ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'
-      : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>';
+    video.muted = !!getEffective(slide, 'muted');
   });
 }
 
 // ============================================================
-// Settings popover — per-device playback preferences
+// Wave 42 — Consolidated gear panel (per-exercise client overrides)
 // ============================================================
 //
-// Currently hosts the Milestone P segmented-effect toggle. Shaped to
-// grow: the popover is a vertical stack of .settings-row entries, each
-// an independent label+switch pair. Add a row by duplicating the
-// existing <label> block in index.html + binding a change handler
-// here. No global settings-bus needed at this scale.
+// Replaces the legacy three-control split (mute speaker, segmented
+// treatment control, gear-popover Body Focus toggle) with a single
+// gear panel exposing all three as per-exercise overrides on top of
+// the practitioner's per-exercise defaults.
 //
-// State lives in module-scope flags (e.g. segmentedEffectEnabled) that
-// `resolveTreatmentUrl` + other renderers read directly. No event bus.
+// State lives in `clientOverrides` (defined near the top of this file).
+// The resolver getEffective(exercise, prop) is the single source of
+// truth for muted / treatment / bodyFocus — every renderer + every
+// <video> sync goes through it.
 
 const $btnSettings = document.getElementById('btn-settings');
 const $settingsPopover = document.getElementById('settings-popover');
-const $toggleSegmentedEffect = document.getElementById('toggle-segmented-effect');
-const $toggleSegmentedEffectHint = document.getElementById('toggle-segmented-effect-hint');
-const $treatmentOverride = document.getElementById('treatment-override');
-const $enhancedBackgroundRow = document.getElementById('enhanced-background-row');
+const $resetOverridesBtn = document.getElementById('reset-overrides-btn');
 
 // Plan-level consent rollup. `get_plan_full` only emits grayscale_url /
 // original_url on exercises the client has consented to that treatment for —
@@ -2817,20 +3562,13 @@ function recomputePlanConsent() {
   }
 }
 
-/** Sync the hint copy to the current toggle state. */
-function updateSegmentedEffectHint() {
-  if (!$toggleSegmentedEffectHint) return;
-  $toggleSegmentedEffectHint.textContent = segmentedEffectEnabled
-    ? 'Body in focus — background dimmed'
-    : 'Original untouched';
-}
-
 /** Open / close the settings popover. */
 function setSettingsPopoverOpen(open) {
   if (!$settingsPopover || !$btnSettings) return;
   if (open) {
     $settingsPopover.hidden = false;
-    // Next frame so the transition runs from closed → open.
+    // Repaint state when opening so the panel reflects the active slide.
+    paintGearPanel();
     requestAnimationFrame(() => {
       $settingsPopover.setAttribute('data-open', 'true');
     });
@@ -2838,8 +3576,6 @@ function setSettingsPopoverOpen(open) {
   } else {
     $settingsPopover.setAttribute('data-open', 'false');
     $btnSettings.setAttribute('aria-expanded', 'false');
-    // Wait for the fade-out to complete before hiding — matches the
-    // 160ms transition in styles.css.
     setTimeout(() => {
       if ($settingsPopover.getAttribute('data-open') !== 'true') {
         $settingsPopover.hidden = true;
@@ -2850,21 +3586,6 @@ function setSettingsPopoverOpen(open) {
 
 function isSettingsPopoverOpen() {
   return !!($settingsPopover && $settingsPopover.getAttribute('data-open') === 'true');
-}
-
-/**
- * Apply a change to the segmented-effect toggle: persist the new
- * value, update the hint copy, and re-point every rendered <video>
- * whose treatment URL just changed. Keeps the current slide's
- * playback position and playing state so the swap is invisible if
- * the client is mid-workout.
- */
-function applySegmentedEffectChange(nextEnabled) {
-  if (nextEnabled === segmentedEffectEnabled) return;
-  segmentedEffectEnabled = nextEnabled;
-  writeSegmentedEffectPreference(segmentedEffectEnabled);
-  updateSegmentedEffectHint();
-  rebindVideoSources();
 }
 
 /**
@@ -2895,13 +3616,23 @@ function rebindVideoSources() {
     // override. Keep the data-attribute + grayscale CSS class in sync with
     // the live treatment so a forced-B&W slide actually goes greyscale even
     // when the underlying URL didn't change.
+    // Always update data-src so lazy-loading picks up the new URL.
+    videoEl.setAttribute('data-src', nextUrl);
+    const prevTreatment = videoEl.getAttribute('data-treatment') || 'line';
     videoEl.setAttribute('data-treatment', slideT);
     videoEl.classList.toggle('is-grayscale', slideT === 'bw');
-    // getAttribute is the raw attribute text; videoEl.src is the
-    // resolved absolute URL (prefixed with the origin). Compare via
-    // the attribute for a stable check.
+
     const currentAttr = videoEl.getAttribute('src');
-    if (currentAttr === nextUrl) return;
+    if (!currentAttr) return; // not lazy-loaded yet
+
+    // Compare file PATHS (strip ?token= signed URL params). If the
+    // path is identical, the treatment change is CSS-only (e.g. B&W ↔
+    // Original = same raw file, just grayscale filter toggle). If paths
+    // differ, the actual video file changed (line ↔ raw, segmented ↔
+    // non-segmented) and we need a src swap.
+    var currentPath = currentAttr.split('?')[0];
+    var nextPath = nextUrl.split('?')[0];
+    if (currentPath === nextPath) return; // same file, CSS handles it
 
     const isActive = idx === currentIndex;
     const wasPlaying = isActive && !videoEl.paused && !videoEl.ended;
@@ -2962,86 +3693,164 @@ function rebindVideoSources() {
 }
 
 // ----------------------------------------------------------------
-// "Show me" segmented control (Wave 19.6)
+// Wave 42 — Gear panel painters + handlers
 // ----------------------------------------------------------------
 
-/**
- * Repaint the segmented control — active state, disabled state for
- * unconsented options, ARIA. Always reflects `clientTreatmentOverride`
- * + `planHasGrayscaleConsent` + `planHasOriginalConsent`.
- */
-function paintTreatmentOverride() {
-  if (!$treatmentOverride) return;
-  const segments = $treatmentOverride.querySelectorAll('.treatment-segment');
-  segments.forEach((seg) => {
-    const t = seg.getAttribute('data-treatment');
-    let disabled = false;
-    if (t === 'bw' && !planHasGrayscaleConsent) disabled = true;
-    if (t === 'original' && !planHasOriginalConsent) disabled = true;
-    seg.classList.toggle('is-disabled', disabled);
-    seg.setAttribute('aria-disabled', disabled ? 'true' : 'false');
-    if (disabled) {
-      seg.setAttribute('title', "Your practitioner hasn't enabled this format");
-    } else {
-      seg.removeAttribute('title');
-    }
-    const isActive = !disabled && clientTreatmentOverride === t;
-    seg.classList.toggle('is-active', isActive);
-    seg.setAttribute('aria-checked', isActive ? 'true' : 'false');
-    seg.setAttribute('tabindex', isActive ? '0' : '-1');
-  });
-}
+/** SVG markup for the mute/body-focus state icons. */
+const ICON_AUDIO_ON = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>';
+const ICON_AUDIO_OFF = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>';
+const ICON_BODY_FOCUS_ON = '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor"/>';
+const ICON_BODY_FOCUS_OFF = '<circle cx="12" cy="12" r="9"/>';
 
 /**
- * Apply a new override value: persist, rebind every video source, and
- * re-evaluate the Enhanced Background switch's enabled state (the new
- * override may flip the current effective treatment to/from line).
+ * Repaint every row in the gear panel from `clientOverrides` + the
+ * active slide's practitioner defaults. Called on open and after any
+ * mutation. No-ops when the panel isn't in the DOM.
  */
-function applyClientTreatmentOverride(next) {
-  if (!next || VALID_OVERRIDES.indexOf(next) === -1) return;
-  if (next === clientTreatmentOverride) return;
-  clientTreatmentOverride = next;
-  const planId = (plan && plan.id) || getPlanIdFromURL();
-  writeClientTreatmentOverride(planId, clientTreatmentOverride);
-  paintTreatmentOverride();
-  rebindVideoSources();
-  updateEnhancedBackgroundEnabled();
-}
-
-/**
- * The Enhanced Background switch dims the video background. There's
- * nothing to dim on a line-drawing slide, so the switch is disabled
- * (visible-but-greyed) whenever the *current effective* treatment is
- * 'line'. In `auto` mode the effective treatment is per-slide, so this
- * runs on every slide change. With a forced override the disabled-ness
- * is constant until the override flips.
- */
-function updateEnhancedBackgroundEnabled() {
-  if (!$enhancedBackgroundRow || !$toggleSegmentedEffect) return;
+function paintGearPanel() {
+  if (!$settingsPopover) return;
   const slide = slides[currentIndex];
-  // Only video slides have a treatment to consider — for rest / photo
-  // slides we leave the switch enabled (its preference still drives
-  // future video slides).
-  let effective = 'line';
-  if (slide && slide.media_type === 'video') {
-    effective = slideTreatment(slide);
-  } else if (clientTreatmentOverride !== 'auto') {
-    effective = clientTreatmentOverride;
-  } else {
-    // Fall back to scanning the active slide; if it's not a video we
-    // assume the switch should remain enabled.
-    effective = 'bw';
+
+  // Mute row
+  const muteBtn = $settingsPopover.querySelector('.settings-row-btn[data-prop="muted"]');
+  if (muteBtn) {
+    const muted = !!getEffective(slide, 'muted');
+    const overridden = !!(slide && clientOverrides[slide.id] && Object.prototype.hasOwnProperty.call(clientOverrides[slide.id], 'muted'));
+    muteBtn.classList.toggle('is-overridden', overridden);
+    muteBtn.classList.toggle('is-on', !muted);
+    muteBtn.setAttribute('aria-pressed', muted ? 'false' : 'true');
+    muteBtn.setAttribute('aria-label', muted ? 'Unmute audio' : 'Mute audio');
+    const iconHost = muteBtn.querySelector('[data-state-icon]');
+    if (iconHost) {
+      iconHost.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${muted ? ICON_AUDIO_OFF : ICON_AUDIO_ON}</svg>`;
+    }
   }
-  const disabled = effective === 'line';
-  $enhancedBackgroundRow.classList.toggle('is-disabled', disabled);
-  if (disabled) {
-    $enhancedBackgroundRow.setAttribute('title', 'Background dimming applies to colour playback only');
-  } else {
-    $enhancedBackgroundRow.removeAttribute('title');
+
+  // Treatment pills
+  const treatmentRow = $settingsPopover.querySelector('.settings-row-segmented[data-prop="treatment"]');
+  if (treatmentRow) {
+    const effective = getEffective(slide, 'treatment') || 'line';
+    const overridden = !!(slide && clientOverrides[slide.id] && Object.prototype.hasOwnProperty.call(clientOverrides[slide.id], 'treatment'));
+    treatmentRow.classList.toggle('is-overridden', overridden);
+    const pills = treatmentRow.querySelectorAll('.treatment-pills > button');
+    pills.forEach((pill) => {
+      const v = pill.getAttribute('data-value');
+      let disabled = false;
+      if (v === 'bw' && !planHasGrayscaleConsent) disabled = true;
+      if (v === 'original' && !planHasOriginalConsent) disabled = true;
+      pill.classList.toggle('is-disabled', disabled);
+      pill.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+      if (disabled) {
+        pill.setAttribute('title', "Your practitioner hasn't enabled this format");
+      } else {
+        pill.removeAttribute('title');
+      }
+      const active = !disabled && effective === v;
+      pill.classList.toggle('is-active', active);
+      pill.classList.toggle('is-overridden', active && overridden);
+      pill.setAttribute('aria-checked', active ? 'true' : 'false');
+    });
   }
-  // Native `disabled` on the input prevents stray taps even if the
-  // pointer-events:none CSS is bypassed (e.g. keyboard tab).
-  $toggleSegmentedEffect.disabled = disabled;
+
+  // Body focus row
+  const bfBtn = $settingsPopover.querySelector('.settings-row-btn[data-prop="bodyFocus"]');
+  if (bfBtn) {
+    const slideT = slide && slide.media_type === 'video' ? slideTreatment(slide) : 'line';
+    const bfDisabled = slideT === 'line';
+    const bfOn = !!getEffective(slide, 'bodyFocus');
+    const overridden = !!(slide && clientOverrides[slide.id] && Object.prototype.hasOwnProperty.call(clientOverrides[slide.id], 'bodyFocus'));
+    bfBtn.classList.toggle('is-disabled', bfDisabled);
+    bfBtn.classList.toggle('is-overridden', overridden && !bfDisabled);
+    bfBtn.classList.toggle('is-on', bfOn);
+    bfBtn.disabled = bfDisabled;
+    bfBtn.setAttribute('aria-pressed', bfOn ? 'true' : 'false');
+    bfBtn.setAttribute('aria-label', bfOn ? 'Body focus on' : 'Body focus off');
+    if (bfDisabled) {
+      bfBtn.setAttribute('title', 'Body focus applies to colour playback only');
+    } else {
+      bfBtn.removeAttribute('title');
+    }
+    const iconHost = bfBtn.querySelector('[data-state-icon]');
+    if (iconHost) {
+      iconHost.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${bfOn ? ICON_BODY_FOCUS_ON : ICON_BODY_FOCUS_OFF}</svg>`;
+    }
+  }
+
+  // Reset button
+  if ($resetOverridesBtn) {
+    const any = hasAnyOverrides();
+    $resetOverridesBtn.classList.toggle('is-empty', !any);
+    $resetOverridesBtn.disabled = !any;
+  }
+}
+
+/**
+ * Mute toggle handler — flips the per-exercise mute override on the
+ * active slide and re-applies muted state to every <video>.
+ */
+function onGearMuteClick() {
+  const slide = slides[currentIndex];
+  if (!slide) return;
+  const currentEffective = !!getEffective(slide, 'muted');
+  const next = !currentEffective;
+  const def = practitionerDefaultFor(slide, 'muted');
+  setOverride(slide.id, 'muted', next, def);
+  applyMuteStateToAllVideos();
+  paintGearPanel();
+}
+
+/**
+ * Treatment pill handler — sets the per-exercise treatment override on
+ * the active slide and rebinds video/photo sources.
+ */
+function onGearTreatmentClick(value) {
+  const slide = slides[currentIndex];
+  if (!slide) return;
+  if (TREATMENT_VALUES.indexOf(value) === -1) return;
+  // Block unconsented treatments at the click layer (the pill is also
+  // visually disabled, but defence in depth).
+  if (value === 'bw' && !planHasGrayscaleConsent) return;
+  if (value === 'original' && !planHasOriginalConsent) return;
+
+  const previousEffective = getEffective(slide, 'treatment') || 'line';
+
+  // Wave 17 analytics — emit on actual treatment flips.
+  if (analyticsConsented === true && previousEffective !== value) {
+    const fromWire = previousEffective === 'bw' ? 'grayscale' : previousEffective;
+    const toWire = value === 'bw' ? 'grayscale' : value;
+    emitAnalyticsEvent('treatment_switched', slide.id, { from: fromWire, to: toWire });
+  }
+
+  const def = practitionerDefaultFor(slide, 'treatment');
+  setOverride(slide.id, 'treatment', value, def);
+  rebindVideoSources();
+  paintGearPanel();
+}
+
+/**
+ * Body focus toggle — flips the per-exercise body-focus override on
+ * the active slide and rebinds video sources (segmented vs. raw file
+ * differ at the URL level).
+ */
+function onGearBodyFocusClick() {
+  const slide = slides[currentIndex];
+  if (!slide) return;
+  const slideT = slide.media_type === 'video' ? slideTreatment(slide) : 'line';
+  if (slideT === 'line') return; // disabled state guard
+  const next = !getEffective(slide, 'bodyFocus');
+  const def = practitionerDefaultFor(slide, 'bodyFocus');
+  setOverride(slide.id, 'bodyFocus', next, def);
+  rebindVideoSources();
+  paintGearPanel();
+}
+
+/** Reset button — drop every override for the active plan. */
+function onGearResetClick() {
+  const planId = (plan && plan.id) || getPlanIdFromURL();
+  clearAllOverrides(planId);
+  applyMuteStateToAllVideos();
+  rebindVideoSources();
+  paintGearPanel();
 }
 
 /**
@@ -3169,22 +3978,19 @@ function updateRepStack() {
   if (!$repStack || !$repStackColumn || !$repStackLabels) return;
   const slide = slides[currentIndex];
 
-  // Carl 2026-04-24:
-  //   * Circuits are 1 set/slide — multiple sets only exist for standalone
-  //     exercises. The unroll already gives each circuit member its own
-  //     slide per round; treating them as 3-set inside ALSO would
-  //     triple-count.
-  //   * Photos still have reps + sets and benefit from the stack — only
-  //     hide when there's literally nothing to count (sets==1 + reps==1).
-  //   * Rest slides have their own countdown overlay; never render here.
-  const slideSets = effectiveSetsForSlide(slide);
-  const slideBreather = slide ? getInterSetRestSeconds(slide) : 0;
-  const slideReps = slide && slide.reps && slide.reps > 0 ? slide.reps : 0;
+  // Wave 41 — slide.sets[] is the source of truth. Standalone slides
+  // play every authored set; circuit slides resolve to one set per
+  // round (handled in playSetsForSlide).
+  const playSets = slide && slide.media_type !== 'rest'
+    ? playSetsForSlide(slide)
+    : [];
+  const totalRepsAll = playSets.reduce((acc, s) => acc + (s.reps || 0), 0);
 
   const eligible = !!slide
     && slide.media_type !== 'rest'
-    && slideReps > 0
-    && !(slideSets === 1 && slideReps === 1);
+    && playSets.length > 0
+    && totalRepsAll > 0
+    && !(playSets.length === 1 && playSets[0].reps === 1);
   $repStack.hidden = !eligible;
   // Carl 2026-04-24: toggle a class on the card-viewport so CSS can
   // shift the prev chevron out of the stack's tap zone. JS-driven
@@ -3199,10 +4005,13 @@ function updateRepStack() {
     return;
   }
 
-  // Skeleton key — when unchanged, skip the innerHTML rebuild and just
-  // repaint fills. Rebuilding every tick would interrupt the 200ms
-  // ease-in fill animation on the active rep block.
-  const key = `${currentIndex}|${slideSets}|${slideReps}|${slideBreather}`;
+  // Skeleton key — encode the per-set shape so a structural change
+  // (added/removed set, weight change, breather toggle) triggers a
+  // rebuild. Same-shape reruns hit the fast path and just repaint.
+  const setSig = playSets
+    .map((s) => `${s.reps}-${s.hold_seconds}-${s.weight_kg ?? 'BW'}-${s.breather_seconds_after}`)
+    .join(',');
+  const key = `${currentIndex}|${setSig}`;
   const oldKey = $repStack.getAttribute('data-stack-key');
   if (oldKey === key) {
     paintActiveRepBlock();
@@ -3248,14 +4057,31 @@ function updateRepStack() {
   if ($repStack.dataset.draining) return;
   $repStack.setAttribute('data-stack-key', key);
 
-  // Build sections — interleave set + rest. Wave 21 spec: every set is
-  // followed by a rest block, INCLUDING the last set ("you're done,
-  // breathe" cue). Skip the trailing rest only when breather is 0.
+  // Wave 41 — interleave per-set + per-set breather. The trailing
+  // rest after the FINAL set carries an "End of exercise" marker
+  // instead of an upcoming-weight chip.
   const sections = [];
-  for (let i = 0; i < slideSets; i++) {
-    sections.push({ kind: 'set', index: i, reps: slideReps });
-    if (slideBreather > 0) {
-      sections.push({ kind: 'rest', index: i, total: slideBreather });
+  for (let i = 0; i < playSets.length; i++) {
+    const set = playSets[i];
+    sections.push({
+      kind: 'set',
+      index: i,
+      reps: set.reps,
+      hold_seconds: set.hold_seconds,
+      weight_kg: set.weight_kg,
+      isFirst: i === 0,
+      prevWeight: i > 0 ? playSets[i - 1].weight_kg : null,
+    });
+    if (set.breather_seconds_after > 0) {
+      const isLast = i === playSets.length - 1;
+      sections.push({
+        kind: 'rest',
+        index: i,
+        total: set.breather_seconds_after,
+        nextWeight: isLast ? null : playSets[i + 1].weight_kg,
+        prevWeight: set.weight_kg,
+        isFinal: isLast,
+      });
     }
   }
 
@@ -3271,22 +4097,45 @@ function updateRepStack() {
           <div class="rep-stack-block-fill"></div>
         </div>`);
       }
+      const chip = renderWeightChipHtml({
+        weightKg: sec.weight_kg,
+        urgent: sec.isFirst || (sec.weight_kg !== sec.prevWeight),
+        leadGlyph: sec.isFirst
+          ? (sec.weight_kg != null ? 'bolt' : null)
+          : (sec.weight_kg !== sec.prevWeight && sec.weight_kg != null ? 'bolt' : null),
+      });
+      const holdLabel = sec.hold_seconds > 0
+        ? `<div class="rep-stack-set-hold">${sec.hold_seconds} s hold</div>`
+        : '';
       return `<div class="rep-stack-section rep-stack-section--set"
                    data-set-index="${sec.index}"
                    style="--rep-stack-section-grow: ${sec.reps};">
-                ${blocks.join('')}
+                <div class="rep-stack-section-blocks">${blocks.join('')}</div>
+                <div class="rep-stack-section-aside">${chip}${holdLabel}</div>
               </div>`;
     }
-    // Rest section — single sage block, same physical size as ONE
-    // rep block (Carl 2026-04-24). Section grows by 1 (matching one
-    // rep within its set) so a 10-rep set renders as 11 equally
-    // sized blocks. Colour carries the category signal, not size.
+    // Rest section — sage divider plus a forward-look chip (next
+    // set's weight) OR an "End of exercise" marker on the final
+    // breather. Per Wave 41 spec the rest pill itself has NO text.
+    const aside = sec.isFinal
+      ? `<span class="end-marker">
+           <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7.5l3 3 5-7"/></svg>
+           End of exercise
+         </span>`
+      : renderWeightChipHtml({
+          weightKg: sec.nextWeight,
+          urgent: sec.nextWeight !== sec.prevWeight,
+          leadGlyph: sec.nextWeight !== sec.prevWeight && sec.nextWeight != null ? 'bolt' : null,
+        });
     return `<div class="rep-stack-section rep-stack-section--rest"
                  data-rest-index="${sec.index}"
                  style="flex: 1 1 0;">
-              <div class="rep-stack-block rep-stack-block--rest" data-rest-index="${sec.index}">
-                <div class="rep-stack-block-fill"></div>
+              <div class="rep-stack-section-blocks">
+                <div class="rep-stack-block rep-stack-block--rest" data-rest-index="${sec.index}">
+                  <div class="rep-stack-block-fill"></div>
+                </div>
               </div>
+              <div class="rep-stack-section-aside">${aside}</div>
             </div>`;
   }).join('');
   $repStackColumn.innerHTML = colHtml;
@@ -3309,6 +4158,38 @@ function updateRepStack() {
 }
 
 /**
+ * Wave 41 — render the floating weight chip alongside a set group or
+ * rest divider. Bodyweight (null kg) renders as a muted "Bodyweight"
+ * chip with no urgent styling. The `urgent` flag adds the brand-tint
+ * background; `leadGlyph` adds a coral bolt before the value.
+ */
+function renderWeightChipHtml({ weightKg, urgent, leadGlyph }) {
+  const isBodyweight = weightKg == null;
+  const classes = ['weight-chip'];
+  if (isBodyweight) classes.push('weight-chip--bodyweight');
+  if (urgent && !isBodyweight) classes.push('weight-chip--up');
+  const glyph = leadGlyph === 'bolt' ? '<span class="weight-chip-bolt" aria-hidden="true">⚡</span>' : '';
+  const label = isBodyweight ? 'Bodyweight' : formatWeightKg(weightKg);
+  return `<span class="${classes.join(' ')}">${glyph}${label}</span>`;
+}
+
+/**
+ * Wave 41 — format a kg value: integer like "15 kg", non-integer
+ * rounded to one decimal like "12.5 kg".
+ */
+function formatWeightKg(kg) {
+  if (kg == null) return 'Bodyweight';
+  const n = Number(kg);
+  if (!Number.isFinite(n)) return 'Bodyweight';
+  if (Number.isInteger(n)) return `${n} kg`;
+  // One decimal — strip a trailing .0 if Number.isInteger missed it
+  // (e.g. 12.5 → "12.5", 15.0 → "15") to keep the typography tight.
+  const rounded = Math.round(n * 10) / 10;
+  if (Number.isInteger(rounded)) return `${rounded} kg`;
+  return `${rounded.toFixed(1)} kg`;
+}
+
+/**
  * Wave 21 — paint the rest-block fill bottom-up over its duration.
  * Time-based (linear over `interSetRestForSlide` seconds). Driven by
  * the 1Hz onTimerTick while setPhase === 'rest'. Marks every prior
@@ -3320,11 +4201,17 @@ function paintRestFill() {
   if (!slide || slide.media_type === 'rest') return;
   const restBlocks = $repStackColumn.querySelectorAll('.rep-stack-block--rest');
   if (!restBlocks.length) return;
-  const total = Math.max(1, interSetRestForSlide || getInterSetRestSeconds(slide));
+  // Wave 41 — each rest block reads its OWN duration off the
+  // matching set's breather_seconds_after. Prior rests show as fully
+  // filled; the active rest fills proportionally; future rests stay
+  // empty.
+  const playSets = playSetsForSlide(slide);
   restBlocks.forEach((block) => {
     const restIdx = parseInt(block.getAttribute('data-rest-index'), 10);
     const fill = block.querySelector('.rep-stack-block-fill');
     if (Number.isNaN(restIdx) || !fill) return;
+    const setForBlock = playSets[restIdx];
+    const totalForBlock = Math.max(1, (setForBlock && setForBlock.breather_seconds_after) || 1);
     if (restIdx < currentSetIndex) {
       // A prior set's rest — fully done.
       block.classList.add('rep-stack-block--filled');
@@ -3335,7 +4222,7 @@ function paintRestFill() {
       block.classList.add('rep-stack-block--active');
       block.classList.remove('rep-stack-block--filled');
       const remaining = Math.max(0, setPhaseRemaining);
-      const pct = Math.max(0, Math.min(100, ((total - remaining) / total) * 100));
+      const pct = Math.max(0, Math.min(100, ((totalForBlock - remaining) / totalForBlock) * 100));
       fill.style.height = pct.toFixed(1) + '%';
     } else {
       block.classList.remove('rep-stack-block--filled');
@@ -3567,9 +4454,53 @@ function finishWorkout() {
     $workoutComplete.classList.add('is-live');
   }
 
+  // -- Wave 17 analytics: plan_completed --
+  if (analyticsConsented === true) {
+    var completedCount = 0;
+    var skippedCount = 0;
+    for (var i = 0; i < slides.length; i++) {
+      if (slides[i].media_type === 'rest') continue;
+      if (analyticsCompletedSlides[i]) completedCount++;
+      else skippedCount++;
+    }
+    emitAnalyticsEvent('plan_completed', null, {
+      total_elapsed_ms: elapsedMs,
+      exercises_completed: completedCount,
+      exercises_skipped: skippedCount,
+    });
+  }
+
+  // -- Wave 17: inject the completion CTA into the workout-complete overlay. --
+  renderCompletionCTA();
+
   // Flip the ETA to "Done" end-state.
   workoutCompleteFlag = true;
   updateTimelineBar();
+}
+
+/**
+ * Wave 17 — render the analytics completion CTA in the workout-complete
+ * overlay. Links to the transparency page and offers an Exit button.
+ */
+function renderCompletionCTA() {
+  // Only show if analytics was active and consent was granted.
+  if (!analyticsSessionId || analyticsConsented !== true) return;
+  // Don't double-inject.
+  if (document.getElementById('analytics-completion-cta')) return;
+
+  var planId = (plan && plan.id) || getPlanIdFromURL();
+  var cta = document.createElement('div');
+  cta.id = 'analytics-completion-cta';
+  cta.className = 'analytics-completion-cta';
+  cta.innerHTML =
+    '<a class="analytics-cta-link" href="/what-we-share' +
+    (planId ? '?p=' + encodeURIComponent(planId) : '') +
+    '" target="_blank" rel="noopener">See what\'s been shared with ' +
+    escapeHTML(analyticsTrainerName) + ' \u2192</a>';
+  // Insert after the existing workout-complete-time element.
+  if ($workoutTotalTime && $workoutTotalTime.parentNode) {
+    $workoutTotalTime.parentNode.insertBefore(cta, $workoutCloseBtn);
+  }
 }
 
 /**
@@ -3744,9 +4675,10 @@ function _canJumpRepStack() {
   if (!isWorkoutMode || !isTimerRunning || isPrepPhase) return false;
   const slide = slides[currentIndex];
   if (!slide) return false;
-  const totalReps = slide.reps || 0;
-  const perSet = calculatePerSetSeconds(slide);
-  return totalReps > 0 && perSet > 0;
+  const playSets = playSetsForSlide(slide);
+  if (!playSets.length) return false;
+  const firstSet = playSets[0];
+  return firstSet.reps > 0 && calculatePerSetSeconds(firstSet, slide) > 0;
 }
 
 function _repaintAfterJump() {
@@ -3758,19 +4690,41 @@ function _repaintAfterJump() {
   updateActiveSlideHeader();
 }
 
+/**
+ * Wave 41 — sum the per-set durations from sets[0..setIdx-1]. Each
+ * set's per-set total already includes its own breather, so this is
+ * just a cumulative scan with no extra rest math.
+ */
+function _cumulativeSecondsBeforeSet(slide, playSets, setIdx) {
+  let sum = 0;
+  for (let i = 0; i < setIdx && i < playSets.length; i++) {
+    sum += calculatePerSetSeconds(playSets[i], slide);
+  }
+  return sum;
+}
+
 /** Jump to rep `repIdx` (0-based) of set `setIdx`. */
 function jumpToRep(setIdx, repIdx) {
   if (!_canJumpRepStack()) return;
   const slide = slides[currentIndex];
-  const totalReps = slide.reps || 0;
-  const perSet = calculatePerSetSeconds(slide);
-  const breather = getInterSetRestSeconds(slide);
-  const cycleSecs = perSet + breather;
-  const elapsedInSet = (repIdx / totalReps) * perSet;
+  const playSets = playSetsForSlide(slide);
+  if (setIdx < 0 || setIdx >= playSets.length) return;
+
+  const targetSet = playSets[setIdx];
+  const targetPerSet = calculatePerSetSeconds(targetSet, slide);
+  const targetReps = Math.max(1, targetSet.reps || 1);
+  const breatherForTarget = targetSet.breather_seconds_after || 0;
+  // Physical (rep-fill) seconds within this set, minus baked-in breather.
+  const physicalSet = Math.max(1, targetPerSet - breatherForTarget);
+  const elapsedInPhysical = (repIdx / targetReps) * physicalSet;
+
   currentSetIndex = setIdx;
   setPhase = 'set';
-  setPhaseRemaining = Math.max(0, perSet - elapsedInSet);
-  remainingSeconds = Math.max(0, totalSeconds - (setIdx * cycleSecs + elapsedInSet));
+  setPhaseRemaining = Math.max(0, targetPerSet - elapsedInPhysical);
+  interSetRestForSlide = breatherForTarget;
+
+  const elapsedTotal = _cumulativeSecondsBeforeSet(slide, playSets, setIdx) + elapsedInPhysical;
+  remainingSeconds = Math.max(0, totalSeconds - elapsedTotal);
   resumeActiveVideoAfterBreather();
   _repaintAfterJump();
 }
@@ -3779,15 +4733,23 @@ function jumpToRep(setIdx, repIdx) {
 function jumpToRest(setIdx) {
   if (!_canJumpRepStack()) return;
   const slide = slides[currentIndex];
-  const perSet = calculatePerSetSeconds(slide);
-  const breather = getInterSetRestSeconds(slide);
+  const playSets = playSetsForSlide(slide);
+  if (setIdx < 0 || setIdx >= playSets.length) return;
+
+  const targetSet = playSets[setIdx];
+  const breatherForTarget = targetSet.breather_seconds_after || 0;
+  const targetPerSet = calculatePerSetSeconds(targetSet, slide);
+  const physicalSet = Math.max(1, targetPerSet - breatherForTarget);
+
   currentSetIndex = setIdx;
   setPhase = 'rest';
-  setPhaseRemaining = breather;
-  remainingSeconds = Math.max(
-    0,
-    totalSeconds - ((setIdx + 1) * perSet + setIdx * breather),
-  );
+  setPhaseRemaining = breatherForTarget;
+  interSetRestForSlide = breatherForTarget;
+
+  // Elapsed = everything before this set + this set's physical portion
+  // (we're at the breather start, so reps just landed).
+  const elapsedTotal = _cumulativeSecondsBeforeSet(slide, playSets, setIdx) + physicalSet;
+  remainingSeconds = Math.max(0, totalSeconds - elapsedTotal);
   pauseActiveVideoForBreather();
   _repaintAfterJump();
 }
@@ -3826,10 +4788,21 @@ async function init() {
         const setIdx = parseInt(section.getAttribute('data-set-index'), 10);
         const repIdx = parseInt(block.getAttribute('data-rep-index'), 10);
         if (Number.isNaN(setIdx) || Number.isNaN(repIdx)) return;
+        emitAnalyticsEvent('exercise_navigation_jump', slides[currentIndex]?.id || null, {
+          from_set: currentSetIndex,
+          to_set: setIdx,
+          to_rep: repIdx,
+          method: 'rep_stack',
+        });
         jumpToRep(setIdx, repIdx);
       } else if (block.classList.contains('rep-stack-block--rest')) {
         const restIdx = parseInt(block.getAttribute('data-rest-index'), 10);
         if (Number.isNaN(restIdx)) return;
+        emitAnalyticsEvent('exercise_navigation_jump', slides[currentIndex]?.id || null, {
+          from_set: currentSetIndex,
+          to_set: restIdx,
+          method: 'rep_stack_rest',
+        });
         jumpToRest(restIdx);
       }
     });
@@ -3864,20 +4837,28 @@ async function init() {
     // future-proof + cheap).
     loopState.clear();
 
-    // Wave 19.6 — load the persisted "Show me" override for THIS plan and
+    // Wave 42 — load per-exercise client overrides for THIS plan and
     // compute the plan-wide consent rollup BEFORE the first render so
     // slideTreatment() has correct state when buildCard() resolves URLs.
     recomputePlanConsent();
-    clientTreatmentOverride = readClientTreatmentOverride(plan && plan.id);
-    // Defensive: a stale localStorage value pointing at a now-unconsented
-    // treatment falls back to 'auto' (and persists the correction).
-    if (clientTreatmentOverride === 'bw' && !planHasGrayscaleConsent) {
-      clientTreatmentOverride = 'auto';
-      writeClientTreatmentOverride(plan && plan.id, 'auto');
-    } else if (clientTreatmentOverride === 'original' && !planHasOriginalConsent) {
-      clientTreatmentOverride = 'auto';
-      writeClientTreatmentOverride(plan && plan.id, 'auto');
+    loadClientOverrides(plan && plan.id);
+    // Defensive: drop any treatment override whose value points at an
+    // unconsented treatment (consent could have been revoked since the
+    // last visit). Persist the correction.
+    let overridesDirty = false;
+    for (const exId in clientOverrides) {
+      if (!Object.prototype.hasOwnProperty.call(clientOverrides, exId)) continue;
+      const entry = clientOverrides[exId];
+      if (!entry) continue;
+      if (entry.treatment === 'bw' && !planHasGrayscaleConsent) {
+        delete entry.treatment;
+        overridesDirty = true;
+      } else if (entry.treatment === 'original' && !planHasOriginalConsent) {
+        delete entry.treatment;
+        overridesDirty = true;
+      }
     }
+    if (overridesDirty) saveClientOverrides(plan && plan.id);
 
     // Render
     renderPlan();
@@ -3902,6 +4883,9 @@ async function init() {
     // trim window so preroll fires at the trimmed end, not natural end.
     $cardViewport.addEventListener('loadedmetadata', onVideoLoadedMetadata, true);
     $cardViewport.addEventListener('timeupdate', onVideoTimeUpdate, true);
+    // v79-hardening (HIGH 1): delegated error handler catches expired
+    // signed URLs (403 → MediaError) and re-fetches plan data.
+    $cardViewport.addEventListener('error', handleVideoError, true);
     $cardViewport.addEventListener('touchstart', onTouchStart, { passive: true });
     $cardViewport.addEventListener('touchmove', onTouchMove, { passive: true });
     $cardViewport.addEventListener('touchend', onTouchEnd);
@@ -3956,72 +4940,39 @@ async function init() {
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
-    // Settings popover — opens on click, closes on outside click / Esc.
-    // The checkbox drives the segmented-effect opt-out (Milestone P).
+    // Wave 42 — Consolidated gear panel: per-exercise client overrides
+    // for muted / treatment / bodyFocus. Single entry point; no global
+    // chrome surfaces these controls anymore.
     if ($btnSettings && $settingsPopover) {
-      // Prime the visible state from the persisted preference before
-      // the first interaction, so reopens reflect what's actually live.
-      if ($toggleSegmentedEffect) {
-        $toggleSegmentedEffect.checked = segmentedEffectEnabled;
-      }
-      updateSegmentedEffectHint();
+      paintGearPanel();
 
       $btnSettings.addEventListener('click', (e) => {
         e.stopPropagation();
         setSettingsPopoverOpen(!isSettingsPopoverOpen());
       });
-      // Clicks inside the popover must NOT bubble to the document-level
-      // outside-click handler below — stop at the popover boundary.
       $settingsPopover.addEventListener('click', (e) => {
         e.stopPropagation();
       });
-      if ($toggleSegmentedEffect) {
-        // The toggle dispatches its visual flip via CSS `:checked`, which
-        // makes the switch FEEL responsive even when the JS handler never
-        // runs. The Wave 19.4 device QA caught a path where iOS Safari
-        // routed the tap through the surrounding label without ever
-        // firing `change` on the input, so the bind below leaned only on
-        // `change` and the rebind never happened — visually the switch
-        // moved, but the dimmed-background source stayed glued. Wiring
-        // both `change` AND `click` (deferred to the next tick so
-        // `.checked` has already settled to its post-toggle value)
-        // closes that gap. Idempotency is handled by
-        // applySegmentedEffectChange's early-exit when the state didn't
-        // actually flip, so the duplicate fire is harmless.
-        const handleSegmentedToggle = () => {
-          // Disabled state guard: when the active treatment is line there's
-          // nothing to dim, so no-op even if the gesture leaks through.
-          if ($toggleSegmentedEffect.disabled) return;
-          applySegmentedEffectChange(!!$toggleSegmentedEffect.checked);
-        };
-        $toggleSegmentedEffect.addEventListener('change', handleSegmentedToggle);
-        $toggleSegmentedEffect.addEventListener('click', () => {
-          // Defer one tick — Safari fires `click` before the implicit
-          // checkbox toggle has updated `.checked` on some code paths.
-          setTimeout(handleSegmentedToggle, 0);
+
+      const muteBtn = $settingsPopover.querySelector('.settings-row-btn[data-prop="muted"]');
+      if (muteBtn) muteBtn.addEventListener('click', onGearMuteClick);
+
+      const treatmentRow = $settingsPopover.querySelector('.settings-row-segmented[data-prop="treatment"]');
+      if (treatmentRow) {
+        treatmentRow.addEventListener('click', (e) => {
+          const pill = e.target && e.target.closest ? e.target.closest('.treatment-pills > button') : null;
+          if (!pill) return;
+          if (pill.classList.contains('is-disabled')) return;
+          const v = pill.getAttribute('data-value');
+          onGearTreatmentClick(v);
         });
       }
 
-      // Wave 19.6 — "Show me" segmented override. Click on a segment
-      // applies it (or no-ops if disabled). Paint once now so the
-      // initial popover open reflects the persisted state + consent.
-      if ($treatmentOverride) {
-        paintTreatmentOverride();
-        updateEnhancedBackgroundEnabled();
-        $treatmentOverride.addEventListener('click', (e) => {
-          const seg = e.target && e.target.closest ? e.target.closest('.treatment-segment') : null;
-          if (!seg) return;
-          if (seg.classList.contains('is-disabled')) {
-            // Stays in the popover; tooltip carries the explanation.
-            return;
-          }
-          const next = seg.getAttribute('data-treatment');
-          applyClientTreatmentOverride(next);
-        });
-      }
-      // Outside-click closes the popover. Capture=true so we see the
-      // event before other handlers (card-viewport taps, etc.) can
-      // swallow it.
+      const bfBtn = $settingsPopover.querySelector('.settings-row-btn[data-prop="bodyFocus"]');
+      if (bfBtn) bfBtn.addEventListener('click', onGearBodyFocusClick);
+
+      if ($resetOverridesBtn) $resetOverridesBtn.addEventListener('click', onGearResetClick);
+
       document.addEventListener('click', (e) => {
         if (!isSettingsPopoverOpen()) return;
         const t = e.target;
@@ -4056,7 +5007,14 @@ async function init() {
         const pill = e.target.closest ? e.target.closest('.pill[data-slide]') : null;
         if (!pill) return;
         const idx = Number(pill.getAttribute('data-slide'));
-        if (Number.isFinite(idx) && idx !== currentIndex) jumpToSlide(idx);
+        if (Number.isFinite(idx) && idx !== currentIndex) {
+          emitAnalyticsEvent('exercise_navigation_jump', null, {
+            from_slide: currentIndex,
+            to_slide: idx,
+            method: 'pill',
+          });
+          jumpToSlide(idx);
+        }
       });
       // Re-choose size tier on viewport resize — rebuild is cheap.
       // Wave 28: debounce ~150ms so a rapid portrait↔landscape rotation
@@ -4092,9 +5050,48 @@ async function init() {
     // Show the Start Workout button
     $startWorkoutBtn.hidden = false;
 
+    // -- Wave 17: initialise analytics + wire close handler. --
+    // Fire-and-forget — analytics init is async but must never block the
+    // player render path or the Start Workout button.
+    initAnalytics();
+    installAnalyticsCloseHandler();
+
   } catch (err) {
     console.error('Failed to load plan:', err);
     $loading.hidden = true;
+
+    // v79-hardening (MEDIUM 1): distinguish network errors from
+    // empty-plan / not-found responses. TypeError is the standard
+    // fetch network-error type; also catch any error that doesn't look
+    // like our own 'Plan not found' / 'Empty plan' strings.
+    const isNetwork = (
+      err instanceof TypeError ||
+      (err && err.message && !/plan not found|empty plan/i.test(err.message))
+    );
+
+    const $errorTitle = document.getElementById('error-title');
+    const $errorText = document.getElementById('error-text');
+    const $retryBtn = document.getElementById('error-retry-btn');
+
+    if (isNetwork) {
+      if ($errorTitle) $errorTitle.textContent = 'No internet connection';
+      if ($errorText) $errorText.textContent =
+        'Connect to Wi-Fi or mobile data and try again.';
+      if ($retryBtn) {
+        $retryBtn.hidden = false;
+        $retryBtn.onclick = function () {
+          $error.hidden = true;
+          $loading.hidden = false;
+          $loading.classList.remove('fade-out');
+          init();
+        };
+      }
+    } else {
+      if ($errorTitle) $errorTitle.textContent = 'Plan not found';
+      if ($errorText) $errorText.textContent =
+        'This link may have expired or the plan may no longer be available. Contact your practitioner for a new link.';
+      if ($retryBtn) $retryBtn.hidden = true;
+    }
     $error.hidden = false;
   }
 }

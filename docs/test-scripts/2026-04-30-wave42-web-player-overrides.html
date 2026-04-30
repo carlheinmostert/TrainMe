@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Wave 42 Web player consolidated gear panel</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 42 &middot; consolidated gear panel + per-exercise client overrides</div>
+  <h1>Web player gear panel — per-exercise overrides</h1>
+
+  <p class="lede">
+    The standalone mute speaker icon, the standalone treatment segmented control, and the gear-popover Body Focus switch have all been retired. The gear button now opens <strong>one panel</strong> with three rows (<strong>Mute</strong>, <strong>Treatment</strong>, <strong>Body focus</strong>) plus a <strong>Reset to practitioner defaults</strong> button. Each control sets a <em>per-exercise</em> client override that layers on top of the practitioner&apos;s per-exercise default. Overrides persist per plan in localStorage. <strong>9 items in 2 sections.</strong>
+  </p>
+
+  <h2>A &middot; Defaults + override scope</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">A1.</span>
+      <span class="text">Practitioner defaults respected on first open.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open a published plan whose exercises have varied practitioner settings — at least one with body_focus=false, one with preferred_treatment set to grayscale or original, one with include_audio=true.</li>
+        <li data-sub="1.2">Walk every slide. Confirm each plays the practitioner&apos;s chosen treatment + body-focus state. Audio plays where include_audio=true.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">A2.</span>
+      <span class="text">Gear panel opens with three neutral rows + greyed Reset.</span>
+      <ol class="steps">
+        <li data-sub="2.1">Tap the gear icon (top-right vertical chrome).</li>
+        <li data-sub="2.2">Confirm rows: Mute &middot; Treatment (Line / B&amp;W / Original) &middot; Body focus &middot; Reset to practitioner defaults.</li>
+        <li data-sub="2.3">No coral border on any row (no overrides yet). Reset button is greyed and not tappable.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">A3.</span>
+      <span class="text">Treatment override on exercise 3 turns control coral + persists through navigation.</span>
+      <ol class="steps">
+        <li data-sub="3.1">Navigate to exercise 3. Open gear panel. Tap Treatment &gt; Line.</li>
+        <li data-sub="3.2">Confirm the Line pill goes coral. Treatment row gains a coral border. Video swaps to the line drawing.</li>
+        <li data-sub="3.3">Swipe forward to exercise 4. Open gear panel. Confirm exercise 4 plays its OWN practitioner default (not Line).</li>
+        <li data-sub="3.4">Swipe back to exercise 3. Confirm Line override is still applied (coral cue + line drawing playing).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">A4.</span>
+      <span class="text">Override survives a full reload (localStorage).</span>
+      <ol class="steps">
+        <li data-sub="4.1">With the Line override on exercise 3 still active, hard-reload the page.</li>
+        <li data-sub="4.2">Navigate to exercise 3. Confirm Line is still selected (coral cue, line drawing playing).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">A5.</span>
+      <span class="text">Tapping the same override pill again clears it (back to default).</span>
+      <ol class="steps">
+        <li data-sub="5.1">On exercise 3, with Line override active, tap Line again.</li>
+        <li data-sub="5.2">Confirm coral cue clears, treatment row border returns to neutral, video reverts to the practitioner default for that exercise.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B &middot; Reset, scope, mute</h2>
+  <ul class="checklist">
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">B6.</span>
+      <span class="text">Reset to practitioner defaults clears all overrides.</span>
+      <ol class="steps">
+        <li data-sub="6.1">Set overrides on at least three exercises (mix of mute, treatment, body focus).</li>
+        <li data-sub="6.2">Confirm Reset button is now coral and tappable.</li>
+        <li data-sub="6.3">Tap Reset. Confirm: every control returns to neutral, every exercise reverts to its practitioner default, Reset goes back to greyed.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&times;</button></div>
+      <span class="num">B7.</span>
+      <span class="text">Override scope is per-exercise — exercise 3 doesn&apos;t bleed into exercise 4.</span>
+      <ol class="steps">
+        <li data-sub="7.1">Set treatment=Line on exercise 3.</li>
+        <li data-sub="7.2">Navigate to exercise 4. Confirm exercise 4 plays its own practitioner default, NOT Line.</li>
+        <li data-sub="7.3">Open gear panel on exercise 4. Confirm no coral cues — overrides on exercise 3 do not show up here.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&times;</button></div>
+      <span class="num">B8.</span>
+      <span class="text">Per-exercise mute — exercise 5 muted does not affect exercise 6.</span>
+      <ol class="steps">
+        <li data-sub="8.1">Find an exercise (5) with include_audio=true. Tap Start Workout so audio is unmuted by default.</li>
+        <li data-sub="8.2">Open gear panel on exercise 5 &rarr; tap Mute. Audio cuts. Mute row shows coral cue.</li>
+        <li data-sub="8.3">Navigate to exercise 6 (also include_audio=true). Confirm audio plays per its default. Mute row on exercise 6 has no coral cue.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&times;</button></div>
+      <span class="num">B9.</span>
+      <span class="text">Service worker bumped — <code>homefit-player-v81-wave42-overrides</code> loads on hard refresh.</span>
+      <ol class="steps">
+        <li data-sub="9.1">DevTools &rarr; Application &rarr; Service Workers (or Safari Web Inspector &rarr; Storage). Hard reload the player.</li>
+        <li data-sub="9.2">Confirm the active cache name is <code>homefit-player-v81-wave42-overrides</code> (or higher). Old caches purge on activation.</li>
+        <li data-sub="9.3">Confirm the build-version marker in the footer reads <code>v81-wave42-overrides</code>.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <div class="oos">
+    <h3>Out of scope</h3>
+    <ul>
+      <li>Mobile / Flutter player (PR #146 already shipped the schema + mobile half).</li>
+      <li>Web portal client-consent UI.</li>
+      <li>No localStorage migration of legacy <code>homefit-muted</code> / <code>homefit.playback.*</code> keys — clean cutover.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+(function() {
+  var SLUG = '2026-04-30-wave42-web-player-overrides.results.json';
+  var API  = 'http://localhost:3457/api/test-results/' + SLUG;
+  var state = { items: {} };
+
+  fetch('/test-scripts/' + SLUG, { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : { items: {} }; })
+    .then(function(data) {
+      state = data || { items: {} };
+      applyState();
+    })
+    .catch(function() {});
+
+  function applyState() {
+    document.querySelectorAll('.checklist > li').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var item = state.items[num];
+      if (item) {
+        li.setAttribute('data-status', item.status);
+        var note = li.querySelector('.note');
+        if (note && item.note) note.value = item.note;
+      }
+    });
+  }
+
+  function persist() {
+    fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state),
+    }).catch(function() {});
+  }
+
+  document.querySelectorAll('.checklist > li').forEach(function(li) {
+    var num = li.getAttribute('data-num');
+
+    li.querySelector('.vote .pass').addEventListener('click', function() {
+      li.setAttribute('data-status', 'pass');
+      if (!state.items[num]) state.items[num] = {};
+      state.items[num].status = 'pass';
+      persist();
+    });
+
+    li.querySelector('.vote .fail').addEventListener('click', function() {
+      li.setAttribute('data-status', 'fail');
+      if (!state.items[num]) state.items[num] = {};
+      state.items[num].status = 'fail';
+      persist();
+    });
+
+    var note = li.querySelector('.note');
+    if (note) {
+      var debounce;
+      note.addEventListener('input', function() {
+        clearTimeout(debounce);
+        if (!state.items[num]) state.items[num] = {};
+        state.items[num].note = note.value;
+        debounce = setTimeout(persist, 400);
+      });
+    }
+  });
+})();
+</script>
+</body>
+</html>
