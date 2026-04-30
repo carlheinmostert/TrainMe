@@ -418,9 +418,16 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
 
   Widget _buildDoseTab(ScrollController scrollController) {
     final cycles = _circuitCycles();
+    // Round 2 — bottom padding mirrors MediaQuery.viewInsets.bottom so
+    // the iOS keyboard (when the inline custom-value editor opens)
+    // doesn't cover the bottom rows of the table OR the inline editor
+    // itself. Scrollable.ensureVisible inside PresetChipRow handles
+    // the centring; this padding prevents the sheet's bottom from
+    // getting clipped.
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return SingleChildScrollView(
       controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
       child: DoseTable(
         sets: _exercise.sets,
         onSetsChanged: _onSetsChanged,
@@ -440,9 +447,10 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 
   Widget _buildNotesTab(ScrollController scrollController) {
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return SingleChildScrollView(
       controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -539,9 +547,10 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   Widget _buildSettingsTab(ScrollController scrollController) {
     final prepSeconds = _exercise.prepSeconds ?? 5;
     final videoReps = _exercise.videoRepsPerLoop ?? 3;
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return SingleChildScrollView(
       controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
