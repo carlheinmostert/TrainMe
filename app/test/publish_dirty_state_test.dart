@@ -1,4 +1,4 @@
-// Wave 18 — publish dirty-state regression.
+// Wave 18 — publish dirty-state regression (per-set DOSE rewrite).
 //
 // The bug: any write path that called `LocalStorageService.saveExercise`
 // WITHOUT going through `StudioModeScreen._touchAndPush` left the parent
@@ -14,14 +14,20 @@
 // persisted user-content fields so conversion-pipeline churn
 // (status / path updates) stays a silent operation.
 //
+// Per-set DOSE wave: legacy `reps`/`sets`/`holdSeconds` fields are gone.
+// User-edit signal now travels through the [ExerciseCapture.sets] list
+// (per-set reps / hold / weight / breather). The `_isUserContentDelta`
+// check inside saveExercise compares sets element-wise.
+//
 // These tests pin the behaviour:
 //   1. Capturing a new exercise on a published session → dirty.
-//   2. Conversion-status-only updates → NOT dirty.
+//   2. Conversion-status-only updates → NOT dirty; a per-set reps bump → dirty.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:raidme/models/exercise_capture.dart';
+import 'package:raidme/models/exercise_set.dart';
 import 'package:raidme/models/session.dart';
 import 'package:raidme/services/local_storage_service.dart';
 
@@ -98,7 +104,7 @@ void main() {
     });
 
     test(
-      'conversion-status-only update → NOT dirty',
+      'conversion-status-only update → NOT dirty; per-set reps bump → dirty',
       () async {
         final sentAt =
             DateTime.now().subtract(const Duration(minutes: 5));
@@ -115,6 +121,13 @@ void main() {
         // Save an exercise first — this is the initial insert, which
         // DOES flip the stamp. Clear the stamp back to null so the
         // second-stage test mirrors a post-publish stable state.
+        final firstSet = ExerciseSet.create(
+          position: 1,
+          reps: 10,
+          holdSeconds: 0,
+          weightKg: null,
+          breatherSecondsAfter: 30,
+        );
         final ex = ExerciseCapture(
           id: 'ex-pub-1',
           position: 0,
@@ -123,9 +136,14 @@ void main() {
           createdAt: DateTime.now(),
           sessionId: session.id,
           conversionStatus: ConversionStatus.pending,
-          reps: 10,
-          sets: 3,
-          holdSeconds: 0,
+          sets: <ExerciseSet>[firstSet],
+          // Pre-stamp videoRepsPerLoop so withPersistenceDefaults is a
+          // no-op on the initial save and subsequent copyWith calls
+          // preserve the value (otherwise the implicit defaulting on
+          // the first save would diverge from this in-memory `ex` and
+          // the conversion-status copyWith below would look like a
+          // user-content delta against the persisted row).
+          videoRepsPerLoop: 3,
         );
         await storage.saveExercise(ex);
 
@@ -176,15 +194,18 @@ void main() {
         );
         expect(afterDone.hasUnpublishedContentChanges, isFalse);
 
-        // Now a REAL user edit (reps bump) — that SHOULD dirty.
-        final edited = done.copyWith(reps: 12);
+        // Now a REAL user edit (per-set reps bump on the only set) —
+        // that SHOULD dirty.
+        final edited = done.copyWith(
+          sets: <ExerciseSet>[firstSet.copyWith(reps: 12)],
+        );
         await storage.saveExercise(edited);
 
         final afterEdit = await storage.getSession(session.id);
         expect(
           afterEdit!.lastContentEditAt,
           isNotNull,
-          reason: 'A reps change is a user content edit → must stamp',
+          reason: 'A per-set reps change is a user content edit → must stamp',
         );
         expect(afterEdit.hasUnpublishedContentChanges, isTrue);
       },

@@ -259,6 +259,20 @@ class UnifiedPreviewSchemeBridge {
         ? '/local/${e.id}/segmented'
         : null;
 
+    // Per-set DOSE wave — emit the nested `sets` array shape that the
+    // web-player bundle now consumes (matching `get_plan_full`'s
+    // server-side response). Each set carries the per-row fields the
+    // bundle uses for the DOSE table + rep-stack timing.
+    final setsJson = e.sets
+        .map((s) => <String, dynamic>{
+              'position': s.position,
+              'reps': s.reps,
+              'hold_seconds': s.holdSeconds,
+              'weight_kg': s.weightKg,
+              'breather_seconds_after': s.breatherSecondsAfter,
+            })
+        .toList(growable: false);
+
     return {
       'id': e.id,
       'plan_id': e.sessionId,
@@ -267,22 +281,14 @@ class UnifiedPreviewSchemeBridge {
       'media_url': lineUrl,
       'thumbnail_url': null,
       'media_type': e.mediaType.name,
-      'reps': e.reps,
-      'sets': e.sets,
-      'hold_seconds': e.holdSeconds,
+      'sets': setsJson,
       'notes': e.notes,
       'circuit_id': e.circuitId,
       'include_audio': e.includeAudio,
-      'custom_duration_seconds': e.customDurationSeconds,
       'prep_seconds': e.prepSeconds,
-      // Wave 37 hotfix — coerce null to the canonical 15s breather default.
-      // Pre-Milestone-Q exercises (created before 2026-04-23 when
-      // `withPersistenceDefaults` started seeding 15s) carry a null in
-      // local SQLite; the web player treats null as 0, which makes the
-      // rep-block stack skip rest blocks entirely. Mirror
-      // `StudioDefaults.interSetRestSeconds` so the in-app Preview matches
-      // what gets published.
-      'inter_set_rest_seconds': e.interSetRestSeconds ?? 15,
+      // Wave 24 — number of reps captured in the source video; the
+      // bundle uses this to derive per-rep playback timing.
+      'video_reps_per_loop': e.videoRepsPerLoop,
       // Wave 20 / Milestone X — soft-trim window. Both null = no trim,
       // full clip plays. Both set = the bundle clamps `<video>.currentTime`
       // to [start, end] and loops within that window.
@@ -291,6 +297,12 @@ class UnifiedPreviewSchemeBridge {
       // Wave 28 — landscape orientation metadata.
       'aspect_ratio': e.aspectRatio,
       'rotation_quarters': e.rotationQuarters,
+      // Per-set DOSE rest-fix — round-trip parity with the cloud
+      // `get_plan_full` shape. Null for video/photo; positive integer
+      // for media_type='rest'. The web-player bundle reads this when
+      // deriving rest-card duration; mobile preview hits the same
+      // bundle via the local scheme handler so parity is mandatory.
+      'rest_seconds': e.restHoldSeconds,
       'preferred_treatment': e.preferredTreatment?.wireValue,
       'line_drawing_url': lineUrl,
       'grayscale_url':

@@ -1485,16 +1485,132 @@ video.is-prep-paused {
   gap: 1px;
 }
 
+/*
+ * Wave 41 — sections become a horizontal split: rep-blocks column on
+ * the LEFT, weight-chip / end-marker / hold-label column on the
+ * RIGHT. The blocks subcolumn keeps the original column-reverse so
+ * rep 1 sits at the bottom; the aside subcolumn is centered next to
+ * its set group.
+ */
 .rep-stack-section {
   display: flex;
-  flex-direction: column-reverse;
-  gap: 1px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
   flex: var(--rep-stack-section-grow, 1) 1 0;
   min-height: 0;
 }
 .rep-stack-section--rest {
   /* Rest sections render as a single thinner block — already a
      single child below; the section just provides the slot. */
+}
+
+.rep-stack-section-blocks {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+}
+
+.rep-stack-section-aside {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  /* Stay out of the rep-block tap zone — the aside is non-interactive
+     visual annotation. */
+  pointer-events: none;
+}
+
+.rep-stack-set-hold {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--c-ink-muted);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Weight chips + End-of-exercise marker (Wave 41)                   */
+/* ------------------------------------------------------------------ */
+.weight-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--c-surface-raised);
+  border: 1px solid var(--c-surface-border);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--c-ink-primary);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+/* Urgent variant — used for the FIRST set's chip and any set whose
+   weight differs from the previous one. Brand-tint background +
+   coral text mirrors the mockup's "weight-up" treatment. */
+.weight-chip--up {
+  background: var(--c-brand-tint-bg);
+  border-color: var(--c-brand-tint-border);
+  color: var(--c-brand);
+}
+
+/* Bodyweight variant — muted styling with no urgent treatment so it
+   reads as "no weight selected" rather than "change incoming". */
+.weight-chip--bodyweight {
+  background: transparent;
+  border-color: var(--c-ink-disabled);
+  color: var(--c-ink-secondary);
+  font-weight: 500;
+  letter-spacing: 0.4px;
+}
+
+.weight-chip-bolt {
+  display: inline-block;
+  margin-right: 1px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--c-brand);
+}
+.weight-chip--bodyweight .weight-chip-bolt {
+  color: var(--c-ink-muted);
+}
+
+/* End-of-exercise marker — sage chip with a checkmark glyph that
+   sits to the right of the FINAL rest divider. Replaces the
+   forward-look weight chip on the trailing breather. */
+.end-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(134, 239, 172, 0.10);
+  border: 1px solid var(--c-rest-tint-border);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--c-rest);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.end-marker svg {
+  width: 10px;
+  height: 10px;
+  stroke: var(--c-rest);
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .rep-stack-block {

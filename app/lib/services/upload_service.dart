@@ -122,6 +122,22 @@ class PublishResult {
   /// the sheet without re-fetching.
   final PracticeClient? consentConfirmationClient;
 
+  /// Per-set DOSE wave — exercise IDs whose incoming `sets` array was
+  /// missing or empty at publish time. The server-side
+  /// `replace_plan_exercises` RPC inserted a synthetic single-set
+  /// fallback (`reps=1, hold=0, weight=NULL, breather=60`) for these so
+  /// the plan stays playable, and surfaced the IDs here so the UI can
+  /// warn the practitioner that a default was applied. Empty list on
+  /// the happy path (every video/photo exercise carried its own sets).
+  ///
+  /// TODO(ui): the snackbar / dialog that surfaces this list lives
+  /// outside this service per the data-layer scope. The Studio /
+  /// publish-button handler should read [fallbackSetExerciseIds] off
+  /// the success result and render a one-liner ("N exercises had
+  /// missing sets — a single-set default was applied"). The
+  /// upload_service itself does NOT show UI.
+  final List<String> fallbackSetExerciseIds;
+
   const PublishResult._({
     required this.success,
     this.url,
@@ -134,6 +150,7 @@ class PublishResult {
     this.practiceId,
     this.unconsented,
     this.consentConfirmationClient,
+    this.fallbackSetExerciseIds = const <String>[],
   });
 
   /// Successful publish.
@@ -141,12 +158,14 @@ class PublishResult {
     required String url,
     required int version,
     required int creditsCharged,
+    List<String> fallbackSetExerciseIds = const <String>[],
   }) =>
       PublishResult._(
         success: true,
         url: url,
         version: version,
         creditsCharged: creditsCharged,
+        fallbackSetExerciseIds: fallbackSetExerciseIds,
       );
 
   /// Pre-flight validation failure. Nothing was uploaded; no plan state
@@ -775,6 +794,11 @@ class UploadService {
       // Step 6: Upsert exercise rows (batched). FK to plans is satisfied
       // from Step 4.
       // ----------------------------------------------------------------
+      // Per-set DOSE wave — payload now carries a nested `sets` array
+      // per video/photo exercise. Rest exercises emit an empty `sets`
+      // array (the RPC ignores it for media_type='rest'). Each set
+      // serialises as {position, reps, hold_seconds, weight_kg,
+      // breather_seconds_after}.
       final exerciseRows = session.exercises
           .map((e) => {
                 'id': e.id,
@@ -784,13 +808,10 @@ class UploadService {
                 'media_url': mediaUrls[e.id],
                 'thumbnail_url': thumbUrls[e.id],
                 'media_type': e.mediaType.name,
-                'reps': e.reps,
-                'sets': e.sets,
-                'hold_seconds': e.holdSeconds,
+                'sets': e.sets.map((s) => s.toJson()).toList(growable: false),
                 'notes': e.notes,
                 'circuit_id': e.circuitId,
                 'include_audio': e.includeAudio,
-                'custom_duration_seconds': e.customDurationSeconds,
                 // Sticky treatment preference (Milestone O). null is
                 // "default = line"; non-null is the practitioner's
                 // explicit choice persisted from the Studio card tiles
@@ -804,15 +825,6 @@ class UploadService {
                 // "Prep seconds" inline field. Surfaces on the web
                 // player via get_plan_full (emitted by to_jsonb(e)).
                 'prep_seconds': e.prepSeconds,
-                // Inter-set rest "Post Rep Breather" (Milestone Q).
-                // null = no breather (legacy rows); 0 = explicit
-                // disable; positive int = practitioner-configured
-                // breather seconds between sets. Fresh mobile captures
-                // seed 15 via withPersistenceDefaults(). Surfaces on
-                // the web player via get_plan_full (emitted by
-                // to_jsonb(e)); the player shows a segmented progress
-                // bar + sage countdown chip between sets when sets > 1.
-                'inter_set_rest_seconds': e.interSetRestSeconds,
                 // Soft-trim window (Wave 20 / Milestone X). Both null
                 // = no trim, full clip plays. When set, mobile preview
                 // + web player clamp playback to [start, end] and loop
@@ -824,36 +836,43 @@ class UploadService {
                 // Wave 24 — number of reps captured in the source
                 // video. NULL = legacy / pre-migration row (player
                 // treats as 1 rep per loop). Fresh captures seed to 3
-                // via withPersistenceDefaults(). Per-rep / per-set
-                // time on both mobile preview and the web player
-                // derive from this value (replacing the manual
-                // custom_duration_seconds override in the UI).
+                // via withPersistenceDefaults().
                 'video_reps_per_loop': e.videoRepsPerLoop,
                 // Wave 28 — landscape orientation metadata. aspect_ratio
                 // is the effective playback aspect AFTER any practitioner
                 // rotation (single source of truth — consumers don't
                 // re-derive from natural dimensions + rotation).
-                // rotation_quarters is the practitioner's manual playback
-                // rotation in 90° clockwise quarters; both surfaces apply
-                // it as a CSS / Transform.rotate at render time, no source
-                // re-encoding. Surfaces on the web player via
-                // get_plan_full (emitted by to_jsonb(e)).
                 'aspect_ratio': e.aspectRatio,
                 'rotation_quarters': e.rotationQuarters,
+                // Per-set DOSE rest-fix (schema_wave_per_set_dose_rest_fix.sql).
+                // Only meaningful for media_type='rest'; null for video/photo.
+                // The Wave-1 migration dropped exercises.hold_seconds (which
+                // had been the rest-duration carrier for rest rows); this
+                // restores the cloud round-trip via a dedicated rest_seconds
+                // column. Mobile-side the value lives on
+                // ExerciseCapture.restHoldSeconds (SQLite v33).
+                'rest_seconds': e.restHoldSeconds,
               })
           .toList();
 
-      // Atomic replace-all — DELETE + INSERT in one transaction server-side
-      // (Wave 18.1). The previous `upsert + delete-stale` pair raced against
-      // the DEFERRABLE UNIQUE (plan_id, position) index on reorder, because
-      // each PostgREST HTTP hop auto-commits and the deferrable check never
-      // actually deferred. The RPC bundles both ops into ONE transaction so
-      // the index check holds until commit. Rest-only sessions (empty
-      // exerciseRows) clear everything.
-      await _api.replacePlanExercises(
+      // Atomic replace-all — DELETE + INSERT in one transaction server-side.
+      // Per-set DOSE wave: the RPC also rewrites the per-exercise child
+      // rows in `exercise_sets` and returns a list of fallback exercise
+      // IDs whose incoming `sets` array was missing/empty. Surface
+      // those to the caller via [PublishResult.fallbackSetExerciseIds].
+      final replaceResult = await _api.replacePlanExercises(
         planId: session.id,
         rows: exerciseRows,
       );
+      // The list is propagated all the way to the success result. We
+      // copy into a local so the closure capture below is explicit.
+      final fallbackSetIds = replaceResult.fallbackSetExerciseIds;
+      if (fallbackSetIds.isNotEmpty) {
+        debugPrint(
+          'uploadPlan: server applied synthetic single-set fallback for '
+          '${fallbackSetIds.length} exercise(s): ${fallbackSetIds.join(", ")}',
+        );
+      }
 
       // ----------------------------------------------------------------
       // Step 7.5: best-effort raw-archive upload.
@@ -966,6 +985,7 @@ class UploadService {
         url: planUrl,
         version: newVersion,
         creditsCharged: creditsToCharge,
+        fallbackSetExerciseIds: fallbackSetIds,
       );
     } catch (e) {
       // Clean up any storage objects we uploaded before the failure so a

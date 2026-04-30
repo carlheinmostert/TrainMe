@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Per-set DOSE + tabbed editor sheet</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .oos { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .oos h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Per-set DOSE wave &middot; tabbed editor sheet &middot; redesigned exercise card</div>
+  <h1>Per-set DOSE table + tabbed bottom-sheet editor</h1>
+
+  <p class="lede">
+    <strong>Architectural shift.</strong> The exercise card collapsed from an inline accordion to a compact row (thumbnail + Dose button + Notes button + gear). All editing now happens in a four-tab bottom sheet (<code>Dose</code> / <code>Notes</code> / <code>Preview</code> / <code>Settings</code>) with two detents and drag-to-dismiss. DOSE itself moved from uniform <code>reps&times;sets@hold</code> to a per-set table with a new <code>weight_kg</code> column and per-set <code>breather</code>. Schema migration ran, mobile data layer rewrote, web-player rep-stack now renders per-set with weight chips + change-load indicators + end-of-exercise marker. <strong>22 checks across 7 sections.</strong>
+  </p>
+
+  <div class="oos">
+    <h3>Known caveat &middot; rest-period durations</h3>
+    <ul>
+      <li>The wave-1 schema migration dropped <code>exercises.hold_seconds</code> &mdash; which was carrying rest-period duration on cloud. The wave-2 fix added a fresh <code>rest_seconds</code> column, but cloud values for the 24 pre-existing rest exercises were lost. Mobile cache preserved them locally; on next publish they go back to cloud.</li>
+      <li>If a rest period plays back at 30 s when you remember setting it to something else, it&apos;s likely cloud-side data loss. Re-set the value &rarr; republish &rarr; cloud picks up.</li>
+    </ul>
+  </div>
+
+  <h2>A &middot; Compact card + sheet structure</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">A1.</span>
+      <span class="text">Exercise card is compact (single row), not the old accordion.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Open any client &rarr; existing session with at least one video / photo exercise.</li>
+        <li data-sub="1.2">Confirm each card shows: thumbnail (left, ~72&times;72) + title + a single trigger row beneath with <code>Dose &middot; {summary}</code>, <code>Notes &middot; ...</code>, and a gear icon at the right.</li>
+        <li data-sub="1.3">Card height is dramatically shorter than before. No inline DOSE / PACING / NOTES expansion.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">A2.</span>
+      <span class="text">Tap Dose button &rarr; sheet opens on Dose tab at medium detent.</span>
+      <ol class="steps">
+        <li data-sub="2.1">Tap the <code>Dose &middot; ...</code> button on a card.</li>
+        <li data-sub="2.2">Sheet slides up from the bottom and lands at ~50% screen height (medium detent).</li>
+        <li data-sub="2.3">Drag-handle (sage-grey rounded bar) visible at the top of the sheet.</li>
+        <li data-sub="2.4">Tab strip below: <code>Dose</code> / <code>Notes</code> / <code>Preview</code> / <code>Settings</code>. Dose tab is active (coral underline).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">A3.</span>
+      <span class="text">Drag the sheet up &rarr; snaps to large detent (~95% screen).</span>
+      <ol class="steps">
+        <li data-sub="3.1">From the medium detent, drag the drag-handle upward.</li>
+        <li data-sub="3.2">Sheet snaps to large detent (~95% screen height). Backdrop dim of the cards behind stays visible.</li>
+        <li data-sub="3.3">Drag down past medium &rarr; sheet dismisses. Card list returns to full opacity.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">A4.</span>
+      <span class="text">Tap thumbnail / gear / Notes button &rarr; sheet opens on the right tab.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Tap the thumbnail &rarr; sheet opens on Preview tab.</li>
+        <li data-sub="4.2">Dismiss. Tap the gear &rarr; sheet opens on Settings tab.</li>
+        <li data-sub="4.3">Dismiss. Tap the Notes button &rarr; sheet opens on Notes tab.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">A5.</span>
+      <span class="text">Swipe horizontally between tabs.</span>
+      <ol class="steps">
+        <li data-sub="5.1">With the sheet open on any tab, swipe left/right within the tab content area.</li>
+        <li data-sub="5.2">Tabs cycle Dose &harr; Notes &harr; Preview &harr; Settings. Active-tab underline animates.</li>
+        <li data-sub="5.3">Tapping a tab in the strip jumps directly to it.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>B &middot; DOSE table editing</h2>
+  <ul class="checklist">
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">B1.</span>
+      <span class="text">New exercise has 1 default set seeded (10 reps, no hold, bodyweight, 30 s breather).</span>
+      <ol class="steps">
+        <li data-sub="6.1">Create a new session and capture a new video exercise. Open Dose tab.</li>
+        <li data-sub="6.2">Confirm the table shows 1 row: <code>Set 1 &middot; 10 reps &middot; &mdash; hold &middot; &mdash; weight &middot; 30 s breather</code>.</li>
+        <li data-sub="6.3">Existing exercises in pre-wave plans show their backfilled per-set rows (1 row per set count).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&times;</button></div>
+      <span class="num">B2.</span>
+      <span class="text">Tap a Reps cell &rarr; chip row drops in below the row.</span>
+      <ol class="steps">
+        <li data-sub="7.1">Tap any Reps cell.</li>
+        <li data-sub="7.2">Chip row appears below the row: <code>5 &middot; 8 &middot; 10 &middot; 12 &middot; 15 &middot; Custom...</code></li>
+        <li data-sub="7.3">Tap a chip &rarr; cell value updates immediately.</li>
+        <li data-sub="7.4">Tap the same cell again &rarr; editor dismisses. Tap another cell &rarr; editor moves.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&times;</button></div>
+      <span class="num">B3.</span>
+      <span class="text">Weight slider snaps to 2.5 kg, N/A toggle works.</span>
+      <ol class="steps">
+        <li data-sub="8.1">Tap a Weight cell &rarr; stepped slider drops in (0&ndash;200 kg, 2.5 kg increments).</li>
+        <li data-sub="8.2">Drag the slider thumb &mdash; values snap to 2.5 / 5 / 7.5 / 10 / 12.5 / ... kg.</li>
+        <li data-sub="8.3">Tap the N/A toggle on the left &rarr; slider disables, cell shows <code>&mdash;</code> (bodyweight).</li>
+        <li data-sub="8.4">Tap N/A again &rarr; slider re-enables at last set value.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&times;</button></div>
+      <span class="num">B4.</span>
+      <span class="text">Add Set CTA copies the last row&apos;s values.</span>
+      <ol class="steps">
+        <li data-sub="9.1">Set Set 1 to <code>8 reps @ 15 kg, 60 s breather</code>.</li>
+        <li data-sub="9.2">Tap <strong>Add Set</strong> below the table.</li>
+        <li data-sub="9.3">New row appears as Set 2 with the same values (<code>8 / 15 kg / 60 s</code>).</li>
+        <li data-sub="9.4">Edit Set 2&apos;s reps to <code>6</code> &mdash; only Set 2 changes; Set 1 stays at <code>8</code>.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="10" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&times;</button></div>
+      <span class="num">B5.</span>
+      <span class="text">Drag-reorder + swipe-delete with undo.</span>
+      <ol class="steps">
+        <li data-sub="10.1">With 3 rows, long-press on a row to grab the drag handle. Drag it to a new position. Position numbers re-derive (Set 1/2/3 always renumber).</li>
+        <li data-sub="10.2">Right-swipe on a row &rarr; red destructive zone reveals.</li>
+        <li data-sub="10.3">Release &rarr; row deletes immediately. <code>Set N deleted &middot; UNDO</code> SnackBar appears.</li>
+        <li data-sub="10.4">Tap <strong>UNDO</strong> within 5 s &rarr; row restored at original position.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>C &middot; Notes / Settings / Preview tabs</h2>
+  <ul class="checklist">
+    <li data-num="11" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&times;</button></div>
+      <span class="num">C1.</span>
+      <span class="text">Notes tab &mdash; type and persist; sheet auto-promotes on focus.</span>
+      <ol class="steps">
+        <li data-sub="11.1">Switch to Notes tab. Tap into the textarea.</li>
+        <li data-sub="11.2">Sheet auto-promotes from medium &rarr; large detent (keyboard accommodation).</li>
+        <li data-sub="11.3">Type some notes. Dismiss the sheet. Re-open it from the Notes button.</li>
+        <li data-sub="11.4">Notes are preserved. The button face on the card shows the truncated first line.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="12" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&check;</button><button class="fail" type="button" aria-label="Fail 12">&times;</button></div>
+      <span class="num">C2.</span>
+      <span class="text">Settings tab &mdash; prep seconds + video reps per loop persist.</span>
+      <ol class="steps">
+        <li data-sub="12.1">Switch to Settings tab. Confirm two preset chip rows: <code>Prep seconds</code> and <code>Video reps per loop</code>.</li>
+        <li data-sub="12.2">Change prep seconds to 30. Change video reps per loop to 4.</li>
+        <li data-sub="12.3">Dismiss + re-open. Values preserved. Gear icon turns coral on the card (non-default indicator).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="13" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&check;</button><button class="fail" type="button" aria-label="Fail 13">&times;</button></div>
+      <span class="num">C3.</span>
+      <span class="text">Preview tab embeds the full _MediaViewer.</span>
+      <ol class="steps">
+        <li data-sub="13.1">Switch to Preview tab.</li>
+        <li data-sub="13.2">Video plays. Treatment segmented control (Line / B&amp;W / Original) on the left edge works.</li>
+        <li data-sub="13.3">Body-focus pill, mute pill, rotate pill all in bottom-left chrome cluster &mdash; toggle each, behaviour matches the standalone full-screen preview.</li>
+        <li data-sub="13.4">Soft-trim editor along the bottom: drag handles, scrub, reset link.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>D &middot; Persistence + sticky defaults</h2>
+  <ul class="checklist">
+    <li data-num="14" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&check;</button><button class="fail" type="button" aria-label="Fail 14">&times;</button></div>
+      <span class="num">D1.</span>
+      <span class="text">Edits persist across sheet dismiss + app relaunch.</span>
+      <ol class="steps">
+        <li data-sub="14.1">Edit Set 1 reps &rarr; 12, weight &rarr; 17.5 kg, breather &rarr; 90 s. Add Set 2.</li>
+        <li data-sub="14.2">Dismiss the sheet. The Dose button summary updates: <code>Dose &middot; 12 reps @ 17.5 kg, ...</code></li>
+        <li data-sub="14.3">Force-quit the app. Relaunch. Open the same exercise. Values preserved.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="15" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 15">&check;</button><button class="fail" type="button" aria-label="Fail 15">&times;</button></div>
+      <span class="num">D2.</span>
+      <span class="text">Sticky-defaults: next exercise on same client seeds first set with last edit.</span>
+      <ol class="steps">
+        <li data-sub="15.1">On the exercise from D1, set Set 1 reps &rarr; 8.</li>
+        <li data-sub="15.2">Add a NEW exercise to the same client&apos;s session.</li>
+        <li data-sub="15.3">Open Dose tab. Set 1&apos;s reps default to 8 (sticky), not the original 10.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>E &middot; Publish + web player parity</h2>
+  <ul class="checklist">
+    <li data-num="16" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 16">&check;</button><button class="fail" type="button" aria-label="Fail 16">&times;</button></div>
+      <span class="num">E1.</span>
+      <span class="text">Publish a plan with varied dose &rarr; success, no fallback SnackBar.</span>
+      <ol class="steps">
+        <li data-sub="16.1">Build a plan with at least 1 pyramid exercise (e.g. 3 sets at 10/8/6 reps and 12.5 / 15 / 17.5 kg).</li>
+        <li data-sub="16.2">Tap Publish from the workflow pill.</li>
+        <li data-sub="16.3">Confirm <code>Published &check;</code> toast appears. NO fallback SnackBar (would say <em>&quot;N exercises were saved with default sets&quot;</em>).</li>
+        <li data-sub="16.4">No errors in the snackbar / publish-error overlay.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="17" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 17">&check;</button><button class="fail" type="button" aria-label="Fail 17">&times;</button></div>
+      <span class="num">E2.</span>
+      <span class="text">Open published URL in Safari &rarr; per-set rep stack with weight chips.</span>
+      <ol class="steps">
+        <li data-sub="17.1">Share the published plan URL to yourself. Open in Safari (NOT the app&apos;s preview).</li>
+        <li data-sub="17.2">Confirm the rep-block stack on the right shows: per-set rep blocks, sage rest dividers between sets (no text inside), weight chips next to each set group.</li>
+        <li data-sub="17.3">Set 1: <code>12.5 kg</code> chip (muted or coral first-set treatment). Sets 2 &amp; 3: <code>&#9889; 15 kg</code> / <code>&#9889; 17.5 kg</code> with bolt + brand-tint background (urgent change-load styling).</li>
+        <li data-sub="17.4">Rest dividers carry a forward-look weight chip on the right (next set&apos;s weight). Final rest divider has <code>&check; End of exercise</code> marker instead.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="18" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 18">&check;</button><button class="fail" type="button" aria-label="Fail 18">&times;</button></div>
+      <span class="num">E3.</span>
+      <span class="text">Web player decoded grammar reflects per-set summary.</span>
+      <ol class="steps">
+        <li data-sub="18.1">On the same web player, look at the decoded-grammar slot below the exercise name.</li>
+        <li data-sub="18.2">Pyramid: shows <code>10/8/6 @ 12.5/15/17.5 kg &middot; 60 s rest</code> (or similar).</li>
+        <li data-sub="18.3">Uniform sets: shows <code>3 &times; 10 @ 15 kg &middot; 60 s rest</code>.</li>
+        <li data-sub="18.4">Bodyweight: shows <code>3 &times; 10 &middot; 30 s hold &middot; 60 s rest</code> (no kg).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>F &middot; Migration sanity</h2>
+  <ul class="checklist">
+    <li data-num="19" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 19">&check;</button><button class="fail" type="button" aria-label="Fail 19">&times;</button></div>
+      <span class="num">F1.</span>
+      <span class="text">Pre-wave plans still load and display correctly.</span>
+      <ol class="steps">
+        <li data-sub="19.1">Open a plan that was published BEFORE this wave.</li>
+        <li data-sub="19.2">Each video / photo exercise shows the correct number of backfilled sets (clones of legacy <code>reps / hold / inter_set_rest</code>).</li>
+        <li data-sub="19.3">Web player renders the rep-block stack from the backfilled data; weight chips are <code>Bodyweight</code> (since pre-wave data didn&apos;t carry weight).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="20" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 20">&check;</button><button class="fail" type="button" aria-label="Fail 20">&times;</button></div>
+      <span class="num">F2.</span>
+      <span class="text">SQLite v33 migration ran on first launch (no crash, no data loss).</span>
+      <ol class="steps">
+        <li data-sub="20.1">After installing this build, the first launch must complete the SQLite v32 &rarr; v33 migration without crashing.</li>
+        <li data-sub="20.2">Existing local plans + clients are intact post-migration.</li>
+        <li data-sub="20.3">Local rest-period durations preserved (stored in <code>restHoldSeconds</code> field on mobile cache; cloud-side may have lost values per the caveat above).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>G &middot; Smoke (golden path)</h2>
+  <ul class="checklist">
+    <li data-num="21" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 21">&check;</button><button class="fail" type="button" aria-label="Fail 21">&times;</button></div>
+      <span class="num">G1.</span>
+      <span class="text">Client list renders + practice switcher works.</span>
+      <ol class="steps">
+        <li data-sub="21.1">Sign in. Home / Clients list renders without spinner stuck.</li>
+        <li data-sub="21.2">Practice switcher chip shows credits + role.</li>
+        <li data-sub="21.3">Tap a client &rarr; ClientSessions screen opens.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="22" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 22">&check;</button><button class="fail" type="button" aria-label="Fail 22">&times;</button></div>
+      <span class="num">G2.</span>
+      <span class="text">Photo conversion completes (spinner clears).</span>
+      <ol class="steps">
+        <li data-sub="22.1">Capture a NEW photo exercise.</li>
+        <li data-sub="22.2">Wait a few seconds &mdash; conversion progress indicator clears.</li>
+        <li data-sub="22.3">Studio thumbnail shows the converted line-drawing variant (or B&amp;W per preferred-treatment).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+</div>
+<script>
+(function() {
+  var SLUG = '2026-04-30-wave-per-set-dose';
+  var API = '/api/test-results/' + SLUG;
+  var state = { items: {} };
+
+  fetch('/test-scripts/' + SLUG, { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : { items: {} }; })
+    .then(function(data) {
+      state = data || { items: {} };
+      applyState();
+    })
+    .catch(function() {});
+
+  function applyState() {
+    document.querySelectorAll('.checklist > li').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var item = state.items[num];
+      if (item) {
+        li.setAttribute('data-status', item.status);
+        var note = li.querySelector('.note');
+        if (note && item.note) note.value = item.note;
+      }
+    });
+  }
+
+  function persist() {
+    fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state),
+    }).catch(function() {});
+  }
+
+  document.querySelectorAll('.checklist > li').forEach(function(li) {
+    var num = li.getAttribute('data-num');
+
+    li.querySelector('.vote .pass').addEventListener('click', function() {
+      li.setAttribute('data-status', 'pass');
+      if (!state.items[num]) state.items[num] = {};
+      state.items[num].status = 'pass';
+      persist();
+    });
+
+    li.querySelector('.vote .fail').addEventListener('click', function() {
+      li.setAttribute('data-status', 'fail');
+      if (!state.items[num]) state.items[num] = {};
+      state.items[num].status = 'fail';
+      persist();
+    });
+
+    var note = li.querySelector('.note');
+    if (note) {
+      var debounce;
+      note.addEventListener('input', function() {
+        clearTimeout(debounce);
+        if (!state.items[num]) state.items[num] = {};
+        state.items[num].note = note.value;
+        debounce = setTimeout(persist, 400);
+      });
+    }
+  });
+})();
+</script>
+</body>
+</html>

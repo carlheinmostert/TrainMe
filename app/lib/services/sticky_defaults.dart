@@ -2,78 +2,82 @@ import 'package:flutter/foundation.dart';
 
 import '../models/cached_client.dart';
 import '../models/exercise_capture.dart';
+import '../models/exercise_set.dart';
 import '../models/treatment.dart';
 import 'client_defaults_api.dart';
 import 'sync_service.dart';
 
-/// Sticky per-client exercise defaults (Milestone R / Wave 8).
+/// Sticky per-client exercise defaults.
 ///
 /// Two responsibilities:
 ///
 ///   1. **Pre-fill** — given a freshly-minted [ExerciseCapture] and a
-///      [CachedClient], return a copy with the seven sticky fields
+///      [CachedClient], return a copy with the surviving sticky fields
 ///      populated from the client's [CachedClient.clientExerciseDefaults].
 ///      Fields already non-null on the exercise are left alone (the
 ///      capture path seeds empty fields; pre-fill only).
 ///
+///      For per-set fields (reps / hold / weight / breather) — there
+///      isn't a "current value" on the exercise to compare against (the
+///      [ExerciseCapture.sets] list is opaque). When pre-filling a
+///      brand-new capture whose `sets` was just seeded by
+///      [ExerciseCapture.withPersistenceDefaults], the helper rebuilds
+///      the synthetic first set with the sticky-stored values when they
+///      exist.
+///
 ///   2. **Write-back** — given a client id, a field key, and a value,
 ///      queue a local-first write of the new default through
-///      [SyncService]. Called on every practitioner override in Studio
-///      so the next new capture inherits the latest choice.
+///      [SyncService]. Called on every practitioner override on the
+///      DOSE editor / pacing controls so the next new capture for this
+///      client inherits the latest choice.
 ///
-/// **Forward-only.** This module never reaches back into prior
-/// captures. Editing reps on exercise N doesn't retroactively touch
+/// **Forward-only.** Editing exercise N doesn't retroactively touch
 /// exercise N-1; it only biases the NEXT new exercise.
 ///
-/// **Invisible UX.** There is no UI surface — the practitioner sees
-/// pre-filled fields and overrides write-back silently. Any debug
-/// instrumentation stays behind [debugPrint].
+/// **Per-set DOSE wave note** — the legacy field set (`reps`, `sets`,
+/// `hold_seconds`, `inter_set_rest_seconds`, `custom_duration_seconds`)
+/// retired alongside the database migration. The replacement keys are
+/// scoped to the FIRST set (`first_set_reps`, `first_set_hold_seconds`,
+/// `first_set_weight_kg`, `first_set_breather_seconds`) — matching the
+/// "common case" the practitioner would have wanted seeded. Subsequent
+/// sets within the same exercise are practitioner-authored on the DOSE
+/// table; we don't try to forward-propagate full set lists.
 ///
-/// **Wave 39 — in-memory overlay.** Wave 8 device-QA flagged that the
-/// next exercise sometimes didn't inherit the practitioner's override
-/// (specifically reps). The original implementation wrote to SQLite via
-/// [SyncService.queueSetExerciseDefault] (an async pending-op queue
-/// hop) and the next capture's prefill read from SQLite. If the
-/// practitioner edited reps and immediately captured another exercise,
-/// the SQLite write could lose the race. The fix is a static
-/// `_memoryOverlay` per-client map that we update SYNCHRONOUSLY on
-/// every override and consult FIRST during prefill — SQLite stays the
-/// canonical store but the in-memory layer guarantees forward-only
-/// propagation even mid-flight. Both layers stay consistent because
-/// every `recordOverride` writes to both.
+/// **Wave 39 — in-memory overlay.** A static `_memoryOverlay`
+/// per-client map updates SYNCHRONOUSLY on every override and is
+/// consulted FIRST during prefill — SQLite stays the canonical store
+/// but the in-memory layer guarantees forward-only propagation even
+/// mid-flight. Both layers stay consistent because every
+/// `recordOverride` writes to both.
 class StickyDefaults {
   StickyDefaults._();
 
   /// Wire field names (exposed for call sites that don't also want to
   /// import [ClientDefaultsApi]).
-  static const String fReps = ClientDefaultsApi.fReps;
-  static const String fSets = ClientDefaultsApi.fSets;
-  static const String fHoldSeconds = ClientDefaultsApi.fHoldSeconds;
   static const String fIncludeAudio = ClientDefaultsApi.fIncludeAudio;
   static const String fPreferredTreatment =
       ClientDefaultsApi.fPreferredTreatment;
   static const String fPrepSeconds = ClientDefaultsApi.fPrepSeconds;
-  static const String fCustomDurationSeconds =
-      ClientDefaultsApi.fCustomDurationSeconds;
-  // Wave 39.4 — Pacing fields that previously bypassed sticky propagation.
   static const String fVideoRepsPerLoop = ClientDefaultsApi.fVideoRepsPerLoop;
-  static const String fInterSetRestSeconds =
-      ClientDefaultsApi.fInterSetRestSeconds;
 
-  /// Wave 39 — in-memory write-through overlay keyed by client id. Every
-  /// [recordOverride] writes here SYNCHRONOUSLY (before the async pending-
-  /// op queue starts spinning) so the next capture's [prefillCapture] sees
-  /// the latest value even if SQLite hasn't flushed yet. Process-local —
-  /// cleared on app restart, at which point SQLite (the canonical store)
-  /// rehydrates the cache.
+  /// Per-set first-set sticky seeds (per-set DOSE wave).
+  static const String fFirstSetReps = ClientDefaultsApi.fFirstSetReps;
+  static const String fFirstSetHoldSeconds =
+      ClientDefaultsApi.fFirstSetHoldSeconds;
+  static const String fFirstSetWeightKg = ClientDefaultsApi.fFirstSetWeightKg;
+  static const String fFirstSetBreatherSeconds =
+      ClientDefaultsApi.fFirstSetBreatherSeconds;
+
+  /// In-memory write-through overlay keyed by client id. Every
+  /// [recordOverride] writes here SYNCHRONOUSLY so the next capture's
+  /// [prefillCapture] sees the latest value even if SQLite hasn't
+  /// flushed yet. Process-local — cleared on app restart, at which
+  /// point SQLite (the canonical store) rehydrates the cache.
   static final Map<String, Map<String, Object?>> _memoryOverlay =
       <String, Map<String, Object?>>{};
 
   /// Prime the in-memory overlay from a freshly-loaded SQLite snapshot.
-  /// Called by capture / studio screens just before a new-capture prefill
-  /// so the overlay map starts coherent with the SQLite row. Skips when
-  /// the overlay already has entries — the overlay always wins (it
-  /// represents writes that may not have flushed yet).
+  /// Existing overlay wins per-key.
   static void primeFromSnapshot(String clientId, Map<String, dynamic> snapshot) {
     if (clientId.isEmpty) return;
     if (snapshot.isEmpty) return;
@@ -82,7 +86,6 @@ class StickyDefaults {
       _memoryOverlay[clientId] = Map<String, Object?>.from(snapshot);
       return;
     }
-    // Existing overlay wins per-key; only add fields not already overlaid.
     for (final entry in snapshot.entries) {
       overlay.putIfAbsent(entry.key, () => entry.value);
     }
@@ -114,15 +117,22 @@ class StickyDefaults {
     _memoryOverlay.clear();
   }
 
-  /// Pre-fill [exercise] with the seven sticky fields from [defaults].
+  /// Pre-fill [exercise] with sticky fields from [defaults].
   ///
-  /// Fields on [exercise] that are already non-null take precedence
-  /// (the caller already had an intent). Rest periods are returned
-  /// unchanged — reps / sets / etc. don't apply to rest.
+  /// Top-level scalar fields (includeAudio, preferredTreatment,
+  /// prepSeconds, videoRepsPerLoop) are filled when the exercise's
+  /// current value is null / default.
   ///
-  /// When [defaults] is empty (fresh client, no prior captures), the
-  /// exercise is returned unchanged so the Studio card falls through
-  /// to its hard-coded [StudioDefaults] seed values.
+  /// First-set fields (reps / hold / weight / breather) are applied to
+  /// the FIRST element of [ExerciseCapture.sets] when:
+  ///   * the exercise has at least one set;
+  ///   * the first set looks like the synthetic seed
+  ///     ([ExerciseSet] with the canonical defaults from
+  ///     [ExerciseCapture.withPersistenceDefaults]); we don't try to
+  ///     overwrite a practitioner-authored first set.
+  ///
+  /// Rest periods are returned unchanged. When [defaults] is empty the
+  /// exercise is returned unchanged.
   static ExerciseCapture prefillCapture(
     ExerciseCapture exercise,
     Map<String, dynamic> defaults,
@@ -130,43 +140,61 @@ class StickyDefaults {
     if (exercise.isRest) return exercise;
     if (defaults.isEmpty) return exercise;
 
-    return exercise.copyWith(
-      reps: exercise.reps ?? _asInt(defaults[fReps]),
-      sets: exercise.sets ?? _asInt(defaults[fSets]),
-      holdSeconds: exercise.holdSeconds ?? _asInt(defaults[fHoldSeconds]),
+    final next = exercise.copyWith(
       includeAudio: _asBool(defaults[fIncludeAudio]) ?? exercise.includeAudio,
       preferredTreatment: exercise.preferredTreatment ??
           _asTreatment(defaults[fPreferredTreatment]),
       prepSeconds: exercise.prepSeconds ?? _asInt(defaults[fPrepSeconds]),
-      customDurationSeconds: exercise.customDurationSeconds ??
-          _asInt(defaults[fCustomDurationSeconds]),
-      // Wave 39.4 — Pacing fields. Mirror the same `??`-guarded pattern.
       videoRepsPerLoop: exercise.videoRepsPerLoop ??
           _asInt(defaults[fVideoRepsPerLoop]),
-      interSetRestSeconds: exercise.interSetRestSeconds ??
-          _asInt(defaults[fInterSetRestSeconds]),
     );
+
+    // Apply first-set sticky values when we have a synthetic-looking
+    // first set. The seed planted by withPersistenceDefaults is
+    // (reps=10, hold=0, weight=null, breather=30). If the exercise's
+    // first set still matches that shape exactly, replace it with the
+    // sticky version.
+    if (next.sets.isEmpty) return next;
+    final first = next.sets.first;
+    final isSyntheticSeed = first.position == 1 &&
+        first.reps == 10 &&
+        first.holdSeconds == 0 &&
+        first.weightKg == null &&
+        first.breatherSecondsAfter == 30;
+    if (!isSyntheticSeed) return next;
+
+    final stickyReps = _asInt(defaults[fFirstSetReps]);
+    final stickyHold = _asInt(defaults[fFirstSetHoldSeconds]);
+    final stickyWeight = _asDouble(defaults[fFirstSetWeightKg]);
+    final stickyBreather = _asInt(defaults[fFirstSetBreatherSeconds]);
+    if (stickyReps == null &&
+        stickyHold == null &&
+        stickyWeight == null &&
+        stickyBreather == null) {
+      return next;
+    }
+    final replaced = first.copyWith(
+      reps: stickyReps ?? first.reps,
+      holdSeconds: stickyHold ?? first.holdSeconds,
+      weightKg:
+          defaults.containsKey(fFirstSetWeightKg) ? stickyWeight : first.weightKg,
+      breatherSecondsAfter: stickyBreather ?? first.breatherSecondsAfter,
+    );
+    final newSets = <ExerciseSet>[
+      replaced,
+      ...next.sets.skip(1),
+    ];
+    return next.copyWith(sets: newSets);
   }
 
   /// Fire-and-forget: write a single override back into the client's
-  /// sticky defaults. Silent on success or failure — never blocks UX.
-  ///
-  /// [clientId] may be null for legacy sessions missing a [Session.clientId];
-  /// in that case we simply skip (nothing to update, forward-only from
-  /// here).
-  ///
-  /// Wave 39 — writes to the in-memory [_memoryOverlay] FIRST (synchronous),
-  /// then queues the persistent write through [SyncService]. This way a
-  /// rapid edit-then-capture sequence sees the latest value via
-  /// [effectiveDefaults] even if the SQLite write lost the race.
+  /// sticky defaults.
   static void recordOverride({
     required String? clientId,
     required String field,
     required Object? value,
   }) {
     if (clientId == null || clientId.isEmpty) return;
-    // Synchronous in-memory write-through. Always lands before the next
-    // prefill, regardless of how the async queue completes.
     final overlay = _memoryOverlay.putIfAbsent(
       clientId,
       () => <String, Object?>{},
@@ -189,68 +217,17 @@ class StickyDefaults {
     });
   }
 
-  /// Record the whole `reps / sets / hold / customDuration` quartet in
-  /// one go — used by the Studio card's [_pushUpdate] which edits that
-  /// block as a group. Each field is independently queued; individual
-  /// failures don't cascade.
-  static void recordStudioSliderGroup({
-    required String? clientId,
-    required ExerciseCapture before,
-    required ExerciseCapture after,
-  }) {
-    if (clientId == null || clientId.isEmpty) return;
-    if (before.reps != after.reps) {
-      recordOverride(
-        clientId: clientId,
-        field: fReps,
-        value: after.reps,
-      );
-    }
-    if (before.sets != after.sets) {
-      recordOverride(
-        clientId: clientId,
-        field: fSets,
-        value: after.sets,
-      );
-    }
-    if (before.holdSeconds != after.holdSeconds) {
-      recordOverride(
-        clientId: clientId,
-        field: fHoldSeconds,
-        value: after.holdSeconds,
-      );
-    }
-    if (before.customDurationSeconds != after.customDurationSeconds) {
-      recordOverride(
-        clientId: clientId,
-        field: fCustomDurationSeconds,
-        value: after.customDurationSeconds,
-      );
-    }
-  }
-
   /// Compare any two exercise snapshots and queue every sticky-field
-  /// delta. Callers that don't know which field changed (e.g. the
-  /// Studio card's generic `onUpdate` tap) use this to fan out.
+  /// delta. Per-set DOSE wave: scalars are compared directly; first-set
+  /// fields are derived from `sets.first` when both snapshots have at
+  /// least one set.
   static void recordAllDeltas({
     required String? clientId,
     required ExerciseCapture before,
     required ExerciseCapture after,
   }) {
     if (clientId == null || clientId.isEmpty) return;
-    if (before.reps != after.reps) {
-      recordOverride(clientId: clientId, field: fReps, value: after.reps);
-    }
-    if (before.sets != after.sets) {
-      recordOverride(clientId: clientId, field: fSets, value: after.sets);
-    }
-    if (before.holdSeconds != after.holdSeconds) {
-      recordOverride(
-        clientId: clientId,
-        field: fHoldSeconds,
-        value: after.holdSeconds,
-      );
-    }
+
     if (before.includeAudio != after.includeAudio) {
       recordOverride(
         clientId: clientId,
@@ -272,14 +249,6 @@ class StickyDefaults {
         value: after.prepSeconds,
       );
     }
-    if (before.customDurationSeconds != after.customDurationSeconds) {
-      recordOverride(
-        clientId: clientId,
-        field: fCustomDurationSeconds,
-        value: after.customDurationSeconds,
-      );
-    }
-    // Wave 39.4 — Pacing fields fan-out.
     if (before.videoRepsPerLoop != after.videoRepsPerLoop) {
       recordOverride(
         clientId: clientId,
@@ -287,12 +256,39 @@ class StickyDefaults {
         value: after.videoRepsPerLoop,
       );
     }
-    if (before.interSetRestSeconds != after.interSetRestSeconds) {
-      recordOverride(
-        clientId: clientId,
-        field: fInterSetRestSeconds,
-        value: after.interSetRestSeconds,
-      );
+
+    final beforeFirst = before.sets.isNotEmpty ? before.sets.first : null;
+    final afterFirst = after.sets.isNotEmpty ? after.sets.first : null;
+    if (afterFirst != null) {
+      if (beforeFirst?.reps != afterFirst.reps) {
+        recordOverride(
+          clientId: clientId,
+          field: fFirstSetReps,
+          value: afterFirst.reps,
+        );
+      }
+      if (beforeFirst?.holdSeconds != afterFirst.holdSeconds) {
+        recordOverride(
+          clientId: clientId,
+          field: fFirstSetHoldSeconds,
+          value: afterFirst.holdSeconds,
+        );
+      }
+      if (beforeFirst?.weightKg != afterFirst.weightKg) {
+        recordOverride(
+          clientId: clientId,
+          field: fFirstSetWeightKg,
+          value: afterFirst.weightKg,
+        );
+      }
+      if (beforeFirst?.breatherSecondsAfter !=
+          afterFirst.breatherSecondsAfter) {
+        recordOverride(
+          clientId: clientId,
+          field: fFirstSetBreatherSeconds,
+          value: afterFirst.breatherSecondsAfter,
+        );
+      }
     }
   }
 
@@ -306,6 +302,14 @@ class StickyDefaults {
     if (raw is int) return raw;
     if (raw is num) return raw.toInt();
     if (raw is String) return int.tryParse(raw);
+    return null;
+  }
+
+  static double? _asDouble(Object? raw) {
+    if (raw == null) return null;
+    if (raw is double) return raw;
+    if (raw is num) return raw.toDouble();
+    if (raw is String) return double.tryParse(raw);
     return null;
   }
 

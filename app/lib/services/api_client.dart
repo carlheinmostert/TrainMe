@@ -607,32 +607,58 @@ class ApiClient {
   ///
   /// Wraps DELETE + INSERT inside a single SECURITY DEFINER transaction
   /// server-side. This is the ONLY supported write path for exercise
-  /// rows: the previous `upsert + delete-stale` pair raced against the
-  /// UNIQUE (plan_id, position) index whenever exercises were reordered
-  /// (each PostgREST HTTP call auto-commits, so the DEFERRABLE index
-  /// never actually deferred). The RPC batches both operations into
-  /// ONE transaction so the deferrable check holds until commit.
+  /// rows.
   ///
-  /// Payload shape: each row in [rows] mirrors the `exercises` table
-  /// columns (id, plan_id, position, name, media_url, thumbnail_url,
-  /// media_type, reps, sets, hold_seconds, notes, circuit_id,
-  /// include_audio, custom_duration_seconds, preferred_treatment,
-  /// prep_seconds, inter_set_rest_seconds, start_offset_ms,
+  /// **Per-set DOSE wave** — payload shape is now: each row in [rows]
+  /// mirrors the `exercises` columns (id, plan_id, position, name,
+  /// media_url, thumbnail_url, media_type, notes, circuit_id,
+  /// include_audio, preferred_treatment, prep_seconds, start_offset_ms,
   /// end_offset_ms, video_reps_per_loop, aspect_ratio,
-  /// rotation_quarters). Unknown keys are ignored by the RPC.
+  /// rotation_quarters) PLUS a nested `sets` array
+  /// `[{position, reps, hold_seconds, weight_kg, breather_seconds_after}, ...]`
+  /// for video / photo exercises. Rest exercises omit `sets` (or pass
+  /// an empty array). Unknown keys are ignored by the RPC.
   ///
   /// Pass an empty [rows] list to clear every exercise for the plan.
-  Future<void> replacePlanExercises({
+  ///
+  /// Returns a [ReplacePlanExercisesResult] with the cloud's plan
+  /// version + a list of exercise IDs whose `sets` array was missing or
+  /// empty (the RPC inserted a synthetic single-set fallback for those
+  /// — see `schema_wave_per_set_dose.sql`). Callers should surface the
+  /// fallback IDs to the practitioner so they know a default was
+  /// applied.
+  Future<ReplacePlanExercisesResult> replacePlanExercises({
     required String planId,
     required List<Map<String, dynamic>> rows,
   }) async {
-    await _guardAuth(() => raw.rpc(
+    final raw0 = await _guardAuth(() => raw.rpc(
           'replace_plan_exercises',
           params: {
             'p_plan_id': planId,
             'p_rows': rows,
           },
         ));
+    if (raw0 is Map) {
+      final m = Map<String, dynamic>.from(raw0);
+      final version = _asNullableInt(m['plan_version']);
+      final ids = <String>[];
+      final fallback = m['fallback_set_exercise_ids'];
+      if (fallback is List) {
+        for (final item in fallback) {
+          if (item is String && item.isNotEmpty) ids.add(item);
+        }
+      }
+      return ReplacePlanExercisesResult(
+        planVersion: version,
+        fallbackSetExerciseIds: List.unmodifiable(ids),
+      );
+    }
+    // Older or unexpected shapes — surface a permissive empty result so
+    // callers don't crash.
+    return const ReplacePlanExercisesResult(
+      planVersion: null,
+      fallbackSetExerciseIds: <String>[],
+    );
   }
 
   /// Append a plan_issuances audit row. Best-effort from the caller's
@@ -744,6 +770,12 @@ class ApiClient {
         lineDrawingUrl: _stringOrNull(row['line_drawing_url']),
         grayscaleUrl: _stringOrNull(row['grayscale_url']),
         originalUrl: _stringOrNull(row['original_url']),
+        // Per-set DOSE rest-fix — schema_wave_per_set_dose_rest_fix.sql
+        // adds rest_seconds to the get_plan_full per-exercise object.
+        // Null for video/photo; positive integer for media_type='rest'.
+        // Surfaced on the transit object so future cloud→local sync /
+        // ExerciseCapture hydration can read it without a second RPC.
+        restHoldSeconds: (row['rest_seconds'] as num?)?.toInt(),
       );
     }
     return out;
@@ -1388,11 +1420,18 @@ class ExerciseTreatmentUrls {
   final String? lineDrawingUrl;
   final String? grayscaleUrl;
   final String? originalUrl;
+  /// Rest-period duration (seconds). Null for video/photo rows; positive
+  /// integer for media_type='rest'. Round-trips through the
+  /// `exercises.rest_seconds` column added in
+  /// schema_wave_per_set_dose_rest_fix.sql; matches mobile-side
+  /// [ExerciseCapture.restHoldSeconds] (SQLite v33).
+  final int? restHoldSeconds;
 
   const ExerciseTreatmentUrls({
     this.lineDrawingUrl,
     this.grayscaleUrl,
     this.originalUrl,
+    this.restHoldSeconds,
   });
 }
 
@@ -1566,6 +1605,39 @@ int _asInt(dynamic v) {
   if (v is num) return v.toInt();
   if (v is String) return int.tryParse(v) ?? 0;
   return 0;
+}
+
+int? _asNullableInt(dynamic v) {
+  if (v == null) return null;
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v is String) return int.tryParse(v);
+  return null;
+}
+
+/// Outcome of a [ApiClient.replacePlanExercises] call (per-set DOSE
+/// wave). The RPC now returns jsonb with two fields:
+///
+///   * `plan_version` — the plan's current version on Postgres after
+///     the write. Useful for diagnostics; the publish flow already
+///     tracks its own `newVersion` locally.
+///   * `fallback_set_exercise_ids` — list of exercise UUIDs whose
+///     incoming `sets` array was missing / empty. The RPC inserts a
+///     synthetic single-set fallback (`reps=1, hold=0, weight=NULL,
+///     breather=60`) for those rows so the plan stays playable. Surface
+///     these to the practitioner so they know a default was applied —
+///     this should never fire from the new client (which always
+///     populates `sets`); it's a defence-in-depth signal that a stale
+///     TestFlight build or a buggy caller skipped the per-set payload.
+@immutable
+class ReplacePlanExercisesResult {
+  final int? planVersion;
+  final List<String> fallbackSetExerciseIds;
+
+  const ReplacePlanExercisesResult({
+    required this.planVersion,
+    required this.fallbackSetExerciseIds,
+  });
 }
 
 // Wave 14: `ClaimInviteResult` / `ClaimInviteError` / `ClaimInviteErrorKind`
