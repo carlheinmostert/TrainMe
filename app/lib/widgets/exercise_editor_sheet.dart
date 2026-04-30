@@ -7,6 +7,7 @@ import '../models/session.dart';
 import '../theme.dart';
 import 'dose_table.dart';
 import 'media_viewer_body.dart';
+import 'preset_chip_row.dart';
 
 /// Which tab the editor sheet should land on when first opened.
 enum ExerciseEditorTab { dose, notes, preview, settings }
@@ -542,26 +543,40 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       controller: scrollController,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildSettingsPresetRow(
+          _SettingsSection(
             label: 'Prep seconds',
-            currentValue: prepSeconds,
-            unit: 's',
-            presets: const [10, 15, 20, 30, 45, 60],
-            onPick: (v) => _emit(_exercise.copyWith(prepSeconds: v)),
-          ),
-          const SizedBox(height: 18),
-          if (_exercise.mediaType == MediaType.video)
-            _buildSettingsPresetRow(
-              label: 'Video reps per loop',
-              currentValue: videoReps,
-              unit: 'reps',
-              presets: const [1, 2, 3, 4, 5],
-              onPick: (v) => _emit(_exercise.copyWith(videoRepsPerLoop: v)),
+            child: PresetChipRow(
+              controlKey: 'prep',
+              canonicalPresets: const <num>[10, 15, 20, 30, 45, 60],
+              currentValue: prepSeconds,
+              accentColor: AppColors.primary,
+              displayFormat: (v) => '${v.toInt()}s',
+              undoLabel: 'prep',
+              scrollable: false,
+              onChanged: (v) =>
+                  _emit(_exercise.copyWith(prepSeconds: v.round())),
             ),
-          const SizedBox(height: 12),
+          ),
+          const SizedBox(height: 20),
+          if (_exercise.mediaType == MediaType.video)
+            _SettingsSection(
+              label: 'Video reps per loop',
+              child: PresetChipRow(
+                controlKey: 'videoRepsPerLoop',
+                canonicalPresets: const <num>[1, 2, 3, 4, 5],
+                currentValue: videoReps,
+                accentColor: AppColors.primary,
+                displayFormat: (v) => '${v.toInt()}',
+                undoLabel: 'reps per loop',
+                scrollable: false,
+                onChanged: (v) =>
+                    _emit(_exercise.copyWith(videoRepsPerLoop: v.round())),
+              ),
+            ),
+          const SizedBox(height: 16),
           const Text(
             'These rarely change once you’ve recorded the exercise.',
             style: TextStyle(
@@ -575,86 +590,36 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       ),
     );
   }
+}
 
-  Widget _buildSettingsPresetRow({
-    required String label,
-    required int currentValue,
-    required String unit,
-    required List<int> presets,
-    required ValueChanged<int> onPick,
-  }) {
+/// Vertically stacked label-above-control settings section. Matches the
+/// pattern used elsewhere in Settings screens — section header on its
+/// own line, control beneath. The previous inline label-and-value-on-
+/// the-same-row treatment squeezed the chip row into too little width.
+class _SettingsSection extends StatelessWidget {
+  final String label;
+  final Widget child;
+
+  const _SettingsSection({required this.label, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              label.toUpperCase(),
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textSecondaryOnDark,
-                letterSpacing: 0.5,
-              ),
-            ),
-            Text(
-              '$currentValue $unit',
-              style: const TextStyle(
-                fontFamily: 'JetBrainsMono',
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textOnDark,
-              ),
-            ),
-          ],
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textSecondaryOnDark,
+            letterSpacing: 1.0,
+          ),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [
-            for (final v in presets)
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  onPick(v);
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 7),
-                  constraints: const BoxConstraints(minWidth: 44),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: v == currentValue
-                        ? AppColors.primary
-                        : AppColors.surfaceBase,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: v == currentValue
-                          ? AppColors.primary
-                          : AppColors.surfaceBorder,
-                      width: 1,
-                    ),
-                  ),
-                  child: Text(
-                    '$v',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: v == currentValue
-                          ? Colors.white
-                          : AppColors.textSecondaryOnDark,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
+        child,
       ],
     );
   }
