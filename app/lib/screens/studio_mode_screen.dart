@@ -5148,21 +5148,31 @@ class _TrimPanelState extends State<_TrimPanel> {
                         ),
                       ),
                       // Start handle.
+                      //
+                      // Round 2 — switched onPan* → onHorizontalDrag* so
+                      // the trim handle wins the gesture arena against
+                      // the host bottom sheet's vertical-drag chrome.
+                      // Pan recognizes both axes and lost to nested
+                      // vertical-drag recognizers in the editor sheet
+                      // embed; horizontal-only is a stronger claim and
+                      // matches the user's actual drag axis.
                       Positioned(
                         left: startX - 14,
                         top: 0,
                         child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
-                          onPanStart: (_) {
+                          onHorizontalDragStart: (_) {
                             HapticFeedback.selectionClick();
                             widget.onDragStart?.call();
                           },
-                          onPanUpdate: (d) => _updateHandle(
+                          onHorizontalDragUpdate: (d) => _updateHandle(
                             _TrimHandle.start,
                             d.delta.dx,
                           ),
-                          onPanEnd: (_) => _onHandleReleased(_TrimHandle.start),
-                          onPanCancel: () => _onHandleReleased(_TrimHandle.start),
+                          onHorizontalDragEnd: (_) =>
+                              _onHandleReleased(_TrimHandle.start),
+                          onHorizontalDragCancel: () =>
+                              _onHandleReleased(_TrimHandle.start),
                           child: const _TrimHandlePill(),
                         ),
                       ),
@@ -5172,16 +5182,18 @@ class _TrimPanelState extends State<_TrimPanel> {
                         top: 0,
                         child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
-                          onPanStart: (_) {
+                          onHorizontalDragStart: (_) {
                             HapticFeedback.selectionClick();
                             widget.onDragStart?.call();
                           },
-                          onPanUpdate: (d) => _updateHandle(
+                          onHorizontalDragUpdate: (d) => _updateHandle(
                             _TrimHandle.end,
                             d.delta.dx,
                           ),
-                          onPanEnd: (_) => _onHandleReleased(_TrimHandle.end),
-                          onPanCancel: () => _onHandleReleased(_TrimHandle.end),
+                          onHorizontalDragEnd: (_) =>
+                              _onHandleReleased(_TrimHandle.end),
+                          onHorizontalDragCancel: () =>
+                              _onHandleReleased(_TrimHandle.end),
                           child: const _TrimHandlePill(),
                         ),
                       ),

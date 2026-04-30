@@ -100,8 +100,12 @@ class ExerciseEditorSheet extends StatefulWidget {
 }
 
 class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
-  static const double _kInitialDetent = 0.55;
-  static const double _kMinDetent = 0.30;
+  // Round 2 — Carl: "Default to 95% please, seeing the background is
+  // overrated" + "don't need 30%, 55 and 95 (default) is good". Sheet
+  // opens at the large detent; the medium 0.55 detent is retained as
+  // a snap-stop on the way down. Drag past 0.55 dismisses.
+  static const double _kInitialDetent = 0.95;
+  static const double _kMinDetent = 0.55;
   static const double _kMaxDetent = 0.95;
 
   late final DraggableScrollableController _sheetController;
@@ -194,7 +198,10 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       minChildSize: _kMinDetent,
       maxChildSize: _kMaxDetent,
       snap: true,
-      snapSizes: const [_kMinDetent, _kInitialDetent, _kMaxDetent],
+      // Round 2 — only two snap sizes (the initial / max + the medium
+      // floor); the previous 0.30 floor was retired per Carl. Releasing
+      // below 0.55 still triggers dismiss in _onChromeDragEnd.
+      snapSizes: const [_kMinDetent, _kMaxDetent],
       expand: false,
       builder: (ctx, scrollController) {
         // Wrap in our own ScaffoldMessenger so showUndoSnackBar fires from
@@ -248,26 +255,35 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   /// drag affordance. With `enableDrag: false` on showModalBottomSheet,
   /// nothing else listens for vertical pulls outside the inner Scrollables
   /// so the handle is the canonical "expand / collapse / dismiss" surface.
+  ///
+  /// Round 2 — uses SizedBox(width: double.infinity) so the GestureDetector
+  /// claims hit-tests across the FULL sheet width, not just the 40pt drag
+  /// pill. Without this, taps to the side of the visible bar didn't fire
+  /// the recognizer and on the Preview tab (where MediaViewerBody owns
+  /// gestures right up to the chrome's edge) drag-up felt unresponsive.
   Widget _buildDragChrome() {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onVerticalDragUpdate: _onChromeDragUpdate,
       onVerticalDragEnd: _onChromeDragEnd,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 8),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.surfaceBorder,
-              borderRadius: BorderRadius.circular(2),
+      child: SizedBox(
+        width: double.infinity,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.surfaceBorder,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          _buildHeader(),
-        ],
+            const SizedBox(height: 6),
+            _buildHeader(),
+          ],
+        ),
       ),
     );
   }
@@ -286,25 +302,21 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     if (!_sheetController.isAttached) return;
     final size = _sheetController.size;
     final velocity = d.primaryVelocity ?? 0;
-    // Velocity > 0 means dragging DOWN — snap to the lower detent (or
-    // dismiss if already past the floor); velocity < 0 means dragging UP.
-    final double target;
-    if (velocity > 600) {
-      // Hard flick down — dismiss.
+    // Velocity > 0 means dragging DOWN — dismiss if released past the
+    // floor; velocity < 0 means dragging UP — snap to max.
+    if (velocity > 600 || size < _kMinDetent - 0.02) {
       Navigator.of(context).maybePop();
       return;
-    } else if (velocity < -600) {
+    }
+    final double target;
+    if (velocity < -600) {
       target = _kMaxDetent;
     } else {
-      // Snap to nearest of [min, initial, max].
-      const detents = [_kMinDetent, _kInitialDetent, _kMaxDetent];
+      // Snap to whichever of [min, max] is closer.
+      const detents = [_kMinDetent, _kMaxDetent];
       target = detents.reduce(
         (a, b) => (size - a).abs() < (size - b).abs() ? a : b,
       );
-    }
-    if (target <= _kMinDetent + 0.01) {
-      Navigator.of(context).maybePop();
-      return;
     }
     _sheetController.animateTo(
       target,
@@ -367,7 +379,14 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
 
   Widget _buildTabStrip() {
     const tabs = ['Dose', 'Notes', 'Preview', 'Settings'];
-    return Container(
+    // Round 2 — tab strip listens for vertical drag too so the Preview
+    // tab (whose body owns gestures inside MediaViewerBody) still has a
+    // reliable drag region between the chrome and the page content.
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onVerticalDragUpdate: _onChromeDragUpdate,
+      onVerticalDragEnd: _onChromeDragEnd,
+      child: Container(
       decoration: const BoxDecoration(
         border: Border(
           bottom: BorderSide(color: AppColors.surfaceBorder, width: 1),
@@ -408,6 +427,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
               ),
             ),
         ],
+      ),
       ),
     );
   }

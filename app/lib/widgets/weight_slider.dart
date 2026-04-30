@@ -103,23 +103,37 @@ class _WeightSliderState extends State<WeightSlider> {
         const SizedBox(height: 8),
         // Slider — disabled when N/A is active (Material `Slider` greys
         // itself out automatically when [onChanged] is null).
-        SliderTheme(
-          data: brandedSliderTheme(
-            accent: AppColors.primary,
-            trackHeight: 4,
-            thumbHeight: 22,
-            thumbWidth: 22,
-            thumbRadius: 11,
-          ),
-          child: Slider(
-            value: activeKg.clamp(_kMin, _kMax),
-            min: _kMin,
-            max: _kMax,
-            divisions: _kDivisions,
-            label: _formatKg(activeKg),
-            onChanged: isNa
-                ? null
-                : (v) => widget.onChanged(_snapToStep(v)),
+        //
+        // Round 2 — wrap in a GestureDetector that claims horizontal pan
+        // explicitly. Inside the editor sheet, the host SingleChildScroll-
+        // View / DraggableScrollableSheet was capturing pan gestures
+        // before Slider's own HorizontalDragGestureRecognizer could win
+        // the arena, dragging the SHEET vertically instead of moving the
+        // slider thumb. Registering empty horizontal handlers + opaque
+        // hit-test keeps the slider as the gesture target.
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (_) {},
+          onHorizontalDragUpdate: (_) {},
+          onHorizontalDragEnd: (_) {},
+          child: SliderTheme(
+            data: brandedSliderTheme(
+              accent: AppColors.primary,
+              trackHeight: 4,
+              thumbHeight: 22,
+              thumbWidth: 22,
+              thumbRadius: 11,
+            ),
+            child: Slider(
+              value: activeKg.clamp(_kMin, _kMax),
+              min: _kMin,
+              max: _kMax,
+              divisions: _kDivisions,
+              label: _formatKg(activeKg),
+              onChanged: isNa
+                  ? null
+                  : (v) => widget.onChanged(_snapToStep(v)),
+            ),
           ),
         ),
         // Tick axis — mono numerals at 0 / 50 / 100 / 150 / 200.
