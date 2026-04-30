@@ -708,19 +708,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
     await File(sourcePath).copy(destPath);
 
-    // Seed an exercise. ExerciseCapture.create(...) leaves reps / sets
-    // / hold null; they read through as StudioDefaults on the card for
-    // fresh clients. For clients with prior captures we overlay the
-    // sticky per-client defaults (Milestone R / Wave 8) onto those
-    // nulls — forward-only propagation, invisible to the practitioner.
     final exercises = List<ExerciseCapture>.from(_session.exercises);
     final position = insertAt ?? exercises.length;
+    // Seed the synthetic first set up front so the card never renders
+    // "No sets yet" and sticky-defaults prefill has something to overwrite.
+    // saveExercise() also calls withPersistenceDefaults but only persists
+    // it to SQLite — without seeding here the in-memory _session would
+    // hold an empty-sets exercise and the editor sheet would open empty.
     var exercise = ExerciseCapture.create(
       position: position,
       rawFilePath: PathResolver.toRelative(destPath),
       mediaType: type,
       sessionId: _session.id,
-    );
+    ).withPersistenceDefaults();
     // Wave 39 — merge SQLite snapshot with the in-memory overlay so rapid
     // edit-then-capture sequences pick up the latest override.
     final clientId = _session.clientId;
