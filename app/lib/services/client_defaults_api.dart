@@ -68,6 +68,9 @@ class ClientDefaultsApi {
   static const String fFirstSetWeightKg = 'first_set_weight_kg';
   static const String fFirstSetBreatherSeconds = 'first_set_breather_seconds';
 
+  // Wave 42 — per-exercise practitioner body-focus default.
+  static const String fBodyFocus = 'body_focus';
+
   /// The full set of fields considered "sticky" for new-capture
   /// pre-fill. Used by the propagation layer to walk every field once.
   static const List<String> allFields = <String>[
@@ -79,6 +82,7 @@ class ClientDefaultsApi {
     fFirstSetHoldSeconds,
     fFirstSetWeightKg,
     fFirstSetBreatherSeconds,
+    fBodyFocus,
   ];
 
   SupabaseClient get _raw => Supabase.instance.client;
