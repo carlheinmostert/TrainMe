@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../models/exercise_set.dart';
 import '../theme.dart';
+import 'preset_chip_row.dart';
 import 'undo_snackbar.dart';
 import 'weight_slider.dart';
 
@@ -470,17 +471,25 @@ class _DoseTableState extends State<DoseTable> {
           _buildEditorEyebrow(target, set.position),
           const SizedBox(height: 8),
           if (target == _DoseEditorTarget.reps)
-            _buildChipRow(
-              presets: const [5, 8, 10, 12, 15],
+            PresetChipRow(
+              controlKey: 'reps',
+              canonicalPresets: const <num>[5, 8, 10, 12, 15],
               currentValue: set.reps,
-              onPick: (v) => _commitReps(index, v),
+              accentColor: AppColors.primary,
+              undoLabel: 'reps',
+              scrollable: false,
+              onChanged: (v) => _commitReps(index, v.round()),
             ),
           if (target == _DoseEditorTarget.hold)
-            _buildChipRow(
-              presets: const [0, 5, 10, 30, 60],
+            PresetChipRow(
+              controlKey: 'hold',
+              canonicalPresets: const <num>[0, 5, 10, 30, 60],
               currentValue: set.holdSeconds,
-              labelFor: (v) => v == 0 ? 'Off' : '$v',
-              onPick: (v) => _commitHold(index, v),
+              accentColor: AppColors.primary,
+              displayFormat: (v) => v == 0 ? 'Off' : '${v.toInt()}s',
+              undoLabel: 'hold',
+              scrollable: false,
+              onChanged: (v) => _commitHold(index, v.round()),
             ),
           if (target == _DoseEditorTarget.weight)
             WeightSlider(
@@ -488,10 +497,15 @@ class _DoseTableState extends State<DoseTable> {
               onChanged: (v) => _commitWeight(index, v),
             ),
           if (target == _DoseEditorTarget.breather)
-            _buildChipRow(
-              presets: const [15, 30, 45, 60, 90, 120],
+            PresetChipRow(
+              controlKey: 'breather',
+              canonicalPresets: const <num>[15, 30, 45, 60, 90, 120],
               currentValue: set.breatherSecondsAfter,
-              onPick: (v) => _commitBreather(index, v),
+              accentColor: AppColors.rest,
+              displayFormat: (v) => '${v.toInt()}s',
+              undoLabel: 'breather',
+              scrollable: false,
+              onChanged: (v) => _commitBreather(index, v.round()),
             ),
         ],
       ),
@@ -537,33 +551,6 @@ class _DoseTableState extends State<DoseTable> {
               letterSpacing: 0.3,
             ),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildChipRow({
-    required List<int> presets,
-    required int currentValue,
-    required ValueChanged<int> onPick,
-    String Function(int)? labelFor,
-  }) {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        for (final v in presets)
-          _PresetChip(
-            label: labelFor != null ? labelFor(v) : '$v',
-            selected: v == currentValue,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              onPick(v);
-            },
-          ),
-        _CustomChip(
-          onTap: () => _openCustomInput(currentValue, onPick, labelFor),
         ),
       ],
     );
@@ -840,78 +827,6 @@ class _DoseTableState extends State<DoseTable> {
     _emit(next);
   }
 
-  /// Open a barebones AlertDialog for custom-value entry. Use sparingly —
-  /// this is the only popup left in the editor surface (the user's
-  /// no-popup rule applies to entity creation, not numeric custom input).
-  Future<void> _openCustomInput(
-    int currentValue,
-    ValueChanged<int> onPick,
-    String Function(int)? labelFor,
-  ) async {
-    final controller =
-        TextEditingController(text: currentValue.toString());
-    final result = await showDialog<int>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surfaceRaised,
-        title: const Text(
-          'Custom value',
-          style: TextStyle(
-            fontFamily: 'Montserrat',
-            fontSize: 17,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textOnDark,
-          ),
-        ),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          autofocus: true,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          style: const TextStyle(
-            fontFamily: 'JetBrainsMono',
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textOnDark,
-          ),
-          decoration: const InputDecoration(
-            isDense: true,
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (text) {
-            final parsed = int.tryParse(text.trim());
-            if (parsed != null && parsed >= 0) {
-              Navigator.of(ctx).pop(parsed);
-            } else {
-              Navigator.of(ctx).pop();
-            }
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              final parsed = int.tryParse(controller.text.trim());
-              if (parsed != null && parsed >= 0) {
-                Navigator.of(ctx).pop(parsed);
-              } else {
-                Navigator.of(ctx).pop();
-              }
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (result != null) {
-      onPick(result);
-    }
-  }
-
   String _formatKg(double kg) {
     if (kg == kg.roundToDouble()) {
       return kg.toStringAsFixed(0);
@@ -920,81 +835,3 @@ class _DoseTableState extends State<DoseTable> {
   }
 }
 
-class _PresetChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _PresetChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        constraints: const BoxConstraints(minWidth: 44),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected ? AppColors.primary : AppColors.surfaceBase,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected ? AppColors.primary : AppColors.surfaceBorder,
-            width: 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color:
-                selected ? Colors.white : AppColors.textSecondaryOnDark,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CustomChip extends StatelessWidget {
-  final VoidCallback onTap;
-  const _CustomChip({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        constraints: const BoxConstraints(minWidth: 44),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceBase,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: AppColors.brandTintBorder,
-            width: 1,
-          ),
-        ),
-        child: const Text(
-          'Custom…',
-          style: TextStyle(
-            fontFamily: 'JetBrainsMono',
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: AppColors.primary,
-            letterSpacing: 0.3,
-          ),
-        ),
-      ),
-    );
-  }
-}
