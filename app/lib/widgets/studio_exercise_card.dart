@@ -134,44 +134,48 @@ class StudioExerciseCard extends StatelessWidget {
               width: showFocusedBorder ? 2 : 1,
             ),
           ),
-          // crossAxisAlignment: center so the 72-pt thumbnail lines up
-          // vertically with the title + trigger row stack instead of
-          // sitting visually high above the title's first baseline.
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _Thumbnail(
-                exercise: exercise,
-                onTap: () => _openSheet(context, ExerciseEditorTab.preview),
-                onLongPress: onReplaceMedia,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _TitleRow(
-                      title: _resolvedTitle(),
-                      isCustomised: exerciseIsCustomised(exercise),
-                      onGearTap: () =>
-                          _openSheet(context, ExerciseEditorTab.settings),
-                      onRename: (next) =>
-                          onUpdate(exercise.copyWith(name: next)),
-                    ),
-                    const SizedBox(height: 10),
-                    _TriggerRow(
-                      doseSummary: _doseSummary(exercise),
-                      notesSummary: _notesSummary(exercise),
-                      onDoseTap: () =>
-                          _openSheet(context, ExerciseEditorTab.dose),
-                      onNotesTap: () =>
-                          _openSheet(context, ExerciseEditorTab.notes),
-                    ),
-                  ],
+          // IntrinsicHeight + CrossAxisAlignment.stretch makes the
+          // thumbnail fill the column's height (title row + trigger row +
+          // spacing). Without this the column was taller than the 72pt
+          // thumbnail, leaving a visual gap below the thumbnail aligned
+          // with the trigger buttons. Round 2 fix for Issue 8 (T4.1).
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Thumbnail(
+                  exercise: exercise,
+                  onTap: () => _openSheet(context, ExerciseEditorTab.preview),
+                  onLongPress: onReplaceMedia,
                 ),
-              ),
-            ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _TitleRow(
+                        title: _resolvedTitle(),
+                        isCustomised: exerciseIsCustomised(exercise),
+                        onGearTap: () =>
+                            _openSheet(context, ExerciseEditorTab.settings),
+                        onRename: (next) =>
+                            onUpdate(exercise.copyWith(name: next)),
+                      ),
+                      const SizedBox(height: 10),
+                      _TriggerRow(
+                        doseSummary: _doseSummary(exercise),
+                        notesSummary: _notesSummary(exercise),
+                        onDoseTap: () =>
+                            _openSheet(context, ExerciseEditorTab.dose),
+                        onNotesTap: () =>
+                            _openSheet(context, ExerciseEditorTab.notes),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -217,13 +221,24 @@ class _Thumbnail extends StatelessWidget {
   Widget build(BuildContext context) {
     final String? thumbPath = exercise.absoluteThumbnailPath;
     final hasThumb = thumbPath != null && File(thumbPath).existsSync();
+    // Width fixed at 72pt; height: double.infinity so an IntrinsicHeight
+    // Row + CrossAxisAlignment.stretch stretches the thumbnail to match
+    // the column's height (title row + 10pt + trigger row). When there's
+    // no IntrinsicHeight context (e.g. legacy callers), Flutter falls
+    // back to the child's intrinsic height — which we don't have for
+    // this Container, so we provide a minHeight of 72 via ConstrainedBox.
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
       behavior: HitTestBehavior.opaque,
-      child: Container(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          minWidth: 72,
+          minHeight: 72,
+        ),
+        child: Container(
         width: 72,
-        height: 72,
+        height: double.infinity,
         decoration: BoxDecoration(
           color: AppColors.surfaceRaised,
           borderRadius: BorderRadius.circular(12),
@@ -261,6 +276,7 @@ class _Thumbnail extends StatelessWidget {
               ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -448,8 +464,13 @@ class _TriggerButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: AppColors.surfaceBorder, width: 1),
           ),
+          // Row WITHOUT mainAxisSize.min so the Container fills the parent
+          // Expanded width and Expanded(summary) gets a real bounded width
+          // to flex into. With min + Flexible, the summary's intrinsic
+          // text width drove the layout — ellipsis didn't kick in and on
+          // narrow phones the trailing children (· + summary) collapsed
+          // off-canvas, leaving only the label visible. Round 2 fix.
           child: Row(
-            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 label,
@@ -471,7 +492,7 @@ class _TriggerButton extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 6),
-              Flexible(
+              Expanded(
                 child: Text(
                   summary,
                   maxLines: 1,
