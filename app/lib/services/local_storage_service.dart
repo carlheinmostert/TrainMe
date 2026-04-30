@@ -1,12 +1,15 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 import '../config.dart';
 import '../models/cached_client.dart';
 import '../models/cached_practice.dart';
 import '../models/exercise_capture.dart';
+import '../models/exercise_set.dart';
 import '../models/pending_op.dart';
 import '../models/session.dart';
 import 'auth_service.dart';
@@ -19,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 32;
+  static const _dbVersion = 33;
 
   Database? _db;
 
@@ -105,15 +108,12 @@ class LocalStorageService {
         thumbnail_path TEXT,
         media_type INTEGER NOT NULL,
         conversion_status INTEGER NOT NULL DEFAULT 0,
-        reps INTEGER,
-        sets INTEGER,
-        hold_seconds INTEGER,
+        rest_hold_seconds INTEGER,
         notes TEXT,
         name TEXT,
         created_at INTEGER NOT NULL,
         circuit_id TEXT,
         include_audio INTEGER NOT NULL DEFAULT 0,
-        custom_duration INTEGER,
         video_duration_ms INTEGER,
         archive_file_path TEXT,
         archived_at INTEGER,
@@ -122,7 +122,6 @@ class LocalStorageService {
         prep_seconds INTEGER,
         segmented_raw_file_path TEXT,
         mask_file_path TEXT,
-        inter_set_rest_seconds INTEGER,
         start_offset_ms INTEGER,
         end_offset_ms INTEGER,
         video_reps_per_loop INTEGER,
@@ -138,12 +137,45 @@ class LocalStorageService {
       ON exercises(session_id, position)
     ''');
 
+    // Per-set DOSE child table (Wave: per-set DOSE relational model).
+    // Mirrors the cloud `public.exercise_sets` schema. One row per
+    // playable set; ordered by `position` (1-based, UNIQUE per
+    // exercise). Cascade-deleted with the parent.
+    await _createExerciseSetsTable(db);
+
     // Offline-first cache tables (schema v17). See docs/CLAUDE.md and
     // the SyncService for how these are populated / drained. Keep the
     // CREATE + ALTER migration paths in lockstep — fresh installs get
     // these directly; upgrading installs run the v17 branch in
     // [_migrateTables].
     await _createOfflineFirstTables(db);
+  }
+
+  /// Shared DDL for the per-set DOSE child table. Called from both
+  /// [_createTables] (fresh installs) and the v33 migration branch.
+  /// Mirrors the cloud `public.exercise_sets` table column-for-column
+  /// (id PK, exercise_id FK, position, reps, hold_seconds, weight_kg
+  /// REAL, breather_seconds_after, timestamps).
+  Future<void> _createExerciseSetsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS exercise_sets (
+        id TEXT PRIMARY KEY,
+        exercise_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        reps INTEGER NOT NULL,
+        hold_seconds INTEGER NOT NULL DEFAULT 0,
+        weight_kg REAL,
+        breather_seconds_after INTEGER NOT NULL DEFAULT 60,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(exercise_id, position),
+        FOREIGN KEY (exercise_id) REFERENCES exercises(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_exercise_sets_exercise
+      ON exercise_sets(exercise_id, position)
+    ''');
   }
 
   /// Shared DDL for the v17 cache tables. Called from both
@@ -662,6 +694,187 @@ class LocalStorageService {
         'ALTER TABLE sessions ADD COLUMN last_opened_at INTEGER',
       );
     }
+    if (oldVersion < 33) {
+      // Per-set DOSE relational model (Wave: per-set DOSE).
+      //
+      // Server side already cut over (see
+      // `supabase/schema_wave_per_set_dose.sql`). The Flutter cache must
+      // mirror exactly: an `exercise_sets` child table, plus removal of
+      // the legacy uniform `(reps, sets, hold_seconds,
+      // inter_set_rest_seconds, custom_duration)` columns. The shared
+      // `hold_seconds` column survives renamed as `rest_hold_seconds` so
+      // rest periods retain their duration field.
+      //
+      // SQLite ≥ 3.35 supports `ALTER TABLE … DROP COLUMN`. iOS ships
+      // 3.39+; Android (sqlite3 NDK builds) is also fine on every
+      // supported runtime. We rely on that and avoid the
+      // CREATE-NEW-AND-COPY dance.
+      //
+      // Migration steps:
+      //   1. Create the new `exercise_sets` table.
+      //   2. Backfill from existing `exercises` rows (one row per legacy
+      //      set ordinal; clones reps/hold/inter_set_rest as the breather).
+      //   3. Drop the legacy columns.
+      //   4. Rename `hold_seconds` to `rest_hold_seconds` (rest-only
+      //      semantics now). DROP-then-... — easier to do via copy + drop
+      //      since SQLite has no RENAME-COLUMN-with-narrower-semantics
+      //      and we're dropping more columns anyway. Actually SQLite ≥
+      //      3.25 has `ALTER TABLE … RENAME COLUMN`, which handles this
+      //      cleanly.
+
+      await _createExerciseSetsTable(db);
+
+      // Step 2 — backfill. SQLite has no `generate_series`, so do it
+      // Dart-side: read every video/photo exercise row, fan out N rows
+      // (N = sets ?? 1).
+      final legacy = await db.query(
+        'exercises',
+        columns: [
+          'id',
+          'media_type',
+          'reps',
+          'sets',
+          'hold_seconds',
+          'inter_set_rest_seconds',
+        ],
+      );
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final uuid = const Uuid();
+      final batch = db.batch();
+      for (final row in legacy) {
+        final mediaTypeIdx = row['media_type'] as int?;
+        if (mediaTypeIdx == null) continue;
+        // MediaType.values[index] — only video (1) + photo (0) get sets.
+        // (.values: photo=0, video=1, rest=2 — see ExerciseCapture.)
+        if (mediaTypeIdx == MediaType.rest.index) continue;
+        final exerciseId = row['id'] as String;
+        final legacyReps = (row['reps'] as int?) ?? 0;
+        final reps = legacyReps > 0 ? legacyReps : 1;
+        final hold = (row['hold_seconds'] as int?) ?? 0;
+        final breather = (row['inter_set_rest_seconds'] as int?) ?? 60;
+        final sets = (row['sets'] as int?) ?? 1;
+        final setCount = sets > 0 ? sets : 1;
+        for (var i = 0; i < setCount; i++) {
+          batch.insert(
+            'exercise_sets',
+            {
+              'id': uuid.v4(),
+              'exercise_id': exerciseId,
+              'position': i + 1,
+              'reps': reps,
+              'hold_seconds': hold,
+              'weight_kg': null,
+              'breather_seconds_after': breather,
+              'created_at': nowMs,
+              'updated_at': nowMs,
+            },
+          );
+        }
+      }
+      await batch.commit(noResult: true);
+
+      // Step 3 — drop legacy columns + repurpose hold_seconds as
+      // rest_hold_seconds.
+      // SQLite < 3.25 lacks DROP COLUMN; we already require 3.35+.
+      // Rest exercises stored their duration on `hold_seconds`; preserve
+      // that data by renaming the column instead of dropping it.
+      await db.execute(
+        'ALTER TABLE exercises RENAME COLUMN hold_seconds TO rest_hold_seconds',
+      );
+      // For non-rest rows, the rest_hold_seconds column now contains the
+      // legacy isometric hold value (now redundant with per-set
+      // ExerciseSet.holdSeconds). Null it out so future reads don't
+      // accidentally surface it. Rest rows (media_type = 2) keep theirs.
+      await db.rawUpdate(
+        'UPDATE exercises SET rest_hold_seconds = NULL '
+        'WHERE media_type != ?',
+        [MediaType.rest.index],
+      );
+      await db.execute('ALTER TABLE exercises DROP COLUMN reps');
+      await db.execute('ALTER TABLE exercises DROP COLUMN sets');
+      await db.execute(
+        'ALTER TABLE exercises DROP COLUMN inter_set_rest_seconds',
+      );
+      await db.execute('ALTER TABLE exercises DROP COLUMN custom_duration');
+
+      // Step 4 — scrub legacy keys from cached_clients.client_exercise_defaults
+      // JSONB blob. Mirrors the server-side scrub in step 5 of
+      // schema_wave_per_set_dose.sql. We decode → strip → re-encode in
+      // Dart since SQLite has no native jsonb manipulation.
+      final clients = await db.query(
+        'cached_clients',
+        columns: ['id', 'client_exercise_defaults'],
+      );
+      const legacyKeys = <String>{
+        'reps',
+        'sets',
+        'hold_seconds',
+        'inter_set_rest_seconds',
+        'custom_duration_seconds',
+      };
+      for (final row in clients) {
+        final raw = row['client_exercise_defaults'] as String? ?? '{}';
+        if (raw.isEmpty || raw == '{}') continue;
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is! Map) continue;
+          final cleaned = <String, dynamic>{};
+          var changed = false;
+          decoded.forEach((k, v) {
+            if (legacyKeys.contains(k)) {
+              changed = true;
+              return;
+            }
+            cleaned[k.toString()] = v;
+          });
+          if (changed) {
+            await db.update(
+              'cached_clients',
+              {'client_exercise_defaults': jsonEncode(cleaned)},
+              where: 'id = ?',
+              whereArgs: [row['id']],
+            );
+          }
+        } catch (_) {
+          // Malformed JSON — leave it for the SyncService re-pull to
+          // overwrite with the cloud-scrubbed value.
+        }
+      }
+
+      // Step 5 — drop pending_ops whose payloads target a legacy field
+      // key. They cannot be replayed against the new RPC contract.
+      final pending = await db.query(
+        'pending_ops',
+        columns: ['id', 'op_type', 'payload'],
+      );
+      var droppedPending = 0;
+      for (final row in pending) {
+        final opType = row['op_type'] as String?;
+        if (opType != 'set_exercise_default') continue;
+        final payloadStr = row['payload'] as String? ?? '{}';
+        try {
+          final decoded = jsonDecode(payloadStr);
+          if (decoded is! Map) continue;
+          final field = decoded['field'];
+          if (field is String && legacyKeys.contains(field)) {
+            await db.delete(
+              'pending_ops',
+              where: 'id = ?',
+              whereArgs: [row['id']],
+            );
+            droppedPending += 1;
+          }
+        } catch (_) {
+          // Bad payload — ignore.
+        }
+      }
+      if (droppedPending > 0) {
+        debugPrint(
+          'LocalStorageService: dropped $droppedPending legacy-field '
+          'pending_ops as part of v33 migration',
+        );
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -847,13 +1060,25 @@ class LocalStorageService {
       orderBy: 'session_id, position ASC',
     );
 
-    // Bucket exercises by session_id.
+    // Bulk-load sets for every exercise across all sessions in one
+    // query, bucketed by exercise_id.
+    final exerciseIds =
+        exerciseRows.map((r) => r['id'] as String).toList(growable: false);
+    final setsByExercise = await _loadSetsForExerciseIds(exerciseIds);
+
+    // Bucket exercises by session_id, attaching the loaded sets.
     final bySession = <String, List<ExerciseCapture>>{
       for (final id in sessionIds) id: <ExerciseCapture>[],
     };
     for (final row in exerciseRows) {
       final sid = row['session_id'] as String;
-      (bySession[sid] ??= <ExerciseCapture>[]).add(ExerciseCapture.fromMap(row));
+      final exId = row['id'] as String;
+      (bySession[sid] ??= <ExerciseCapture>[]).add(
+        ExerciseCapture.fromMap(
+          row,
+          sets: setsByExercise[exId] ?? const [],
+        ),
+      );
     }
 
     return sessionRows
@@ -967,17 +1192,21 @@ class LocalStorageService {
         whereArgs: [exercise.id],
         limit: 1,
       );
-      final existing = existingRows.isEmpty
-          ? null
-          : ExerciseCapture.fromMap(existingRows.first);
+      ExerciseCapture? existing;
+      if (existingRows.isNotEmpty) {
+        final existingSets = await _loadSetsForExerciseTxn(
+          txn,
+          existingRows.first['id'] as String,
+        );
+        existing = ExerciseCapture.fromMap(
+          existingRows.first,
+          sets: existingSets,
+        );
+      }
 
-      // Option 1 (2026-04-22 player-grammar discussion) — on the FIRST
-      // insert of an exercise row, backfill sets=3 / reps=10 for
-      // practitioners who captured without explicitly touching those
-      // fields. Scoped to brand-new rows only: existing null columns on
-      // pre-existing rows stay null (no retroactive backfill). See
-      // [ExerciseCapture.withPersistenceDefaults] for the isometric +
-      // rest-row exceptions.
+      // Per-set DOSE wave: brand-new captures get a synthetic single
+      // set seeded so downstream consumers always have a playable row.
+      // See [ExerciseCapture.withPersistenceDefaults].
       final toPersist = existing == null
           ? exercise.withPersistenceDefaults()
           : exercise;
@@ -987,6 +1216,12 @@ class LocalStorageService {
         toPersist.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
+
+      // Replace child sets atomically — DELETE + INSERT inside the same
+      // transaction. Cascade FK on `exercise_sets.exercise_id` would
+      // already drop the rows on a parent delete, but we're keeping the
+      // parent and just refreshing children.
+      await _replaceExerciseSetsTxn(txn, toPersist.id, toPersist.sets);
 
       // Brand-new row (e.g. a fresh Camera capture) counts as a user
       // content edit — even without a prior row to compare against, the
@@ -1008,12 +1243,60 @@ class LocalStorageService {
     });
   }
 
+  /// Load every [ExerciseSet] row for [exerciseId], ordered by
+  /// position. Used inside a transaction.
+  Future<List<ExerciseSet>> _loadSetsForExerciseTxn(
+    Transaction txn,
+    String exerciseId,
+  ) async {
+    final rows = await txn.query(
+      'exercise_sets',
+      where: 'exercise_id = ?',
+      whereArgs: [exerciseId],
+      orderBy: 'position ASC',
+    );
+    return rows
+        .map((r) => ExerciseSet.fromMap(r))
+        .toList(growable: false);
+  }
+
+  /// Replace every set row for [exerciseId] with [sets] inside [txn].
+  /// Empty list clears all child rows (rest-only exercises).
+  Future<void> _replaceExerciseSetsTxn(
+    Transaction txn,
+    String exerciseId,
+    List<ExerciseSet> sets,
+  ) async {
+    await txn.delete(
+      'exercise_sets',
+      where: 'exercise_id = ?',
+      whereArgs: [exerciseId],
+    );
+    if (sets.isEmpty) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final batch = txn.batch();
+    for (final s in sets) {
+      batch.insert(
+        'exercise_sets',
+        <String, Object?>{
+          ...s.toMap(),
+          'exercise_id': exerciseId,
+          'created_at': nowMs,
+          'updated_at': nowMs,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
   /// Returns true when [next] differs from [prev] in any field that the
   /// practitioner would recognise as a user-authored edit to plan content.
   ///
-  /// Included: name, position, reps, sets, holdSeconds, mediaType,
-  /// customDurationSeconds, prepSeconds, includeAudio, preferredTreatment,
-  /// notes, circuitId.
+  /// Included: name, position, sets list (deep — every reps/hold/weight/
+  /// breather change counts), restHoldSeconds, mediaType, prepSeconds,
+  /// includeAudio, preferredTreatment, notes, circuitId, videoRepsPerLoop,
+  /// rotationQuarters, aspectRatio.
   ///
   /// Excluded (deliberately): conversionStatus, convertedFilePath,
   /// thumbnailPath, videoDurationMs, archiveFilePath, archivedAt,
@@ -1026,19 +1309,18 @@ class LocalStorageService {
   ) {
     if (prev.name != next.name) return true;
     if (prev.position != next.position) return true;
-    if (prev.reps != next.reps) return true;
-    if (prev.sets != next.sets) return true;
-    if (prev.holdSeconds != next.holdSeconds) return true;
     if (prev.mediaType != next.mediaType) return true;
-    if (prev.customDurationSeconds != next.customDurationSeconds) {
-      return true;
-    }
+    if (prev.restHoldSeconds != next.restHoldSeconds) return true;
     if (prev.prepSeconds != next.prepSeconds) return true;
-    if (prev.interSetRestSeconds != next.interSetRestSeconds) return true;
     if (prev.includeAudio != next.includeAudio) return true;
     if (prev.preferredTreatment != next.preferredTreatment) return true;
     if ((prev.notes ?? '') != (next.notes ?? '')) return true;
     if (prev.circuitId != next.circuitId) return true;
+    // Per-set DOSE — any change in the sets list is a user-content
+    // edit. Compare element-wise via [ExerciseSet]'s value equality so
+    // additions, deletions, position swaps, reps/hold/weight/breather
+    // edits all dirty the session.
+    if (!_setsListEqual(prev.sets, next.sets)) return true;
     // Wave 24 — changing the number of reps captured in the source
     // video is a semantic content edit; it shifts the per-rep / per-set
     // playback math on both surfaces.
@@ -1051,6 +1333,25 @@ class LocalStorageService {
     if (prev.rotationQuarters != next.rotationQuarters) return true;
     if (prev.aspectRatio != next.aspectRatio) return true;
     return false;
+  }
+
+  static bool _setsListEqual(List<ExerciseSet> a, List<ExerciseSet> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      // Compare value-shape, ignoring [id] (which can legitimately
+      // differ when the same set was hydrated from get_plan_full vs.
+      // captured locally).
+      final x = a[i];
+      final y = b[i];
+      if (x.position != y.position ||
+          x.reps != y.reps ||
+          x.holdSeconds != y.holdSeconds ||
+          x.weightKg != y.weightKg ||
+          x.breatherSecondsAfter != y.breatherSecondsAfter) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// Batch insert or update multiple exercises in a single transaction.
@@ -1075,10 +1376,17 @@ class LocalStorageService {
         );
       }
       await batch.commit(noResult: true);
+      // Per-set DOSE — replace child rows for each exercise. Done
+      // post-batch so the parent inserts have committed and the FKs
+      // resolve. A second batch keeps fsync amortised.
+      for (final ex in exercises) {
+        await _replaceExerciseSetsTxn(txn, ex.id, ex.sets);
+      }
     });
   }
 
   /// Delete a single exercise by ID. Also removes its media files from disk.
+  /// Cascade FK on `exercise_sets.exercise_id` drops child rows.
   Future<void> deleteExercise(String exerciseId) async {
     final rows = await db.query(
       'exercises',
@@ -1098,7 +1406,9 @@ class LocalStorageService {
     await db.delete('exercises', where: 'id = ?', whereArgs: [exerciseId]);
   }
 
-  /// Get all exercises for a session, ordered by position.
+  /// Get all exercises for a session, ordered by position. Each
+  /// returned [ExerciseCapture] has its [ExerciseCapture.sets] populated
+  /// from the `exercise_sets` child table.
   Future<List<ExerciseCapture>> _getExercisesForSession(
       String sessionId) async {
     final rows = await db.query(
@@ -1107,11 +1417,45 @@ class LocalStorageService {
       whereArgs: [sessionId],
       orderBy: 'position ASC',
     );
-    return rows.map((r) => ExerciseCapture.fromMap(r)).toList();
+    if (rows.isEmpty) return const [];
+    final byExercise = await _loadSetsForExerciseIds(
+      rows.map((r) => r['id'] as String).toList(growable: false),
+    );
+    return rows
+        .map((r) => ExerciseCapture.fromMap(
+              r,
+              sets: byExercise[r['id'] as String] ?? const [],
+            ))
+        .toList();
+  }
+
+  /// Bulk-load every set row for the given [exerciseIds] in a single
+  /// query, bucketed by `exercise_id`. Avoids the N+1 pattern when
+  /// hydrating many exercises at once.
+  Future<Map<String, List<ExerciseSet>>> _loadSetsForExerciseIds(
+    List<String> exerciseIds,
+  ) async {
+    if (exerciseIds.isEmpty) return const {};
+    final placeholders = List.filled(exerciseIds.length, '?').join(',');
+    final rows = await db.query(
+      'exercise_sets',
+      where: 'exercise_id IN ($placeholders)',
+      whereArgs: exerciseIds,
+      orderBy: 'exercise_id, position ASC',
+    );
+    final out = <String, List<ExerciseSet>>{};
+    for (final row in rows) {
+      final exId = row['exercise_id'] as String;
+      (out[exId] ??= <ExerciseSet>[]).add(ExerciseSet.fromMap(row));
+    }
+    return out;
   }
 
   /// Find all exercises across all sessions that still need conversion.
-  /// Used on app restart to re-populate the conversion queue.
+  /// Used on app restart to re-populate the conversion queue. Sets are
+  /// not loaded here — the conversion path doesn't need them; consumers
+  /// that do (Studio open, publish flow) re-hydrate via the session
+  /// loader.
   Future<List<ExerciseCapture>> getUnconvertedExercises() async {
     final rows = await db.query(
       'exercises',

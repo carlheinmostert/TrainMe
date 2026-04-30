@@ -1,0 +1,2759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — exercise card v2 · tabbed bottom-sheet editor</title>
+  <style>
+    /* ================================================================== */
+    /*  Tokens — mirrored verbatim from docs/design/mockups/                */
+    /*  exercise-card-dose-table.html  (source of truth for this family)    */
+    /* ================================================================== */
+    :root {
+      --brand-default: #ff6b35;
+      --brand-dark: #e85a24;
+      --brand-light: #ff8f5e;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+      --brand-tint-strong: rgba(255, 107, 53, 0.18);
+
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+      --surface-row-hover: #2a2d3a;
+
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --ink-disabled: #4b5563;
+      --ink-on-brand: #ffffff;
+
+      --rest: #86efac;
+      --rest-tint: rgba(134, 239, 172, 0.14);
+
+      --warn: #f59e0b;
+      --error: #ef4444;
+
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont,
+        "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont,
+        "Segoe UI", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo,
+        Consolas, monospace;
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 24px;
+      --radius-full: 9999px;
+
+      --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-pulse: cubic-bezier(0.4, 0, 0.6, 1);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ================================================================== */
+    /*  Page layout                                                       */
+    /* ================================================================== */
+    .page {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 64px 32px 96px;
+    }
+
+    .page-header { margin-bottom: 56px; }
+
+    .page-header .eyebrow {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 36px;
+      letter-spacing: -0.5px;
+      margin: 0 0 12px;
+      color: var(--ink-primary);
+    }
+
+    .page-header p {
+      color: var(--ink-secondary);
+      max-width: 720px;
+      font-size: 15px;
+      margin: 0;
+    }
+
+    section { margin-bottom: 80px; }
+
+    section > .section-head {
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--surface-border);
+      padding-bottom: 12px;
+    }
+
+    section > .section-head h2 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: -0.3px;
+      margin: 0 0 4px;
+      color: var(--ink-primary);
+    }
+
+    section > .section-head .section-num {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin-right: 8px;
+    }
+
+    section > .section-head p {
+      margin: 0;
+      color: var(--ink-secondary);
+      font-size: 13px;
+      max-width: 720px;
+    }
+
+    .label-kicker {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    /* ================================================================== */
+    /*  Compact exercise card (the new design)                             */
+    /*  Single-row: thumb · title + trigger row · gear                     */
+    /* ================================================================== */
+    .ex-card-v2 {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 14px;
+      max-width: 600px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      transition: border-color 150ms var(--ease-standard);
+    }
+
+    .ex-card-v2:hover { border-color: var(--surface-row-hover); }
+
+    .ex-card-v2 .thumb {
+      width: 80px;
+      height: 80px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, #2a2d3a 0%, #1a1d27 100%);
+      border: 1px solid var(--surface-border);
+      flex-shrink: 0;
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 150ms var(--ease-standard);
+    }
+
+    .ex-card-v2 .thumb:hover { transform: scale(1.02); }
+
+    .ex-card-v2 .thumb::before {
+      /* faint mock body silhouette so the thumbnail isn't pure flat */
+      content: "";
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: rgba(245,245,247,0.05);
+    }
+
+    .ex-card-v2 .thumb::after {
+      content: "";
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 38px;
+      height: 28px;
+      background: rgba(245,245,247,0.04);
+      border-radius: 8px 8px 4px 4px;
+    }
+
+    .ex-card-v2 .thumb .play-glyph {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: rgba(15,17,23,0.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(2px);
+      z-index: 2;
+    }
+
+    .ex-card-v2 .thumb .play-glyph svg {
+      width: 11px;
+      height: 11px;
+      fill: var(--ink-primary);
+      transform: translateX(1px);
+    }
+
+    .ex-card-v2 .body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .ex-card-v2 .title-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .ex-card-v2 .title {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      color: var(--ink-primary);
+      margin: 0;
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .ex-card-v2 .gear {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ink-secondary);
+      cursor: pointer;
+      flex-shrink: 0;
+      position: relative;
+      transition: color 150ms var(--ease-standard), background 150ms var(--ease-standard);
+    }
+
+    .ex-card-v2 .gear:hover {
+      color: var(--ink-primary);
+      background: rgba(255,255,255,0.03);
+    }
+
+    .ex-card-v2 .gear.has-changes {
+      color: var(--brand-default);
+    }
+
+    .ex-card-v2 .gear.has-changes::after {
+      content: "";
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      border: 1.5px solid var(--surface-base);
+    }
+
+    .ex-card-v2 .triggers {
+      display: flex;
+      gap: 8px;
+      flex-wrap: nowrap;
+      min-width: 0;
+    }
+
+    .trigger {
+      flex: 1;
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      padding: 8px 12px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-primary);
+      letter-spacing: -0.05px;
+      transition: all 150ms var(--ease-standard);
+      text-align: left;
+      max-width: 100%;
+    }
+
+    .trigger:hover {
+      background: var(--surface-row-hover);
+      border-color: var(--ink-muted);
+    }
+
+    .trigger .trigger-label {
+      font-weight: 700;
+      color: var(--ink-primary);
+      flex-shrink: 0;
+    }
+
+    .trigger .trigger-sep {
+      color: var(--ink-muted);
+      margin: 0 6px;
+      flex-shrink: 0;
+    }
+
+    .trigger .trigger-summary {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .trigger.notes .trigger-summary {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 500;
+      font-style: italic;
+    }
+
+    .trigger.notes .trigger-summary.empty {
+      color: var(--ink-muted);
+      font-style: normal;
+    }
+
+    /* When the trigger is the "home" tab for a sheet, no special state in
+       the static mockup; we use a tiny coral underline on the relevant
+       trigger label inside the sheet-open compositions to telegraph the
+       linkage. */
+
+    /* ================================================================== */
+    /*  Stage frame — phone-aspect surface used by sheet-open states       */
+    /* ================================================================== */
+    .stage {
+      position: relative;
+      width: 390px;
+      max-width: 100%;
+      margin: 0;
+      background: var(--surface-bg);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    }
+
+    .stage.tall { height: 760px; }
+    .stage.short { height: 700px; }
+
+    /* Landscape stage — phone rotated 90°. Wider than tall; the chrome
+       (status bar, app bar) flows horizontally along the top edge as
+       in portrait, just inside a wider frame. The sheet anchors to the
+       bottom of the landscape canvas. */
+    .stage.landscape {
+      width: 740px;
+      height: 420px;
+    }
+
+    .stage-status {
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 22px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-secondary);
+      letter-spacing: 0.4px;
+    }
+
+    .stage-status .battery {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .stage-status .battery::after {
+      content: "";
+      width: 22px;
+      height: 10px;
+      border: 1px solid var(--ink-secondary);
+      border-radius: 2px;
+      position: relative;
+      background: linear-gradient(to right, var(--ink-secondary) 70%, transparent 70%);
+      background-clip: content-box;
+      padding: 1px;
+    }
+
+    .stage-app-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 14px 10px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+
+    .stage-app-bar .app-bar-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 17px;
+      color: var(--ink-primary);
+      letter-spacing: -0.2px;
+    }
+
+    .stage-app-bar .app-bar-icons {
+      display: flex;
+      gap: 12px;
+      color: var(--ink-secondary);
+    }
+
+    .stage-app-bar svg.ico-bar {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      stroke-width: 1.6;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .stage-app-bar .app-bar-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      border-radius: var(--radius-full);
+      color: var(--brand-default);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .stage-content {
+      position: relative;
+      height: calc(100% - 36px - 50px);
+      overflow: hidden;
+    }
+
+    .stage-list {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Card behind a sheet — dimmed */
+    .stage-content.sheet-open .stage-list {
+      opacity: 0.45;
+      filter: blur(0.5px);
+      transition: opacity 250ms var(--ease-standard);
+    }
+
+    /* Backdrop scrim */
+    .stage-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.32);
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 250ms var(--ease-standard);
+    }
+
+    /* ================================================================== */
+    /*  Bottom sheet                                                      */
+    /* ================================================================== */
+    .sheet {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--surface-base);
+      border-top: 1px solid var(--surface-border);
+      border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+      box-shadow: 0 -16px 48px rgba(0,0,0,0.5);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: height 280ms var(--ease-emphasized);
+    }
+
+    .sheet.detent-medium { height: 56%; }
+    .sheet.detent-large { height: 92%; }
+    .sheet.detent-dragging { height: 28%; }
+
+    .sheet-handle-row {
+      padding: 8px 0 4px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .sheet-handle {
+      width: 40px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--ink-disabled);
+      cursor: grab;
+    }
+
+    .sheet-handle.is-dragging {
+      background: var(--brand-default);
+      cursor: grabbing;
+      box-shadow: 0 0 0 4px rgba(255,107,53,0.15);
+    }
+
+    .sheet-title {
+      padding: 4px 18px 0;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 17px;
+      letter-spacing: -0.2px;
+      color: var(--ink-primary);
+      margin: 0;
+    }
+
+    .sheet-meta {
+      padding: 1px 18px 12px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      letter-spacing: 0.3px;
+    }
+
+    /* Tab strip ------------------------------------------------------- */
+    .sheet-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--surface-border);
+      padding: 0 14px;
+      position: relative;
+    }
+
+    .sheet-tab {
+      flex: 1;
+      padding: 11px 6px 13px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      letter-spacing: 0.1px;
+      position: relative;
+      transition: color 150ms var(--ease-standard);
+      text-align: center;
+    }
+
+    .sheet-tab:hover { color: var(--ink-primary); }
+
+    .sheet-tab.is-active {
+      color: var(--ink-primary);
+    }
+
+    .sheet-tab.is-active::after {
+      content: "";
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: -1px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--brand-default);
+    }
+
+    .sheet-body {
+      flex: 1;
+      overflow: auto;
+      padding: 16px 16px 24px;
+    }
+
+    /* ================================================================== */
+    /*  Stage list — compact card list dimmed behind sheet                */
+    /*  (re-uses .ex-card-v2; nothing extra needed)                       */
+    /* ================================================================== */
+
+    /* ================================================================== */
+    /*  DOSE TABLE — copied verbatim from exercise-card-dose-table.html    */
+    /* ================================================================== */
+    .dose-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-family: var(--font-body);
+      font-size: 13px;
+    }
+
+    .dose-table thead th {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      text-align: left;
+      padding: 6px 8px 8px;
+      border-bottom: 1px solid var(--surface-border);
+      background: transparent;
+    }
+
+    .dose-table thead th.col-set    { width: 40px; text-align: center; }
+    .dose-table thead th.col-reps   { width: 14%; text-align: center; }
+    .dose-table thead th.col-hold   { width: 16%; text-align: center; }
+    .dose-table thead th.col-weight { width: 24%; text-align: center; }
+    .dose-table thead th.col-rest   { width: auto; text-align: center; }
+
+    .dose-table tbody tr {
+      transition: background 150ms var(--ease-standard);
+    }
+
+    .dose-table tbody td {
+      padding: 9px 6px;
+      border-bottom: 1px solid var(--surface-border);
+      vertical-align: middle;
+    }
+
+    .dose-table tbody tr:last-child td { border-bottom: none; }
+    .dose-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+    .set-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      color: var(--brand-default);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .set-num-cell { text-align: center; }
+
+    .cell-tap {
+      display: inline-flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 3px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--ink-primary);
+      background: rgba(255,255,255,0.03);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 150ms var(--ease-standard);
+      width: 100%;
+      max-width: 100px;
+      text-align: center;
+    }
+
+    .cell-tap:hover {
+      background: rgba(255,255,255,0.06);
+      border-color: var(--surface-border);
+    }
+
+    .cell-tap.is-active {
+      background: var(--brand-tint-bg);
+      border-color: var(--brand-tint-border);
+      color: var(--brand-default);
+    }
+
+    .cell-tap .unit {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--ink-muted);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    .cell-tap.is-active .unit { color: var(--brand-default); opacity: 0.85; }
+
+    .cell-tap.is-na {
+      color: var(--ink-muted);
+      font-weight: 600;
+    }
+
+    .cell-tap.is-na .unit { display: none; }
+
+    .cell-center { text-align: center; }
+
+    .editor-row td {
+      background: rgba(255, 107, 53, 0.04);
+      border-left: 2px solid var(--brand-default);
+      padding: 0;
+    }
+
+    .editor-row .editor-inner { padding: 12px 14px 14px 14px; }
+
+    .editor-eyebrow {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--brand-default);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .editor-eyebrow .target-tag {
+      color: var(--ink-secondary);
+      letter-spacing: 0.3px;
+      font-weight: 500;
+      text-transform: none;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip {
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      padding: 7px 14px;
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      transition: all 150ms var(--ease-standard);
+      min-width: 44px;
+      text-align: center;
+    }
+
+    .chip:hover {
+      color: var(--ink-primary);
+      border-color: var(--ink-muted);
+    }
+
+    .chip.is-selected {
+      color: var(--ink-on-brand);
+      background: var(--brand-default);
+      border-color: var(--brand-default);
+    }
+
+    .chip.chip-custom {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.3px;
+    }
+
+    .chip-row .divider {
+      width: 1px;
+      background: var(--surface-border);
+      margin: 4px 4px;
+    }
+
+    /* Preset-chip-row used in Settings tab — same vocab, with a label */
+    .preset-row {
+      margin-bottom: 18px;
+    }
+
+    .preset-row .preset-label {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .preset-row .preset-name {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    .preset-row .preset-current {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink-primary);
+    }
+
+    /* Stepped weight slider ------------------------------------------- */
+    .weight-slider-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-top: 4px;
+    }
+
+    .na-toggle {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink-secondary);
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      letter-spacing: 0.4px;
+      flex-shrink: 0;
+      min-width: 52px;
+      text-align: center;
+    }
+
+    .na-toggle:hover {
+      color: var(--ink-primary);
+      border-color: var(--ink-muted);
+    }
+
+    .slider-area {
+      flex: 1;
+      position: relative;
+      padding-top: 28px;
+      padding-bottom: 24px;
+    }
+
+    .slider-track-wrap {
+      position: relative;
+      height: 28px;
+    }
+
+    .slider-track {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-full);
+    }
+
+    .slider-track-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      background: var(--brand-default);
+      border-radius: var(--radius-full);
+    }
+
+    .slider-ticks {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      left: 0;
+      right: 0;
+      height: 14px;
+      pointer-events: none;
+    }
+
+    .tick {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 1px;
+      height: 5px;
+      background: var(--ink-disabled);
+      opacity: 0.55;
+    }
+
+    .tick.major {
+      height: 11px;
+      width: 1px;
+      background: var(--ink-secondary);
+      opacity: 0.85;
+    }
+
+    .tick.passed { background: var(--brand-default); opacity: 1; }
+
+    .slider-thumb {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      border: 3px solid var(--surface-raised);
+      box-shadow: 0 0 0 1px var(--brand-default), 0 4px 10px rgba(255,107,53,0.35);
+      cursor: grab;
+      z-index: 3;
+    }
+
+    .slider-input {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: grab;
+      z-index: 4;
+    }
+
+    .slider-bubble {
+      position: absolute;
+      top: 0;
+      transform: translateX(-50%);
+      background: var(--ink-primary);
+      color: var(--surface-bg);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      white-space: nowrap;
+      letter-spacing: 0.2px;
+    }
+
+    .slider-bubble::after {
+      content: "";
+      position: absolute;
+      bottom: -4px;
+      left: 50%;
+      transform: translateX(-50%) rotate(45deg);
+      width: 8px;
+      height: 8px;
+      background: var(--ink-primary);
+    }
+
+    .slider-axis {
+      display: flex;
+      justify-content: space-between;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--ink-muted);
+      letter-spacing: 0.3px;
+    }
+
+    .slider-help {
+      margin-top: 14px;
+      font-size: 11px;
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      letter-spacing: 0.3px;
+    }
+
+    /* Add Set CTA ----------------------------------------------------- */
+    .add-set {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 10px 16px;
+      margin-top: 12px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: var(--brand-default);
+      background: var(--brand-tint-bg);
+      border: 1px dashed var(--brand-tint-border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 150ms var(--ease-standard);
+    }
+
+    .add-set:hover {
+      background: var(--brand-tint-strong);
+      border-style: solid;
+    }
+
+    .add-set .plus {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      color: var(--ink-on-brand);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .add-set-hint {
+      text-align: center;
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin-top: 6px;
+      font-style: italic;
+    }
+
+    /* Circuit context affordances ------------------------------------- */
+    .circuit-context-banner {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 10px 12px;
+      background: var(--brand-tint-bg);
+      border-left: 2px solid var(--brand-default);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      margin-bottom: 12px;
+    }
+
+    .circuit-context-banner .icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      color: var(--brand-default);
+      margin-top: 1px;
+    }
+
+    .circuit-context-banner .text {
+      font-size: 12px;
+      color: var(--ink-secondary);
+      line-height: 1.45;
+    }
+
+    .circuit-context-banner .text strong {
+      color: var(--ink-primary);
+      font-weight: 600;
+    }
+
+    .circuit-name-edit {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 0 4px;
+      max-width: 600px;
+    }
+
+    .circuit-name-edit .label {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    .circuit-name-input {
+      flex: 1;
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink-primary);
+      background: transparent;
+      border: 0;
+      outline: 0;
+      padding: 4px 0 5px;
+      border-bottom: 1.5px dashed var(--brand-default);
+      letter-spacing: -0.2px;
+    }
+
+    .circuit-cycle-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      color: var(--brand-default);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+
+    /* ================================================================== */
+    /*  Notes tab                                                         */
+    /* ================================================================== */
+    .notes-textarea {
+      width: 100%;
+      min-height: 200px;
+      padding: 14px;
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--ink-primary);
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-sm);
+      resize: none;
+      outline: none;
+      transition: border-color 150ms var(--ease-standard);
+    }
+
+    .notes-textarea:focus { border-color: var(--brand-default); }
+
+    .notes-textarea::placeholder {
+      color: var(--ink-muted);
+      font-style: italic;
+    }
+
+    .notes-tab-foot {
+      margin-top: 10px;
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--ink-muted);
+      line-height: 1.5;
+    }
+
+    .fake-keyboard {
+      margin: 14px -16px -24px;
+      height: 80px;
+      background: linear-gradient(180deg, #1c1f29 0%, #0f1117 100%);
+      border-top: 1px solid var(--surface-border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 10px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--ink-disabled);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    /* ================================================================== */
+    /*  Preview tab — faithful _MediaViewer rendering                      */
+    /* ================================================================== */
+    .preview-subtitle {
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin: -4px 0 14px;
+    }
+
+    /* Stage — full-canvas video frame with overlaid chrome, matching
+       the practitioner's per-exercise editor (Studio _MediaViewer). */
+    .mv-stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 9 / 15;
+      max-width: 360px;
+      margin: 0 auto;
+      background: linear-gradient(135deg, #1f2230 0%, #0f1117 100%);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    /* Landscape variant of the inset preview frame — Wave 28 mirrors
+       this layout in _MediaViewer when MediaQuery.orientation is
+       Orientation.landscape. */
+    .mv-stage.is-landscape {
+      aspect-ratio: 16 / 9;
+      max-width: 100%;
+    }
+    /* Landscape's faint figure ghost reads as a wide silhouette so the
+       frame doesn't feel empty. Override the portrait pseudo-elements. */
+    .mv-stage.is-landscape::before {
+      top: 28%;
+      width: 12%;
+      aspect-ratio: 1;
+    }
+    .mv-stage.is-landscape::after {
+      bottom: 14%;
+      width: 22%;
+      height: 38%;
+    }
+
+    /* Faint figure ghost so the frame doesn't read as "empty". */
+    .mv-stage::before {
+      content: "";
+      position: absolute;
+      top: 22%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 32%;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: rgba(245,245,247,0.05);
+    }
+    .mv-stage::after {
+      content: "";
+      position: absolute;
+      bottom: 22%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 44%;
+      height: 24%;
+      background: rgba(245,245,247,0.04);
+      border-radius: 14px 14px 6px 6px;
+    }
+
+    /* Top-center exercise-name pill — matches the IgnorePointer pill
+       in _MediaViewer at MediaQuery.padding.top + 12. */
+    .mv-name-pill {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 12px;
+      background: rgba(0,0,0,0.6);
+      border-radius: 14px;
+      text-align: center;
+      max-width: calc(100% - 80px);
+      z-index: 4;
+    }
+    .mv-name-pill .name {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 600;
+      color: #ffffff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .mv-name-pill .sub {
+      font-family: var(--font-body);
+      font-size: 9px;
+      font-weight: 500;
+      color: var(--ink-secondary);
+      letter-spacing: 0.3px;
+      margin-top: 1px;
+    }
+
+    /* Top-right close X (black54 circle, white icon) and tune gear
+       (small circular black55 with coral tune glyph) stacked below. */
+    .mv-close {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.54);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      z-index: 5;
+    }
+    .mv-close svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; }
+    .mv-tune {
+      position: absolute;
+      top: 46px;
+      right: 12px;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--brand-default);
+      z-index: 5;
+    }
+    .mv-tune svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* Left-edge vertical book-spine treatment segmented control —
+       Line / B&W / Original, vertical orientation, rotated text. */
+    .mv-treatment {
+      position: absolute;
+      top: 50%;
+      left: 10px;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 3px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid var(--brand-tint-border);
+      border-radius: 14px;
+      z-index: 4;
+    }
+    .mv-treatment .tseg {
+      width: 22px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 11px;
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      color: var(--brand-default);
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      text-transform: uppercase;
+    }
+    .mv-treatment .tseg.is-active {
+      background: var(--brand-default);
+      color: var(--ink-on-brand);
+    }
+
+    /* Landscape treatment control — the vertical book-spine flips to a
+       horizontal pill, top-center under the name pill. Matches Wave 28
+       `TreatmentSegmentedControl(orientation: Axis.horizontal)` at the
+       260-logical-pixel width that the Flutter widget uses. */
+    .mv-treatment.is-horizontal {
+      top: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      flex-direction: row;
+      gap: 2px;
+      width: 260px;
+      max-width: calc(100% - 96px);
+    }
+    .mv-treatment.is-horizontal .tseg {
+      width: auto;
+      height: 26px;
+      flex: 1;
+      writing-mode: horizontal-tb;
+      transform: none;
+      padding: 0 12px;
+    }
+
+    /* Bottom-right play/pause overlay — coral 44px circle with white
+       glyph. _MediaViewer is 56px on full-screen; here we scale for
+       the inset stage. */
+    .mv-playpause {
+      position: absolute;
+      right: 14px;
+      bottom: 96px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(255,107,53,0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(255,107,53,0.35);
+      z-index: 4;
+    }
+    .mv-playpause svg {
+      width: 22px;
+      height: 22px;
+      fill: currentColor;
+      transform: translateX(2px);
+    }
+
+    /* Bottom-left chrome cluster — vertical column, bottom-up:
+       Mute (base) / Body focus / Rotate (top). Coral-bordered toggle
+       pills; active fills coral, inactive is transparent. */
+    .mv-chrome {
+      position: absolute;
+      left: 12px;
+      bottom: 96px;
+      display: flex;
+      flex-direction: column-reverse; /* mute at bottom, rotate at top */
+      gap: 6px;
+      z-index: 4;
+    }
+
+    /* Landscape chrome cluster — single horizontal row, mute → body
+       focus → rotate (left to right), oldest-to-newest. Mirrors the
+       Wave 28 `Row(children: [mute, bodyFocus, rotate])` branch in
+       _buildBottomLeftChromeCluster. The cluster shifts up from the
+       trim-compact bar's reduced footprint. */
+    .mv-chrome.is-row {
+      flex-direction: row;
+      gap: 8px;
+      bottom: 64px;
+    }
+    .mv-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 14px;
+      border: 1.5px solid var(--brand-default);
+      background: transparent;
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--brand-default);
+      white-space: nowrap;
+    }
+    .mv-pill.is-active {
+      background: var(--brand-default);
+      color: var(--ink-on-brand);
+    }
+    .mv-pill svg {
+      width: 11px;
+      height: 11px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* Soft-trim editor — bottom-anchored panel with greyed bookend
+       track, coral fill between two coral drag-handle pills, and
+       a JetBrainsMono tick row underneath. */
+    .mv-trim {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      padding: 7px 10px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      z-index: 4;
+    }
+    .mv-trim-bar {
+      position: relative;
+      height: 28px;
+    }
+    .mv-trim-track {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 12px;
+      height: 6px;
+      background: rgba(255,255,255,0.10);
+      border-radius: 3px;
+    }
+    .mv-trim-fill {
+      position: absolute;
+      top: 12px;
+      height: 6px;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      border-radius: 3px;
+      /* trimmed window: 18% in, 82% out — handles not at edges */
+      left: 18%;
+      right: 18%;
+    }
+    .mv-trim-handle {
+      position: absolute;
+      top: 0;
+      width: 18px;
+      height: 28px;
+      border-radius: 6px;
+      background: var(--brand-default);
+      box-shadow: 0 2px 6px rgba(255,107,53,0.35);
+    }
+    .mv-trim-handle::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 2px;
+      height: 12px;
+      background: rgba(255,255,255,0.85);
+      border-radius: 1px;
+      box-shadow: 4px 0 rgba(255,255,255,0.85), -4px 0 rgba(255,255,255,0.85);
+    }
+    .mv-trim-handle.start { left: calc(18% - 9px); }
+    .mv-trim-handle.end { left: calc(82% - 9px); }
+    .mv-trim-ticks {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 3px;
+      font-family: var(--font-mono);
+      font-size: 8px;
+      letter-spacing: 0.3px;
+    }
+    .mv-trim-ticks .left,
+    .mv-trim-ticks .right { color: rgba(255,255,255,0.45); }
+    .mv-trim-ticks .mid { color: var(--brand-default); font-weight: 700; }
+    .mv-trim-readout {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 4px;
+      gap: 8px;
+    }
+    .mv-trim-readout .live {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 500;
+      color: #ffffff;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mv-trim-readout .reset {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--brand-default);
+      white-space: nowrap;
+    }
+
+    /* Compact trim — landscape `_TrimPanel(compact: true)`. Single row:
+       handles + a tighter readout collapse onto a thinner panel so the
+       video frame keeps as much vertical room as possible. */
+    .mv-trim.is-compact {
+      padding: 5px 10px;
+    }
+    .mv-trim.is-compact .mv-trim-bar {
+      height: 22px;
+    }
+    .mv-trim.is-compact .mv-trim-track,
+    .mv-trim.is-compact .mv-trim-fill {
+      top: 9px;
+    }
+    .mv-trim.is-compact .mv-trim-handle {
+      height: 22px;
+    }
+    .mv-trim.is-compact .mv-trim-handle::before {
+      height: 9px;
+    }
+    .mv-trim.is-compact .mv-trim-ticks {
+      display: none; /* compact panel hides the tick row */
+    }
+    .mv-trim.is-compact .mv-trim-readout {
+      margin-top: 2px;
+    }
+    .mv-trim.is-compact .mv-trim-readout .live {
+      font-size: 9px;
+    }
+    .mv-trim.is-compact .mv-trim-readout .reset {
+      font-size: 9px;
+    }
+
+    /* In landscape the play/pause overlay sits closer to the bottom
+       edge — there's less vertical canvas, and the compact trim panel
+       is shorter, so the Wave 28 `_bottomChromeTrimLiftFor(compact: true)`
+       returns a smaller offset. Mirror that here. */
+    .mv-stage.is-landscape .mv-playpause {
+      bottom: 64px;
+    }
+
+    /* ================================================================== */
+    /*  Detents diagram                                                   */
+    /* ================================================================== */
+    .detents-diagram {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      align-items: end;
+    }
+
+    .detent-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .detent-card .name {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink-primary);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    .detent-card .pct {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--brand-default);
+      font-weight: 700;
+    }
+
+    .detent-card .blurb {
+      font-family: var(--font-body);
+      font-size: 11px;
+      color: var(--ink-muted);
+      text-align: center;
+      line-height: 1.45;
+    }
+
+    .mini-stage {
+      width: 110px;
+      height: 200px;
+      background: var(--surface-bg);
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .mini-stage .mini-list {
+      position: absolute;
+      inset: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .mini-card {
+      height: 22px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 4px;
+    }
+
+    .mini-sheet {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--surface-raised);
+      border-top: 1px solid var(--surface-border);
+      border-radius: 10px 10px 0 0;
+    }
+
+    .mini-sheet::before {
+      content: "";
+      position: absolute;
+      top: 4px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 22px;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--ink-disabled);
+    }
+
+    .mini-sheet.closed { height: 0; border: 0; }
+    .mini-sheet.medium { height: 56%; }
+    .mini-sheet.large { height: 92%; }
+
+    .arrow-row {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 4px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-muted);
+      letter-spacing: 0.4px;
+    }
+
+    .arrow-row .arrow {
+      color: var(--brand-default);
+      font-size: 16px;
+    }
+
+    /* ================================================================== */
+    /*  Stack-of-3 demo container                                         */
+    /* ================================================================== */
+    .stack-demo {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-width: 600px;
+    }
+
+    .stack-demo .stack-caption {
+      font-family: var(--font-body);
+      font-size: 12px;
+      color: var(--ink-muted);
+      font-style: italic;
+      margin-top: 4px;
+    }
+
+    /* ================================================================== */
+    /*  State numbering                                                   */
+    /* ================================================================== */
+    .state-num {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.4px;
+      color: var(--brand-default);
+    }
+
+    /* Footer ---------------------------------------------------------- */
+    footer {
+      margin-top: 80px;
+      padding-top: 32px;
+      border-top: 1px solid var(--surface-border);
+      color: var(--ink-muted);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      letter-spacing: 0.3px;
+    }
+
+    .ico {
+      display: inline-block;
+      vertical-align: middle;
+      stroke: currentColor;
+      stroke-width: 1.6;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <!-- ============================================================== -->
+    <!--  Page header                                                    -->
+    <!-- ============================================================== -->
+    <header class="page-header">
+      <div class="eyebrow">homefit.studio · studio · design artifact</div>
+      <h1>Exercise card v2 · tabbed bottom-sheet editor</h1>
+      <p>
+        Replaces the inline-accordion exercise card. The card collapses to a single compact row
+        (thumb · title · Dose / Notes triggers · gear). Editing happens in a tabbed bottom sheet
+        with two detents — full DOSE table, freeform Notes, client-eye Preview, and Settings.
+        Each trigger lands the sheet on its home tab; swipe horizontally or tap to switch.
+      </p>
+    </header>
+
+    <!-- ============================================================== -->
+    <!--  1. Card · default                                              -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">01</span>Card · default state</h2>
+        <p>Pyramid sets fan out in the Dose summary. Notes summary truncates. Gear sits muted at far right because no settings deviate from defaults.</p>
+      </div>
+
+      <div class="ex-card-v2">
+        <div class="thumb">
+          <div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div>
+        </div>
+        <div class="body">
+          <div class="title-row">
+            <h3 class="title">Goblet Squat</h3>
+            <span class="gear" title="Settings">
+              <svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg>
+            </span>
+          </div>
+          <div class="triggers">
+            <button class="trigger dose">
+              <span class="trigger-label">Dose</span>
+              <span class="trigger-sep">·</span>
+              <span class="trigger-summary">10/8/6 @ 12.5/15/17.5 kg</span>
+            </button>
+            <button class="trigger notes">
+              <span class="trigger-label">Notes</span>
+              <span class="trigger-sep">·</span>
+              <span class="trigger-summary">"left knee, watch valgus on descent…"</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  2. Card · empty notes + non-default settings                   -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">02</span>Card · empty notes · non-default settings</h2>
+        <p>Notes button shows muted "Add notes…" placeholder. Gear shows the coral indicator dot — telegraphs that one or more settings (here: prep = 30 s) deviate from default.</p>
+      </div>
+
+      <div class="ex-card-v2">
+        <div class="thumb">
+          <div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div>
+        </div>
+        <div class="body">
+          <div class="title-row">
+            <h3 class="title">Bench Press</h3>
+            <span class="gear has-changes" title="Settings">
+              <svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg>
+            </span>
+          </div>
+          <div class="triggers">
+            <button class="trigger dose">
+              <span class="trigger-label">Dose</span>
+              <span class="trigger-sep">·</span>
+              <span class="trigger-summary">3 × 10 @ 15 kg</span>
+            </button>
+            <button class="trigger notes">
+              <span class="trigger-label">Notes</span>
+              <span class="trigger-sep">·</span>
+              <span class="trigger-summary empty">Add notes…</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  3. Card · bodyweight                                           -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">03</span>Card · bodyweight exercise</h2>
+        <p>No weight clause — the dose summary surfaces the hold instead. Same compact density as the loaded variant.</p>
+      </div>
+
+      <div class="ex-card-v2">
+        <div class="thumb">
+          <div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div>
+        </div>
+        <div class="body">
+          <div class="title-row">
+            <h3 class="title">Plank</h3>
+            <span class="gear" title="Settings">
+              <svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg>
+            </span>
+          </div>
+          <div class="triggers">
+            <button class="trigger dose">
+              <span class="trigger-label">Dose</span>
+              <span class="trigger-sep">·</span>
+              <span class="trigger-summary">3 × 12 · 30 s hold · bodyweight</span>
+            </button>
+            <button class="trigger notes">
+              <span class="trigger-label">Notes</span>
+              <span class="trigger-sep">·</span>
+              <span class="trigger-summary">"keep glutes engaged, neutral spine"</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  4. Card · circuit context                                      -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">04</span>Card · inside a circuit</h2>
+        <p>Circuit name is editable above the card; cycle count is a tappable tag. The card row itself stays identical — circuit context is a property of the group, not the exercise.</p>
+      </div>
+
+      <div class="circuit-name-edit">
+        <span class="label">Circuit</span>
+        <input type="text" class="circuit-name-input" value="Lower-body pyramid" />
+        <span class="circuit-cycle-tag" title="Tap to edit cycle count">3 cycles</span>
+      </div>
+
+      <div class="ex-card-v2">
+        <div class="thumb">
+          <div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div>
+        </div>
+        <div class="body">
+          <div class="title-row">
+            <h3 class="title">Goblet Squat</h3>
+            <span class="gear" title="Settings">
+              <svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg>
+            </span>
+          </div>
+          <div class="triggers">
+            <button class="trigger dose">
+              <span class="trigger-label">Dose</span>
+              <span class="trigger-sep">·</span>
+              <span class="trigger-summary">12/10 @ 10/12.5 kg · last set repeats</span>
+            </button>
+            <button class="trigger notes">
+              <span class="trigger-label">Notes</span>
+              <span class="trigger-sep">·</span>
+              <span class="trigger-summary empty">Add notes…</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  5. Studio context — stack of 3 cards                           -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">05</span>Studio context · vertical density</h2>
+        <p>Three cards stacked. The new compact row is roughly a third the height of the old accordion variant — far more exercises visible per screen with no gear-hunting cost.</p>
+      </div>
+
+      <div class="stack-demo">
+        <div class="ex-card-v2">
+          <div class="thumb">
+            <div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div>
+          </div>
+          <div class="body">
+            <div class="title-row">
+              <h3 class="title">Goblet Squat</h3>
+              <span class="gear">
+                <svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg>
+              </span>
+            </div>
+            <div class="triggers">
+              <button class="trigger dose">
+                <span class="trigger-label">Dose</span>
+                <span class="trigger-sep">·</span>
+                <span class="trigger-summary">3 × 10 @ 15 kg</span>
+              </button>
+              <button class="trigger notes">
+                <span class="trigger-label">Notes</span>
+                <span class="trigger-sep">·</span>
+                <span class="trigger-summary">"left knee, watch valgus…"</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ex-card-v2">
+          <div class="thumb">
+            <div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div>
+          </div>
+          <div class="body">
+            <div class="title-row">
+              <h3 class="title">Romanian Deadlift</h3>
+              <span class="gear has-changes">
+                <svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg>
+              </span>
+            </div>
+            <div class="triggers">
+              <button class="trigger dose">
+                <span class="trigger-label">Dose</span>
+                <span class="trigger-sep">·</span>
+                <span class="trigger-summary">3 × 8 @ 22.5 kg · 90 s rest</span>
+              </button>
+              <button class="trigger notes">
+                <span class="trigger-label">Notes</span>
+                <span class="trigger-sep">·</span>
+                <span class="trigger-summary">"hinge from hip, soft knees"</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ex-card-v2">
+          <div class="thumb">
+            <div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div>
+          </div>
+          <div class="body">
+            <div class="title-row">
+              <h3 class="title">Plank</h3>
+              <span class="gear">
+                <svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg>
+              </span>
+            </div>
+            <div class="triggers">
+              <button class="trigger dose">
+                <span class="trigger-label">Dose</span>
+                <span class="trigger-sep">·</span>
+                <span class="trigger-summary">3 × 1 · 30/45/60 s hold</span>
+              </button>
+              <button class="trigger notes">
+                <span class="trigger-label">Notes</span>
+                <span class="trigger-sep">·</span>
+                <span class="trigger-summary empty">Add notes…</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack-caption">~3× more exercises visible per screen versus the inline-accordion version. No expand-and-scroll gymnastics to find the next item.</div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  6. Sheet open · Dose tab · medium detent                       -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">06</span>Sheet · Dose tab · medium detent</h2>
+        <p>Sheet covers the bottom ~56% of the screen. Cards behind it dim. Drag-handle visible at top. Full DOSE table now uses the entire sheet width — far more horizontal room than the cramped card-internal version.</p>
+      </div>
+
+      <div class="stage tall">
+        <div class="stage-status"><span>9:41</span><span class="battery"></span></div>
+        <div class="stage-app-bar">
+          <span class="app-bar-pill">Carl's Practice</span>
+          <span class="app-bar-title">Studio</span>
+          <span class="app-bar-icons">
+            <svg class="ico-bar" viewBox="0 0 22 22"><path d="M3 7h16M3 12h16M3 17h16"/></svg>
+          </span>
+        </div>
+        <div class="stage-content sheet-open">
+          <div class="stage-list">
+            <div class="ex-card-v2">
+              <div class="thumb">
+                <div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div>
+              </div>
+              <div class="body">
+                <div class="title-row">
+                  <h3 class="title">Goblet Squat</h3>
+                  <span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span>
+                </div>
+                <div class="triggers">
+                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
+                  <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
+                </div>
+              </div>
+            </div>
+            <div class="ex-card-v2">
+              <div class="thumb"><div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div></div>
+              <div class="body">
+                <div class="title-row"><h3 class="title">Romanian Deadlift</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
+                <div class="triggers">
+                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 8 @ 22.5 kg</span></button>
+                  <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary">"hinge from hip, soft knees"</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="stage-backdrop"></div>
+
+          <div class="sheet detent-medium">
+            <div class="sheet-handle-row"><span class="sheet-handle"></span></div>
+            <h3 class="sheet-title">Goblet Squat</h3>
+            <p class="sheet-meta">VIDEO · 8s · 3 reps captured</p>
+            <div class="sheet-tabs">
+              <button class="sheet-tab is-active">Dose</button>
+              <button class="sheet-tab">Notes</button>
+              <button class="sheet-tab">Preview</button>
+              <button class="sheet-tab">Settings</button>
+            </div>
+            <div class="sheet-body">
+              <table class="dose-table">
+                <thead>
+                  <tr>
+                    <th class="col-set">Set</th>
+                    <th class="col-reps">Reps</th>
+                    <th class="col-hold">Hold</th>
+                    <th class="col-weight">Weight</th>
+                    <th class="col-rest">Breather</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="set-num-cell"><span class="set-num">1</span></td>
+                    <td class="cell-center"><button class="cell-tap">10</button></td>
+                    <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                    <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                    <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+                  </tr>
+                  <tr>
+                    <td class="set-num-cell"><span class="set-num">2</span></td>
+                    <td class="cell-center"><button class="cell-tap">10</button></td>
+                    <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                    <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                    <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+                  </tr>
+                  <tr>
+                    <td class="set-num-cell"><span class="set-num">3</span></td>
+                    <td class="cell-center"><button class="cell-tap">10</button></td>
+                    <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                    <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                    <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+                  </tr>
+                </tbody>
+              </table>
+              <button class="add-set"><span class="plus">+</span><span>Add Set</span></button>
+              <div class="add-set-hint">Copies last set's values</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  7. Sheet open · Dose tab · large detent                        -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">07</span>Sheet · Dose tab · large detent · weight slider open</h2>
+        <p>Drag the handle up → sheet snaps to ~92% of the screen. Pyramid 10/8/6 with the weight slider editor active on row 2. Plenty of breathing room for the slider, ticks, axis labels, and the "drag · or tap a tick" help.</p>
+      </div>
+
+      <div class="stage tall">
+        <div class="stage-status"><span>9:41</span><span class="battery"></span></div>
+        <div class="stage-app-bar">
+          <span class="app-bar-pill">Carl's Practice</span>
+          <span class="app-bar-title">Studio</span>
+          <span class="app-bar-icons"><svg class="ico-bar" viewBox="0 0 22 22"><path d="M3 7h16M3 12h16M3 17h16"/></svg></span>
+        </div>
+        <div class="stage-content sheet-open">
+          <div class="stage-list">
+            <div class="ex-card-v2">
+              <div class="thumb"><div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div></div>
+              <div class="body">
+                <div class="title-row"><h3 class="title">Bench Press</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
+                <div class="triggers">
+                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">10/8/6 @ 12.5/15/17.5 kg</span></button>
+                  <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="stage-backdrop"></div>
+
+          <div class="sheet detent-large">
+            <div class="sheet-handle-row"><span class="sheet-handle"></span></div>
+            <h3 class="sheet-title">Bench Press</h3>
+            <p class="sheet-meta">VIDEO · 12s · 3 reps captured</p>
+            <div class="sheet-tabs">
+              <button class="sheet-tab is-active">Dose</button>
+              <button class="sheet-tab">Notes</button>
+              <button class="sheet-tab">Preview</button>
+              <button class="sheet-tab">Settings</button>
+            </div>
+            <div class="sheet-body">
+              <table class="dose-table">
+                <thead>
+                  <tr>
+                    <th class="col-set">Set</th>
+                    <th class="col-reps">Reps</th>
+                    <th class="col-hold">Hold</th>
+                    <th class="col-weight">Weight</th>
+                    <th class="col-rest">Breather</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="set-num-cell"><span class="set-num">1</span></td>
+                    <td class="cell-center"><button class="cell-tap">10</button></td>
+                    <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                    <td class="cell-center"><button class="cell-tap">12.5<span class="unit">kg</span></button></td>
+                    <td class="cell-center"><button class="cell-tap">90<span class="unit">s</span></button></td>
+                  </tr>
+                  <tr>
+                    <td class="set-num-cell"><span class="set-num">2</span></td>
+                    <td class="cell-center"><button class="cell-tap">8</button></td>
+                    <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                    <td class="cell-center"><button class="cell-tap is-active">15<span class="unit">kg</span></button></td>
+                    <td class="cell-center"><button class="cell-tap">90<span class="unit">s</span></button></td>
+                  </tr>
+                  <tr class="editor-row">
+                    <td colspan="5">
+                      <div class="editor-inner">
+                        <div class="editor-eyebrow">
+                          Weight · set 2
+                          <span class="target-tag">snaps to 2.5 kg steps · 0 – 200 kg range</span>
+                        </div>
+                        <div class="weight-slider-wrap">
+                          <button class="na-toggle" title="Mark as bodyweight">— N/A</button>
+                          <div class="slider-area">
+                            <div class="slider-bubble" style="left: 25%;">15 kg</div>
+                            <div class="slider-track-wrap">
+                              <div class="slider-track">
+                                <div class="slider-track-fill" style="width: 25%;"></div>
+                              </div>
+                              <div class="slider-ticks" id="slider-ticks-1"></div>
+                              <div class="slider-thumb" style="left: 25%;"></div>
+                              <input class="slider-input" type="range" min="0" max="60" step="2.5" value="15" />
+                            </div>
+                            <div class="slider-axis">
+                              <span>0</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span><span>60</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="slider-help">drag · or tap a tick · range extends to 200 kg</div>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="set-num-cell"><span class="set-num">3</span></td>
+                    <td class="cell-center"><button class="cell-tap">6</button></td>
+                    <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                    <td class="cell-center"><button class="cell-tap">17.5<span class="unit">kg</span></button></td>
+                    <td class="cell-center"><button class="cell-tap">120<span class="unit">s</span></button></td>
+                  </tr>
+                </tbody>
+              </table>
+              <button class="add-set"><span class="plus">+</span><span>Add Set</span></button>
+              <div class="add-set-hint">Copies last set's values</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  8. Sheet open · Notes tab · large detent + keyboard            -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">08</span>Sheet · Notes tab · large detent + keyboard</h2>
+        <p>Notes auto-promotes to large the moment the textarea takes focus — keyboard space is preserved. Practitioner-facing only; notes never reach the client web player.</p>
+      </div>
+
+      <div class="stage tall">
+        <div class="stage-status"><span>9:41</span><span class="battery"></span></div>
+        <div class="stage-app-bar">
+          <span class="app-bar-pill">Carl's Practice</span>
+          <span class="app-bar-title">Studio</span>
+          <span class="app-bar-icons"><svg class="ico-bar" viewBox="0 0 22 22"><path d="M3 7h16M3 12h16M3 17h16"/></svg></span>
+        </div>
+        <div class="stage-content sheet-open">
+          <div class="stage-list">
+            <div class="ex-card-v2">
+              <div class="thumb"><div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div></div>
+              <div class="body">
+                <div class="title-row"><h3 class="title">Goblet Squat</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
+                <div class="triggers">
+                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
+                  <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary">"left knee, watch valgus…"</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="stage-backdrop"></div>
+
+          <div class="sheet detent-large">
+            <div class="sheet-handle-row"><span class="sheet-handle"></span></div>
+            <h3 class="sheet-title">Goblet Squat</h3>
+            <p class="sheet-meta">VIDEO · 8s · 3 reps captured</p>
+            <div class="sheet-tabs">
+              <button class="sheet-tab">Dose</button>
+              <button class="sheet-tab is-active">Notes</button>
+              <button class="sheet-tab">Preview</button>
+              <button class="sheet-tab">Settings</button>
+            </div>
+            <div class="sheet-body">
+              <textarea class="notes-textarea" placeholder="e.g. Watch for valgus collapse on the left knee. Cue heel pressure on descent.">Watch for valgus collapse on the left knee. Cue heel pressure on descent. Stop the set if the knee tracks inside the foot — better to drop weight than fight form.</textarea>
+              <p class="notes-tab-foot">Notes appear in the practitioner's session view, not on the client web player.</p>
+              <div class="fake-keyboard">keyboard</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  9. Sheet open · Preview tab · large detent                     -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">09</span>Sheet · Preview tab · large detent</h2>
+        <p>Per-exercise preview — same controls as the studio editor. Full-canvas video frame, vertical book-spine treatment control on the left, bottom-left chrome cluster (mute · body focus · rotate), bottom-right play/pause, soft-trim editor across the bottom. Top-right close X with the tune gear stacked underneath.</p>
+      </div>
+
+      <div class="stage tall">
+        <div class="stage-status"><span>9:41</span><span class="battery"></span></div>
+        <div class="stage-app-bar">
+          <span class="app-bar-pill">Carl's Practice</span>
+          <span class="app-bar-title">Studio</span>
+          <span class="app-bar-icons"><svg class="ico-bar" viewBox="0 0 22 22"><path d="M3 7h16M3 12h16M3 17h16"/></svg></span>
+        </div>
+        <div class="stage-content sheet-open">
+          <div class="stage-list">
+            <div class="ex-card-v2">
+              <div class="thumb"><div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div></div>
+              <div class="body">
+                <div class="title-row"><h3 class="title">Bench Press</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
+                <div class="triggers">
+                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">10/8/6 @ 12.5/15/17.5 kg</span></button>
+                  <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="stage-backdrop"></div>
+
+          <div class="sheet detent-large">
+            <div class="sheet-handle-row"><span class="sheet-handle"></span></div>
+            <h3 class="sheet-title">Bench Press</h3>
+            <p class="sheet-meta">VIDEO · 12s · 3 reps captured</p>
+            <div class="sheet-tabs">
+              <button class="sheet-tab">Dose</button>
+              <button class="sheet-tab">Notes</button>
+              <button class="sheet-tab is-active">Preview</button>
+              <button class="sheet-tab">Settings</button>
+            </div>
+            <div class="sheet-body">
+              <p class="preview-subtitle">Per-exercise preview — same controls as the studio editor.</p>
+
+              <div class="mv-stage">
+                <!-- Top-center exercise-name pill -->
+                <div class="mv-name-pill">
+                  <div class="name">Bench Press</div>
+                  <div class="sub">Exercise 2 of 5</div>
+                </div>
+
+                <!-- Top-right close X -->
+                <div class="mv-close" aria-label="Close">
+                  <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </div>
+
+                <!-- Tune gear (stacked under close X) -->
+                <div class="mv-tune" aria-label="Tune crossfade">
+                  <svg viewBox="0 0 24 24"><path d="M4 7h12M20 7h0M4 12h2M10 12h10M4 17h10M18 17h2"/><circle cx="18" cy="7" r="2.5"/><circle cx="8" cy="12" r="2.5"/><circle cx="16" cy="17" r="2.5"/></svg>
+                </div>
+
+                <!-- Left-edge vertical book-spine treatment control -->
+                <div class="mv-treatment" aria-label="Treatment">
+                  <span class="tseg is-active">Line</span>
+                  <span class="tseg">B&amp;W</span>
+                  <span class="tseg">Original</span>
+                </div>
+
+                <!-- Bottom-left chrome cluster: rotate (top) / body focus / mute (base) -->
+                <div class="mv-chrome">
+                  <span class="mv-pill" aria-label="Audio on">
+                    <svg viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5zM18 8a5 5 0 0 1 0 8"/></svg>
+                    Audio on
+                  </span>
+                  <span class="mv-pill is-active" aria-label="Body focus on">
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="6" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/><circle cx="12" cy="6" r="1.5"/><circle cx="12" cy="18" r="1.5"/></svg>
+                    Body focus
+                  </span>
+                  <span class="mv-pill" aria-label="Rotate playback">
+                    <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+                    Rotate
+                  </span>
+                </div>
+
+                <!-- Bottom-right play/pause overlay -->
+                <div class="mv-playpause" aria-label="Pause">
+                  <svg viewBox="0 0 20 20"><path d="M5 3v14l12-7z"/></svg>
+                </div>
+
+                <!-- Soft-trim editor — bottom-anchored -->
+                <div class="mv-trim">
+                  <div class="mv-trim-bar">
+                    <div class="mv-trim-track"></div>
+                    <div class="mv-trim-fill"></div>
+                    <div class="mv-trim-handle start"></div>
+                    <div class="mv-trim-handle end"></div>
+                  </div>
+                  <div class="mv-trim-ticks">
+                    <span class="left">0:00</span>
+                    <span class="mid">0:02–0:10</span>
+                    <span class="right">0:12</span>
+                  </div>
+                  <div class="mv-trim-readout">
+                    <span class="live">Trimmed to 8.0s · 3 reps · ~2.7s/rep</span>
+                    <span class="reset">⤺ Reset to full video</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  10. Sheet open · Settings tab · medium detent                  -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">10</span>Sheet · Settings tab · medium detent</h2>
+        <p>Two preset chip rows: prep seconds and video reps per loop. Both rarely change once the exercise is recorded — medium detent fits comfortably with no overflow.</p>
+      </div>
+
+      <div class="stage short">
+        <div class="stage-status"><span>9:41</span><span class="battery"></span></div>
+        <div class="stage-app-bar">
+          <span class="app-bar-pill">Carl's Practice</span>
+          <span class="app-bar-title">Studio</span>
+          <span class="app-bar-icons"><svg class="ico-bar" viewBox="0 0 22 22"><path d="M3 7h16M3 12h16M3 17h16"/></svg></span>
+        </div>
+        <div class="stage-content sheet-open">
+          <div class="stage-list">
+            <div class="ex-card-v2">
+              <div class="thumb"><div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div></div>
+              <div class="body">
+                <div class="title-row"><h3 class="title">Goblet Squat</h3><span class="gear has-changes"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
+                <div class="triggers">
+                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
+                  <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="stage-backdrop"></div>
+
+          <div class="sheet detent-medium">
+            <div class="sheet-handle-row"><span class="sheet-handle"></span></div>
+            <h3 class="sheet-title">Goblet Squat</h3>
+            <p class="sheet-meta">VIDEO · 8s · 3 reps captured</p>
+            <div class="sheet-tabs">
+              <button class="sheet-tab">Dose</button>
+              <button class="sheet-tab">Notes</button>
+              <button class="sheet-tab">Preview</button>
+              <button class="sheet-tab is-active">Settings</button>
+            </div>
+            <div class="sheet-body">
+              <div class="preset-row">
+                <div class="preset-label">
+                  <span class="preset-name">Prep seconds</span>
+                  <span class="preset-current">30 s</span>
+                </div>
+                <div class="chip-row">
+                  <button class="chip">10</button>
+                  <button class="chip">15</button>
+                  <button class="chip">20</button>
+                  <button class="chip is-selected">30</button>
+                  <button class="chip">45</button>
+                  <button class="chip">60</button>
+                </div>
+              </div>
+              <div class="preset-row">
+                <div class="preset-label">
+                  <span class="preset-name">Video reps per loop</span>
+                  <span class="preset-current">3 reps</span>
+                </div>
+                <div class="chip-row">
+                  <button class="chip">1</button>
+                  <button class="chip">2</button>
+                  <button class="chip is-selected">3</button>
+                  <button class="chip">4</button>
+                  <button class="chip">5</button>
+                </div>
+              </div>
+              <p class="notes-tab-foot">These rarely change once you've recorded the exercise.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  11. Sheet · drag-down dismiss                                  -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">11</span>Sheet · drag-down dismiss in progress</h2>
+        <p>User has dragged the handle below the medium-detent threshold. Sheet shrinks to ~28% screen height. Drag-handle highlights coral to confirm the gesture is being tracked. Releasing here snaps the sheet closed; releasing above the threshold snaps back to medium.</p>
+      </div>
+
+      <div class="stage tall">
+        <div class="stage-status"><span>9:41</span><span class="battery"></span></div>
+        <div class="stage-app-bar">
+          <span class="app-bar-pill">Carl's Practice</span>
+          <span class="app-bar-title">Studio</span>
+          <span class="app-bar-icons"><svg class="ico-bar" viewBox="0 0 22 22"><path d="M3 7h16M3 12h16M3 17h16"/></svg></span>
+        </div>
+        <div class="stage-content sheet-open">
+          <div class="stage-list">
+            <div class="ex-card-v2">
+              <div class="thumb"><div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div></div>
+              <div class="body">
+                <div class="title-row"><h3 class="title">Goblet Squat</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
+                <div class="triggers">
+                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
+                  <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
+                </div>
+              </div>
+            </div>
+            <div class="ex-card-v2">
+              <div class="thumb"><div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div></div>
+              <div class="body">
+                <div class="title-row"><h3 class="title">Romanian Deadlift</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
+                <div class="triggers">
+                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 8 @ 22.5 kg</span></button>
+                  <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary">"hinge from hip…"</span></button>
+                </div>
+              </div>
+            </div>
+            <div class="ex-card-v2">
+              <div class="thumb"><div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div></div>
+              <div class="body">
+                <div class="title-row"><h3 class="title">Plank</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
+                <div class="triggers">
+                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 1 · 30/45/60 s hold</span></button>
+                  <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="stage-backdrop" style="opacity: 0.55;"></div>
+
+          <div class="sheet detent-dragging">
+            <div class="sheet-handle-row"><span class="sheet-handle is-dragging"></span></div>
+            <h3 class="sheet-title">Goblet Squat</h3>
+            <div class="sheet-tabs">
+              <button class="sheet-tab is-active">Dose</button>
+              <button class="sheet-tab">Notes</button>
+              <button class="sheet-tab">Preview</button>
+              <button class="sheet-tab">Settings</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 14px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-muted); letter-spacing: 0.3px;">
+        Release below threshold → dismiss · Release above threshold → snap to medium
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  12. Detents diagram                                            -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">12</span>Sheet detents · snap behaviour</h2>
+        <p>Three positions, two snap thresholds. The sheet snaps to whichever detent the user's finger is closest to on release; below the medium-detent threshold it dismisses entirely.</p>
+      </div>
+
+      <div class="detents-diagram">
+        <div class="detent-card">
+          <div class="mini-stage">
+            <div class="mini-list">
+              <div class="mini-card"></div><div class="mini-card"></div><div class="mini-card"></div>
+              <div class="mini-card"></div><div class="mini-card"></div><div class="mini-card"></div>
+            </div>
+            <div class="mini-sheet closed"></div>
+          </div>
+          <div class="name">Closed</div>
+          <div class="pct">0%</div>
+          <div class="blurb">Studio list, full opacity. Sheet not present.</div>
+        </div>
+
+        <div class="detent-card">
+          <div class="mini-stage">
+            <div class="mini-list">
+              <div class="mini-card"></div><div class="mini-card"></div><div class="mini-card"></div>
+              <div class="mini-card"></div><div class="mini-card"></div><div class="mini-card"></div>
+            </div>
+            <div class="mini-sheet medium"></div>
+          </div>
+          <div class="name">Medium</div>
+          <div class="pct">~50%</div>
+          <div class="blurb">Default landing detent. Dose table and Settings fit without scroll.</div>
+        </div>
+
+        <div class="detent-card">
+          <div class="mini-stage">
+            <div class="mini-list">
+              <div class="mini-card"></div><div class="mini-card"></div><div class="mini-card"></div>
+              <div class="mini-card"></div><div class="mini-card"></div><div class="mini-card"></div>
+            </div>
+            <div class="mini-sheet large"></div>
+          </div>
+          <div class="name">Large</div>
+          <div class="pct">~90%</div>
+          <div class="blurb">Notes (keyboard) auto-promotes here. Preview is most legible at large.</div>
+        </div>
+
+        <div class="arrow-row">
+          <span>drag-down past threshold</span>
+          <span class="arrow">←</span>
+          <span>large</span>
+          <span class="arrow">↔</span>
+          <span>medium</span>
+          <span class="arrow">→</span>
+          <span>dismiss</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  13. Sheet open · Preview tab · landscape · large detent        -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">13</span>Sheet · Preview tab · landscape · large detent</h2>
+        <p><code>_MediaViewer</code> Wave 28 landscape variant — treatment control hops to a horizontal pill at top, chrome compacts to a single horizontal row, more vertical room for the video. The phone is rotated to landscape; status bar and Studio app bar still flow along the top edge, the sheet still anchors to the bottom.</p>
+      </div>
+
+      <div class="stage landscape">
+        <div class="stage-status"><span>9:41</span><span class="battery"></span></div>
+        <div class="stage-app-bar">
+          <span class="app-bar-pill">Carl's Practice</span>
+          <span class="app-bar-title">Studio</span>
+          <span class="app-bar-icons"><svg class="ico-bar" viewBox="0 0 22 22"><path d="M3 7h16M3 12h16M3 17h16"/></svg></span>
+        </div>
+        <div class="stage-content sheet-open">
+          <div class="stage-list">
+            <div class="ex-card-v2">
+              <div class="thumb"><div class="play-glyph"><svg viewBox="0 0 12 12"><path d="M3 2v8l7-4z"/></svg></div></div>
+              <div class="body">
+                <div class="title-row"><h3 class="title">Bench Press</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
+                <div class="triggers">
+                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">10/8/6 @ 12.5/15/17.5 kg</span></button>
+                  <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="stage-backdrop"></div>
+
+          <div class="sheet detent-large">
+            <div class="sheet-handle-row"><span class="sheet-handle"></span></div>
+            <h3 class="sheet-title">Bench Press</h3>
+            <p class="sheet-meta">VIDEO · 12s · 3 reps captured</p>
+            <div class="sheet-tabs">
+              <button class="sheet-tab">Dose</button>
+              <button class="sheet-tab">Notes</button>
+              <button class="sheet-tab is-active">Preview</button>
+              <button class="sheet-tab">Settings</button>
+            </div>
+            <div class="sheet-body">
+              <p class="preview-subtitle">Landscape — treatment control horizontal at top, chrome row at bottom-left.</p>
+
+              <div class="mv-stage is-landscape">
+                <!-- Top-center exercise-name pill (unchanged from portrait) -->
+                <div class="mv-name-pill">
+                  <div class="name">Bench Press</div>
+                  <div class="sub">Exercise 2 of 5</div>
+                </div>
+
+                <!-- Top-right close X -->
+                <div class="mv-close" aria-label="Close">
+                  <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </div>
+
+                <!-- Tune gear (stacked under close X) -->
+                <div class="mv-tune" aria-label="Tune crossfade">
+                  <svg viewBox="0 0 24 24"><path d="M4 7h12M20 7h0M4 12h2M10 12h10M4 17h10M18 17h2"/><circle cx="18" cy="7" r="2.5"/><circle cx="8" cy="12" r="2.5"/><circle cx="16" cy="17" r="2.5"/></svg>
+                </div>
+
+                <!-- Top-center horizontal treatment pill — replaces the
+                     portrait left-edge book-spine. Wave 28: orientation
+                     flips to Axis.horizontal, width 260. -->
+                <div class="mv-treatment is-horizontal" aria-label="Treatment">
+                  <span class="tseg is-active">Line</span>
+                  <span class="tseg">B&amp;W</span>
+                  <span class="tseg">Original</span>
+                </div>
+
+                <!-- Bottom-left chrome cluster — single horizontal ROW.
+                     Wave 28 order: mute, body focus, rotate. -->
+                <div class="mv-chrome is-row">
+                  <span class="mv-pill" aria-label="Audio on">
+                    <svg viewBox="0 0 24 24"><path d="M5 9v6h4l5 4V5L9 9H5zM18 8a5 5 0 0 1 0 8"/></svg>
+                    Audio on
+                  </span>
+                  <span class="mv-pill is-active" aria-label="Body focus on">
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="6" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/><circle cx="12" cy="6" r="1.5"/><circle cx="12" cy="18" r="1.5"/></svg>
+                    Body focus
+                  </span>
+                  <span class="mv-pill" aria-label="Rotate playback">
+                    <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+                    Rotate
+                  </span>
+                </div>
+
+                <!-- Bottom-right play/pause overlay -->
+                <div class="mv-playpause" aria-label="Pause">
+                  <svg viewBox="0 0 20 20"><path d="M5 3v14l12-7z"/></svg>
+                </div>
+
+                <!-- Compact soft-trim editor — full sheet width, tighter
+                     panel (Wave 28 `_TrimPanel(compact: true)`). -->
+                <div class="mv-trim is-compact">
+                  <div class="mv-trim-bar">
+                    <div class="mv-trim-track"></div>
+                    <div class="mv-trim-fill"></div>
+                    <div class="mv-trim-handle start"></div>
+                    <div class="mv-trim-handle end"></div>
+                  </div>
+                  <div class="mv-trim-readout">
+                    <span class="live">Trimmed to 8.0s · 3 reps · ~2.7s/rep</span>
+                    <span class="reset">⤺ Reset</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  Footer                                                         -->
+    <!-- ============================================================== -->
+    <footer>
+      homefit.studio · exercise-card v2 · tabbed bottom-sheet editor · static design mockup · tokens mirrored from docs/design/project/tokens.json
+    </footer>
+  </div>
+
+  <script>
+    /* ------------------------------------------------------------------ */
+    /*  Render the 25 ticks for the weight slider (0–60 kg, every 2.5 kg) */
+    /*  Major every 10 kg.                                                */
+    /* ------------------------------------------------------------------ */
+    (function () {
+      var wrap = document.getElementById('slider-ticks-1');
+      if (!wrap) return;
+      var steps = 24;
+      var valueAtPos = 15;
+      for (var i = 0; i <= steps; i++) {
+        var kg = i * 2.5;
+        var pct = (kg / 60) * 100;
+        var t = document.createElement('span');
+        t.className = 'tick' + (kg % 10 === 0 ? ' major' : '') + (kg <= valueAtPos ? ' passed' : '');
+        t.style.left = pct + '%';
+        wrap.appendChild(t);
+      }
+
+      var input = document.querySelector('.slider-input');
+      var bubble = document.querySelector('.slider-bubble');
+      var thumb = document.querySelector('.slider-thumb');
+      var fill = document.querySelector('.slider-track-fill');
+      var ticks = wrap.querySelectorAll('.tick');
+      if (!input) return;
+
+      function update() {
+        var kg = parseFloat(input.value);
+        var pct = (kg / 60) * 100;
+        bubble.style.left = pct + '%';
+        bubble.textContent = (kg % 1 === 0 ? kg.toFixed(0) : kg.toFixed(1)) + ' kg';
+        thumb.style.left = pct + '%';
+        fill.style.width = pct + '%';
+        ticks.forEach(function (t) {
+          var tickKg = parseFloat(t.style.left) * 60 / 100;
+          if (tickKg <= kg + 0.001) t.classList.add('passed');
+          else t.classList.remove('passed');
+        });
+      }
+      input.addEventListener('input', update);
+    })();
+
+    /* ------------------------------------------------------------------ */
+    /*  Tab strip — mock click switching for sheet-open compositions      */
+    /*  (purely cosmetic — the static mockup shows one active tab per     */
+    /*   composition; clicking other tabs in the same composition just    */
+    /*   moves the coral underline so the tab strip feels responsive.)    */
+    /* ------------------------------------------------------------------ */
+    (function () {
+      document.querySelectorAll('.sheet-tabs').forEach(function (strip) {
+        strip.addEventListener('click', function (e) {
+          var tab = e.target.closest('.sheet-tab');
+          if (!tab) return;
+          strip.querySelectorAll('.sheet-tab').forEach(function (t) {
+            t.classList.remove('is-active');
+          });
+          tab.classList.add('is-active');
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

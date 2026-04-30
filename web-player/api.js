@@ -63,6 +63,19 @@
  * is purely a playback-time clamp. This module normalises both keys
  * to explicit null when absent.
  *
+ * ## Per-set DOSE (Wave 41 — current)
+ *
+ * `get_plan_full` now returns one row per exercise carrying:
+ *   - sets: [{position, reps, hold_seconds, weight_kg,
+ *            breather_seconds_after}, ...]   (empty for rest)
+ *   - rest_seconds: integer | null           (rest exercises only)
+ * The legacy top-level `reps` / `sets` (int) / `hold_seconds` /
+ * `inter_set_rest_seconds` / `custom_duration_seconds` keys have been
+ * REMOVED from the RPC. This module coerces every set field to a
+ * number where applicable and leaves `weight_kg` as either a number or
+ * null (null = bodyweight). Rest exercises always carry an empty
+ * `sets: []`; their duration lives in `rest_seconds`.
+ *
  * Exposed on `window.HomefitApi` so `app.js` (a plain script, not an
  * ES module) can reach it. When the web player gains a bundler this
  * turns into a proper `export`.
@@ -111,6 +124,98 @@
     }
   }
 
+  /**
+   * Coerce a numeric-ish value to a finite number, or `def` when the
+   * value is null/undefined/NaN/non-finite. Used by the per-set
+   * normaliser below — server may send strings (numeric jsonb is rare
+   * in PostgREST output, but we belt-and-brace) or null.
+   */
+  function _coerceNum(v, def) {
+    if (v === null || v === undefined) return def;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return def;
+    return n;
+  }
+
+  /**
+   * Coerce a numeric-ish value to a finite number, OR explicit null
+   * when the source is null/undefined. Used for `weight_kg` which
+   * carries a load-bearing null = bodyweight signal.
+   */
+  function _coerceNumOrNull(v) {
+    if (v === null || v === undefined) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return n;
+  }
+
+  /**
+   * Wave 41 per-set normaliser. The server sends each exercise with a
+   * `sets: [{position, reps, hold_seconds, weight_kg,
+   * breather_seconds_after}, ...]` array (empty for rest). We coerce
+   * every numeric field and preserve `weight_kg`'s null-vs-number
+   * distinction (null = bodyweight; number = kg).
+   */
+  function _normaliseSets(rawSets) {
+    if (!Array.isArray(rawSets)) return [];
+    return rawSets
+      .map((s, i) => ({
+        position: _coerceNum(s && s.position, i),
+        reps: Math.max(0, _coerceNum(s && s.reps, 0)),
+        hold_seconds: Math.max(0, _coerceNum(s && s.hold_seconds, 0)),
+        weight_kg: _coerceNumOrNull(s && s.weight_kg),
+        breather_seconds_after: Math.max(
+          0,
+          _coerceNum(s && s.breather_seconds_after, 0),
+        ),
+      }))
+      .sort((a, b) => a.position - b.position);
+  }
+
+  /**
+   * Per-exercise normaliser, shared between the live RPC path and the
+   * mobile WebView (`getPlanFullLocal`) so both surfaces see the same
+   * key shape. Drops the legacy top-level `reps` / `sets` (int) /
+   * `hold_seconds` / `inter_set_rest_seconds` / `custom_duration_seconds`
+   * keys — `app.js` reads everything from `sets: [...]` now.
+   */
+  function _normaliseExercise(e) {
+    return {
+      ...e,
+      line_drawing_url: e.line_drawing_url || e.media_url || null,
+      grayscale_url: e.grayscale_url || null,
+      original_url: e.original_url || null,
+      grayscale_segmented_url: e.grayscale_segmented_url || null,
+      original_segmented_url: e.original_segmented_url || null,
+      mask_url: e.mask_url || null,
+      // Milestone X — per-exercise soft-trim window (Wave 20).
+      // Both null = no trim, full clip plays. Both set = mobile + web
+      // player clamp `<video>.currentTime` to [start, end] in ms and
+      // loop within the window. Same trim applies across all three
+      // treatments since they share source timing.
+      start_offset_ms: e.start_offset_ms ?? null,
+      end_offset_ms: e.end_offset_ms ?? null,
+      // Wave 24 — number of reps captured in the source video. NULL =
+      // legacy / pre-migration row (player treats as 1 rep per loop,
+      // preserving pre-Wave-24 playback math). Drives the per-rep
+      // duration derivation in calculatePerSetSeconds.
+      video_reps_per_loop: e.video_reps_per_loop ?? null,
+      // Wave 41 per-set DOSE. Always present as an array (empty for
+      // rest exercises). Each entry: position, reps, hold_seconds,
+      // weight_kg (null = bodyweight), breather_seconds_after.
+      sets: _normaliseSets(e.sets),
+      // Top-level rest_seconds for rest exercises (null otherwise).
+      // Legacy fallback to `hold_seconds` / `custom_duration_seconds`
+      // only kicks in if the server returns them on a rest row — the
+      // RPC has dropped those keys but defensive readers stay cheap.
+      rest_seconds: e.rest_seconds == null
+        ? (e.media_type === 'rest'
+            ? _coerceNumOrNull(e.hold_seconds ?? e.custom_duration_seconds)
+            : null)
+        : _coerceNumOrNull(e.rest_seconds),
+    };
+  }
+
   async function getPlanFullLocal(planId) {
     const effectiveId = planId || getLocalPlanId();
     if (!effectiveId) throw new Error('Plan not found');
@@ -121,34 +226,7 @@
     if (!response.ok) throw new Error('Plan not found');
     const payload = await response.json();
     if (!payload || !payload.plan) throw new Error('Plan not found');
-    const exercises = (payload.exercises || []).map((e) => ({
-      ...e,
-      line_drawing_url: e.line_drawing_url || e.media_url || null,
-      grayscale_url: e.grayscale_url || null,
-      original_url: e.original_url || null,
-      grayscale_segmented_url: e.grayscale_segmented_url || null,
-      original_segmented_url: e.original_segmented_url || null,
-      mask_url: e.mask_url || null,
-      // Milestone Q — per-exercise inter-set rest ("Post Rep Breather").
-      // null = no breather (legacy rows / pre-migration), 0 = explicit
-      // disable, >0 = breather seconds. app.js consumes this to drive
-      // the segmented progress bar + sage breather overlay.
-      inter_set_rest_seconds: e.inter_set_rest_seconds ?? null,
-      // Milestone X — per-exercise soft-trim window (Wave 20).
-      // Both null = no trim, full clip plays. Both set = mobile + web
-      // player clamp `<video>.currentTime` to [start, end] in ms and
-      // loop within the window. Same trim applies across all three
-      // treatments since they share source timing.
-      start_offset_ms: e.start_offset_ms ?? null,
-      end_offset_ms: e.end_offset_ms ?? null,
-      // Wave 24 — number of reps captured in the source video. NULL =
-      // legacy / pre-migration row (player treats as 1 rep per loop,
-      // preserving pre-Wave-24 playback math). Drives the per-rep /
-      // per-set time derivation in calculatePerSetSeconds /
-      // calculateDuration; replaces the manual custom_duration_seconds
-      // override in the practitioner UI.
-      video_reps_per_loop: e.video_reps_per_loop ?? null,
-    }));
+    const exercises = (payload.exercises || []).map(_normaliseExercise);
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     return { ...payload, exercises };
   }
@@ -189,35 +267,9 @@
 
     // Normalise exercise shape so app.js can rely on treatment keys
     // always being present (nullable ones explicitly null rather than
-    // undefined). Keeps downstream code branch-light.
-    const exercises = (payload.exercises || []).map((e) => ({
-      ...e,
-      line_drawing_url: e.line_drawing_url || e.media_url || null,
-      grayscale_url: e.grayscale_url || null,
-      original_url: e.original_url || null,
-      grayscale_segmented_url: e.grayscale_segmented_url || null,
-      original_segmented_url: e.original_segmented_url || null,
-      mask_url: e.mask_url || null,
-      // Milestone Q — per-exercise inter-set rest ("Post Rep Breather").
-      // null = no breather (legacy rows / pre-migration), 0 = explicit
-      // disable, >0 = breather seconds. app.js consumes this to drive
-      // the segmented progress bar + sage breather overlay.
-      inter_set_rest_seconds: e.inter_set_rest_seconds ?? null,
-      // Milestone X — per-exercise soft-trim window (Wave 20).
-      // Both null = no trim, full clip plays. Both set = mobile + web
-      // player clamp `<video>.currentTime` to [start, end] in ms and
-      // loop within the window. Same trim applies across all three
-      // treatments since they share source timing.
-      start_offset_ms: e.start_offset_ms ?? null,
-      end_offset_ms: e.end_offset_ms ?? null,
-      // Wave 24 — number of reps captured in the source video. NULL =
-      // legacy / pre-migration row (player treats as 1 rep per loop,
-      // preserving pre-Wave-24 playback math). Drives the per-rep /
-      // per-set time derivation in calculatePerSetSeconds /
-      // calculateDuration; replaces the manual custom_duration_seconds
-      // override in the practitioner UI.
-      video_reps_per_loop: e.video_reps_per_loop ?? null,
-    }));
+    // undefined). Keeps downstream code branch-light. Shared with the
+    // mobile WebView path via _normaliseExercise.
+    const exercises = (payload.exercises || []).map(_normaliseExercise);
     exercises.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 
     return { ...payload, exercises };

@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import '../config.dart';
 import '../services/path_resolver.dart';
+import 'exercise_set.dart';
 import 'treatment.dart';
 
 /// The type of media captured for an exercise.
@@ -23,12 +24,37 @@ class ExerciseCapture {
   final String? thumbnailPath;
   final MediaType mediaType;
   final ConversionStatus conversionStatus;
-  final int? reps;
-  final int? sets;
-  final int? holdSeconds;
+
+  /// Per-set DOSE rows (Wave: per-set DOSE relational model). Empty for
+  /// rest exercises and brand-new captures whose
+  /// [withPersistenceDefaults] hasn't yet seeded the synthetic first
+  /// set. Each set is a playable row — reps, hold, optional weight,
+  /// breather after. Round-trips through SQLite (`exercise_sets`
+  /// table) and the publish RPC (`replace_plan_exercises`) which
+  /// expects nested JSON `[{position, reps, hold_seconds, weight_kg,
+  /// breather_seconds_after}, ...]`.
+  ///
+  /// The legacy uniform `(reps, sets, hold_seconds, inter_set_rest_seconds,
+  /// custom_duration_seconds)` columns were dropped server-side in this
+  /// wave. Callers that previously read `exercise.reps` should iterate
+  /// [sets] and read per-set values; the duration estimator handles
+  /// the aggregate via [estimatedDurationSeconds].
+  final List<ExerciseSet> sets;
+
   final String? notes;
   final String? name;
   final DateTime createdAt;
+
+  /// Hold seconds for REST exercises only. Repurposed from the legacy
+  /// shared `hold_seconds` column. For non-rest exercises, hold is
+  /// per-set (see [ExerciseSet.holdSeconds]).
+  ///
+  /// Rest periods carry their duration here (the only "set" semantics
+  /// they have) — survived the per-set wave because rest rows have no
+  /// child `exercise_sets`. Persisted as `rest_hold_seconds` in SQLite
+  /// v33; the server side keeps it on `exercises.rest_hold_seconds`
+  /// (TODO — see report).
+  final int? restHoldSeconds;
 
   /// The session this capture belongs to. Set when persisting.
   final String? sessionId;
@@ -43,11 +69,6 @@ class ExerciseCapture {
   /// for safety — trainers must explicitly opt in per exercise.
   final bool includeAudio;
 
-  /// Manual duration override in seconds. When set, [effectiveDurationSeconds]
-  /// returns this value instead of the calculated [estimatedDurationSeconds].
-  /// Nullable — null means "use the auto-calculated value".
-  final int? customDurationSeconds;
-
   /// Per-exercise prep-countdown override in seconds.
   ///
   /// When set, the plan-preview + web player use this value for the
@@ -55,27 +76,6 @@ class ExerciseCapture {
   /// Legacy rows pre-migration are null; the new 5s default supersedes the
   /// previous hard-coded 15s baseline. Rest periods ignore this field.
   final int? prepSeconds;
-
-  /// Per-exercise inter-set rest ("Post Rep Breather") in seconds
-  /// (Milestone Q). Semantics:
-  ///
-  ///   * null → no breather (legacy rows, pre-migration).
-  ///   * 0    → practitioner explicitly disabled the breather.
-  ///   * > 0  → breather seconds played between sets on the client
-  ///            web player.
-  ///
-  /// Fresh captures seed to 15 via [withPersistenceDefaults]; existing
-  /// rows stay null (no backfill). Feeds the duration math used by the
-  /// progress-pill matrix + the workout-timeline ETA:
-  ///
-  ///   exercise_total = sets × per_set
-  ///                  + max(0, sets - 1) × (interSetRestSeconds ?? 0)
-  ///
-  /// Rest periods + isometric-only exercises skip the default seed —
-  /// the former have no sets, the latter run the hold as the primary
-  /// dose. The player hides the segmented progress bar when sets <= 1
-  /// (breather has no meaning with a single set).
-  final int? interSetRestSeconds;
 
   /// Duration of the raw video file in milliseconds. Populated by the
   /// conversion service after a successful video conversion using the native
@@ -219,12 +219,9 @@ class ExerciseCapture {
   /// Per-rep + per-set time derive from this value:
   ///
   ///   per_rep_seconds = (videoDurationMs / 1000) / videoRepsPerLoop
-  ///   per_set_seconds = (reps ?? 10) × per_rep_seconds
   ///
-  /// Wave 24 retired the manual [customDurationSeconds] override from
-  /// the UI; the DB column stays for backwards-compatible reads of
-  /// older plans. Photos + rest periods don't carry this field — they
-  /// have no video to count reps in.
+  /// Photos + rest periods don't carry this field — they have no video
+  /// to count reps in.
   ///
   /// Persistence: local SQLite `exercises.video_reps_per_loop`
   /// (schema v26) + Supabase `exercises.video_reps_per_loop`
@@ -269,18 +266,15 @@ class ExerciseCapture {
     this.thumbnailPath,
     required this.mediaType,
     this.conversionStatus = ConversionStatus.pending,
-    this.reps,
-    this.sets,
-    this.holdSeconds,
+    this.sets = const <ExerciseSet>[],
+    this.restHoldSeconds,
     this.notes,
     this.name,
     required this.createdAt,
     this.sessionId,
     this.circuitId,
     this.includeAudio = false,
-    this.customDurationSeconds,
     this.prepSeconds,
-    this.interSetRestSeconds,
     this.videoDurationMs,
     this.archiveFilePath,
     this.archivedAt,
@@ -315,7 +309,9 @@ class ExerciseCapture {
     );
   }
 
-  /// Create a rest period exercise — no media, no conversion.
+  /// Create a rest period exercise — no media, no conversion. Stores its
+  /// duration in [restHoldSeconds] (the per-set wave repurposed the old
+  /// shared `hold_seconds` column for rest-only use).
   factory ExerciseCapture.createRest({
     required int position,
     String? sessionId,
@@ -327,7 +323,7 @@ class ExerciseCapture {
       rawFilePath: '',
       mediaType: MediaType.rest,
       conversionStatus: ConversionStatus.done,
-      holdSeconds: durationSeconds ?? AppConfig.defaultRestDuration,
+      restHoldSeconds: durationSeconds ?? AppConfig.defaultRestDuration,
       name: 'Rest',
       createdAt: DateTime.now(),
       sessionId: sessionId,
@@ -337,8 +333,13 @@ class ExerciseCapture {
   /// Whether this exercise is a rest period.
   bool get isRest => mediaType == MediaType.rest;
 
-  /// Deserialize from a SQLite row.
-  factory ExerciseCapture.fromMap(Map<String, dynamic> map) {
+  /// Deserialize from a SQLite row. Sets are attached separately by the
+  /// LocalStorageService loader (one query per session bucketed by
+  /// exercise id), since they live in their own table.
+  factory ExerciseCapture.fromMap(
+    Map<String, dynamic> map, {
+    List<ExerciseSet> sets = const <ExerciseSet>[],
+  }) {
     return ExerciseCapture(
       id: map['id'] as String,
       position: map['position'] as int,
@@ -348,18 +349,15 @@ class ExerciseCapture {
       mediaType: MediaType.values[map['media_type'] as int],
       conversionStatus:
           ConversionStatus.values[map['conversion_status'] as int],
-      reps: map['reps'] as int?,
-      sets: map['sets'] as int?,
-      holdSeconds: map['hold_seconds'] as int?,
+      sets: sets,
+      restHoldSeconds: map['rest_hold_seconds'] as int?,
       notes: map['notes'] as String?,
       name: map['name'] as String?,
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int),
       sessionId: map['session_id'] as String?,
       circuitId: map['circuit_id'] as String?,
       includeAudio: (map['include_audio'] as int?) == 1,
-      customDurationSeconds: map['custom_duration'] as int?,
       prepSeconds: map['prep_seconds'] as int?,
-      interSetRestSeconds: map['inter_set_rest_seconds'] as int?,
       videoDurationMs: map['video_duration_ms'] as int?,
       archiveFilePath: map['archive_file_path'] as String?,
       archivedAt: map['archived_at'] != null
@@ -380,7 +378,8 @@ class ExerciseCapture {
     );
   }
 
-  /// Serialize to a map suitable for SQLite insertion.
+  /// Serialize to a map suitable for SQLite insertion. Sets are
+  /// persisted in the `exercise_sets` child table — NOT included here.
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -391,17 +390,13 @@ class ExerciseCapture {
       'thumbnail_path': thumbnailPath,
       'media_type': mediaType.index,
       'conversion_status': conversionStatus.index,
-      'reps': reps,
-      'sets': sets,
-      'hold_seconds': holdSeconds,
+      'rest_hold_seconds': restHoldSeconds,
       'notes': notes,
       'name': name,
       'created_at': createdAt.millisecondsSinceEpoch,
       'circuit_id': circuitId,
       'include_audio': includeAudio ? 1 : 0,
-      'custom_duration': customDurationSeconds,
       'prep_seconds': prepSeconds,
-      'inter_set_rest_seconds': interSetRestSeconds,
       'video_duration_ms': videoDurationMs,
       'archive_file_path': archiveFilePath,
       'archived_at': archivedAt?.millisecondsSinceEpoch,
@@ -429,9 +424,9 @@ class ExerciseCapture {
     String? thumbnailPath,
     MediaType? mediaType,
     ConversionStatus? conversionStatus,
-    int? reps,
-    int? sets,
-    int? holdSeconds,
+    List<ExerciseSet>? sets,
+    int? restHoldSeconds,
+    bool clearRestHoldSeconds = false,
     String? notes,
     String? name,
     bool clearName = false,
@@ -439,12 +434,8 @@ class ExerciseCapture {
     String? circuitId,
     bool clearCircuitId = false,
     bool? includeAudio,
-    int? customDurationSeconds,
-    bool clearCustomDuration = false,
     int? prepSeconds,
     bool clearPrepSeconds = false,
-    int? interSetRestSeconds,
-    bool clearInterSetRestSeconds = false,
     int? videoDurationMs,
     bool clearVideoDurationMs = false,
     String? archiveFilePath,
@@ -484,23 +475,18 @@ class ExerciseCapture {
       thumbnailPath: thumbnailPath ?? this.thumbnailPath,
       mediaType: mediaType ?? this.mediaType,
       conversionStatus: conversionStatus ?? this.conversionStatus,
-      reps: reps ?? this.reps,
       sets: sets ?? this.sets,
-      holdSeconds: holdSeconds ?? this.holdSeconds,
+      restHoldSeconds: clearRestHoldSeconds
+          ? null
+          : (restHoldSeconds ?? this.restHoldSeconds),
       notes: notes ?? this.notes,
       name: clearName ? null : (name ?? this.name),
       createdAt: createdAt,
       sessionId: sessionId ?? this.sessionId,
       circuitId: clearCircuitId ? null : (circuitId ?? this.circuitId),
       includeAudio: includeAudio ?? this.includeAudio,
-      customDurationSeconds: clearCustomDuration
-          ? null
-          : (customDurationSeconds ?? this.customDurationSeconds),
       prepSeconds:
           clearPrepSeconds ? null : (prepSeconds ?? this.prepSeconds),
-      interSetRestSeconds: clearInterSetRestSeconds
-          ? null
-          : (interSetRestSeconds ?? this.interSetRestSeconds),
       videoDurationMs: clearVideoDurationMs
           ? null
           : (videoDurationMs ?? this.videoDurationMs),
@@ -541,121 +527,97 @@ class ExerciseCapture {
     );
   }
 
-  /// Backfill the per-capture persistence defaults (Option 1 from the
-  /// 2026-04-22 player-grammar discussion).
+  /// Backfill the per-capture persistence defaults.
   ///
-  /// Problem: when a practitioner captures an exercise and never touches
-  /// reps / sets, those columns persist as NULL. Downstream consumers
-  /// (web player, plan preview) then have to guess defaults at display
-  /// time, which produced inconsistent grammar across exercises captured
-  /// in the same session — one card showed "5 reps", the next showed
-  /// nothing, because the display-time fallback differed per surface.
+  /// Per-set DOSE wave: when a practitioner captures a video or photo
+  /// exercise without ever opening the DOSE editor, the [sets] list is
+  /// empty — which would publish an empty plan. We seed a single
+  /// canonical first set so downstream consumers (web player + mobile
+  /// preview + duration estimator) always have at least one playable
+  /// row.
   ///
-  /// Fix: at the persistence boundary, backfill missing reps / sets with
-  /// the same canonical defaults the Studio card would have drawn
-  /// (3 sets x 10 reps). Truthful data, no display-time imputation.
-  ///
-  /// Milestone Q extension (2026-04-23): also stamp
-  /// `interSetRestSeconds = 15` on fresh captures so the new "Post Rep
-  /// Breather" feature has a meaningful default on day one. Same
-  /// exceptions apply — rest periods and isometric-only captures skip
-  /// the seed. Existing rows with a non-null value are never
-  /// overwritten, matching the null-fill discipline below.
-  ///
-  /// Wave 24 extension (2026-04-24): stamp `videoRepsPerLoop = 3` on
-  /// fresh VIDEO captures (and isometric / hold captures, per Carl's
-  /// "how many hold cycles is in this video?" framing). Photos + rest
-  /// periods skip the seed — they have no video to count reps in.
-  /// Existing rows stay null (no backfill); the player's null-fallback
-  /// branch treats null as 1 rep / loop and preserves pre-Wave-24
-  /// playback math.
+  /// Wave 24 carry-forward: stamp `videoRepsPerLoop = 3` on fresh VIDEO
+  /// captures (and isometric / hold captures, per Carl's framing).
+  /// Photos + rest periods skip that seed.
   ///
   /// Exceptions:
-  ///   * Rest periods (`mediaType == rest`) have no reps / sets
-  ///     semantics — returned unchanged.
-  ///   * Isometric exercises (`holdSeconds` set AND `reps` still null)
-  ///     skip the reps default. Hold is the primary duration; reps
-  ///     isn't semantically meaningful. Sets default still applies.
-  ///     Inter-set rest is also skipped — an isometric capture typically
-  ///     runs as a single hold, not a reps-per-set block.
+  ///   * Rest periods (`mediaType == rest`) never get seeded sets — their
+  ///     duration lives on [restHoldSeconds].
+  ///   * Already-seeded captures (non-empty [sets]) are returned unchanged.
   ///
-  /// Fields already set are never overwritten — the helper only fills
-  /// nulls.
+  /// Fields already non-null on the capture are never overwritten.
   ExerciseCapture withPersistenceDefaults() {
     if (isRest) return this;
-    final isIsometric = holdSeconds != null && reps == null;
-    final nextReps = reps ?? (isIsometric ? null : 10);
-    final nextSets = sets ?? 3;
-    final nextInterSetRest = interSetRestSeconds ??
-        (isIsometric ? null : 15);
-    // Wave 24 — fresh video / hold captures default to 3 reps in the
-    // source clip. Photos + legacy non-video rows stay null and the
-    // player treats null as 1 rep per loop.
+
+    List<ExerciseSet>? nextSets;
+    if (sets.isEmpty &&
+        (mediaType == MediaType.video || mediaType == MediaType.photo)) {
+      nextSets = <ExerciseSet>[
+        ExerciseSet.create(
+          position: 1,
+          reps: 10,
+          holdSeconds: 0,
+          weightKg: null,
+          breatherSecondsAfter: 30,
+        ),
+      ];
+    }
+
     final nextVideoRepsPerLoop = videoRepsPerLoop ??
         (mediaType == MediaType.video ? 3 : null);
-    if (nextReps == reps &&
-        nextSets == sets &&
-        nextInterSetRest == interSetRestSeconds &&
-        nextVideoRepsPerLoop == videoRepsPerLoop) {
+
+    if (nextSets == null && nextVideoRepsPerLoop == videoRepsPerLoop) {
       return this;
     }
     return copyWith(
-      reps: nextReps,
-      sets: nextSets,
-      interSetRestSeconds: nextInterSetRest,
+      sets: nextSets ?? sets,
       videoRepsPerLoop: nextVideoRepsPerLoop,
     );
   }
 
   /// Estimated duration in seconds for this exercise (all sets).
-  /// Rest periods simply return their holdSeconds.
+  /// Rest periods return their [restHoldSeconds] (or the global default
+  /// when unset).
   ///
-  /// Wave 24 derivation (mirror of `web-player/app.js :: calculatePerSetSeconds`):
+  /// Per-set derivation:
   ///
   ///   per_rep_seconds = (videoDurationMs / 1000) / (videoRepsPerLoop ?? 1)
-  ///   per_set_seconds = (reps ?? 10) × per_rep_seconds + (holdSeconds ?? 0)
+  ///                     for video captures with a known duration;
+  ///                     [AppConfig.secondsPerRep] otherwise.
+  ///   per_set_seconds = set.reps × per_rep_seconds + set.holdSeconds
+  ///   total           = Σ (per_set_seconds + set.breatherSecondsAfter)
+  ///                     across every set in [sets].
   ///
-  /// Legacy rows with `videoRepsPerLoop == null` fall back to 1 rep per
-  /// loop, preserving pre-Wave-24 playback math. Photos + holds with no
-  /// video duration fall back to [AppConfig.secondsPerRep] (the legacy
-  /// 3s baseline); Wave 24 didn't change that branch.
+  /// The breather AFTER each set is included unconditionally in the
+  /// estimate — the next-exercise gap on the player. If the
+  /// practitioner doesn't want a trailing breather, the last set's
+  /// `breatherSecondsAfter` should be set to 0.
   ///
-  /// Milestone Q — inter-set rest is per-exercise. The stored
-  /// [interSetRestSeconds] replaces the legacy [AppConfig.restBetweenSets]
-  /// baseline:
-  ///
-  ///   exercise_total = sets × per_set
-  ///                  + max(0, sets - 1) × (interSetRestSeconds ?? 0)
-  ///
-  /// Legacy rows (null) therefore compute without any inter-set rest —
-  /// a deliberate shift per the brief. Fresh captures seed to 15 via
-  /// [withPersistenceDefaults] so the default experience is unchanged
-  /// in spirit (just shorter by design).
+  /// Empty [sets] return 0 (no playable rows yet — downstream consumers
+  /// like duration-based credit pricing should still surface a sensible
+  /// minimum elsewhere; here we report the model truth).
   int get estimatedDurationSeconds {
-    if (isRest) return holdSeconds ?? AppConfig.defaultRestDuration;
+    if (isRest) {
+      return restHoldSeconds ?? AppConfig.defaultRestDuration;
+    }
+    if (sets.isEmpty) return 0;
     final perRep = (mediaType == MediaType.video &&
             videoDurationMs != null &&
             videoDurationMs! > 0)
         ? ((videoDurationMs! / 1000) / (videoRepsPerLoop ?? 1)).round()
         : AppConfig.secondsPerRep;
-    final repsTime = (reps ?? 10) * perRep;
-    final holdTime = holdSeconds ?? 0;
-    final perSetTime = repsTime + holdTime;
-    final totalSets = sets ?? 3;
-    final betweenSet = interSetRestSeconds ?? 0;
-    final restTime = (totalSets > 1) ? (totalSets - 1) * betweenSet : 0;
-    return (perSetTime * totalSets) + restTime;
+    int total = 0;
+    for (final s in sets) {
+      total += s.reps * perRep + s.holdSeconds + s.breatherSecondsAfter;
+    }
+    return total;
   }
 
-  /// The duration to use everywhere — Wave 24 routes the new derivation
-  /// through [estimatedDurationSeconds] and only falls back to the legacy
-  /// [customDurationSeconds] override when the new field is also set on
-  /// the same row (legacy rows captured pre-Wave-24, where the manual
-  /// per-rep field was the only way to override the timing). Fresh
-  /// captures never write `customDurationSeconds`, so the new path is
-  /// the default.
-  int get effectiveDurationSeconds =>
-      customDurationSeconds ?? estimatedDurationSeconds;
+  /// The duration to use everywhere — Wave: per-set DOSE collapses the
+  /// previous `customDurationSeconds` override into [estimatedDurationSeconds]
+  /// (the per-set sum is now the only source of truth). Kept as a thin
+  /// alias for callers that still reference it.
+  int get effectiveDurationSeconds => estimatedDurationSeconds;
 
   /// Whether the line drawing conversion is complete.
   bool get isConverted => conversionStatus == ConversionStatus.done;

@@ -1,26 +1,27 @@
-// 2026-04-23 — Option 1 capture-save defaults (reps=10 / sets=3).
+// Per-set DOSE wave — capture-save defaults rewritten for the per-set
+// relational model. Legacy uniform `(reps, sets, holdSeconds,
+// interSetRestSeconds)` columns were dropped server-side; the model now
+// carries `sets: List<ExerciseSet>` + `restHoldSeconds` (rest-only).
 //
-// When a practitioner captures an exercise and never explicitly touches
-// reps / sets, those columns used to persist as NULL. Downstream
-// consumers (web player, plan preview) then had to guess at defaults
-// which produced inconsistent grammar — one card showed "5 reps", the
-// next showed nothing. The fix: at the save boundary, backfill sets=3
-// and reps=10 so the persisted row is always truthful.
-//
-// Exceptions:
-//   * Rest periods (`mediaType == rest`) skip both defaults.
-//   * Isometric exercises (`holdSeconds` set AND `reps` null) skip only
-//     the reps default — hold is the primary duration.
+// At the save boundary, [withPersistenceDefaults] seeds a single canonical
+// `ExerciseSet(reps: 10, holdSeconds: 0, weightKg: null,
+// breatherSecondsAfter: 30)` for video / photo captures with an empty
+// sets list, so downstream consumers always have at least one playable
+// row. Rest periods are returned unchanged (their duration lives on
+// `restHoldSeconds`). Video captures additionally get
+// `videoRepsPerLoop: 3`; photos do not.
 //
 // These tests pin the behaviour at two levels:
 //   1. [ExerciseCapture.withPersistenceDefaults] — the pure helper.
 //   2. [LocalStorageService.saveExercise] — brand-new inserts get the
-//      defaults, pre-existing nulls stay null.
+//      defaults via the helper, pre-existing rows are not retroactively
+//      backfilled.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:raidme/models/exercise_capture.dart';
+import 'package:raidme/models/exercise_set.dart';
 import 'package:raidme/models/session.dart';
 import 'package:raidme/services/local_storage_service.dart';
 
@@ -31,9 +32,8 @@ void main() {
 
   group('ExerciseCapture.withPersistenceDefaults', () {
     ExerciseCapture seed({
-      int? reps,
-      int? sets,
-      int? holdSeconds,
+      List<ExerciseSet> sets = const <ExerciseSet>[],
+      int? restHoldSeconds,
       MediaType mediaType = MediaType.video,
     }) {
       return ExerciseCapture(
@@ -42,53 +42,38 @@ void main() {
         rawFilePath: 'raw/dummy.mp4',
         mediaType: mediaType,
         createdAt: DateTime.now(),
-        reps: reps,
         sets: sets,
-        holdSeconds: holdSeconds,
+        restHoldSeconds: restHoldSeconds,
       );
     }
 
-    test('fresh capture with all nulls gets reps=10 and sets=3', () {
+    test('fresh video capture seeds a single default set', () {
       final out = seed().withPersistenceDefaults();
-      expect(out.reps, 10);
-      expect(out.sets, 3);
-      expect(out.holdSeconds, isNull);
+      expect(out.sets, hasLength(1));
+      final s = out.sets.single;
+      expect(s.position, 1);
+      expect(s.reps, 10);
+      expect(s.holdSeconds, 0);
+      expect(s.weightKg, isNull);
+      expect(s.breatherSecondsAfter, 30);
     });
 
-    test('photo capture gets the same defaults as video', () {
+    test('photo capture gets the same seeded set as video', () {
       final out = seed(mediaType: MediaType.photo).withPersistenceDefaults();
-      expect(out.reps, 10);
-      expect(out.sets, 3);
+      expect(out.sets, hasLength(1));
+      expect(out.sets.single.reps, 10);
+      expect(out.sets.single.holdSeconds, 0);
     });
 
-    test('explicit reps survives backfill', () {
-      final out = seed(reps: 12).withPersistenceDefaults();
-      expect(out.reps, 12);
-      expect(out.sets, 3);
-    });
-
-    test('explicit sets survives backfill', () {
-      final out = seed(sets: 4).withPersistenceDefaults();
-      expect(out.reps, 10);
-      expect(out.sets, 4);
-    });
-
-    test('isometric (hold set, reps null) keeps reps null but sets=3', () {
-      final out = seed(holdSeconds: 30).withPersistenceDefaults();
-      expect(
-        out.reps,
-        isNull,
-        reason: 'Isometric exercises must not get a reps default',
-      );
-      expect(out.sets, 3);
-      expect(out.holdSeconds, 30);
-    });
-
-    test('isometric (hold set, reps explicit) keeps both', () {
-      final out = seed(holdSeconds: 30, reps: 5).withPersistenceDefaults();
-      expect(out.reps, 5);
-      expect(out.sets, 3);
-      expect(out.holdSeconds, 30);
+    test('explicit sets list survives backfill', () {
+      final preset = <ExerciseSet>[
+        ExerciseSet.create(position: 1, reps: 12),
+        ExerciseSet.create(position: 2, reps: 10),
+      ];
+      final out = seed(sets: preset).withPersistenceDefaults();
+      expect(out.sets, hasLength(2));
+      expect(out.sets[0].reps, 12);
+      expect(out.sets[1].reps, 10);
     });
 
     test('rest period is returned unchanged', () {
@@ -97,24 +82,26 @@ void main() {
         position: 1,
         rawFilePath: '',
         mediaType: MediaType.rest,
-        holdSeconds: 60,
+        restHoldSeconds: 60,
         createdAt: DateTime.now(),
       );
       final out = rest.withPersistenceDefaults();
-      expect(out.reps, isNull);
-      expect(out.sets, isNull);
-      expect(out.holdSeconds, 60);
+      expect(out.sets, isEmpty);
+      expect(out.restHoldSeconds, 60);
     });
 
     test('returns the same instance when no changes are needed', () {
-      // All four backfilled fields must already match the defaults the
-      // helper would otherwise stamp:
-      //   reps=10, sets=3, interSetRestSeconds=15 (Milestone Q),
-      //   videoRepsPerLoop=3 (Wave 24, video only).
-      final ex = seed(reps: 10, sets: 3).copyWith(
-        interSetRestSeconds: 15,
-        videoRepsPerLoop: 3,
-      );
+      // Already-seeded video capture with videoRepsPerLoop=3 — helper
+      // should return the exact same instance.
+      final ex = seed(sets: <ExerciseSet>[
+        ExerciseSet.create(
+          position: 1,
+          reps: 10,
+          holdSeconds: 0,
+          weightKg: null,
+          breatherSecondsAfter: 30,
+        ),
+      ]).copyWith(videoRepsPerLoop: 3);
       final out = ex.withPersistenceDefaults();
       expect(identical(ex, out), isTrue);
     });
@@ -136,7 +123,7 @@ void main() {
     });
   });
 
-  group('LocalStorageService.saveExercise — Option 1 defaults', () {
+  group('LocalStorageService.saveExercise — per-set defaults', () {
     late LocalStorageService storage;
 
     setUp(() async {
@@ -157,7 +144,24 @@ void main() {
       await storage.close();
     });
 
-    test('fresh capture saves with reps=10 / sets=3', () async {
+    Future<ExerciseCapture> reloadExercise(String id) async {
+      final rows = await storage.db.query(
+        'exercises',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      final setRows = await storage.db.query(
+        'exercise_sets',
+        where: 'exercise_id = ?',
+        whereArgs: [id],
+        orderBy: 'position ASC',
+      );
+      final sets =
+          setRows.map((r) => ExerciseSet.fromMap(r)).toList(growable: false);
+      return ExerciseCapture.fromMap(rows.single, sets: sets);
+    }
+
+    test('fresh video capture saves with one default set', () async {
       final capture = ExerciseCapture(
         id: 'ex-fresh',
         position: 0,
@@ -168,63 +172,32 @@ void main() {
       );
       await storage.saveExercise(capture);
 
-      final rows = await storage.db.query(
-        'exercises',
-        where: 'id = ?',
-        whereArgs: ['ex-fresh'],
-      );
-      final persisted = ExerciseCapture.fromMap(rows.single);
-      expect(persisted.reps, 10);
-      expect(persisted.sets, 3);
+      final persisted = await reloadExercise('ex-fresh');
+      expect(persisted.sets, hasLength(1));
+      expect(persisted.sets.single.reps, 10);
+      expect(persisted.sets.single.breatherSecondsAfter, 30);
+      expect(persisted.videoRepsPerLoop, 3);
     });
 
-    test('isometric capture keeps reps null but sets=3', () async {
-      final iso = ExerciseCapture(
-        id: 'ex-iso',
-        position: 0,
-        rawFilePath: 'raw/x.mp4',
-        mediaType: MediaType.video,
-        createdAt: DateTime.now(),
-        sessionId: 'session-opt1',
-        holdSeconds: 45,
-      );
-      await storage.saveExercise(iso);
-
-      final rows = await storage.db.query(
-        'exercises',
-        where: 'id = ?',
-        whereArgs: ['ex-iso'],
-      );
-      final persisted = ExerciseCapture.fromMap(rows.single);
-      expect(persisted.reps, isNull);
-      expect(persisted.sets, 3);
-      expect(persisted.holdSeconds, 45);
-    });
-
-    test('rest row persists with no reps / sets backfill', () async {
+    test('rest row persists with no seeded set and restHoldSeconds preserved',
+        () async {
       final rest = ExerciseCapture(
         id: 'ex-rest',
         position: 0,
         rawFilePath: '',
         mediaType: MediaType.rest,
-        holdSeconds: 30,
+        restHoldSeconds: 30,
         createdAt: DateTime.now(),
         sessionId: 'session-opt1',
       );
       await storage.saveExercise(rest);
 
-      final rows = await storage.db.query(
-        'exercises',
-        where: 'id = ?',
-        whereArgs: ['ex-rest'],
-      );
-      final persisted = ExerciseCapture.fromMap(rows.single);
-      expect(persisted.reps, isNull);
-      expect(persisted.sets, isNull);
-      expect(persisted.holdSeconds, 30);
+      final persisted = await reloadExercise('ex-rest');
+      expect(persisted.sets, isEmpty);
+      expect(persisted.restHoldSeconds, 30);
     });
 
-    test('explicit values are never overwritten', () async {
+    test('explicit sets list is never overwritten', () async {
       final curated = ExerciseCapture(
         id: 'ex-curated',
         position: 0,
@@ -232,25 +205,26 @@ void main() {
         mediaType: MediaType.video,
         createdAt: DateTime.now(),
         sessionId: 'session-opt1',
-        reps: 6,
-        sets: 5,
+        sets: <ExerciseSet>[
+          ExerciseSet.create(position: 1, reps: 6),
+          ExerciseSet.create(position: 2, reps: 6),
+          ExerciseSet.create(position: 3, reps: 6),
+          ExerciseSet.create(position: 4, reps: 6),
+          ExerciseSet.create(position: 5, reps: 6),
+        ],
       );
       await storage.saveExercise(curated);
 
-      final rows = await storage.db.query(
-        'exercises',
-        where: 'id = ?',
-        whereArgs: ['ex-curated'],
-      );
-      final persisted = ExerciseCapture.fromMap(rows.single);
-      expect(persisted.reps, 6);
-      expect(persisted.sets, 5);
+      final persisted = await reloadExercise('ex-curated');
+      expect(persisted.sets, hasLength(5));
+      expect(persisted.sets.every((s) => s.reps == 6), isTrue);
     });
 
-    test('no retroactive backfill — later save with null reps stays null',
+    test('no retroactive backfill — existing row with empty sets stays empty',
         () async {
-      // Simulate a pre-Option-1 row already in the DB: bypass the
-      // saveExercise default by poking the row in directly.
+      // Simulate a pre-per-set row already in the DB by inserting with
+      // an explicitly empty sets list and then bypassing saveExercise's
+      // first-write defaulting on subsequent saves.
       final legacyRow = ExerciseCapture(
         id: 'ex-legacy',
         position: 0,
@@ -260,27 +234,24 @@ void main() {
         sessionId: 'session-opt1',
       );
       await storage.db.insert('exercises', legacyRow.toMap());
+      // Note: deliberately did NOT insert any rows into exercise_sets, so
+      // the existing row's sets list is empty. saveExercise should not
+      // re-run withPersistenceDefaults on an existing row.
 
       // Now a conversion-status update comes through — this is a
-      // re-save of an existing row. Option 1 must NOT backfill.
+      // re-save of an existing row. Defaults must NOT be backfilled.
       final churn = legacyRow.copyWith(
         conversionStatus: ConversionStatus.done,
         convertedFilePath: 'converted/x.mp4',
       );
       await storage.saveExercise(churn);
 
-      final rows = await storage.db.query(
-        'exercises',
-        where: 'id = ?',
-        whereArgs: ['ex-legacy'],
-      );
-      final persisted = ExerciseCapture.fromMap(rows.single);
+      final persisted = await reloadExercise('ex-legacy');
       expect(
-        persisted.reps,
-        isNull,
-        reason: 'Existing null reps must stay null across re-saves',
+        persisted.sets,
+        isEmpty,
+        reason: 'Existing empty sets list must stay empty across re-saves',
       );
-      expect(persisted.sets, isNull);
       expect(persisted.conversionStatus, ConversionStatus.done);
     });
   });

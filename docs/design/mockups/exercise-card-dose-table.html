@@ -1,0 +1,2363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — exercise card · DOSE table mockup</title>
+  <style>
+    /* ------------------------------------------------------------------ */
+    /*  Tokens (mirrored from docs/design/project/tokens.json)            */
+    /* ------------------------------------------------------------------ */
+    :root {
+      --brand-default: #ff6b35;
+      --brand-dark: #e85a24;
+      --brand-light: #ff8f5e;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+      --brand-tint-strong: rgba(255, 107, 53, 0.18);
+
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+      --surface-row-hover: #2a2d3a;
+
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --ink-disabled: #4b5563;
+      --ink-on-brand: #ffffff;
+
+      --rest: #86efac;
+      --rest-tint: rgba(134, 239, 172, 0.14);
+
+      --warn: #f59e0b;
+      --error: #ef4444;
+
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont,
+        "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont,
+        "Segoe UI", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo,
+        Consolas, monospace;
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-full: 9999px;
+
+      --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-pulse: cubic-bezier(0.4, 0, 0.6, 1);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Page layout                                                       */
+    /* ------------------------------------------------------------------ */
+    .page {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 64px 32px 96px;
+    }
+
+    .page-header { margin-bottom: 64px; }
+
+    .page-header .eyebrow {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--brand-default);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 36px;
+      letter-spacing: -0.5px;
+      margin: 0 0 12px;
+      color: var(--ink-primary);
+    }
+
+    .page-header p {
+      color: var(--ink-secondary);
+      max-width: 720px;
+      font-size: 15px;
+      margin: 0;
+    }
+
+    section { margin-bottom: 80px; }
+
+    section > .section-head {
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--surface-border);
+      padding-bottom: 12px;
+    }
+
+    section > .section-head h2 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: -0.3px;
+      margin: 0 0 4px;
+      color: var(--ink-primary);
+    }
+
+    section > .section-head .section-num {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--ink-muted);
+      margin-right: 8px;
+    }
+
+    section > .section-head p {
+      margin: 0;
+      color: var(--ink-secondary);
+      font-size: 13px;
+      max-width: 720px;
+    }
+
+    .label-kicker {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Exercise-card frame (mirrors studio_exercise_card.dart)           */
+    /* ------------------------------------------------------------------ */
+    .ex-card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+      padding: 16px 16px 8px;
+      max-width: 600px;
+    }
+
+    .ex-card-title {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      color: var(--ink-primary);
+      margin: 0 0 4px;
+    }
+
+    .ex-card-meta {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-secondary);
+      margin: 0 0 12px;
+    }
+
+    /* Group header — matches _GroupHeader -------------------------- */
+    .group-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 12px 0 6px;
+      cursor: pointer;
+      min-height: 40px;
+    }
+
+    .group-header.first { padding-top: 2px; }
+
+    .group-header .chevron {
+      width: 18px;
+      height: 18px;
+      color: var(--brand-default);
+      flex-shrink: 0;
+      margin-top: 2px;
+      transition: transform 180ms var(--ease-standard);
+    }
+
+    .group-header.expanded .chevron { transform: rotate(0deg); }
+    .group-header:not(.expanded) .chevron { transform: rotate(-90deg); }
+
+    .group-header .label-line {
+      flex: 1;
+      min-width: 0;
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: var(--ink-primary);
+      line-height: 1.4;
+    }
+
+    .group-header .summary {
+      font-weight: 400;
+      letter-spacing: 0;
+      text-transform: none;
+      color: var(--ink-secondary);
+      font-size: 13px;
+    }
+
+    .group-header .summary::before {
+      content: " · ";
+      color: var(--ink-muted);
+    }
+
+    .group-header .coral-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      margin-top: 8px;
+      margin-right: 4px;
+      flex-shrink: 0;
+    }
+
+    /* Expanded body — matches _ExpandedBody ------------------------ */
+    .expanded-body {
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      padding: 12px;
+      margin: 4px 0 8px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  DOSE TABLE                                                        */
+    /* ------------------------------------------------------------------ */
+    .dose-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-family: var(--font-body);
+      font-size: 13px;
+    }
+
+    .dose-table thead th {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      text-align: left;
+      padding: 6px 10px 8px;
+      border-bottom: 1px solid var(--surface-border);
+      background: transparent;
+    }
+
+    .dose-table thead th.col-set    { width: 44px; text-align: center; }
+    .dose-table thead th.col-reps   { width: 14%; text-align: center; }
+    .dose-table thead th.col-hold   { width: 16%; text-align: center; }
+    .dose-table thead th.col-weight { width: 22%; text-align: center; }
+    .dose-table thead th.col-rest   { width: auto; text-align: center; }
+
+    .dose-table tbody tr {
+      transition: background 150ms var(--ease-standard);
+    }
+
+    .dose-table tbody td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--surface-border);
+      vertical-align: middle;
+    }
+
+    .dose-table tbody tr:last-child td { border-bottom: none; }
+
+    .dose-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+    /* The set-# cell — coral mono pill */
+    .set-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      color: var(--brand-default);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .set-num-cell { text-align: center; }
+
+    /* Editable cell — looks tappable, mono numerals */
+    .cell-tap {
+      display: inline-flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 3px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--ink-primary);
+      background: rgba(255,255,255,0.03);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 150ms var(--ease-standard);
+      width: 100%;
+      max-width: 100px;
+      text-align: center;
+      justify-content: center;
+    }
+
+    .cell-tap:hover {
+      background: rgba(255,255,255,0.06);
+      border-color: var(--surface-border);
+    }
+
+    .cell-tap.is-active {
+      background: var(--brand-tint-bg);
+      border-color: var(--brand-tint-border);
+      color: var(--brand-default);
+    }
+
+    .cell-tap .unit {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--ink-muted);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    .cell-tap.is-active .unit { color: var(--brand-default); opacity: 0.85; }
+
+    .cell-tap.is-na {
+      color: var(--ink-muted);
+      font-weight: 600;
+    }
+
+    .cell-tap.is-na .unit { display: none; }
+
+    .cell-center { text-align: center; }
+
+    /* Active editor row — coral left ground line */
+    .editor-row td {
+      background: rgba(255, 107, 53, 0.04);
+      border-left: 2px solid var(--brand-default);
+      padding: 0;
+    }
+
+    .editor-row .editor-inner {
+      padding: 12px 14px 14px 14px;
+    }
+
+    .editor-eyebrow {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--brand-default);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .editor-eyebrow .target-tag {
+      color: var(--ink-secondary);
+      letter-spacing: 0.3px;
+      font-weight: 500;
+      text-transform: none;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Chip-row editor                                                   */
+    /* ------------------------------------------------------------------ */
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip {
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      padding: 7px 14px;
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      transition: all 150ms var(--ease-standard);
+      min-width: 44px;
+      text-align: center;
+    }
+
+    .chip:hover {
+      color: var(--ink-primary);
+      border-color: var(--ink-muted);
+    }
+
+    .chip.is-selected {
+      color: var(--ink-on-brand);
+      background: var(--brand-default);
+      border-color: var(--brand-default);
+    }
+
+    .chip.chip-custom {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.3px;
+    }
+
+    .chip-row .divider {
+      width: 1px;
+      background: var(--surface-border);
+      margin: 4px 4px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Stepped weight slider                                             */
+    /* ------------------------------------------------------------------ */
+    .weight-slider-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-top: 4px;
+    }
+
+    .na-toggle {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink-secondary);
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      letter-spacing: 0.4px;
+      flex-shrink: 0;
+      min-width: 52px;
+      text-align: center;
+    }
+
+    .na-toggle:hover {
+      color: var(--ink-primary);
+      border-color: var(--ink-muted);
+    }
+
+    .na-toggle.is-active {
+      color: var(--ink-muted);
+      background: rgba(0,0,0,0.2);
+      border-color: var(--surface-border);
+    }
+
+    .slider-area {
+      flex: 1;
+      position: relative;
+      padding-top: 28px;
+      padding-bottom: 24px;
+    }
+
+    .slider-track-wrap {
+      position: relative;
+      height: 28px;
+    }
+
+    .slider-track {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-full);
+    }
+
+    .slider-track-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 25%;
+      background: var(--brand-default);
+      border-radius: var(--radius-full);
+    }
+
+    .slider-ticks {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      left: 0;
+      right: 0;
+      height: 14px;
+      pointer-events: none;
+    }
+
+    .tick {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 1px;
+      height: 5px;
+      background: var(--ink-disabled);
+      opacity: 0.55;
+    }
+
+    .tick.major {
+      height: 11px;
+      width: 1px;
+      background: var(--ink-secondary);
+      opacity: 0.85;
+    }
+
+    .tick.passed { background: var(--brand-default); opacity: 1; }
+
+    .slider-thumb {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      border: 3px solid var(--surface-raised);
+      box-shadow: 0 0 0 1px var(--brand-default), 0 4px 10px rgba(255,107,53,0.35);
+      cursor: grab;
+      z-index: 3;
+    }
+
+    /* Native input layered for actual-functioning UX */
+    .slider-input {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: grab;
+      z-index: 4;
+    }
+    .slider-input:active { cursor: grabbing; }
+
+    .slider-bubble {
+      position: absolute;
+      top: 0;
+      transform: translateX(-50%);
+      background: var(--ink-primary);
+      color: var(--surface-bg);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      white-space: nowrap;
+      letter-spacing: 0.2px;
+    }
+
+    .slider-bubble::after {
+      content: "";
+      position: absolute;
+      bottom: -4px;
+      left: 50%;
+      transform: translateX(-50%) rotate(45deg);
+      width: 8px;
+      height: 8px;
+      background: var(--ink-primary);
+    }
+
+    .slider-axis {
+      display: flex;
+      justify-content: space-between;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--ink-muted);
+      letter-spacing: 0.3px;
+    }
+
+    .slider-help {
+      margin-top: 14px;
+      font-size: 11px;
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      letter-spacing: 0.3px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Add Set CTA                                                       */
+    /* ------------------------------------------------------------------ */
+    .add-set {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 10px 16px;
+      margin-top: 12px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: var(--brand-default);
+      background: var(--brand-tint-bg);
+      border: 1px dashed var(--brand-tint-border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 150ms var(--ease-standard);
+    }
+
+    .add-set:hover {
+      background: var(--brand-tint-strong);
+      border-style: solid;
+    }
+
+    .add-set .plus {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      color: var(--ink-on-brand);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .add-set-hint {
+      text-align: center;
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin-top: 6px;
+      font-style: italic;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Reorder + Delete                                                  */
+    /* ------------------------------------------------------------------ */
+    .drag-handle-cell {
+      width: 22px;
+      padding-left: 4px !important;
+      padding-right: 0 !important;
+    }
+
+    .drag-handle {
+      width: 18px;
+      height: 18px;
+      color: var(--ink-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+    }
+
+    .drag-handle:hover { color: var(--ink-secondary); }
+
+    .row-dragging {
+      background: var(--surface-raised) !important;
+      transform: rotate(-0.6deg) translateY(-1px);
+      box-shadow: 0 8px 22px rgba(0,0,0,0.45);
+      position: relative;
+      z-index: 2;
+    }
+
+    .row-drop-target {
+      box-shadow: inset 0 2px 0 0 var(--brand-default);
+    }
+
+    /* Swipe-delete state */
+    .row-swiping td {
+      transform: translateX(-72px);
+      transition: transform 200ms var(--ease-emphasized);
+    }
+
+    .row-swiping {
+      position: relative;
+    }
+
+    .row-swiping::after {
+      content: "";
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 72px;
+      background: var(--error);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .swipe-delete-icon {
+      position: absolute;
+      right: 24px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: white;
+      font-size: 18px;
+      z-index: 2;
+    }
+
+    /* Undo SnackBar (R-01) */
+    .snackbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+      padding: 12px 16px;
+      max-width: 380px;
+      margin: 16px auto 0;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+
+    .snackbar-msg {
+      font-size: 13px;
+      color: var(--ink-primary);
+      font-weight: 500;
+    }
+
+    .snackbar-action {
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--brand-default);
+      background: transparent;
+      border: 0;
+      padding: 4px 8px;
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+    }
+
+    .snackbar-action:hover { background: var(--brand-tint-bg); }
+
+    /* ------------------------------------------------------------------ */
+    /*  Circuit context affordances                                       */
+    /* ------------------------------------------------------------------ */
+    .circuit-context-banner {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 10px 12px;
+      background: var(--brand-tint-bg);
+      border-left: 2px solid var(--brand-default);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      margin-bottom: 12px;
+    }
+
+    .circuit-context-banner .icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      color: var(--brand-default);
+      margin-top: 1px;
+    }
+
+    .circuit-context-banner .text {
+      font-size: 12px;
+      color: var(--ink-secondary);
+      line-height: 1.45;
+    }
+
+    .circuit-context-banner .text strong {
+      color: var(--ink-primary);
+      font-weight: 600;
+    }
+
+    .circuit-name-edit {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 0 2px;
+    }
+
+    .circuit-name-edit .label {
+      font-family: var(--font-body);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    .circuit-name-input {
+      flex: 1;
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink-primary);
+      background: transparent;
+      border: 0;
+      outline: 0;
+      padding: 4px 0 5px;
+      border-bottom: 1.5px dashed var(--brand-default);
+      letter-spacing: -0.2px;
+    }
+
+    .circuit-name-input.focused {
+      border-bottom-style: solid;
+      border-bottom-color: var(--brand-default);
+    }
+
+    .circuit-name-input.focused::after { content: ""; }
+
+    /* Caret simulation for focused inline-edit */
+    .focused-inline-edit-wrap {
+      flex: 1;
+      position: relative;
+      display: inline-flex;
+      align-items: baseline;
+    }
+
+    .focused-inline-edit-wrap .caret {
+      display: inline-block;
+      width: 1.5px;
+      height: 18px;
+      background: var(--brand-default);
+      vertical-align: middle;
+      margin-left: 1px;
+      animation: blink-caret 1s step-end infinite;
+    }
+
+    @keyframes blink-caret {
+      50% { opacity: 0; }
+    }
+
+    .circuit-cycle-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      background: var(--brand-tint-bg);
+      border: 1px solid var(--brand-tint-border);
+      color: var(--brand-default);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+
+    /* Ghost row for "last set repeats" rule when cycle count > row count */
+    .dose-table tr.ghost-repeat td {
+      opacity: 0.45;
+      font-style: italic;
+      border-left: 2px dashed var(--brand-tint-border);
+      pointer-events: none;
+    }
+
+    .dose-table tr.ghost-repeat .set-num {
+      background: transparent;
+      border: 1px dashed var(--ink-muted);
+      color: var(--ink-muted);
+      font-style: italic;
+    }
+
+    .dose-table tr.ghost-repeat .cell-tap {
+      background: transparent;
+      border-color: transparent;
+      color: var(--ink-muted);
+      box-shadow: none;
+      font-style: italic;
+    }
+
+    .ghost-repeat-caption {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px 0;
+      margin-top: -4px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      font-style: italic;
+    }
+
+    /* Ghost row for "won't play" rule when cycle count < row count */
+    .dose-table tr.ghost-skip td {
+      opacity: 0.4;
+      border-left: 2px dashed rgba(255,107,53,0.25);
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 4px,
+        rgba(255,107,53,0.04) 4px,
+        rgba(255,107,53,0.04) 8px
+      );
+    }
+
+    .dose-table tr.ghost-skip .set-num {
+      background: transparent;
+      border: 1px dashed rgba(255,107,53,0.35);
+      color: rgba(255,107,53,0.5);
+      text-decoration: line-through;
+    }
+
+    .dose-table tr.ghost-skip .cell-tap {
+      background: transparent;
+      border-color: transparent;
+      color: var(--ink-muted);
+      box-shadow: none;
+      text-decoration: line-through;
+      text-decoration-color: rgba(255,107,53,0.4);
+    }
+
+    .ghost-skip-caption {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px 0;
+      margin-top: -4px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: rgba(255,107,53,0.7);
+      font-style: italic;
+    }
+
+    .ghost-skip-caption .dot {
+      display: inline-block;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: rgba(255,107,53,0.7);
+    }
+
+    /* End-of-exercise marker — sits to the right of the final rest divider in state 15 */
+    .end-marker {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: var(--radius-full);
+      background: rgba(134,239,172,0.08);
+      border: 1px solid rgba(134,239,172,0.35);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--rest);
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+    }
+
+    .end-marker svg {
+      width: 10px;
+      height: 10px;
+      stroke: var(--rest);
+      fill: none;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .ghost-repeat-caption .dot {
+      display: inline-block;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--ink-muted);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Player weight grammar samples                                     */
+    /* ------------------------------------------------------------------ */
+    .grammar-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .grammar-line {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 18px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-md);
+    }
+
+    .grammar-line .order {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      flex-shrink: 0;
+      min-width: 110px;
+    }
+
+    .grammar-line .copy {
+      flex: 1;
+      font-family: var(--font-body);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--ink-primary);
+      letter-spacing: -0.1px;
+    }
+
+    .grammar-line.urgent {
+      background: linear-gradient(180deg, rgba(255,107,53,0.10), rgba(255,107,53,0.04));
+      border-color: var(--brand-tint-border);
+    }
+
+    .grammar-line.urgent .copy {
+      font-weight: 700;
+      color: var(--brand-light);
+      font-size: 17px;
+    }
+
+    .grammar-line.urgent .copy .bolt {
+      display: inline-block;
+      transform: translateY(-1px);
+      margin-right: 6px;
+      color: var(--brand-default);
+    }
+
+    .grammar-line .copy .num {
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+
+    .grammar-line .copy .label-faint {
+      color: var(--ink-secondary);
+      font-weight: 400;
+    }
+
+    .grammar-line.rest-line {
+      background: var(--rest-tint);
+      border-color: rgba(134,239,172,0.30);
+    }
+
+    .grammar-line.rest-line .copy {
+      color: var(--rest);
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    .grammar-line.rest-line .arrow {
+      color: var(--brand-default);
+      margin: 0 6px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Web-player rep-block stack visualisation                          */
+    /* ------------------------------------------------------------------ */
+    .rep-stack-wrap {
+      display: flex;
+      gap: 32px;
+      justify-content: center;
+      padding: 24px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius-lg);
+    }
+
+    .rep-stack-frame {
+      position: relative;
+      display: flex;
+      gap: 12px;
+    }
+
+    .rep-stack-gutter {
+      display: flex;
+      flex-direction: column-reverse;
+      width: 28px;
+      align-items: flex-end;
+      padding-top: 4px;
+    }
+
+    .rep-stack-gutter .gutter-tick {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--ink-muted);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      padding: 6px 0;
+      position: relative;
+    }
+
+    .rep-stack-column {
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 3px;
+      min-width: 96px;
+    }
+
+    .rep-block {
+      width: 56px;
+      height: 16px;
+      background: var(--brand-default);
+      border-radius: 4px;
+      opacity: 0.85;
+    }
+
+    .rep-block.s2 { background: var(--brand-light); }
+    .rep-block.s3 { background: #ffb592; }
+
+    .rest-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 4px 0;
+    }
+
+    .rest-block {
+      width: 56px;
+      height: 12px;
+      background: var(--rest-tint);
+      border: 1px solid rgba(134,239,172,0.35);
+      border-radius: 4px;
+    }
+
+    .set-group {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .set-group .blocks {
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 3px;
+    }
+
+    .weight-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px 8px;
+      border-radius: var(--radius-full);
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--ink-primary);
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+    }
+
+    .weight-chip.weight-up {
+      background: var(--brand-tint-bg);
+      border-color: var(--brand-tint-border);
+      color: var(--brand-default);
+    }
+
+    .stack-legend {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 0 16px;
+      align-self: center;
+      max-width: 280px;
+    }
+
+    .stack-legend .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--ink-secondary);
+    }
+
+    .stack-legend .swatch {
+      width: 22px;
+      height: 12px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .stack-legend .swatch.brand { background: var(--brand-default); opacity: 0.85; }
+    .stack-legend .swatch.brand2 { background: var(--brand-light); }
+    .stack-legend .swatch.brand3 { background: #ffb592; }
+    .stack-legend .swatch.rest { background: var(--rest-tint); border: 1px solid rgba(134,239,172,0.35); }
+    .stack-legend .swatch.chip { background: var(--surface-raised); border: 1px solid var(--surface-border); }
+    .stack-legend .swatch.chip-up { background: var(--brand-tint-bg); border: 1px solid var(--brand-tint-border); }
+
+    /* ------------------------------------------------------------------ */
+    /*  State labelling                                                   */
+    /* ------------------------------------------------------------------ */
+    .state-stack { display: flex; flex-direction: column; gap: 16px; }
+
+    .state-num {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.4px;
+      color: var(--brand-default);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Footer                                                            */
+    /* ------------------------------------------------------------------ */
+    footer {
+      margin-top: 80px;
+      padding-top: 32px;
+      border-top: 1px solid var(--surface-border);
+      color: var(--ink-muted);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      letter-spacing: 0.3px;
+    }
+
+    /* Inline icon helpers ---------------------------------------------- */
+    .ico {
+      display: inline-block;
+      vertical-align: middle;
+      stroke: currentColor;
+      stroke-width: 1.6;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <!-- ============================================================== -->
+    <!--  Page header                                                   -->
+    <!-- ============================================================== -->
+    <header class="page-header">
+      <div class="eyebrow">homefit.studio · studio · design artifact</div>
+      <h1>Exercise card · DOSE table</h1>
+      <p>
+        Replacement for the chip-row DOSE accordion. A per-set table with Reps / Hold / Weight / Breather
+        columns, inline cell editors, weight slider, swipe-to-delete with undo, drag-to-reorder, and matching
+        web-player weight grammar. Static mockup — for design development only.
+      </p>
+    </header>
+
+    <!-- ============================================================== -->
+    <!--  1. Collapsed accordion — uniform                              -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">01</span>Collapsed · uniform</h2>
+        <p>All three sets identical. Summary reads as a single uniform expression.</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Goblet Squat</h3>
+        <p class="ex-card-meta">VIDEO · 8s · 3 reps captured</p>
+
+        <div class="group-header first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">3 × 10 @ 15 kg · 60 s rest</span></div>
+          <div class="coral-dot"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  2. Collapsed accordion — pyramid                              -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">02</span>Collapsed · pyramid</h2>
+        <p>Reps + weight escalate. Summary fans out the per-set values with slashes.</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Bench Press</h3>
+        <p class="ex-card-meta">VIDEO · 12s · 3 reps captured</p>
+
+        <div class="group-header first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
+          <div class="coral-dot"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  3. Collapsed accordion — bodyweight                           -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">03</span>Collapsed · bodyweight</h2>
+        <p>Weight column is N/A across all sets. Summary drops the weight clause and surfaces the hold instead.</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Plank</h3>
+        <p class="ex-card-meta">VIDEO · 30s · 1 rep captured</p>
+
+        <div class="group-header first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">3 × 10 · 30 s hold · 60 s rest</span></div>
+          <div class="coral-dot"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  4. Expanded — uniform                                         -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">04</span>Expanded · uniform 3 × 10 @ 15 kg</h2>
+        <p>Three identical rows. No editor active. Tap any cell to drop its editor in below the row.</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Goblet Squat</h3>
+        <p class="ex-card-meta">VIDEO · 8s · 3 reps captured</p>
+
+        <div class="group-header expanded first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">3 × 10 @ 15 kg · 60 s rest</span></div>
+          <div class="coral-dot"></div>
+        </div>
+
+        <div class="expanded-body">
+          <table class="dose-table">
+            <thead>
+              <tr>
+                <th class="col-set">Set</th>
+                <th class="col-reps">Reps</th>
+                <th class="col-hold">Hold</th>
+                <th class="col-weight">Weight</th>
+                <th class="col-rest">Breather</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">1</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">3</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <button class="add-set">
+            <span class="plus">+</span>
+            <span>Add Set</span>
+          </button>
+          <div class="add-set-hint">Copies last set's values</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  5. Expanded — pyramid                                         -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">05</span>Expanded · pyramid 10/8/6</h2>
+        <p>Reps drop, weight climbs. The mono numerals make the escalation legible at a glance.</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Bench Press</h3>
+        <p class="ex-card-meta">VIDEO · 12s · 3 reps captured</p>
+
+        <div class="group-header expanded first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
+          <div class="coral-dot"></div>
+        </div>
+
+        <div class="expanded-body">
+          <table class="dose-table">
+            <thead>
+              <tr>
+                <th class="col-set">Set</th>
+                <th class="col-reps">Reps</th>
+                <th class="col-hold">Hold</th>
+                <th class="col-weight">Weight</th>
+                <th class="col-rest">Breather</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">1</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">12.5<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">90<span class="unit">s</span></button></td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap">8</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">90<span class="unit">s</span></button></td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">3</span></td>
+                <td class="cell-center"><button class="cell-tap">6</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">17.5<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">120<span class="unit">s</span></button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <button class="add-set">
+            <span class="plus">+</span>
+            <span>Add Set</span>
+          </button>
+          <div class="add-set-hint">Copies last set's values</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  6. Reps editor active                                         -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">06</span>Reps editor — active on set 2</h2>
+        <p>Tapping the Reps cell on row 2 drops the chip row in below. The active cell highlights coral; the editor row anchors with a coral left edge.</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Goblet Squat</h3>
+        <p class="ex-card-meta">VIDEO · 8s · 3 reps captured</p>
+
+        <div class="group-header expanded first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">3 × 10 @ 15 kg · 60 s rest</span></div>
+          <div class="coral-dot"></div>
+        </div>
+
+        <div class="expanded-body">
+          <table class="dose-table">
+            <thead>
+              <tr>
+                <th class="col-set">Set</th>
+                <th class="col-reps">Reps</th>
+                <th class="col-hold">Hold</th>
+                <th class="col-weight">Weight</th>
+                <th class="col-rest">Breather</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">1</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap is-active">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+              <tr class="editor-row">
+                <td colspan="5">
+                  <div class="editor-inner">
+                    <div class="editor-eyebrow">
+                      Reps · set 2
+                      <span class="target-tag">tap a value, or re-tap to dismiss</span>
+                    </div>
+                    <div class="chip-row">
+                      <button class="chip">5</button>
+                      <button class="chip">8</button>
+                      <button class="chip is-selected">10</button>
+                      <button class="chip">12</button>
+                      <button class="chip">15</button>
+                      <span class="divider"></span>
+                      <button class="chip chip-custom">Custom…</button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">3</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <button class="add-set">
+            <span class="plus">+</span>
+            <span>Add Set</span>
+          </button>
+          <div class="add-set-hint">Copies last set's values</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  7. Hold editor active                                         -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">07</span>Hold editor — active on set 1</h2>
+        <p>Hold is set-scoped here (not rep-scoped) — useful for isometric finishers where set 3 might be a longer hold than sets 1 and 2.</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Plank</h3>
+        <p class="ex-card-meta">VIDEO · 30s · 1 rep captured</p>
+
+        <div class="group-header expanded first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">30/45/60 s hold · bodyweight</span></div>
+          <div class="coral-dot"></div>
+        </div>
+
+        <div class="expanded-body">
+          <table class="dose-table">
+            <thead>
+              <tr>
+                <th class="col-set">Set</th>
+                <th class="col-reps">Reps</th>
+                <th class="col-hold">Hold</th>
+                <th class="col-weight">Weight</th>
+                <th class="col-rest">Breather</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">1</span></td>
+                <td class="cell-center"><button class="cell-tap">1</button></td>
+                <td class="cell-center"><button class="cell-tap is-active">30<span class="unit">s</span></button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">45<span class="unit">s</span></button></td>
+              </tr>
+              <tr class="editor-row">
+                <td colspan="5">
+                  <div class="editor-inner">
+                    <div class="editor-eyebrow">
+                      Hold · set 1
+                      <span class="target-tag">duration of the held position</span>
+                    </div>
+                    <div class="chip-row">
+                      <button class="chip">Off</button>
+                      <button class="chip">5</button>
+                      <button class="chip">10</button>
+                      <button class="chip is-selected">30</button>
+                      <button class="chip">60</button>
+                      <span class="divider"></span>
+                      <button class="chip chip-custom">Custom…</button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap">1</button></td>
+                <td class="cell-center"><button class="cell-tap">45<span class="unit">s</span></button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">45<span class="unit">s</span></button></td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">3</span></td>
+                <td class="cell-center"><button class="cell-tap">1</button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <button class="add-set">
+            <span class="plus">+</span>
+            <span>Add Set</span>
+          </button>
+          <div class="add-set-hint">Copies last set's values</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  8. Weight slider active                                       -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">08</span>Weight slider — stepped 0–60 kg</h2>
+        <p>2.5 kg steps. Major ticks every 10 kg. Current value bubble follows the thumb. The "—" toggle on the left flips the cell back to N/A (bodyweight).</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Bench Press</h3>
+        <p class="ex-card-meta">VIDEO · 12s · 3 reps captured</p>
+
+        <div class="group-header expanded first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
+          <div class="coral-dot"></div>
+        </div>
+
+        <div class="expanded-body">
+          <table class="dose-table">
+            <thead>
+              <tr>
+                <th class="col-set">Set</th>
+                <th class="col-reps">Reps</th>
+                <th class="col-hold">Hold</th>
+                <th class="col-weight">Weight</th>
+                <th class="col-rest">Breather</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">1</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap is-active">12.5<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">90<span class="unit">s</span></button></td>
+              </tr>
+              <tr class="editor-row">
+                <td colspan="5">
+                  <div class="editor-inner">
+                    <div class="editor-eyebrow">
+                      Weight · set 1
+                      <span class="target-tag">snaps to 2.5 kg steps · 0 – 200 kg range</span>
+                    </div>
+                    <div class="weight-slider-wrap">
+                      <button class="na-toggle" title="Mark as bodyweight">— N/A</button>
+                      <div class="slider-area">
+                        <!-- Bubble at 12.5 kg position. Visible range here is 0-60kg, so 12.5 / 60 ≈ 20.8% -->
+                        <div class="slider-bubble" style="left: 20.8%;">12.5 kg</div>
+                        <div class="slider-track-wrap">
+                          <div class="slider-track">
+                            <div class="slider-track-fill" style="width: 20.8%;"></div>
+                          </div>
+
+                          <!-- 25 ticks at 2.5kg, every 4th is major (0,10,20,30,40,50,60) -->
+                          <div class="slider-ticks" id="slider-ticks-1"></div>
+
+                          <div class="slider-thumb" style="left: 20.8%;"></div>
+                          <input class="slider-input" type="range" min="0" max="60" step="2.5" value="12.5" />
+                        </div>
+                        <div class="slider-axis">
+                          <span>0</span>
+                          <span>10</span>
+                          <span>20</span>
+                          <span>30</span>
+                          <span>40</span>
+                          <span>50</span>
+                          <span>60</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="slider-help">drag · or tap a tick · range extends to 200 kg</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap">8</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">90<span class="unit">s</span></button></td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">3</span></td>
+                <td class="cell-center"><button class="cell-tap">6</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">17.5<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">120<span class="unit">s</span></button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <button class="add-set">
+            <span class="plus">+</span>
+            <span>Add Set</span>
+          </button>
+          <div class="add-set-hint">Copies last set's values</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  9. Breather editor active                                     -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">09</span>Breather editor — active on set 2</h2>
+        <p>Rest period <em>after</em> this set. Last row's breather is honoured (post-set catch-breath); the next exercise's prep is separate.</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Goblet Squat</h3>
+        <p class="ex-card-meta">VIDEO · 8s · 3 reps captured</p>
+
+        <div class="group-header expanded first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">3 × 10 @ 15 kg · 45/60/60 s rest</span></div>
+          <div class="coral-dot"></div>
+        </div>
+
+        <div class="expanded-body">
+          <table class="dose-table">
+            <thead>
+              <tr>
+                <th class="col-set">Set</th>
+                <th class="col-reps">Reps</th>
+                <th class="col-hold">Hold</th>
+                <th class="col-weight">Weight</th>
+                <th class="col-rest">Breather</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">1</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">45<span class="unit">s</span></button></td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap is-active">60<span class="unit">s</span></button></td>
+              </tr>
+              <tr class="editor-row">
+                <td colspan="5">
+                  <div class="editor-inner">
+                    <div class="editor-eyebrow">
+                      Breather · after set 2
+                      <span class="target-tag">rest before set 3 starts</span>
+                    </div>
+                    <div class="chip-row">
+                      <button class="chip">15</button>
+                      <button class="chip">30</button>
+                      <button class="chip">45</button>
+                      <button class="chip is-selected">60</button>
+                      <button class="chip">90</button>
+                      <button class="chip">120</button>
+                      <span class="divider"></span>
+                      <button class="chip chip-custom">Custom…</button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">3</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <button class="add-set">
+            <span class="plus">+</span>
+            <span>Add Set</span>
+          </button>
+          <div class="add-set-hint">Copies last set's values</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  10. Add Set CTA                                               -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">10</span>Add Set · empty hover state</h2>
+        <p>Coral CTA pinned below the table. Clicking copies the last row's values verbatim — practitioners adjust just what differs.</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Romanian Deadlift</h3>
+        <p class="ex-card-meta">VIDEO · 10s · 3 reps captured</p>
+
+        <div class="group-header expanded first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">2 × 8 @ 20 kg · 90 s rest</span></div>
+          <div class="coral-dot"></div>
+        </div>
+
+        <div class="expanded-body">
+          <table class="dose-table">
+            <thead>
+              <tr>
+                <th class="col-set">Set</th>
+                <th class="col-reps">Reps</th>
+                <th class="col-hold">Hold</th>
+                <th class="col-weight">Weight</th>
+                <th class="col-rest">Breather</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">1</span></td>
+                <td class="cell-center"><button class="cell-tap">8</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">20<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">90<span class="unit">s</span></button></td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap">8</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">20<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">90<span class="unit">s</span></button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Visualised in hover state -->
+          <button class="add-set" style="background: var(--brand-tint-strong); border-style: solid;">
+            <span class="plus">+</span>
+            <span>Add Set</span>
+          </button>
+          <div class="add-set-hint">Copies last set's values</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  11. Reorder mode                                              -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">11</span>Reorder mode · row 2 mid-drag</h2>
+        <p>Drag handles surface on the left of every row. Long-press to lift; mid-drag the row tilts and shadows; the gap below indicates the drop target.</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Bench Press</h3>
+        <p class="ex-card-meta">VIDEO · 12s · 3 reps captured</p>
+
+        <div class="group-header expanded first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
+          <div class="coral-dot"></div>
+        </div>
+
+        <div class="expanded-body">
+          <table class="dose-table">
+            <thead>
+              <tr>
+                <th class="col-set" style="text-align:left;">⋮</th>
+                <th class="col-set">Set</th>
+                <th class="col-reps">Reps</th>
+                <th class="col-hold">Hold</th>
+                <th class="col-weight">Weight</th>
+                <th class="col-rest">Breather</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="drag-handle-cell">
+                  <span class="drag-handle">
+                    <svg class="ico" viewBox="0 0 18 18" width="18" height="18"><circle cx="6" cy="4" r="1.2" fill="currentColor"/><circle cx="6" cy="9" r="1.2" fill="currentColor"/><circle cx="6" cy="14" r="1.2" fill="currentColor"/><circle cx="12" cy="4" r="1.2" fill="currentColor"/><circle cx="12" cy="9" r="1.2" fill="currentColor"/><circle cx="12" cy="14" r="1.2" fill="currentColor"/></svg>
+                  </span>
+                </td>
+                <td class="set-num-cell"><span class="set-num">1</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">12.5<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">90<span class="unit">s</span></button></td>
+              </tr>
+              <tr class="row-dragging">
+                <td class="drag-handle-cell">
+                  <span class="drag-handle" style="color: var(--brand-default);">
+                    <svg class="ico" viewBox="0 0 18 18" width="18" height="18"><circle cx="6" cy="4" r="1.2" fill="currentColor"/><circle cx="6" cy="9" r="1.2" fill="currentColor"/><circle cx="6" cy="14" r="1.2" fill="currentColor"/><circle cx="12" cy="4" r="1.2" fill="currentColor"/><circle cx="12" cy="9" r="1.2" fill="currentColor"/><circle cx="12" cy="14" r="1.2" fill="currentColor"/></svg>
+                  </span>
+                </td>
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap">8</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">90<span class="unit">s</span></button></td>
+              </tr>
+              <tr class="row-drop-target">
+                <td class="drag-handle-cell">
+                  <span class="drag-handle">
+                    <svg class="ico" viewBox="0 0 18 18" width="18" height="18"><circle cx="6" cy="4" r="1.2" fill="currentColor"/><circle cx="6" cy="9" r="1.2" fill="currentColor"/><circle cx="6" cy="14" r="1.2" fill="currentColor"/><circle cx="12" cy="4" r="1.2" fill="currentColor"/><circle cx="12" cy="9" r="1.2" fill="currentColor"/><circle cx="12" cy="14" r="1.2" fill="currentColor"/></svg>
+                  </span>
+                </td>
+                <td class="set-num-cell"><span class="set-num">3</span></td>
+                <td class="cell-center"><button class="cell-tap">6</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">17.5<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">120<span class="unit">s</span></button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <button class="add-set">
+            <span class="plus">+</span>
+            <span>Add Set</span>
+          </button>
+          <div class="add-set-hint">Copies last set's values</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  12. Delete + undo                                             -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">12</span>Delete in progress · undo SnackBar</h2>
+        <p>Swipe a row left → it slides 72 px revealing the red destructive zone, fires immediately on release, undo SnackBar drops in for 5 s. R-01 — no confirmation modal.</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Goblet Squat</h3>
+        <p class="ex-card-meta">VIDEO · 8s · 3 reps captured</p>
+
+        <div class="group-header expanded first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">2 × 10 @ 15 kg · 60 s rest</span></div>
+          <div class="coral-dot"></div>
+        </div>
+
+        <div class="expanded-body" style="overflow: hidden;">
+          <table class="dose-table">
+            <thead>
+              <tr>
+                <th class="col-set">Set</th>
+                <th class="col-reps">Reps</th>
+                <th class="col-hold">Hold</th>
+                <th class="col-weight">Weight</th>
+                <th class="col-rest">Breather</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">1</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+              <tr class="row-swiping">
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+                <span class="swipe-delete-icon">
+                  <svg class="ico" viewBox="0 0 18 18" width="18" height="18" style="stroke: white;">
+                    <path d="M4 4l10 10M14 4L4 14"/>
+                  </svg>
+                </span>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">3</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <button class="add-set">
+            <span class="plus">+</span>
+            <span>Add Set</span>
+          </button>
+          <div class="add-set-hint">Copies last set's values</div>
+        </div>
+
+        <div class="snackbar">
+          <div class="snackbar-msg">Set 2 deleted</div>
+          <button class="snackbar-action">Undo</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  13. Circuit context                                           -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">13</span>Circuit context · cycles & rows are independent</h2>
+        <p>Cycle count is a property of the circuit, set count is a property of the exercise — they edit separately. Two reconciliation rules: <strong>cycles &gt; rows</strong> → the last set repeats for the remaining rounds (top card). <strong>cycles &lt; rows</strong> → the first N sets play and trailing rows are marked "won't play" (bottom card).</p>
+      </div>
+
+      <div class="ex-card">
+        <h3 class="ex-card-title">Goblet Squat <span class="circuit-cycle-tag" style="margin-left:8px;">cycles &gt; rows</span></h3>
+        <p class="ex-card-meta">VIDEO · 8s · in circuit · 3-cycle, 2 explicit sets</p>
+
+        <div class="circuit-name-edit">
+          <span class="label">Circuit</span>
+          <div class="focused-inline-edit-wrap">
+            <input type="text" class="circuit-name-input focused" value="Lower-body pyramid" />
+          </div>
+          <span class="circuit-cycle-tag" title="Tap to edit cycle count">3 cycles</span>
+        </div>
+
+        <div class="group-header expanded first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">12/10 @ 10/12.5 kg · last set repeats round 3</span></div>
+          <div class="coral-dot"></div>
+        </div>
+
+        <div class="expanded-body">
+          <div class="circuit-context-banner">
+            <svg class="icon ico" viewBox="0 0 18 18" width="16" height="16"><path d="M3 9a6 6 0 0 1 11-3.5M15 9a6 6 0 0 1-11 3.5"/><path d="M14 3v3.5h-3.5"/><path d="M4 15v-3.5h3.5"/></svg>
+            <div class="text">
+              <strong>Each set in this list plays as one round of the circuit, in order.</strong>
+              If your cycle count is higher than the number of sets, the last set repeats for the remaining rounds.
+            </div>
+          </div>
+
+          <table class="dose-table">
+            <thead>
+              <tr>
+                <th class="col-set">Set</th>
+                <th class="col-reps">Reps</th>
+                <th class="col-hold">Hold</th>
+                <th class="col-weight">Weight</th>
+                <th class="col-rest">Breather</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">1</span></td>
+                <td class="cell-center"><button class="cell-tap">12</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">10<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">45<span class="unit">s</span></button></td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">12.5<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+              <tr class="ghost-repeat">
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">12.5<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="ghost-repeat-caption">
+            <span class="dot"></span>
+            Round 3 — repeats Set 2
+          </div>
+
+          <button class="add-set">
+            <span class="plus">+</span>
+            <span>Add Set</span>
+          </button>
+          <div class="add-set-hint">Copies last set's values · cycle count is independent</div>
+        </div>
+      </div>
+
+      <!-- Sub-card: cycles < rows case -->
+      <div class="ex-card" style="margin-top: 24px;">
+        <h3 class="ex-card-title">Goblet Squat <span class="circuit-cycle-tag" style="margin-left:8px;">cycles &lt; rows</span></h3>
+        <p class="ex-card-meta">VIDEO · 8s · in circuit · 2-cycle, 3 explicit sets</p>
+
+        <div class="circuit-name-edit">
+          <span class="label">Circuit</span>
+          <div class="focused-inline-edit-wrap">
+            <input type="text" class="circuit-name-input focused" value="Lower-body pyramid" />
+          </div>
+          <span class="circuit-cycle-tag" title="Tap to edit cycle count">2 cycles</span>
+        </div>
+
+        <div class="group-header expanded first">
+          <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div class="label-line">Dose<span class="summary">12/10 @ 10/12.5 kg · set 3 won't play</span></div>
+          <div class="coral-dot"></div>
+        </div>
+
+        <div class="expanded-body">
+          <div class="circuit-context-banner">
+            <svg class="icon ico" viewBox="0 0 18 18" width="16" height="16"><path d="M3 9a6 6 0 0 1 11-3.5M15 9a6 6 0 0 1-11 3.5"/><path d="M14 3v3.5h-3.5"/><path d="M4 15v-3.5h3.5"/></svg>
+            <div class="text">
+              <strong>Cycle count is lower than the number of sets.</strong>
+              The first 2 sets play (one per round); trailing rows are kept but marked "won't play". Bump the cycle count or delete the row to clear the warning.
+            </div>
+          </div>
+
+          <table class="dose-table">
+            <thead>
+              <tr>
+                <th class="col-set">Set</th>
+                <th class="col-reps">Reps</th>
+                <th class="col-hold">Hold</th>
+                <th class="col-weight">Weight</th>
+                <th class="col-rest">Breather</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">1</span></td>
+                <td class="cell-center"><button class="cell-tap">12</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">10<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">45<span class="unit">s</span></button></td>
+              </tr>
+              <tr>
+                <td class="set-num-cell"><span class="set-num">2</span></td>
+                <td class="cell-center"><button class="cell-tap">10</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">12.5<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">60<span class="unit">s</span></button></td>
+              </tr>
+              <tr class="ghost-skip">
+                <td class="set-num-cell"><span class="set-num">3</span></td>
+                <td class="cell-center"><button class="cell-tap">8</button></td>
+                <td class="cell-center"><button class="cell-tap is-na">—</button></td>
+                <td class="cell-center"><button class="cell-tap">15<span class="unit">kg</span></button></td>
+                <td class="cell-center"><button class="cell-tap">75<span class="unit">s</span></button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="ghost-skip-caption">
+            <span class="dot"></span>
+            Set 3 — won't play (cycles = 2)
+          </div>
+
+          <button class="add-set">
+            <span class="plus">+</span>
+            <span>Add Set</span>
+          </button>
+          <div class="add-set-hint">Copies last set's values · cycle count is independent</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  14. Player weight grammar samples                             -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">14</span>Web-player · weight grammar</h2>
+        <p>How each set's weight surfaces in the player. The "Change" variant gets bolder weight, brand-tint background, and a bolt glyph to telegraph the lift change before the next set starts.</p>
+      </div>
+
+      <div class="grammar-list">
+        <div class="grammar-line">
+          <div class="order">Set 1 · first</div>
+          <div class="copy">Set up <span class="num">12.5 kg</span> <span class="label-faint">·</span> <span class="num">10</span> reps</div>
+        </div>
+
+        <div class="grammar-line">
+          <div class="order">Set 2 · same load</div>
+          <div class="copy"><span class="label-faint">Same load:</span> <span class="num">12.5 kg</span> <span class="label-faint">·</span> <span class="num">10</span> reps</div>
+        </div>
+
+        <div class="grammar-line urgent">
+          <div class="order">Set 3 · change</div>
+          <div class="copy"><span class="bolt">⚡</span>Change to <span class="num">17.5 kg</span> <span class="label-faint">·</span> <span class="num">6</span> reps</div>
+        </div>
+
+        <div class="grammar-line rest-line">
+          <div class="order">Rest block</div>
+          <div class="copy">Rest <span class="num">60 s</span> <span class="arrow">→</span> next: <span class="num">17.5 kg</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  15. Rep-block stack with weight chips + rest callouts         -->
+    <!-- ============================================================== -->
+    <section>
+      <div class="section-head">
+        <h2><span class="section-num">15</span>Web-player · rep-block stack</h2>
+        <p>Vertical stack from a 3-set pyramid (10 @ 12.5 kg / 8 @ 15 kg / 6 @ 17.5 kg). Each set group carries its weight chip. Rest is a clean sage divider — no text inside the pill (the duration belongs in the active timer chip, not the static stack). The upcoming set's weight rides as a separate pill to the right of the rest divider. The final rest divider carries an "End of exercise" marker (option c) so the post-set breather is honoured visually but the absence of a next set is explicit.</p>
+      </div>
+
+      <div class="rep-stack-wrap">
+        <div class="rep-stack-frame">
+          <div class="rep-stack-gutter">
+            <span class="gutter-tick">S1</span>
+            <span class="gutter-tick">R</span>
+            <span class="gutter-tick">S2</span>
+            <span class="gutter-tick">R</span>
+            <span class="gutter-tick">S3</span>
+            <span class="gutter-tick">R</span>
+          </div>
+
+          <div class="rep-stack-column">
+            <!-- Bottom-up: S1 → R → S2 → R → S3 → R, but column-reverse renders that order -->
+            <!-- We provide them top-down here; CSS column-reverse stacks them visually bottom-up -->
+
+            <!-- (top) S3 set group with weight chip + final rest (sage pill alone, option b) -->
+            <div class="set-group">
+              <div class="blocks">
+                <div class="rep-block s3"></div>
+                <div class="rep-block s3"></div>
+                <div class="rep-block s3"></div>
+                <div class="rep-block s3"></div>
+                <div class="rep-block s3"></div>
+                <div class="rep-block s3"></div>
+              </div>
+              <span class="weight-chip weight-up">⚡ 17.5 kg</span>
+            </div>
+            <div class="rest-row">
+              <div class="rest-block"></div>
+              <span class="end-marker">
+                <svg viewBox="0 0 14 14"><path d="M3 7.5l3 3 5-7"/></svg>
+                End of exercise
+              </span>
+            </div>
+
+            <!-- S2 set group (8 reps @ 15kg) -->
+            <div class="set-group">
+              <div class="blocks">
+                <div class="rep-block s2"></div>
+                <div class="rep-block s2"></div>
+                <div class="rep-block s2"></div>
+                <div class="rep-block s2"></div>
+                <div class="rep-block s2"></div>
+                <div class="rep-block s2"></div>
+                <div class="rep-block s2"></div>
+                <div class="rep-block s2"></div>
+              </div>
+              <span class="weight-chip weight-up">⚡ 15 kg</span>
+            </div>
+            <div class="rest-row">
+              <div class="rest-block"></div>
+              <span class="weight-chip weight-up">⚡ 17.5 kg</span>
+            </div>
+
+            <!-- S1 set group (10 reps @ 12.5 kg) -->
+            <div class="set-group">
+              <div class="blocks">
+                <div class="rep-block"></div>
+                <div class="rep-block"></div>
+                <div class="rep-block"></div>
+                <div class="rep-block"></div>
+                <div class="rep-block"></div>
+                <div class="rep-block"></div>
+                <div class="rep-block"></div>
+                <div class="rep-block"></div>
+                <div class="rep-block"></div>
+                <div class="rep-block"></div>
+              </div>
+              <span class="weight-chip">12.5 kg</span>
+            </div>
+            <div class="rest-row">
+              <div class="rest-block"></div>
+              <span class="weight-chip weight-up">⚡ 15 kg</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack-legend">
+          <div class="legend-row"><span class="swatch brand"></span> Set 1 reps · base load</div>
+          <div class="legend-row"><span class="swatch brand2"></span> Set 2 reps · medium load</div>
+          <div class="legend-row"><span class="swatch brand3"></span> Set 3 reps · heavy load</div>
+          <div class="legend-row"><span class="swatch rest"></span> Rest divider · sage, no text (duration lives in the active timer chip)</div>
+          <div class="legend-row"><span class="swatch chip"></span> Weight chip · same-load set</div>
+          <div class="legend-row"><span class="swatch chip-up"></span> Weight chip · weight changed (also forward-look on rest rows)</div>
+          <div class="legend-row"><span class="end-marker" style="transform:scale(0.85);transform-origin:left center;"><svg viewBox="0 0 14 14"><path d="M3 7.5l3 3 5-7"/></svg>End of exercise</span> &nbsp; Final rest marker · option (c)</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================== -->
+    <!--  Footer                                                        -->
+    <!-- ============================================================== -->
+    <footer>
+      homefit.studio · exercise-card · DOSE table · static design mockup · tokens mirrored from docs/design/project/tokens.json
+    </footer>
+  </div>
+
+  <script>
+    // ------------------------------------------------------------------
+    //  Render the 25 ticks for the weight slider (0–60 kg, every 2.5 kg)
+    //  Major every 10 kg.
+    // ------------------------------------------------------------------
+    (function () {
+      const wrap = document.getElementById('slider-ticks-1');
+      if (!wrap) return;
+      const steps = 25; // 0 to 60 in 2.5 increments → 25 intervals
+      const valueAtPos = 12.5; // current thumb value
+      for (let i = 0; i <= steps; i++) {
+        const kg = i * 2.5;
+        const pct = (kg / 60) * 100;
+        const t = document.createElement('span');
+        t.className = 'tick' + (kg % 10 === 0 ? ' major' : '') + (kg <= valueAtPos ? ' passed' : '');
+        t.style.left = pct + '%';
+        wrap.appendChild(t);
+      }
+
+      // Wire the slider input to the bubble + thumb + fill so the demo feels live
+      const input = document.querySelector('.slider-input');
+      const bubble = document.querySelector('.slider-bubble');
+      const thumb = document.querySelector('.slider-thumb');
+      const fill = document.querySelector('.slider-track-fill');
+      const ticks = wrap.querySelectorAll('.tick');
+      if (!input) return;
+
+      function update() {
+        const kg = parseFloat(input.value);
+        const pct = (kg / 60) * 100;
+        bubble.style.left = pct + '%';
+        bubble.textContent = (kg % 1 === 0 ? kg.toFixed(0) : kg.toFixed(1)) + ' kg';
+        thumb.style.left = pct + '%';
+        fill.style.width = pct + '%';
+        ticks.forEach(t => {
+          const tickKg = parseFloat(t.style.left) * 60 / 100;
+          if (tickKg <= kg + 0.001) t.classList.add('passed');
+          else t.classList.remove('passed');
+        });
+      }
+      input.addEventListener('input', update);
+    })();
+  </script>
+</body>
+</html>

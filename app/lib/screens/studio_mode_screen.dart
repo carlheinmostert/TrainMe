@@ -113,15 +113,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   String? _publishError;
   late UploadService _uploadService;
 
-  /// Wave 18.7 — cached sticky per-rep default for DURATION PER REP's
-  /// Manual seed path. Loaded once from the cached client's
-  /// `client_exercise_defaults.custom_duration_per_rep` key and
-  /// refreshed whenever the practitioner commits a new Manual value.
-  /// Null means "no sticky default; fall back to 5s". Keeps the Studio
-  /// card synchronous — the DurationPerRepRow receives a resolved int?
-  /// rather than a Future.
-  int? _stickyCustomDurationPerRep;
-
   /// Wave 35 — id of the exercise the practitioner was last viewing in
   /// the media viewer ("Preview"). Set in `_applyFocusFromPreview`,
   /// drives a coral border + subtle elevation lift on the matching
@@ -208,10 +199,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // visibility + watches for the >20pt upward scroll reset trigger.
     WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onReachabilityScroll);
-    // Wave 18.7 — prime the sticky per-rep cache for this session's
-    // client so the DURATION PER REP control can seed Manual from the
-    // client's last-used value (not just the hard-coded 5s).
-    unawaited(_loadStickyCustomDurationPerRep());
     // Wave 17 — fetch plan analytics for published plans.
     unawaited(_fetchPlanAnalytics());
     // Poll plan analytics while the screen is mounted so the
@@ -222,36 +209,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       const Duration(seconds: 30),
       (_) => _fetchPlanAnalytics(),
     );
-  }
-
-  /// Wave 18.7 — load the client's sticky `custom_duration_per_rep`
-  /// default from the cached client row. Best-effort: failure silently
-  /// leaves the seed null (which the card then treats as "fall back
-  /// to 5s"). Called once on init and again whenever the practitioner
-  /// commits a new Manual value (so the next Manual seed inherits).
-  Future<void> _loadStickyCustomDurationPerRep() async {
-    final clientId = _session.clientId;
-    if (clientId == null || clientId.isEmpty) return;
-    try {
-      final cached =
-          await SyncService.instance.storage.getCachedClientById(clientId);
-      if (!mounted) return;
-      final raw =
-          cached?.clientExerciseDefaults['custom_duration_per_rep'];
-      int? parsed;
-      if (raw is int) {
-        parsed = raw;
-      } else if (raw is num) {
-        parsed = raw.toInt();
-      } else if (raw is String) {
-        parsed = int.tryParse(raw);
-      }
-      if (parsed != _stickyCustomDurationPerRep) {
-        setState(() => _stickyCustomDurationPerRep = parsed);
-      }
-    } catch (e) {
-      debugPrint('studio: loadStickyCustomDurationPerRep failed: $e');
-    }
   }
 
   /// Wave 17 — fetch plan analytics for published plans. Best-effort;
@@ -951,58 +908,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // Rest periods skip (they don't carry the reps/sets/hold/etc.
     // vocabulary).
     if (!updated.isRest) {
+      // Per-set DOSE wave: deltas now flow through the per-set field
+      // set (first_set_*) plus the surviving scalars. The legacy
+      // custom_duration_per_rep sticky write was retired alongside the
+      // manual per-rep editor.
       StickyDefaults.recordAllDeltas(
         clientId: _session.clientId,
         before: previous,
         after: updated,
       );
-      // Wave 18.7 — persist per-rep custom duration as a separate
-      // sticky key so DURATION PER REP's Manual seed can mirror the
-      // client's last-used per-rep cadence on the NEXT new capture.
-      // (The existing `custom_duration_seconds` sticky key stores the
-      // TOTAL — a per-rep-aware seed needs per-rep granularity
-      // because reps can change between captures.)
-      _maybeRecordCustomDurationPerRep(previous, updated);
     }
-  }
-
-  /// Wave 18.7 — if the practitioner committed a Manual per-rep value
-  /// (customDurationSeconds changed and reps is known), queue a write
-  /// to the client's `custom_duration_per_rep` sticky key. Updates
-  /// the in-memory cache so the next card render seeds from the new
-  /// value.
-  void _maybeRecordCustomDurationPerRep(
-    ExerciseCapture before,
-    ExerciseCapture after,
-  ) {
-    final clientId = _session.clientId;
-    if (clientId == null || clientId.isEmpty) return;
-    final reps = after.reps ?? 0;
-    if (reps <= 0) return;
-    // Only write on transitions that look like a Manual commit — the
-    // "From video" clear path (after.customDurationSeconds == null) is
-    // NOT a sticky override, so we skip those.
-    final total = after.customDurationSeconds;
-    if (total == null) return;
-    if (total == before.customDurationSeconds &&
-        before.reps == after.reps) {
-      return; // no-op
-    }
-    final perRep = (total / reps).round();
-    if (perRep <= 0) return;
-    if (perRep == _stickyCustomDurationPerRep) return;
-    _stickyCustomDurationPerRep = perRep;
-    unawaited(SyncService.instance
-        .queueSetExerciseDefault(
-          clientId: clientId,
-          field: 'custom_duration_per_rep',
-          value: perRep,
-        )
-        .catchError((e, st) {
-      debugPrint('queueSetExerciseDefault(custom_duration_per_rep) '
-          'failed: $e');
-      return null;
-    }));
   }
 
   void _deleteExercise(int index) {
@@ -1085,6 +1000,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
 
     // Build the duplicate exercise with a fresh UUID and position + 1.
+    // Per-set DOSE wave: deep-copy each set with a fresh uuid so the
+    // duplicate's child rows don't collide with the originals on the
+    // UNIQUE (exercise_id, position) index.
+    final duplicateSets = original.sets
+        .map((s) => s.copyWith(id: const Uuid().v4()))
+        .toList(growable: false);
     final duplicate = ExerciseCapture(
       id: newId,
       position: original.position + 1,
@@ -1093,18 +1014,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       thumbnailPath: newThumbnailPath,
       mediaType: original.mediaType,
       conversionStatus: original.conversionStatus,
-      reps: original.reps,
-      sets: original.sets,
-      holdSeconds: original.holdSeconds,
+      sets: duplicateSets,
+      restHoldSeconds: original.restHoldSeconds,
       notes: original.notes,
       name: original.name,
       createdAt: DateTime.now(),
       sessionId: original.sessionId,
       circuitId: original.circuitId,
       includeAudio: original.includeAudio,
-      customDurationSeconds: original.customDurationSeconds,
       prepSeconds: original.prepSeconds,
-      interSetRestSeconds: original.interSetRestSeconds,
       videoDurationMs: original.videoDurationMs,
       archiveFilePath: newArchiveFilePath,
       archivedAt: original.archivedAt,
@@ -1824,10 +1742,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         isExpanded: _expandedIndex == dataIndex,
         isFocused: isFocused,
         isInCircuit: isInCircuit,
-        // Wave 18.7 — the card reads the sticky per-rep default when
-        // seeding DURATION PER REP's Manual mode. Null means "no sticky
-        // default for this client; fall back to 5s".
-        stickyCustomDurationPerRep: _stickyCustomDurationPerRep,
         // Wave 17 — per-exercise analytics stats from the in-memory
         // plan analytics summary. Null when no data is available.
         analyticsStats: _planAnalytics?.exerciseStats[exercise.id],
@@ -2410,6 +2324,30 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           ),
         ),
       );
+      // Per-set DOSE wave \u2014 surface a follow-up SnackBar when the
+      // server fell back to default sets for one or more exercises
+      // (publish payload missing / empty `sets[]`). The practitioner
+      // needs a nudge to open the editor and set real reps/weight.
+      final fallbackIds = result.fallbackSetExerciseIds;
+      if (fallbackIds.isNotEmpty) {
+        final n = fallbackIds.length;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$n ${n == 1 ? 'exercise was' : 'exercises were'} '
+              'saved with default sets. Open them to set reps and weight.',
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                color: Colors.white,
+                fontSize: 13,
+              ),
+            ),
+            backgroundColor: AppColors.primary,
+            duration: const Duration(seconds: 8),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } else if (result.isUnconsentedTreatments) {
       await _handleUnconsentedTreatments(result.unconsented!);
     } else if (result.isNeedsConsentConfirmation) {
@@ -2780,11 +2718,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // Wave 35 — clear any stale exit-inbox id from a previous viewer
     // pop that was already handled (defence-in-depth; the takeLast
     // call after the await is the canonical clear).
-    _MediaViewerExitInbox.lastClosedExerciseId = null;
+    MediaViewerExitInbox.lastClosedExerciseId = null;
     final result = await Navigator.of(context).push<Object?>(
       MaterialPageRoute<Object?>(
         fullscreenDialog: true,
-        builder: (_) => _MediaViewer(
+        builder: (_) => MediaViewerBody(
           exercises: mediaList,
           initialIndex: initialIndex,
           session: _session,
@@ -2820,12 +2758,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // populate the id:
     //   * Close × button → Navigator.pop returns the id directly.
     //   * System back / iOS edge swipe → result is null; the viewer's
-    //     PopScope stamps the id into _MediaViewerExitInbox.
+    //     PopScope stamps the id into MediaViewerExitInbox.
     String? focusId;
     if (result is String && result.isNotEmpty) {
       focusId = result;
     } else {
-      focusId = _MediaViewerExitInbox.takeLastClosedExerciseId();
+      focusId = MediaViewerExitInbox.takeLastClosedExerciseId();
     }
     if (focusId != null) {
       _applyFocusFromPreview(focusId);
@@ -2886,7 +2824,7 @@ class _RestBar extends StatefulWidget {
 }
 
 class _RestBarState extends State<_RestBar> {
-  int get _duration => widget.exercise.holdSeconds ?? 30;
+  int get _duration => widget.exercise.restHoldSeconds ?? 30;
 
   static String _format(num v) {
     final seconds = v.round();
@@ -2946,7 +2884,7 @@ class _RestBarState extends State<_RestBar> {
               currentValue: _duration,
               onChanged: (v) {
                 widget.onUpdate(
-                  widget.exercise.copyWith(holdSeconds: v.round()),
+                  widget.exercise.copyWith(restHoldSeconds: v.round()),
                 );
               },
               displayFormat: _format,
@@ -2984,7 +2922,7 @@ bool _isStillImageConversion(ExerciseCapture exercise) {
 
 /// Wave 35 — module-level inbox for the Preview → Studio focus handoff.
 ///
-/// `_MediaViewer` ("Preview" in user-facing copy) returns the id of the
+/// `MediaViewerBody` ("Preview" in user-facing copy) returns the id of the
 /// exercise the practitioner was viewing at close-time so Studio can
 /// scroll-into-view + auto-expand the matching card.
 ///
@@ -3000,7 +2938,11 @@ bool _isStillImageConversion(ExerciseCapture exercise) {
 /// Session-only state: never persisted, cleared every time the parent
 /// reads it (so a fresh open of any unrelated route never inherits a
 /// stale id).
-class _MediaViewerExitInbox {
+/// Public exit inbox for the media viewer / preview body. Renamed from
+/// `_MediaViewerExitInbox` so the new shared `MediaViewerBody` widget
+/// (used both as a Studio route AND as the Preview tab in the
+/// `ExerciseEditorSheet`) can stamp / read it from any host context.
+class MediaViewerExitInbox {
   static String? lastClosedExerciseId;
 
   /// Read + clear the last-closed id atomically. Returns null when
@@ -3035,7 +2977,7 @@ class _MediaViewerExitInbox {
 ///     greyed out — Carl's call: don't fall back silently to Line, that
 ///     would mislead the practitioner during a "show me the difference"
 ///     demo.
-class _MediaViewer extends StatefulWidget {
+class MediaViewerBody extends StatefulWidget {
   final List<ExerciseCapture> exercises;
   final int initialIndex;
 
@@ -3065,7 +3007,8 @@ class _MediaViewer extends StatefulWidget {
   /// the parent's refresh.
   final ValueChanged<Session>? onSessionUpdate;
 
-  const _MediaViewer({
+  const MediaViewerBody({
+    super.key,
     required this.exercises,
     required this.initialIndex,
     this.onExerciseUpdate,
@@ -3074,10 +3017,14 @@ class _MediaViewer extends StatefulWidget {
   });
 
   @override
-  State<_MediaViewer> createState() => _MediaViewerState();
+  State<MediaViewerBody> createState() => _MediaViewerBodyState();
 }
 
-class _MediaViewerState extends State<_MediaViewer> {
+class _MediaViewerBodyState extends State<MediaViewerBody>
+    with AutomaticKeepAliveClientMixin<MediaViewerBody> {
+  @override
+  bool get wantKeepAlive => true;
+
   late final PageController _pageController;
   late int _currentIndex;
 
@@ -3274,7 +3221,7 @@ class _MediaViewerState extends State<_MediaViewer> {
   }
 
   @override
-  void didUpdateWidget(covariant _MediaViewer old) {
+  void didUpdateWidget(covariant MediaViewerBody old) {
     super.didUpdateWidget(old);
     // Wave 27 — keep the local session mirror in sync if the parent
     // pushes a fresh copy (e.g. after publish version-bump). Don't
@@ -3773,7 +3720,7 @@ class _MediaViewerState extends State<_MediaViewer> {
     // Fire-and-forget local write. Errors logged; no UI surfaces
     // because the user has already seen the optimistic state change.
     // Uses SyncService.instance.storage instead of plumbing a fresh
-    // LocalStorageService handle through the _MediaViewer constructor
+    // LocalStorageService handle through the MediaViewerBody constructor
     // — same singleton the rest of the app shares.
     unawaited(
       SyncService.instance.storage.saveExercise(updated).catchError((e, _) {
@@ -3884,6 +3831,13 @@ class _MediaViewerState extends State<_MediaViewer> {
 
   @override
   Widget build(BuildContext context) {
+    // AutomaticKeepAliveClientMixin contract — required so the State
+    // is registered with the enclosing PageView's keep-alive scope.
+    // Without this the Preview tab in `ExerciseEditorSheet` would be
+    // disposed when the practitioner swipes to Dose / Notes / Settings,
+    // killing the video controllers + treatment listeners mid-edit
+    // (the same gotcha that caused the photo-spinner regression).
+    super.build(context);
     final hasArchive = _hasArchive(_current);
     // Wave 28 — viewer is the one Studio surface that allows landscape
     // (the editor stays portrait-locked). Both rotations + portraitUp;
@@ -3910,7 +3864,7 @@ class _MediaViewerState extends State<_MediaViewer> {
         // viewer was pushed. We cheat slightly: the parent's
         // `_openMediaViewer` reads `lastFocusedExerciseId` off a
         // module-level inbox that this PopScope writes to.
-        _MediaViewerExitInbox.lastClosedExerciseId = id;
+        MediaViewerExitInbox.lastClosedExerciseId = id;
       },
       child: OrientationLockGuard(
       allowed: const {
@@ -4111,7 +4065,7 @@ class _MediaViewerState extends State<_MediaViewer> {
                         16 +
                         _bottomChromeTrimLiftFor(compact: isLandscape),
                     child: IgnorePointer(
-                      child: _MediaViewerDotIndicator(
+                      child: _MediaViewerBodyDotIndicator(
                         total: widget.exercises.length,
                         activeIndex: _currentIndex,
                       ),
@@ -4152,7 +4106,9 @@ class _MediaViewerState extends State<_MediaViewer> {
                           .value.duration.inMilliseconds,
                       startOffsetMs: _current.startOffsetMs,
                       endOffsetMs: _current.endOffsetMs,
-                      reps: _current.reps,
+                      reps: _current.sets.isNotEmpty
+                          ? _current.sets.first.reps
+                          : null,
                       compact: isLandscape,
                       onTrimChanged: (s, e) => _persistTrim(s, e),
                       onScrub: _onTrimScrub,
@@ -4667,7 +4623,7 @@ class _MediaViewerState extends State<_MediaViewer> {
 }
 
 /// Shared horizontal pill toggle used by both the mute pill and the
-/// Body focus pill in [_MediaViewer]'s bottom-left chrome cluster.
+/// Body focus pill in [MediaViewerBody]'s bottom-left chrome cluster.
 /// Coral 1.5px border, coral fill + white text when [active], outlined
 /// + coral text when inactive. Optional [enabled]=false fades the pill
 /// to 40% and disables tap; optional tooltips fire on long-press.
@@ -4805,7 +4761,7 @@ class _RotatePill extends StatelessWidget {
 }
 
 /// Coral, circular, bottom-right play/pause button on top of the
-/// [_MediaViewer]. Presence in the tree is stable whenever the current
+/// [MediaViewerBody]. Presence in the tree is stable whenever the current
 /// page is a video — it's opacity that swings (via [AnimatedOpacity]) so
 /// taps always hit, even during a fade. Caller is responsible for
 /// scheduling the fade (see `_showControlsThenMaybeIdleFade`).
@@ -4865,11 +4821,11 @@ class _PlayPauseOverlayButton extends StatelessWidget {
 /// `plan_preview_screen.dart` — active dot grows to a short capsule;
 /// inactive dots are small + translucent. Caller guards on slide
 /// count <= 10; past that the name-pill counter carries the signal.
-class _MediaViewerDotIndicator extends StatelessWidget {
+class _MediaViewerBodyDotIndicator extends StatelessWidget {
   final int total;
   final int activeIndex;
 
-  const _MediaViewerDotIndicator({
+  const _MediaViewerBodyDotIndicator({
     required this.total,
     required this.activeIndex,
   });
@@ -4918,17 +4874,17 @@ class _VideoPagePlaceholder extends StatelessWidget {
 }
 
 // ============================================================================
-// Wave 20 — Soft-trim editor for the [_MediaViewer].
+// Wave 20 — Soft-trim editor for the [MediaViewerBody].
 // ============================================================================
 
-/// Bottom-anchored trim panel shown beneath the video on the [_MediaViewer]
+/// Bottom-anchored trim panel shown beneath the video on the [MediaViewerBody]
 /// when the active exercise is a video at least 1 second long. Two coral
 /// drag-handles set the in/out window; coral fill between them shows the
 /// trimmed slice; greyed bookends show the discarded frames. Live readout
 /// underneath. "Reset to full video" link reveals when either offset is
 /// non-null.
 ///
-/// Pure widget — owns NO state. The host (`_MediaViewerState`) holds the
+/// Pure widget — owns NO state. The host (`_MediaViewerBodyState`) holds the
 /// canonical trim values and rebuilds this widget whenever they change.
 /// Drag callbacks fire continuously; the host is expected to debounce its
 /// SQLite write, not us.

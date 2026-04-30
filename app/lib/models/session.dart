@@ -407,6 +407,14 @@ class Session {
   /// Accounts for circuit cycles: groups consecutive exercises by circuitId,
   /// sums one round of each circuit, multiplies by cycles, and adds
   /// inter-round rest.
+  ///
+  /// Per-set DOSE wave: standalone exercises route through
+  /// [ExerciseCapture.estimatedDurationSeconds] (which sums per-set
+  /// internally). Inside a circuit, "one pass" uses the FIRST set only
+  /// (cycles replace sets — running 3 cycles of a 1-set exercise feels
+  /// like 3 sets). The breather after that single set is the
+  /// inter-rep window inside the circuit pass; subsequent rounds use
+  /// [AppConfig.restBetweenCircuitRounds].
   int get estimatedTotalDurationSeconds {
     int total = 0;
     final int len = exercises.length;
@@ -416,7 +424,8 @@ class Session {
       final exercise = exercises[i];
 
       if (exercise.circuitId == null) {
-        // Standalone exercise — use effective duration (custom override or calculated).
+        // Standalone exercise — defer to per-set summing inside
+        // ExerciseCapture.
         total += exercise.effectiveDurationSeconds;
         i++;
       } else {
@@ -427,17 +436,28 @@ class Session {
         while (i < len && exercises[i].circuitId == circuitId) {
           final ex = exercises[i];
           if (ex.isRest) {
-            // Rest periods inside circuits: count their duration once per round.
-            oneRoundSeconds += ex.holdSeconds ?? AppConfig.defaultRestDuration;
-          } else if (ex.customDurationSeconds != null) {
-            // Custom override set — use it directly for the per-round contribution.
-            oneRoundSeconds += ex.customDurationSeconds!;
+            oneRoundSeconds +=
+                ex.restHoldSeconds ?? AppConfig.defaultRestDuration;
+          } else if (ex.sets.isNotEmpty) {
+            // Per-set DOSE: inside a circuit pass we count the FIRST
+            // set only (cycles replace per-exercise set count). Breather
+            // after that set is the within-pass rest.
+            final first = ex.sets.first;
+            final perRep = (ex.mediaType == MediaType.video &&
+                    ex.videoDurationMs != null &&
+                    ex.videoDurationMs! > 0)
+                ? ((ex.videoDurationMs! / 1000) / (ex.videoRepsPerLoop ?? 1))
+                    .round()
+                : AppConfig.secondsPerRep;
+            oneRoundSeconds += first.reps * perRep +
+                first.holdSeconds +
+                first.breatherSecondsAfter;
           } else {
-            // For circuit exercises, compute per-exercise time for ONE pass
-            // (reps + hold only, no sets — cycles replace sets).
-            final repsTime = (ex.reps ?? 10) * AppConfig.secondsPerRep;
-            final holdTime = ex.holdSeconds ?? 0;
-            oneRoundSeconds += repsTime + holdTime;
+            // Empty sets list (capture without persistence defaults
+            // applied yet) — fall back to a baseline 10-rep estimate
+            // so the circuit still has a non-zero duration. Matches
+            // the legacy default of `reps ?? 10`.
+            oneRoundSeconds += 10 * AppConfig.secondsPerRep;
           }
           i++;
         }

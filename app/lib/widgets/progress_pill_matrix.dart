@@ -459,13 +459,14 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
     if (idx < 0 || idx >= widget.slides.length) return '';
     final slide = widget.slides[idx];
     if (slide.isRest) {
-      final dur = slide.exercise.holdSeconds ?? 30;
+      final dur = slide.exercise.restHoldSeconds ?? 30;
       return '${dur}s rest';
     }
     final e = slide.exercise;
-    final r = e.reps ?? 10;
-    final s = e.sets ?? 3;
-    final hold = e.holdSeconds ?? 0;
+    final firstSet = e.sets.isNotEmpty ? e.sets.first : null;
+    final r = firstSet?.reps ?? 10;
+    final s = e.sets.isEmpty ? 1 : e.sets.length;
+    final hold = firstSet?.holdSeconds ?? 0;
     final isCircuit = slide.circuitId != null;
     final parts = <String>[];
     if (!isCircuit) parts.add('$s sets');
@@ -1414,20 +1415,19 @@ class _Pill extends StatelessWidget {
   static String _labelFor(ProgressPillSlide slide, {required bool compact}) {
     if (slide.isRest) return 'Rest';
     final e = slide.exercise;
-    final reps = e.reps;
-    final sets = e.sets;
-    final hold = e.holdSeconds ?? 0;
+    final firstSet = e.sets.isNotEmpty ? e.sets.first : null;
     final isCircuit = slide.circuitId != null;
 
-    // Video-only exercise — no reps/sets data. Show the effective clip
-    // duration as a bare-second number; users learn `Ns` = duration.
-    if (reps == null && sets == null) {
+    // No sets at all — fall back to the effective clip duration
+    // (video-only exercise, or a capture with empty sets list).
+    if (firstSet == null) {
       final dur = e.effectiveDurationSeconds;
       return dur > 0 ? '${dur}s' : '—';
     }
 
-    final r = reps ?? 10;
-    final s = sets ?? 3;
+    final r = firstSet.reps;
+    final s = e.sets.length;
+    final hold = firstSet.holdSeconds;
 
     if (compact) {
       return isCircuit ? '$r' : '$s|$r';
@@ -1442,7 +1442,7 @@ class _Pill extends StatelessWidget {
   /// pill is usable even for users who can't see the shorthand.
   static String _semanticsLabelFor(ProgressPillSlide slide) {
     if (slide.isRest) {
-      final dur = slide.exercise.holdSeconds ?? 30;
+      final dur = slide.exercise.restHoldSeconds ?? 30;
       return '$dur second rest';
     }
     final e = slide.exercise;
@@ -1452,18 +1452,18 @@ class _Pill extends StatelessWidget {
     if (slide.cycle != null && slide.totalCycles != null) {
       parts.add('cycle ${slide.cycle} of ${slide.totalCycles}');
     }
-    final reps = e.reps;
-    final sets = e.sets;
-    final hold = e.holdSeconds ?? 0;
-    if (reps == null && sets == null) {
+    final firstSet = e.sets.isNotEmpty ? e.sets.first : null;
+    if (firstSet == null) {
       final dur = e.effectiveDurationSeconds;
       if (dur > 0) parts.add('$dur seconds');
     } else {
-      if (sets != null && slide.circuitId == null) {
-        parts.add('$sets sets');
+      if (slide.circuitId == null) {
+        parts.add('${e.sets.length} sets');
       }
-      if (reps != null) parts.add('$reps reps');
-      if (hold > 0) parts.add('$hold second hold');
+      parts.add('${firstSet.reps} reps');
+      if (firstSet.holdSeconds > 0) {
+        parts.add('${firstSet.holdSeconds} second hold');
+      }
     }
     return parts.join(', ');
   }
@@ -1652,13 +1652,14 @@ class _PeekOverlay extends StatelessWidget {
   /// · 5s hold` for a `3|10|5` pill.
   static String _metaFor(ProgressPillSlide slide) {
     if (slide.isRest) {
-      final dur = slide.exercise.holdSeconds ?? 30;
+      final dur = slide.exercise.restHoldSeconds ?? 30;
       return '${dur}s';
     }
     final e = slide.exercise;
-    final r = e.reps ?? 10;
-    final s = e.sets ?? 3;
-    final hold = e.holdSeconds ?? 0;
+    final firstSet = e.sets.isNotEmpty ? e.sets.first : null;
+    final r = firstSet?.reps ?? 10;
+    final s = e.sets.isEmpty ? 1 : e.sets.length;
+    final hold = firstSet?.holdSeconds ?? 0;
     final isCircuit = slide.circuitId != null;
 
     final parts = <String>[];
