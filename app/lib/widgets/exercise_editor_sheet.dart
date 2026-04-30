@@ -45,6 +45,11 @@ Future<void> showExerciseEditorSheet({
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: 0.45),
     useSafeArea: true,
+    // The inner DraggableScrollableSheet owns drag behaviour. Letting
+    // showModalBottomSheet's own enableDrag also fight for vertical
+    // drags eats inner widgets (weight slider, trim handles) and the
+    // sheet refuses to expand via the drag handle.
+    enableDrag: false,
     builder: (sheetCtx) => ExerciseEditorSheet(
       exercise: exercise,
       onChanged: onChanged,
@@ -94,8 +99,8 @@ class ExerciseEditorSheet extends StatefulWidget {
 }
 
 class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
-  static const double _kInitialDetent = 0.60;
-  static const double _kMinDetent = 0.40;
+  static const double _kInitialDetent = 0.55;
+  static const double _kMinDetent = 0.30;
   static const double _kMaxDetent = 0.95;
 
   late final DraggableScrollableController _sheetController;
@@ -188,41 +193,46 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       minChildSize: _kMinDetent,
       maxChildSize: _kMaxDetent,
       snap: true,
-      snapSizes: const [_kInitialDetent, _kMaxDetent],
+      snapSizes: const [_kMinDetent, _kInitialDetent, _kMaxDetent],
       expand: false,
       builder: (ctx, scrollController) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: AppColors.surfaceBase,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(24),
-              topRight: Radius.circular(24),
-            ),
-            border: Border(
-              top: BorderSide(color: AppColors.surfaceBorder, width: 1),
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 8),
-              _buildDragHandle(),
-              const SizedBox(height: 6),
-              _buildHeader(),
-              _buildTabStrip(),
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  onPageChanged: _onPageChanged,
-                  children: [
-                    _buildDoseTab(scrollController),
-                    _buildNotesTab(scrollController),
-                    _buildPreviewTab(),
-                    _buildSettingsTab(scrollController),
-                  ],
+        // Wrap in our own ScaffoldMessenger so showUndoSnackBar fires from
+        // DoseTable / etc. land INSIDE the sheet (above the modal barrier),
+        // not behind it on the host scaffold where they're invisible.
+        return ScaffoldMessenger(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Container(
+              decoration: const BoxDecoration(
+                color: AppColors.surfaceBase,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
+                ),
+                border: Border(
+                  top: BorderSide(color: AppColors.surfaceBorder, width: 1),
                 ),
               ),
-            ],
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildDragChrome(),
+                  _buildTabStrip(),
+                  Expanded(
+                    child: PageView(
+                      controller: _pageController,
+                      onPageChanged: _onPageChanged,
+                      children: [
+                        _buildDoseTab(scrollController),
+                        _buildNotesTab(scrollController),
+                        _buildPreviewTab(),
+                        _buildSettingsTab(scrollController),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         );
       },
@@ -233,14 +243,72 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   // Header chrome
   // ---------------------------------------------------------------------------
 
-  Widget _buildDragHandle() {
-    return Container(
-      width: 40,
-      height: 4,
-      decoration: BoxDecoration(
-        color: AppColors.surfaceBorder,
-        borderRadius: BorderRadius.circular(2),
+  /// Chrome cluster (drag handle + title) that owns the sheet's vertical
+  /// drag affordance. With `enableDrag: false` on showModalBottomSheet,
+  /// nothing else listens for vertical pulls outside the inner Scrollables
+  /// so the handle is the canonical "expand / collapse / dismiss" surface.
+  Widget _buildDragChrome() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragUpdate: _onChromeDragUpdate,
+      onVerticalDragEnd: _onChromeDragEnd,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceBorder,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 6),
+          _buildHeader(),
+        ],
       ),
+    );
+  }
+
+  void _onChromeDragUpdate(DragUpdateDetails d) {
+    if (!_sheetController.isAttached) return;
+    final screenH = MediaQuery.of(context).size.height;
+    if (screenH <= 0) return;
+    final delta = d.primaryDelta ?? 0;
+    final next = (_sheetController.size - delta / screenH)
+        .clamp(_kMinDetent, _kMaxDetent);
+    _sheetController.jumpTo(next);
+  }
+
+  void _onChromeDragEnd(DragEndDetails d) {
+    if (!_sheetController.isAttached) return;
+    final size = _sheetController.size;
+    final velocity = d.primaryVelocity ?? 0;
+    // Velocity > 0 means dragging DOWN — snap to the lower detent (or
+    // dismiss if already past the floor); velocity < 0 means dragging UP.
+    final double target;
+    if (velocity > 600) {
+      // Hard flick down — dismiss.
+      Navigator.of(context).maybePop();
+      return;
+    } else if (velocity < -600) {
+      target = _kMaxDetent;
+    } else {
+      // Snap to nearest of [min, initial, max].
+      const detents = [_kMinDetent, _kInitialDetent, _kMaxDetent];
+      target = detents.reduce(
+        (a, b) => (size - a).abs() < (size - b).abs() ? a : b,
+      );
+    }
+    if (target <= _kMinDetent + 0.01) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    _sheetController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
     );
   }
 
