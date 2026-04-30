@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -10,6 +12,31 @@ import '../theme/motion.dart';
 import 'inline_editable_text.dart';
 import 'preset_chip_row.dart';
 import 'thumbnail_peek.dart';
+
+/// Wave 41 — match upload_service.dart:478 pre-flight check exactly.
+/// `File.existsSync` per build is fine; Studio rebuilds aren't hot.
+bool exerciseHasMissingMedia(ExerciseCapture exercise) {
+  if (exercise.isRest) return false;
+  final path = exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath;
+  return path.isEmpty || !File(path).existsSync();
+}
+
+/// Wave 41 — pure helper that returns a copy of [exercises] with the row
+/// at [index] removed and every remaining row's `position` reindexed to
+/// match its new slot. Pulled out of `_deleteExercise` so the rollback
+/// flow can be unit-tested directly without dragging the full Studio
+/// screen + its 6 service dependencies into a widget test harness.
+List<ExerciseCapture> reindexAfterRemove(
+  List<ExerciseCapture> exercises,
+  int index,
+) {
+  final next = List<ExerciseCapture>.from(exercises);
+  next.removeAt(index);
+  for (var i = 0; i < next.length; i++) {
+    next[i] = next[i].copyWith(position: i);
+  }
+  return next;
+}
 
 /// Seed defaults a new exercise card lands with. MVP uses the R-04
 /// global defaults (reps 10, sets 3, hold 0s, rest 30s, notes empty,
@@ -363,6 +390,10 @@ class _StudioExerciseCardState extends State<StudioExerciseCard> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (exerciseHasMissingMedia(widget.exercise)) ...[
+                      const _MissingMediaBanner(),
+                      const SizedBox(height: 8),
+                    ],
                     _buildHeader(),
                     if (widget.isExpanded) ...[
                       const SizedBox(height: 12),
@@ -1506,6 +1537,58 @@ class _CustomisedDot extends StatelessWidget {
       decoration: const BoxDecoration(
         color: AppColors.primary,
         shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
+/// Wave 41 — red 1-line banner above the card header when the
+/// underlying line-drawing or raw file is missing on disk. Pre-flight
+/// at publish time uses the same check (`upload_service.dart:478`) and
+/// rejects the publish; surfacing the state on the card lets the
+/// practitioner see exactly which exercise(s) need a recapture before
+/// they hit Publish. Tap / play remain unaffected — this is purely
+/// informational so the practitioner can long-press → Delete and
+/// recapture.
+class _MissingMediaBanner extends StatelessWidget {
+  const _MissingMediaBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.error.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: AppColors.error.withValues(alpha: 0.45),
+          width: 1,
+        ),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.warning_amber_rounded,
+            size: 14,
+            color: AppColors.error,
+          ),
+          SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Media missing — long-press to delete and recapture',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.error,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }

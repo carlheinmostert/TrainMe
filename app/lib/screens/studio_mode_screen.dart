@@ -1005,13 +1005,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }));
   }
 
-  void _deleteExercise(int index) {
+  Future<void> _deleteExercise(int index) async {
     final removed = _session.exercises[index];
-    final exercises = List<ExerciseCapture>.from(_session.exercises);
-    exercises.removeAt(index);
-    for (var i = 0; i < exercises.length; i++) {
-      exercises[i] = exercises[i].copyWith(position: i);
-    }
+    final originalExercises = List<ExerciseCapture>.from(_session.exercises);
+    final exercises = reindexAfterRemove(_session.exercises, index);
+    final originalExpandedIndex = _expandedIndex;
     setState(() {
       _touchAndPush(_session.copyWith(exercises: exercises));
       if (_expandedIndex == index) {
@@ -1020,12 +1018,39 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         _expandedIndex = _expandedIndex! - 1;
       }
     });
-    unawaited(
-      widget.storage.deleteExercise(removed.id).catchError((e, st) {
-        debugPrint('deleteExercise failed: $e');
-      }),
-    );
+
+    // Wave 41 — await the SQLite delete and roll back the in-memory list
+    // on failure. Previously this was a fire-and-forget catchError which
+    // left orphan rows in `exercises` invisible to the UI but visible to
+    // publish pre-flight, manifesting as "missing media" rejections on
+    // ghost exercises that the practitioner couldn't see in Studio.
+    try {
+      await widget.storage.deleteExercise(removed.id);
+    } catch (e, st) {
+      debugPrint('deleteExercise failed: $e\n$st');
+      if (!mounted) return;
+      // Restore the in-memory list to its pre-delete shape.
+      setState(() {
+        _pushSession(_session.copyWith(exercises: originalExercises));
+        _expandedIndex = originalExpandedIndex;
+      });
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              "Couldn't delete '${removed.name ?? 'Exercise ${index + 1}'}'"
+              ' — try again.',
+            ),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      return;
+    }
+
     _saveExerciseOrder();
+    if (!mounted) return;
     showUndoSnackBar(
       context,
       label: '${removed.name ?? 'Exercise ${index + 1}'} deleted',
@@ -1145,8 +1170,29 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       context,
       label: 'Duplicated · Undo',
       onUndo: () async {
-        // Remove the duplicate from SQLite + delete its copied files.
-        await widget.storage.deleteExercise(duplicate.id);
+        // Wave 41 — surface failure on the duplicate-undo cleanup. A
+        // swallowed delete here leaves the duplicate in SQLite, the
+        // practitioner sees Studio rollback (the parent _refreshSession
+        // pulls the in-memory list back into sync), and publish later
+        // rejects the orphan with a "missing media" pre-flight.
+        try {
+          await widget.storage.deleteExercise(duplicate.id);
+        } catch (e, st) {
+          debugPrint('deleteExercise (duplicate undo) failed: $e\n$st');
+          if (!mounted) return;
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  "Couldn't undo duplicate of "
+                  "'${duplicate.name ?? 'Exercise'}' — try again.",
+                ),
+                backgroundColor: AppColors.error,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+        }
         await _refreshSession();
       },
     );
@@ -2416,11 +2462,80 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       await _handleNeedsConsentConfirmation(
         result.consentConfirmationClient!,
       );
+    } else if (result.isPreflightFailure) {
+      // Wave 41 \u2014 surface "missing media" with a coral-trimmed SnackBar
+      // and scroll the first broken card into view. The red banner on
+      // each broken card (added in studio_exercise_card.dart) lights up
+      // the row so the practitioner sees exactly which to fix.
+      final errStr = result.toErrorString();
+      setState(() => _publishError = errStr);
+      _showMissingMediaSnackBar(result.missingFiles?.length ?? 0);
+      _scrollToFirstBrokenCard();
     } else {
       final errStr = result.toErrorString();
       setState(() => _publishError = errStr);
       _showPublishErrorSnackBar(errStr);
     }
+  }
+
+  /// Wave 41 \u2014 coral-trimmed SnackBar when publish pre-flight rejects on
+  /// missing media. Distinct from `_showPublishErrorSnackBar` (which is
+  /// red + has a Retry action): publish-blocking media gaps need the
+  /// practitioner to act on a specific card, not retry the whole flow.
+  void _showMissingMediaSnackBar(int count) {
+    final plural = count > 1;
+    final msg =
+        '$count exercise${plural ? 's' : ''} ${plural ? 'have' : 'has'} '
+        'missing media \u2014 fix before publishing.';
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          duration: const Duration(seconds: 6),
+          backgroundColor: AppColors.surfaceRaised,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: const BorderSide(color: AppColors.primary, width: 1),
+          ),
+        ),
+      );
+  }
+
+  /// Wave 41 \u2014 scroll the first card whose media is missing into view so
+  /// the red banner is visible immediately. Reuses `_rowKeys` +
+  /// `Scrollable.ensureVisible` (same pattern as `_applyFocusFromPreview`).
+  void _scrollToFirstBrokenCard() {
+    final exercises = _session.exercises;
+    final brokenIdx = exercises.indexWhere(
+      (e) => !e.isRest && _exerciseHasMissingMedia(e),
+    );
+    if (brokenIdx < 0) return;
+    final brokenId = exercises[brokenIdx].id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final key = _rowKeys[brokenId];
+      final ctx = key?.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+        alignment: 0.5,
+      );
+    });
+  }
+
+  /// Wave 41 \u2014 mirror of upload_service.dart pre-flight check. Kept
+  /// private to the screen so the logic lives in exactly two places
+  /// (here for scroll target, and `studio_exercise_card.dart` for the
+  /// banner). Both compute against the same model so a missing file
+  /// will read identically in the publish error and the card UI.
+  bool _exerciseHasMissingMedia(ExerciseCapture e) {
+    if (e.isRest) return false;
+    final path = e.absoluteConvertedFilePath ?? e.absoluteRawFilePath;
+    return path.isEmpty || !File(path).existsSync();
   }
 
   /// Wave 29 — handle the "consent never explicitly confirmed" gate.
