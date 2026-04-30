@@ -592,7 +592,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
           const SizedBox(height: 20),
           if (_exercise.mediaType == MediaType.video)
             _SettingsSection(
-              label: 'Video reps per loop',
+              label: 'Reps in Video',
               child: PresetChipRow(
                 controlKey: 'videoRepsPerLoop',
                 canonicalPresets: const <num>[1, 2, 3, 4, 5],
