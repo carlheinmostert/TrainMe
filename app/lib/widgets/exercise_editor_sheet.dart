@@ -296,11 +296,13 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   /// nothing else listens for vertical pulls outside the inner Scrollables
   /// so the handle is the canonical "expand / collapse / dismiss" surface.
   ///
-  /// Round 2 — uses SizedBox(width: double.infinity) so the GestureDetector
-  /// claims hit-tests across the FULL sheet width, not just the 40pt drag
-  /// pill. Without this, taps to the side of the visible bar didn't fire
-  /// the recognizer and on the Preview tab (where MediaViewerBody owns
-  /// gestures right up to the chrome's edge) drag-up felt unresponsive.
+  /// Round 3 — wraps the chrome AND the drag-handle pill in their own
+  /// GestureDetectors with `behavior: opaque`. The pill itself bumps to
+  /// 48pt-tall hit area (visible bar still 4pt) so the drag region is
+  /// thumb-friendly even on the Preview tab. Carl's retest reported the
+  /// Preview tab "does not allow dragging the card up or down" — the
+  /// previous chrome surface was only ~50pt tall after the 6pt SizedBox
+  /// gap, easy to miss next to the embedded MediaViewerBody's gestures.
   Widget _buildDragChrome() {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -311,16 +313,21 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.surfaceBorder,
-                borderRadius: BorderRadius.circular(2),
+            // Drag-handle pill — visible 4pt bar centered in a 22pt-tall
+            // hit zone for thumb-friendly grabbing.
+            SizedBox(
+              height: 22,
+              child: Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceBorder,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 6),
             _buildHeader(),
           ],
         ),
