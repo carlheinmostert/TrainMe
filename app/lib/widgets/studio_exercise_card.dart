@@ -217,17 +217,34 @@ class _Thumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Round 4 photo backfill — older photo rows in the DB never had a
-    // thumbnailPath set (only the video branch of the conversion service
-    // wrote one). Falling back to the raw path keeps existing photos
-    // visible without a recapture; FileImage decodes JPEG/HEIC directly.
+    // Round 5 photo fallback chain — extends Round 4. Older photo rows
+    // never had a thumbnailPath set (only the video branch of the
+    // conversion service wrote one). The Round 4 fix fell back to the
+    // raw path, which works for new captures but not for older photos
+    // where the raw file was cleaned up at some point. The converted
+    // line-drawing JPG IS still on disk for these (it's what the web
+    // player serves as line_drawing_url), so it's a perfectly fine
+    // practitioner-side display fallback. Order: thumbnail → raw →
+    // converted → placeholder.
     String? thumbPath = exercise.absoluteThumbnailPath;
     if ((thumbPath == null || !File(thumbPath).existsSync()) &&
-        exercise.mediaType == MediaType.photo &&
-        exercise.rawFilePath.isNotEmpty) {
-      final rawPath = exercise.absoluteRawFilePath;
-      if (File(rawPath).existsSync()) {
-        thumbPath = rawPath;
+        exercise.mediaType == MediaType.photo) {
+      // Try raw first (matches "B&W from raw" treatment used elsewhere
+      // on practitioner surfaces).
+      if (exercise.rawFilePath.isNotEmpty) {
+        final rawPath = exercise.absoluteRawFilePath;
+        if (File(rawPath).existsSync()) {
+          thumbPath = rawPath;
+        }
+      }
+      // Last resort: the converted line-drawing JPG. Still de-identified,
+      // still recognisable. Better than the placeholder for old captures
+      // where the raw was cleaned up.
+      if (thumbPath == null || !File(thumbPath).existsSync()) {
+        final convPath = exercise.absoluteConvertedFilePath;
+        if (convPath != null && File(convPath).existsSync()) {
+          thumbPath = convPath;
+        }
       }
     }
     final hasThumb = thumbPath != null && File(thumbPath).existsSync();
