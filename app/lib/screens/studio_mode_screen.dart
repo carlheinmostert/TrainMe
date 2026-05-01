@@ -2349,6 +2349,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           practiceId: practiceId,
           trainerId: trainerId,
           refundLikelyAttempted: false,
+          refundOutcomeUnknown: false,
+          remoteVersionMayHaveAdvanced: false,
         ),
       );
     } finally {

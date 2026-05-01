@@ -78,6 +78,9 @@ class PublishFailurePayload implements Exception {
     required this.userMessage,
     this.detail,
     this.refundLikelyAttempted = false,
+    this.refundOutcomeUnknown = false,
+    this.remoteVersionMayHaveAdvanced = false,
+    this.remoteVersionCandidate,
     this.leafExceptionType,
     this.innerMessage,
   });
@@ -91,6 +94,17 @@ class PublishFailurePayload implements Exception {
   /// True when [UploadService.uploadPlan] attempted `refund_credit` after a debit.
   final bool refundLikelyAttempted;
 
+  /// True when a debit happened but refund confirmation is unknown because the
+  /// refund path is intentionally best-effort/swallowing.
+  final bool refundOutcomeUnknown;
+
+  /// True when Step 4 probably completed before the failure, so cloud
+  /// `plans.version` may have advanced despite a failed publish.
+  final bool remoteVersionMayHaveAdvanced;
+
+  /// Candidate cloud version written in Step 4 (when known).
+  final int? remoteVersionCandidate;
+
   final String? leafExceptionType;
 
   /// Inner failure text (may duplicate [detail] for some paths).
@@ -102,10 +116,16 @@ class PublishFailurePayload implements Exception {
   /// Full text for tap-to-copy in Studio (includes diagnostics).
   String toClipboardText() {
     final buf = StringBuffer(userMessage);
-    if (refundLikelyAttempted) {
+    if (refundLikelyAttempted && refundOutcomeUnknown) {
       buf.writeln();
       buf.write(
-        'If credits were charged, a refund was attempted — check your balance.',
+        'Credits were charged; refund was attempted but not confirmed — check balance and reconcile if needed.',
+      );
+    }
+    if (remoteVersionMayHaveAdvanced && remoteVersionCandidate != null) {
+      buf.writeln();
+      buf.write(
+        'Cloud plan version may already be v$remoteVersionCandidate despite this failure.',
       );
     }
     buf.writeln();
@@ -127,6 +147,9 @@ class PublishFailurePayload implements Exception {
     required String practiceId,
     required String trainerId,
     required bool refundLikelyAttempted,
+    required bool refundOutcomeUnknown,
+    required bool remoteVersionMayHaveAdvanced,
+    int? remoteVersionCandidate,
   }) {
     final prefix = 'practice=$practiceId trainer=$trainerId :: ';
     String innerMsg;
@@ -180,6 +203,9 @@ class PublishFailurePayload implements Exception {
       userMessage: userMessage,
       detail: detail,
       refundLikelyAttempted: refundLikelyAttempted,
+      refundOutcomeUnknown: refundOutcomeUnknown,
+      remoteVersionMayHaveAdvanced: remoteVersionMayHaveAdvanced,
+      remoteVersionCandidate: remoteVersionCandidate,
       leafExceptionType: caught.runtimeType.toString(),
       innerMessage: clippedInner,
     );
@@ -678,6 +704,12 @@ class UploadService {
 
     // Tracks whether we've consumed credits so catch blocks can refund.
     bool creditConsumed = false;
+    // Step-4 marker: once true, cloud `plans.version` may already be ahead of
+    // local SQLite when a later step fails and returns networkFailed.
+    bool planVersionBumped = false;
+    // Refund confirmation marker. Null means "refund path not entered".
+    // false means "refund attempted but completion unknown/failed".
+    bool? refundApplied;
 
     // Tracks storage paths we've successfully uploaded so the catch block
     // can clean them up on a partial-publish failure. Otherwise the retry
@@ -803,6 +835,7 @@ class UploadService {
         'crossfade_lead_ms': session.crossfadeLeadMs,
         'crossfade_fade_ms': session.crossfadeFadeMs,
       });
+      planVersionBumped = true;
 
       // Step 3b: atomic credit consumption. Source of truth for whether
       // the publish can proceed. If this returns `{ok: false}` the plan
@@ -1174,7 +1207,7 @@ class UploadService {
       // the ledger stays balanced — otherwise the bio is charged for a
       // plan that never published.
       if (creditConsumed) {
-        await _refundCredits(
+        refundApplied = await _refundCredits(
           practiceId: practiceId,
           planId: session.id,
           credits: creditsToCharge,
@@ -1213,6 +1246,9 @@ class UploadService {
         practiceId: practiceId,
         trainerId: trainerId,
         refundLikelyAttempted: creditConsumed,
+        refundOutcomeUnknown: creditConsumed && refundApplied != true,
+        remoteVersionMayHaveAdvanced: planVersionBumped,
+        remoteVersionCandidate: planVersionBumped ? newVersion : null,
       );
       await _recordFailure(session, payload.toClipboardText());
       return PublishResult.networkFailed(error: payload);
@@ -1614,7 +1650,7 @@ class UploadService {
   /// a refund error to mask the original cause. The ledger may be
   /// temporarily off by one publish's worth of credits; support can
   /// reconcile via the `plan_issuances` audit rows.
-  Future<void> _refundCredits({
+  Future<bool> _refundCredits({
     required String practiceId,
     required String planId,
     required int credits,
@@ -1622,7 +1658,7 @@ class UploadService {
     // [ApiClient.refundCredit] already swallows RPC errors — best-effort
     // semantics are preserved; see docstring above for the ledger
     // reconciliation contract.
-    await _api.refundCredit(planId: planId);
+    return _api.refundCredit(planId: planId);
   }
 
   // ---------------------------------------------------------------------
