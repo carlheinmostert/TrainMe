@@ -1,5 +1,5 @@
 # Sprint Board - Stabilization Wave
-Last updated: 2026-05-01 (T2 closed + follow-up hardening/docs merged + PR triage clean)
+Last updated: 2026-05-01 (T2 closeout + hardening wave through #175)
 Owner: Carl + Cursor agent
 Cadence: update on every PR open/merge and daily wrap
 
@@ -14,7 +14,7 @@ Cadence: update on every PR open/merge and daily wrap
 ## Ready
 
 ### Recommended next order
-1. **Publish reliability hardening follow-up** — continue non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up” (now includes consent preflight observability after `#171`).
+1. **Publish reliability hardening follow-up** — continue non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up” (next: refund-failure surfacing in visible UI/support path).
 2. **Device QA pass for T2 diagnostics** — verify publish-failure copy/clipboard on iPhone for offline/JWT/permission paths.
 3. **Refresh sprint board cadence** — keep this board synced as new hardening PRs land.
 
@@ -37,6 +37,9 @@ Cadence: update on every PR open/merge and daily wrap
 - [`#172`](https://github.com/carlheinmostert/TrainMe/pull/172) merged — T1 web-player seam tail closed (allowlist retired) + docs-canvas examples:
   - [`docs/canvas_publish_pipeline_architecture.md`](canvas_publish_pipeline_architecture.md)
   - [`docs/canvas_data_access_seams_t1_t2.md`](canvas_data_access_seams_t1_t2.md)
+- [`#173`](https://github.com/carlheinmostert/TrainMe/pull/173) merged — sprint board synchronized after `#171/#172`.
+- [`#174`](https://github.com/carlheinmostert/TrainMe/pull/174) merged — T2 hardening: consent preflight skip observability surfaced while preserving server backstop.
+- [`#175`](https://github.com/carlheinmostert/TrainMe/pull/175) merged — sprint board closeout refresh after `#174`.
 - **T2 closed** — Publish Reliability Classification done for sprint scope:
   - [x] Classification table documented ([`docs/T2_PUBLISH_RELIABILITY.md`](T2_PUBLISH_RELIABILITY.md))
   - [x] Handling behavior implemented for documented classes (including structured `networkFailed` copy/diagnostics)
