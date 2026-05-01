@@ -342,30 +342,19 @@ Short-term workaround: AirDrop a raw video from the iPhone to the Mac and drop i
 
 ## T2 follow-up — publish durability hardening (post-sprint closeout)
 
-**Status:** Deferred follow-up after T2 closeout (`docs/T2_PUBLISH_RELIABILITY.md` +
-PRs `#166` / `#167`). Keep the classification/diagnostics milestone done, but
-track these deeper durability items explicitly.
+**Status:** Classification + practitioner-visible diagnostics shipped (`docs/T2_PUBLISH_RELIABILITY.md`, PRs `#166`–`#167`, hardening `#171` / `#174` / `#176` / `#177` / `#179`). Deeper durability items below remain deferred.
 
-**Carry-over hardening scope:**
+**Shipped (warning/diagnostic layer):**
 
-1. **Version drift on partial failure after step 4.**
-   - Today `plans.version` can bump before a downstream failure returns
-     `PublishResult.networkFailed`.
-   - Decide mitigation: optimistic UX copy only vs transactional server-side
-     orchestration that guarantees version+exercise atomics.
+- **Consent pre-flight RPC outage (`#174`):** fails open to server `consume_credit` backstop (`P0003`); Studio warns when preflight was skipped.
+- **Refund outcome uncertainty (`#171`, `#176`):** structured payload + clipboard text + snackbar to verify balance when refund RPC completion is unknown after debit.
+- **Optional raw-archive artifact failures (`#177`):** success path stays success; Studio warns when best-effort raw-archive sidecars failed (retry publish to backfill).
+- **Version drift after partial publish (`#171`, `#179`):** clipboard diagnostics + snackbar when cloud plan version may already be ahead of local after `networkFailed`.
 
-2. **`refund_credit` failure surfacing.**
-   - Current path is best-effort and swallow-by-design.
-   - Add an explicit practitioner/support signal when refund retry/reconcile is
-     required (without blocking publish retry UX).
+**Remaining carry-over:**
 
-3. **Optional artifact failure visibility.**
-   - Raw-archive / segmented / mask / issuance failures are intentionally
-     non-blocking; evaluate whether low-noise UI telemetry is needed so
-     practitioners understand why some secondary treatments might lag.
+1. **Version drift — mitigation decision.** Warnings exist; still choose **UX-only** vs **transactional server-side** orchestration so `plans.version` and exercise payloads advance atomically (no ambiguous halfway states).
+2. **`refund_credit` deeper surfacing.** RPC remains swallow-by-design on failure; add explicit **retry/reconcile/support** affordance without blocking publish retry (beyond balance-verification copy).
+3. **Optional artifact telemetry.** Snackbars cover visible lag on raw-archive paths; evaluate **logging/analytics/support pings** for segmented/mask/issuance gaps.
 
-4. **Consent pre-flight observability under RPC outage.**
-   - Step 0 validation currently fails open to the server-side `consume_credit`
-     backstop (`P0003`).
-   - Consider adding a lightweight warning state when the pre-flight check is
-     skipped due to transport failure.
+Device QA capture: [`T2_DEVICE_QA_OUTCOMES_2026-05-01.md`](T2_DEVICE_QA_OUTCOMES_2026-05-01.md).

@@ -19,6 +19,8 @@ Scope covered by this run:
 - version-drift failure warning
 - baseline regression checks
 
+**GitHub traceability:** When delegating, open an issue **Device QA — T2 diagnostics (`<git-sha>`)**, paste a link to [`docs/T2_DEVICE_QA_OUTCOMES_2026-05-01.md`](T2_DEVICE_QA_OUTCOMES_2026-05-01.md) (and assign the tester). Close it when outcomes are recorded (comment, attachment, or PR that fills the markdown).
+
 ---
 
 ## 2026-04-20 checkpoint (historic)
