@@ -464,6 +464,19 @@ class PublishResult {
     final e = error;
     return e is PublishFailurePayload && e.refundOutcomeUnknown;
   }
+
+  /// UI hint for partial-version-drift ambiguity on network failures.
+  String? get networkFailureVersionDriftReason {
+    if (!isNetworkFailure) return null;
+    final e = error;
+    if (e is! PublishFailurePayload || !e.remoteVersionMayHaveAdvanced) {
+      return null;
+    }
+    if (e.remoteVersionCandidate != null) {
+      return 'cloud may already be on v${e.remoteVersionCandidate}';
+    }
+    return 'cloud version may already be ahead';
+  }
 }
 
 /// Handles uploading a completed plan to Supabase and generating a
