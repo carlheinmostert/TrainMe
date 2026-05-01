@@ -609,6 +609,11 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         _emit(updated);
       },
       onSessionUpdate: widget.onSessionUpdate,
+      // Round 3 — embedded mode hides the X button (the sheet's drag-down
+      // + tap-outside dismiss) and shifts the vertical treatment pill up
+      // so it doesn't collide with the bottom-left Body Focus + Rotate
+      // pills on the shorter sheet canvas.
+      embeddedInSheet: true,
     );
   }
 

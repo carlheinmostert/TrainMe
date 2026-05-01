@@ -3007,6 +3007,14 @@ class MediaViewerBody extends StatefulWidget {
   /// the parent's refresh.
   final ValueChanged<Session>? onSessionUpdate;
 
+  /// Round 3 — true when this viewer is embedded inside the
+  /// `ExerciseEditorSheet` Preview tab. Suppresses the top-right
+  /// close (X) button (the sheet drag-down + tap-outside handle dismiss)
+  /// and shifts the treatment-segment chrome down so it doesn't collide
+  /// with the editor sheet's tab strip / body-focus + rotate pills.
+  /// Defaults to false so the legacy full-screen route push is unchanged.
+  final bool embeddedInSheet;
+
   const MediaViewerBody({
     super.key,
     required this.exercises,
@@ -3014,6 +3022,7 @@ class MediaViewerBody extends StatefulWidget {
     this.onExerciseUpdate,
     this.session,
     this.onSessionUpdate,
+    this.embeddedInSheet = false,
   });
 
   @override
@@ -3955,11 +3964,25 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                         )
                       : Positioned(
                           left: 12,
-                          top: 0,
-                          bottom: 0,
+                          // Round 3 — when embedded in the editor sheet
+                          // the canvas can shrink to the 0.55 detent
+                          // (~460pt). The previously-centered vertical
+                          // treatment pill (~220pt tall) collided with
+                          // the bottom-left Body Focus / Rotate cluster
+                          // at that height. Anchor near the top instead
+                          // of center; the route-pushed full-screen path
+                          // still uses centerLeft (taller canvas, no
+                          // collision).
+                          top: widget.embeddedInSheet
+                              ? MediaQuery.of(context).padding.top + 12
+                              : 0,
+                          bottom: widget.embeddedInSheet ? null : 0,
                           child: SafeArea(
+                            top: !widget.embeddedInSheet,
                             child: Align(
-                              alignment: Alignment.centerLeft,
+                              alignment: widget.embeddedInSheet
+                                  ? Alignment.topLeft
+                                  : Alignment.centerLeft,
                               child: TreatmentSegmentedControl(
                                 orientation: Axis.vertical,
                                 active: _treatment,
@@ -4143,23 +4166,31 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                 // Returning the id (not the index) keeps the handoff
                 // robust against any reorders that may have happened
                 // inside the viewer.
-                Positioned(
-                  top: MediaQuery.of(context).padding.top + 8,
-                  right: 8,
-                  child: IconButton(
-                    onPressed: () =>
-                        Navigator.of(context).pop(_focusIdForPop),
-                    icon: const Icon(
-                      Icons.close,
-                      color: Colors.white,
-                      size: 28,
+                //
+                // Round 3 — hidden when embedded in the editor sheet.
+                // The sheet's drag-down + tap-outside dismiss; an X
+                // button on the embedded viewer would pop the sheet
+                // (since it's the topmost route), creating two redundant
+                // dismiss affordances + Carl found the visual noise
+                // distracting.
+                if (!widget.embeddedInSheet)
+                  Positioned(
+                    top: MediaQuery.of(context).padding.top + 8,
+                    right: 8,
+                    child: IconButton(
+                      onPressed: () =>
+                          Navigator.of(context).pop(_focusIdForPop),
+                      icon: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.black54,
+                      ),
+                      tooltip: 'Close',
                     ),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.black54,
-                    ),
-                    tooltip: 'Close',
                   ),
-                ),
 
                 // Tune gear — top-right column under the close X.
                 if (_crossfadeTunerVisible)
