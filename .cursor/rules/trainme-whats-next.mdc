@@ -1,0 +1,20 @@
+---
+description: Always end task wrap-ups with explicit "What's next"
+alwaysApply: true
+---
+
+# Task completion (TrainMe)
+
+When you **finish** a user-requested task (implementation, merge, babysit PR, smoke test, docs update, etc.), you **must** end the reply with a short **"What's next"** section.
+
+## Format
+
+- Use the heading **`### What's next`** (or **`## What's next`** if the reply has no other `###` sections).
+- Put **2–5 concrete bullets** in **priority order**.
+- Bullets must be **actionable** (verb-led): merge X, open PR Y, run Z, fix A in file B — not vague advice.
+- If the natural next step depends on user approval, say **one line**: e.g. "Say **merge #NN** when you want it landed."
+
+## Scope
+
+- Applies even when the outcome is **success with nothing left to do** — then "What's next" should say **explicit follow-ups** (e.g. optional polish, monitoring, related backlog card).
+- Do **not** omit this section because the reply is short.
