@@ -1,5 +1,5 @@
 # Sprint Board - Stabilization Wave
-Last updated: 2026-05-01 (T2 closed + follow-up hardening/docs merged)
+Last updated: 2026-05-01 (T2 closed + follow-up hardening/docs merged + PR triage clean)
 Owner: Carl + Cursor agent
 Cadence: update on every PR open/merge and daily wrap
 
@@ -14,9 +14,9 @@ Cadence: update on every PR open/merge and daily wrap
 ## Ready
 
 ### Recommended next order
-1. **Publish reliability hardening follow-up** — continue non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up” (after `#171`).
-2. **Stale PR re-triage** — revisit numbered PRs below on GitHub (don't infer merged state from this board alone).
-3. **Device QA pass for T2 diagnostics** — verify publish-failure copy/clipboard on iPhone for offline/JWT/permission paths.
+1. **Publish reliability hardening follow-up** — continue non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up” (now includes consent preflight observability after `#171`).
+2. **Device QA pass for T2 diagnostics** — verify publish-failure copy/clipboard on iPhone for offline/JWT/permission paths.
+3. **Refresh sprint board cadence** — keep this board synced as new hardening PRs land.
 
 ---
 
@@ -49,6 +49,7 @@ Cadence: update on every PR open/merge and daily wrap
 ---
 
 ## Open PR Triage (re-triage on GitHub)
-Historical/low-confidence rows dropped — verify titles and merge readiness in the GitHub PR list before acting.
+Current status (2026-05-01): **no open PRs**.
+Historical/low-confidence rows remain dropped — re-check GitHub PR list before adding new merge-lane items.
 
 ---
