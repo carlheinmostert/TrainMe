@@ -1,5 +1,5 @@
 # Sprint Board - Stabilization Wave
-Last updated: 2026-05-01 (T2 closed + follow-up hardening/docs merged)
+Last updated: 2026-05-01 (T2 closed + follow-up hardening/docs merged + consent preflight observability landed)
 Owner: Carl + Cursor agent
 Cadence: update on every PR open/merge and daily wrap
 
@@ -14,9 +14,9 @@ Cadence: update on every PR open/merge and daily wrap
 ## Ready
 
 ### Recommended next order
-1. **Publish reliability hardening follow-up** — continue non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up” (after `#171`).
-2. **Stale PR re-triage** — revisit numbered PRs below on GitHub (don't infer merged state from this board alone).
-3. **Device QA pass for T2 diagnostics** — verify publish-failure copy/clipboard on iPhone for offline/JWT/permission paths.
+1. **Device QA pass for T2 diagnostics** — verify publish-failure copy/clipboard on iPhone for offline/JWT/permission paths.
+2. **Publish reliability hardening follow-up** — continue remaining non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up” (after `#171`, `#174`).
+3. **Sprint board cadence** — keep merge-lane + ready-lane synced per PR merge.
 
 ---
 
@@ -37,6 +37,8 @@ Cadence: update on every PR open/merge and daily wrap
 - [`#172`](https://github.com/carlheinmostert/TrainMe/pull/172) merged — T1 web-player seam tail closed (allowlist retired) + docs-canvas examples:
   - [`docs/canvas_publish_pipeline_architecture.md`](canvas_publish_pipeline_architecture.md)
   - [`docs/canvas_data_access_seams_t1_t2.md`](canvas_data_access_seams_t1_t2.md)
+- [`#173`](https://github.com/carlheinmostert/TrainMe/pull/173) merged — sprint board synchronized after `#171/#172` merge wave.
+- [`#174`](https://github.com/carlheinmostert/TrainMe/pull/174) merged — T2 hardening follow-up: consent preflight skip observability (fail-open warning surfaced while preserving server-side `consume_credit` backstop).
 - **T2 closed** — Publish Reliability Classification done for sprint scope:
   - [x] Classification table documented ([`docs/T2_PUBLISH_RELIABILITY.md`](T2_PUBLISH_RELIABILITY.md))
   - [x] Handling behavior implemented for documented classes (including structured `networkFailed` copy/diagnostics)
@@ -49,6 +51,7 @@ Cadence: update on every PR open/merge and daily wrap
 ---
 
 ## Open PR Triage (re-triage on GitHub)
-Historical/low-confidence rows dropped — verify titles and merge readiness in the GitHub PR list before acting.
+Current status (2026-05-01): **no open PRs**.
+Historical/low-confidence rows remain dropped — re-check GitHub PR list before adding new merge-lane items.
 
 ---
