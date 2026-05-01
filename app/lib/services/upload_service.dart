@@ -71,6 +71,141 @@ class PublishFailureMessage implements Exception {
   String toString() => message;
 }
 
+/// Structured payload for [PublishResult.networkFailed]: short practitioner copy
+/// ([userMessage]) plus optional diagnostics for clipboard / `last_publish_error`.
+class PublishFailurePayload implements Exception {
+  PublishFailurePayload({
+    required this.userMessage,
+    this.detail,
+    this.refundLikelyAttempted = false,
+    this.leafExceptionType,
+    this.innerMessage,
+  });
+
+  /// Snackbar / inline banner — no `Bad state:` / stack dumps.
+  final String userMessage;
+
+  /// Technical hint (PostgREST body, socket errno, truncated inner text).
+  final String? detail;
+
+  /// True when [UploadService.uploadPlan] attempted `refund_credit` after a debit.
+  final bool refundLikelyAttempted;
+
+  final String? leafExceptionType;
+
+  /// Inner failure text (may duplicate [detail] for some paths).
+  final String? innerMessage;
+
+  @override
+  String toString() => userMessage;
+
+  /// Full text for tap-to-copy in Studio (includes diagnostics).
+  String toClipboardText() {
+    final buf = StringBuffer(userMessage);
+    if (refundLikelyAttempted) {
+      buf.writeln();
+      buf.write(
+        'If credits were charged, a refund was attempted — check your balance.',
+      );
+    }
+    buf.writeln();
+    buf.writeln('---');
+    if (leafExceptionType != null) {
+      buf.writeln('type: $leafExceptionType');
+    }
+    if (innerMessage != null && innerMessage!.trim().isNotEmpty) {
+      buf.writeln('raw: ${innerMessage!.trim()}');
+    }
+    if (detail != null && detail!.trim().isNotEmpty) {
+      buf.writeln(detail!.trim());
+    }
+    return buf.toString().trimRight();
+  }
+
+  factory PublishFailurePayload.fromPublishCatch({
+    required Object caught,
+    required String practiceId,
+    required String trainerId,
+    required bool refundLikelyAttempted,
+  }) {
+    final prefix = 'practice=$practiceId trainer=$trainerId :: ';
+    String innerMsg;
+    if (caught is StateError && caught.message.startsWith(prefix)) {
+      innerMsg = caught.message.substring(prefix.length);
+    } else {
+      innerMsg = caught.toString();
+    }
+
+    String userMessage;
+    String? detail;
+
+    if (caught is PublishFailureMessage) {
+      userMessage = caught.message;
+      detail = null;
+    } else if (caught is PostgrestException) {
+      userMessage = _userMessageForPostgrest(caught);
+      final detailsStr = caught.details?.toString().trim();
+      detail =
+          'PostgREST ${caught.code}${detailsStr != null && detailsStr.isNotEmpty ? ' ($detailsStr)' : ''}: ${caught.message}';
+      if (caught.hint != null && caught.hint!.trim().isNotEmpty) {
+        detail = '$detail\nhint: ${caught.hint}';
+      }
+    } else if (caught is SocketException) {
+      userMessage =
+          'Could not reach the server. Check your connection and retry.';
+      detail = caught.message;
+    } else {
+      final lower = innerMsg.toLowerCase();
+      if (lower.contains('socketexception') ||
+          lower.contains('failed host lookup') ||
+          lower.contains('network is unreachable') ||
+          lower.contains('connection refused') ||
+          lower.contains('connection reset')) {
+        userMessage =
+            'Could not reach the server. Check your connection and retry.';
+        detail = innerMsg;
+      } else {
+        userMessage =
+            'Publish did not finish. Check your connection and retry. '
+            'If this keeps happening, copy the error for support.';
+        detail =
+            innerMsg.length > 420 ? '${innerMsg.substring(0, 420)}…' : innerMsg;
+      }
+    }
+
+    final clippedInner =
+        innerMsg.length > 600 ? '${innerMsg.substring(0, 600)}…' : innerMsg;
+
+    return PublishFailurePayload(
+      userMessage: userMessage,
+      detail: detail,
+      refundLikelyAttempted: refundLikelyAttempted,
+      leafExceptionType: caught.runtimeType.toString(),
+      innerMessage: clippedInner,
+    );
+  }
+}
+
+String _userMessageForPostgrest(PostgrestException e) {
+  final code = e.code ?? '';
+  final msgLower = e.message.toLowerCase();
+  if (code == '42501' || msgLower.contains('permission denied')) {
+    return 'Permission denied — sign out and back in, then retry.';
+  }
+  if (code == '23505') {
+    return 'That name or record already exists on the server. Rename or use the recycle bin, then retry.';
+  }
+  if (code == '23503') {
+    return 'Linked data is out of sync. Retry after refreshing your practice data.';
+  }
+  if (code == 'PGRST301' ||
+      msgLower.contains('jwt expired') ||
+      msgLower.contains('invalid jwt')) {
+    return 'Session expired — sign out and back in, then retry.';
+  }
+  return 'Server rejected the publish. Retry shortly or copy the error for support.';
+}
+
 /// Outcome of a publish attempt. Exhaustive via the six factories:
 /// [PublishResult.success], [PublishResult.preflightFailed],
 /// [PublishResult.networkFailed], [PublishResult.insufficientCredits],
@@ -250,11 +385,24 @@ class PublishResult {
       s = 'Consent for ${c.name.isEmpty ? 'this client' : c.name} '
           'has not been confirmed yet.';
     } else if (isNetworkFailure) {
-      s = error.toString();
+      final err = error!;
+      if (err is PublishFailurePayload) {
+        s = err.userMessage;
+      } else {
+        s = err.toString();
+      }
     } else {
       s = 'Unknown publish error';
     }
     return s.length > 500 ? s.substring(0, 500) : s;
+  }
+
+  /// Optional rich clipboard text for network failures ([PublishFailurePayload]).
+  String? get networkFailureClipboardDetail {
+    if (!isNetworkFailure) return null;
+    final e = error;
+    if (e is PublishFailurePayload) return e.toClipboardText();
+    return null;
   }
 }
 
@@ -1060,16 +1208,14 @@ class UploadService {
         return PublishResult.unconsentedTreatments(exc);
       }
 
-      // Include practice/trainer context in the failure so a mismatched-
-      // tenant error (RLS rejection) surfaces enough detail in the
-      // user-facing snackbar to diagnose without device logs. The
-      // PublishResult's error is what reaches the SnackBar via
-      // `result.toErrorString()` — wrap the raw exception with context.
-      final wrappedError = StateError(
-        'practice=$practiceId trainer=$trainerId :: ${e.toString()}',
+      final payload = PublishFailurePayload.fromPublishCatch(
+        caught: e,
+        practiceId: practiceId,
+        trainerId: trainerId,
+        refundLikelyAttempted: creditConsumed,
       );
-      await _recordFailure(session, wrappedError.message);
-      return PublishResult.networkFailed(error: wrappedError);
+      await _recordFailure(session, payload.toClipboardText());
+      return PublishResult.networkFailed(error: payload);
     }
   }
 

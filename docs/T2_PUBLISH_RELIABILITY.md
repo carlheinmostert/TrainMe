@@ -19,7 +19,7 @@
 
 ### Known ambiguity / gaps
 
-- **`networkFailed`** copy often uses raw **`error.toString()`** (`PublishResult.toErrorString`) — noisy stack/context vs curated messages (`PublishFailureMessage` only on some paths).
+- **`networkFailed`** — after the `PublishFailurePayload` pass, the snackbar shows a **short practitioner line**; tap-to-copy carries **PostgREST code / socket / inner text** plus a **refund attempted** note when the publish path debited credits. Generic unknown errors still fall back to a generic retry/support line.
 - **Failure after step 4, before durable exercise replace:** remote **`plans.version`** may advance while the app surfaces **`networkFailed`** and local SQLite still holds the old **`session.version`** until the next successful publish — **no remote downgrade** in catch.
 - **`refund_credit` RPC failure:** swallowed; ledger may need manual reconciliation.
 - **Step 0 consent RPC failure:** logged and skipped; server **`consume_credit`** guard (**P0003**) remains backstop.

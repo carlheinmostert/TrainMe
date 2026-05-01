@@ -1484,7 +1484,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                   onUnlockTap: _openUnlockSheet,
                   onShowPublishError: () {
                     final err = _publishError;
-                    if (err != null) _showPublishErrorSnackBar(err);
+                    if (err != null) {
+                      _showPublishErrorSnackBar(
+                        err,
+                        clipboardDetail: null,
+                      );
+                    }
                   },
                 ),
               ],
@@ -2327,12 +2332,25 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       _publishError = null;
     });
     PublishResult? result;
+    Session? loadedSession;
     try {
-      final fullSession = await widget.storage.getSession(_session.id);
-      if (fullSession == null) return;
-      result = await _uploadService.uploadPlan(fullSession);
+      loadedSession = await widget.storage.getSession(_session.id);
+      if (loadedSession == null) return;
+      result = await _uploadService.uploadPlan(loadedSession);
     } catch (e) {
-      result = PublishResult.networkFailed(error: e);
+      final practiceId =
+          AuthService.instance.currentPracticeId.value ??
+              loadedSession?.practiceId ??
+              '';
+      final trainerId = ApiClient.instance.currentUserId ?? '';
+      result = PublishResult.networkFailed(
+        error: PublishFailurePayload.fromPublishCatch(
+          caught: e,
+          practiceId: practiceId,
+          trainerId: trainerId,
+          refundLikelyAttempted: false,
+        ),
+      );
     } finally {
       if (mounted) {
         // Refresh local state — `uploadPlan` rewrites the session row.
@@ -2394,7 +2412,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     } else {
       final errStr = result.toErrorString();
       setState(() => _publishError = errStr);
-      _showPublishErrorSnackBar(errStr);
+      _showPublishErrorSnackBar(
+        errStr,
+        clipboardDetail: result.networkFailureClipboardDetail,
+      );
     }
   }
 
@@ -2576,8 +2597,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
   }
 
-  void _showPublishErrorSnackBar(String error) {
-    final fullText = 'Publish failed: $error';
+  void _showPublishErrorSnackBar(
+    String error, {
+    String? clipboardDetail,
+  }) {
+    final summary = 'Publish failed: $error';
+    final clipboardText = clipboardDetail != null && clipboardDetail.isNotEmpty
+        ? 'Publish failed:\n$clipboardDetail'
+        : summary;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -2585,7 +2612,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           content: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () async {
-              await Clipboard.setData(ClipboardData(text: fullText));
+              await Clipboard.setData(ClipboardData(text: clipboardText));
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -2595,7 +2622,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
               );
             },
             child: Text(
-              fullText,
+              summary,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
             ),

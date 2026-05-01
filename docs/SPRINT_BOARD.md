@@ -31,7 +31,7 @@ Cadence: update on every PR open/merge and daily wrap
 - Done Criteria:
   - [x] Classification table documented
   - [ ] Handling behavior implemented for each class
-  - [ ] User-visible/diagnostic status exposed
+  - [x] User-visible/diagnostic status exposed — Studio uses curated `networkFailed` snackbar lines plus tap-to-copy diagnostics (`PublishFailurePayload`).
   - [ ] PR(s) linked
   - [x] Verification checklist documented *(manual steps — [`Verification`](T2_PUBLISH_RELIABILITY.md#verification); no standalone script)*
 
