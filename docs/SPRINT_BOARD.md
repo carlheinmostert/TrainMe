@@ -1,5 +1,5 @@
 # Sprint Board - Stabilization Wave
-Last updated: 2026-05-01 (post-T1 merge + first seam burn-down)
+Last updated: 2026-05-01
 Owner: Carl + Cursor agent
 Cadence: update on every PR open/merge and daily wrap
 
@@ -13,17 +13,10 @@ Cadence: update on every PR open/merge and daily wrap
 
 ## Ready
 
-### T3 - Web Player Drift Guard
-- Priority: P0
-- Effort: S
-- Owner: Web/Platform
-- Goal: Prevent divergence between `web-player/*` and `app/assets/web-player/*`.
-- Local check: `python3 tools/check_web_player_drift.py`
-- Done Criteria:
-  - [ ] Sync/hash verification check in CI
-  - [ ] Fails on drift
-  - [ ] PR(s) linked
-  - [ ] One proof run attached
+### Recommended next order
+1. **T2 publish reliability** — classification doc landed (`docs/T2_PUBLISH_RELIABILITY.md`); remaining Done Criteria need explicit UX/engineering passes where noted there.
+2. **T1 Flutter seam burn-down** — shrink [`exceptions/direct_supabase_usage_exceptions.yaml`](../exceptions/direct_supabase_usage_exceptions.yaml) allowlist per Cursor seam rule (#165); `#163` / `#164` merged baseline.
+3. **Stale PR re-triage** — revisit numbered PRs below on GitHub (don't infer merged state from this board alone).
 
 ---
 
@@ -34,12 +27,15 @@ Cadence: update on every PR open/merge and daily wrap
 - Effort: M
 - Owner: Mobile + Backend
 - Goal: Remove silent ambiguity in publish side effects.
+- Doc: [`docs/T2_PUBLISH_RELIABILITY.md`](T2_PUBLISH_RELIABILITY.md)
 - Done Criteria:
-  - [ ] Classification table documented
+  - [x] Classification table documented
   - [ ] Handling behavior implemented for each class
   - [ ] User-visible/diagnostic status exposed
   - [ ] PR(s) linked
-  - [ ] Verification script/results attached
+  - [x] Verification checklist documented *(manual steps — [`Verification`](T2_PUBLISH_RELIABILITY.md#verification); no standalone script)*
+
+Gaps for unchecked criteria are spelled out under **Known ambiguity / gaps** in the linked doc.
 
 ---
 
@@ -52,20 +48,14 @@ Cadence: update on every PR open/merge and daily wrap
 - Superseded PRs closed: `#145`, `#149`, `#150`, `#151`, `#152`.
 - Linked Supabase DB: Wave 42 migration applied safely.
 - `#163` merged — **T1 Enforce Data Access Seams** (CI seam rule + exceptions policy).
+- `#164` merged — companion seam-policy tooling/doc baseline for T1.
+- Cursor seam rule `#165` — Flutter-side deny-by-default direct Supabase usage (allowlisted YAML exceptions).
 - T1 burn-down follow-up: web-player close-event analytics now routes via `HomefitApi.logAnalyticsEvent` (removed direct `/rest/v1/rpc` from `app.js`).
+- **T3 Web Player Drift Guard:** `.github/workflows/web-player-drift-guard.yml` runs `python3 tools/check_web_player_drift.py` on PR + push to `main`; fails CI on hash drift between `web-player/*` and `app/assets/web-player/*`.
 
 ---
 
-## Open PR Triage (current)
-- `#110` draft — CI strategy work vehicle (candidate for T1/T5).
-- `#108` open — design-system v1.2 (revalidate against current tokens).
-- `#35` open — docs-only business case (safe merge candidate).
-- `#10` open — stale base (`bisect/studio-circuit-header`), retarget/close.
-- `#9` open — stale + conflicting (`bisect/studio-circuit-header`), close/recreate.
-- `#1` draft — stale CVE branch, refresh against current dependencies.
+## Open PR Triage (re-triage on GitHub)
+Historical/low-confidence rows dropped — verify titles and merge readiness in the GitHub PR list before acting.
 
-### Recommended next order
-1. Continue T1 exception burn-down (Flutter direct `Supabase.instance.client` usages).
-2. Progress `T2` publish reliability classification.
-3. Revisit stale PR triage lane (`#110`, `#108`, `#10`, `#9`, `#1`) as needed.
-
+---
