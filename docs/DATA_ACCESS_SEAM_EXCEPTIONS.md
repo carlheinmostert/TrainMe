@@ -14,14 +14,7 @@ list tracks known legacy exceptions that still need cleanup.
 
 ### Flutter (`Supabase.instance.client` outside `api_client.dart`)
 
-- `app/lib/screens/diagnostics_screen.dart`
-  - Dev diagnostics RPC probe and sign-out check.
-- `app/lib/services/client_defaults_api.dart`
-  - Legacy defaults RPC wrapper still using raw client.
-- `app/lib/services/loud_swallow.dart`
-  - Legacy utility path still using direct client.
-- `app/lib/services/sync_service.dart`
-  - Auth-state listener still attached to raw Supabase auth stream.
+- None currently. Flutter app access now routes through `ApiClient`.
 
 ### Web player (`/rest/v1/` outside `api.js`)
 

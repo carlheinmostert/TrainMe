@@ -85,7 +85,7 @@ class ClientDefaultsApi {
     fBodyFocus,
   ];
 
-  SupabaseClient get _raw => Supabase.instance.client;
+  SupabaseClient get _raw => ApiClient.instance.raw;
 
   /// Writes a single default field for [clientId]. Throws on network /
   /// auth / membership failure — callers either recover via the

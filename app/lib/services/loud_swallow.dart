@@ -5,9 +5,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
 import '../config.dart';
+import 'api_client.dart';
 
 /// # loudSwallow — the one sanctioned swallow helper
 ///
@@ -185,7 +184,7 @@ Future<void> _postErrorLog({
   try {
     // Skip if the auth client isn't initialised yet (cold start before
     // Supabase.initialize, or unit tests). Nothing to log TO.
-    final client = Supabase.instance.client;
+    final client = ApiClient.instance.raw;
     // No signed-in user → the RPC would fail at auth.uid() check; we
     // still record locally above, so bail early.
     if (client.auth.currentUser == null) return;

@@ -227,7 +227,7 @@ class SyncService {
     // sign-ins haven't bound a practice yet; the bootstrap path does
     // that separately).
     try {
-      _authSub = Supabase.instance.client.auth.onAuthStateChange.listen(
+      _authSub = ApiClient.instance.raw.auth.onAuthStateChange.listen(
         (state) {
           if (state.event == AuthChangeEvent.signedIn ||
               state.event == AuthChangeEvent.tokenRefreshed) {
