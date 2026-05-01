@@ -592,12 +592,14 @@ String _formatKg(double kg) {
   return kg.toStringAsFixed(1);
 }
 
-/// Returns the first line of notes, or null when notes are empty.
-/// Width-based truncation is the trigger button's job (maxLines:1 +
-/// TextOverflow.ellipsis).
+/// Returns the full note content with all whitespace runs (newlines, tabs,
+/// repeated spaces) collapsed into single spaces, or null when notes are
+/// empty. Width-based truncation lives in the trigger button's Text widget
+/// (maxLines: 2 + TextOverflow.ellipsis) so the surface shows as much of
+/// the note as fits in two lines.
 String? _notesSummary(ExerciseCapture exercise) {
   final notes = exercise.notes?.trim();
   if (notes == null || notes.isEmpty) return null;
-  final firstLine = notes.split('\n').first.trim();
-  return firstLine.isEmpty ? null : firstLine;
+  final flattened = notes.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return flattened.isEmpty ? null : flattened;
 }
