@@ -1339,7 +1339,7 @@ class ApiClient {
               'p_practice_id': practiceId,
               'p_channel': channel,
               'p_event_kind': eventKind,
-              if (meta != null) 'p_meta': meta,
+              ...meta == null ? const {} : {'p_meta': meta},
             },
           ));
     } catch (e) {

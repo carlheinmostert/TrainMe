@@ -755,7 +755,7 @@ class UploadService {
         // Some exercises are new — list + upload as needed.
         final existingFiles = <String>{};
         try {
-          final listing = await _api.listMedia(prefix: '${session.id}');
+          final listing = await _api.listMedia(prefix: session.id);
           for (final item in listing) {
             existingFiles.add('${session.id}/${item.name}');
           }

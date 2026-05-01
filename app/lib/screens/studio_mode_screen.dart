@@ -81,7 +81,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   late Session _session;
   late ConversionService _conversionService;
   StreamSubscription<ExerciseCapture>? _conversionSub;
-  Timer? _conversionPollTimer;
   final ImagePicker _picker = ImagePicker();
 
   /// Shared ticker that drives the coral-halo breathing on every idle
@@ -142,13 +141,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// every build (the list's content can grow / shrink as the
   /// practitioner adds and deletes cards).
   ///
-  /// `_lastReachabilityScrollPx` tracks the last seen pixel offset so
-  /// the listener can compute deltas without misfiring on the
-  /// post-latch jump that may be queued by the list's own physics.
   final ScrollController _scrollController = ScrollController();
   bool _isReachabilityLatched = false;
   bool _canShowReachabilityPill = false;
-  double _lastReachabilityScrollPx = 0;
 
   /// Wave 40.6 — monotonic sequence number stamped by the conversion
   /// listener every time it applies a `done` event. Shell and parent
@@ -217,7 +212,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     if (!_session.isPublished) return;
     final summary =
         await ApiClient.instance.getPlanAnalyticsSummary(_session.id);
-    if (!mounted) return;
+    if (!context.mounted) return;
     if (summary != null) {
       setState(() => _planAnalytics = summary);
     }
@@ -377,7 +372,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     if (canScroll != _canShowReachabilityPill) {
       setState(() => _canShowReachabilityPill = canScroll);
     }
-    _lastReachabilityScrollPx = pos.pixels;
   }
 
   /// Wave 39 (Item 5) — toggle the reachability latch from a pill tap.
@@ -959,6 +953,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
     _saveExerciseOrder();
     if (!mounted) return;
+    if (!mounted) return;
+    // ignore: use_build_context_synchronously
     showUndoSnackBar(
       context,
       label: '${removed.name ?? 'Exercise ${index + 1}'} deleted',
@@ -1077,6 +1073,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
     _saveExerciseOrder();
 
+    if (!mounted) return;
     showUndoSnackBar(
       context,
       label: 'Duplicated · Undo',
@@ -3213,9 +3210,8 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
 
   /// Wave 42 — Body Focus is now a per-exercise practitioner default
   /// stored on `ExerciseCapture.bodyFocus`. The previous Wave 25
-  /// global per-device flag in SharedPreferences (key
-  /// [_enhancedBackgroundPrefsKey]) is retired as a source of truth;
-  /// see the [_enhancedBackground] getter below.
+  /// global per-device SharedPreferences flag is retired as a source
+  /// of truth; see the [_enhancedBackground] getter below.
 
   /// Carl 2026-04-24: while a trim handle is being dragged, the video
   /// is paused and the practitioner can scrub. We remember whether
@@ -3227,9 +3223,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// then sees `position >= endMs` and would yank back to start; this
   /// flag breaks that loop without affecting normal playback wrap.
   bool _trimDragInProgress = false;
-  static const String _enhancedBackgroundPrefsKey =
-      'homefit.preview.enhanced_background';
-
   /// Wave 20 — debounce for the trim-panel SQLite write. The drag
   /// callback fires every gesture tick; we coalesce to one write per
   /// 200 ms so the disk doesn't take a beating during a long drag.

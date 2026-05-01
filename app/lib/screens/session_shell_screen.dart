@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../config.dart';
-import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/api_client.dart';
 import '../services/local_storage_service.dart';
@@ -151,40 +150,6 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
       // swallowing pushes that carried new exercises, preventing Studio
       // from ever seeing the last photo.
       setState(() => _session = refreshed);
-    }
-  }
-
-  /// Returns true when [refreshed] is at least as fresh as `_session`,
-  /// false when it would regress conversion state. Same ranking as
-  /// StudioModeScreen's `_shouldAdoptParentSession`.
-  bool _shouldAdoptRefreshed(Session refreshed) {
-    // Different exercise count → always adopt (capture added or deleted).
-    if (refreshed.exercises.length != _session.exercises.length) return true;
-    // Check conversion freshness per exercise.
-    final localById = <String, ExerciseCapture>{
-      for (final e in _session.exercises) e.id: e,
-    };
-    for (final cand in refreshed.exercises) {
-      final local = localById[cand.id];
-      if (local == null) return true; // different row id appeared
-      if (_conversionRank(cand.conversionStatus) <
-          _conversionRank(local.conversionStatus)) {
-        return false; // refreshed is older — reject
-      }
-    }
-    return true;
-  }
-
-  int _conversionRank(ConversionStatus status) {
-    switch (status) {
-      case ConversionStatus.pending:
-        return 0;
-      case ConversionStatus.converting:
-        return 1;
-      case ConversionStatus.failed:
-        return 2;
-      case ConversionStatus.done:
-        return 3;
     }
   }
 
