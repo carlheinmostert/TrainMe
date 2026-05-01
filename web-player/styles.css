@@ -768,50 +768,6 @@ body {
   z-index: 1;
 }
 
-/* === Mute toggle ==================================================
-   Speaker-icon button. Right-edge column is
-   [playpause at top:12 / fullscreen at top:60 / settings at top:108];
-   mute claims the same row as playpause at right:60 (one button width
-   to its left). Only rendered for videos that ship with audio. */
-.card-media .mute-toggle {
-  position: absolute;
-  top: 12px;
-  right: 60px;
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  color: var(--c-brand);
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 150ms ease, transform 100ms ease, opacity 180ms ease;
-  z-index: 6;
-}
-.card-media .mute-toggle:hover {
-  background: rgba(0, 0, 0, 0.75);
-}
-.card-media .mute-toggle:active {
-  transform: scale(0.92);
-}
-.card-media .mute-toggle svg {
-  width: 20px;
-  height: 20px;
-  display: block;
-  stroke: currentColor;
-}
-.card-media .mute-toggle[aria-pressed="true"] {
-  background: rgba(0, 0, 0, 0.75);
-}
-.card-media .mute-toggle:focus-visible {
-  outline: 2px solid var(--c-brand);
-  outline-offset: 2px;
-}
-
 /* === Play/pause toggle (top-right of card-viewport) ==============
    YouTube-style icon-swap button. Same visual chrome as fullscreen +
    settings. Hidden outside workout mode (the tap-to-pause on the
@@ -952,9 +908,9 @@ body {
   outline-offset: 2px;
 }
 
-/* Right-edge chrome column when a mute button is present on the active
-   slide: top row is [mute 60] [playpause 12], then [fullscreen top:60],
-   then [settings top:108]. Each rule pins its own coords above. */
+/* Right-edge chrome column: [playpause top:12], [fullscreen top:60],
+   [settings top:108]. Each rule pins its own coords above. The
+   standalone mute speaker was retired in Wave 42 — gear panel only. */
 
 /* === Settings popover ============================================= */
 .settings-popover {
@@ -995,177 +951,179 @@ body {
   color: var(--c-ink-secondary);
   margin-bottom: 10px;
 }
-.settings-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 6px 0;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.settings-row-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
+/* === Wave 42 — Consolidated gear panel ============================
+   Per-exercise client overrides for mute / treatment / body focus.
+   Each control gets a coral border/tint when its value differs from
+   the practitioner's per-exercise default. The Reset button is greyed
+   when no overrides exist, coral + tappable otherwise. */
+
 .settings-row-label {
   font-size: 14px;
   font-weight: 600;
   line-height: 1.25;
   color: var(--c-ink-primary);
 }
-.settings-row-hint {
-  font-size: 12px;
-  line-height: 1.35;
-  color: var(--c-ink-secondary);
+
+.settings-panel-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-/* Switch (visual wrapper + hidden checkbox). The native <input> is sr-only
-   but still takes focus/click; the track + thumb are painted beneath. */
-.settings-switch {
-  position: relative;
-  flex: 0 0 auto;
-  width: 44px;
-  height: 26px;
-}
-.settings-switch-input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  margin: 0;
+.settings-row-btn {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  min-height: 44px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid transparent;
+  border-radius: 8px;
+  color: var(--c-ink-primary);
+  font-family: var(--f-body);
   cursor: pointer;
-  z-index: 2;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms var(--ease-standard), border-color 140ms var(--ease-standard), color 140ms var(--ease-standard);
 }
-.settings-switch-track {
-  position: absolute;
-  inset: 0;
-  background: var(--c-surface-border);
-  border-radius: 999px;
-  transition: background 180ms var(--ease-standard);
-  display: block;
+.settings-row-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
 }
-.settings-switch-thumb {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--c-ink-primary);
-  transition: transform 180ms var(--ease-standard), background 180ms var(--ease-standard);
-}
-.settings-switch-input:checked ~ .settings-switch-track {
-  background: var(--c-brand);
-}
-.settings-switch-input:checked ~ .settings-switch-track .settings-switch-thumb {
-  transform: translateX(18px);
-  background: #FFFFFF;
-}
-.settings-switch-input:focus-visible ~ .settings-switch-track {
+.settings-row-btn:focus-visible {
   outline: 2px solid var(--c-brand);
   outline-offset: 2px;
 }
+.settings-row-btn .settings-row-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--c-ink-secondary);
+  flex: 0 0 auto;
+}
+.settings-row-btn .settings-row-state svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  stroke: currentColor;
+}
 
-/* Disabled switch (Wave 19.6) — used when current effective treatment is
-   'line' so the Enhanced Background dimmer has nothing to act on. The
-   <input> stays in the DOM (so its checked state survives a re-enable),
-   but pointer events drop and the visual goes 40% alpha + grayscaled. The
-   tooltip lives on the row's `title=` attribute for hover/long-press. */
-.settings-row.is-disabled {
+/* Overridden state — coral border + coral icon/text tint. Use the
+   brand variable; #FF6B35 is the literal hex for reference. */
+.settings-row-btn.is-overridden {
+  border-color: var(--c-brand);
+  color: var(--c-brand);
+}
+.settings-row-btn.is-overridden .settings-row-label,
+.settings-row-btn.is-overridden .settings-row-state {
+  color: var(--c-brand);
+}
+
+.settings-row-btn:disabled,
+.settings-row-btn.is-disabled {
   cursor: not-allowed;
-}
-.settings-row.is-disabled .settings-row-label,
-.settings-row.is-disabled .settings-row-hint {
   opacity: 0.45;
-}
-.settings-row.is-disabled .settings-switch {
-  opacity: 0.45;
-  filter: grayscale(0.6);
-  pointer-events: none;
 }
 
-/* === "Show me" segmented control (Wave 19.6) ====================== */
-/* Stacked row variant — label sits above its control instead of side-by-side.
-   Used by the segmented Show-me control because the 4 segments need the full
-   popover width. */
-.settings-row--stacked {
+/* Treatment row — label + 3-pill segmented control. */
+.settings-row-segmented {
+  display: flex;
   flex-direction: column;
-  align-items: stretch;
   gap: 8px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  margin-bottom: 4px;
-  cursor: default;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid transparent;
+  border-radius: 8px;
+  transition: border-color 140ms var(--ease-standard);
+}
+.settings-row-segmented.is-overridden {
+  border-color: var(--c-brand);
+}
+.settings-row-segmented.is-overridden .settings-row-label {
+  color: var(--c-brand);
 }
 
-.treatment-override {
+.treatment-pills {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 4px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--c-surface-border);
-  border-radius: var(--radius-sm, 8px);
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
   padding: 3px;
 }
-
-.treatment-segment {
-  position: relative;
+.treatment-pills > button {
   appearance: none;
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 8px 4px;
-  min-height: 44px;
+  min-height: 36px;
   color: var(--c-ink-secondary);
   font-family: var(--f-body);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.15;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: background 140ms var(--ease-standard), color 140ms var(--ease-standard);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   text-align: center;
 }
-.treatment-segment:hover:not(.is-disabled):not(.is-active) {
+.treatment-pills > button:hover:not(.is-disabled):not(.is-active) {
   background: rgba(255, 255, 255, 0.06);
   color: var(--c-ink-primary);
 }
-.treatment-segment.is-active {
-  background: var(--c-brand);
-  color: #FFFFFF;
-}
-.treatment-segment:focus-visible {
+.treatment-pills > button:focus-visible {
   outline: 2px solid var(--c-brand);
   outline-offset: 2px;
 }
-.treatment-segment.is-disabled {
+.treatment-pills > button.is-active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--c-ink-primary);
+}
+.treatment-pills > button.is-active.is-overridden {
+  background: var(--c-brand); /* #FF6B35 */
+  color: #FFFFFF;
+}
+.treatment-pills > button.is-disabled {
   cursor: not-allowed;
   color: rgba(255, 255, 255, 0.32);
 }
-.treatment-segment.is-disabled:hover {
+.treatment-pills > button.is-disabled:hover {
   background: transparent;
 }
-.treatment-segment-label {
-  display: inline-block;
+
+/* Reset button. Greyed when no overrides; coral + tappable otherwise. */
+.settings-row-reset {
+  appearance: none;
+  margin-top: 6px;
+  padding: 10px 12px;
+  min-height: 40px;
+  background: transparent;
+  border: 1px solid var(--c-brand);
+  border-radius: 8px;
+  color: var(--c-brand);
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms var(--ease-standard), opacity 140ms var(--ease-standard);
 }
-.treatment-segment-lock {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 11px;
-  height: 11px;
-  display: none;
-  color: rgba(255, 255, 255, 0.5);
+.settings-row-reset:hover:not(:disabled):not(.is-empty) {
+  background: rgba(255, 107, 53, 0.08);
 }
-.treatment-segment.is-disabled .treatment-segment-lock {
-  display: block;
+.settings-row-reset:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+.settings-row-reset.is-empty,
+.settings-row-reset:disabled {
+  border-color: var(--c-surface-border);
+  color: var(--c-ink-secondary);
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* === Edge chevron nav (overlaid on video) ========================= */
@@ -2327,22 +2285,17 @@ body.is-fullscreen .playpause-toggle {
   }
 
   /* Right-edge chrome: tighten the stack so it doesn't letterbox into
-     the card area on the shorter canvas. Mute keeps its same-row spot
-     to the left of playpause; fullscreen + settings stack closer. */
+     the card area on the shorter canvas. Wave 42 retired the standalone
+     mute speaker — gear panel is the only mute entry point now. */
   .playpause-toggle,
   .fullscreen-toggle,
-  .settings-toggle,
-  .card-media .mute-toggle {
+  .settings-toggle {
     width: 36px;
     height: 36px;
   }
   .playpause-toggle {
     top: 8px;
     right: 8px;
-  }
-  .card-media .mute-toggle {
-    top: 8px;
-    right: 52px;
   }
   .fullscreen-toggle {
     top: 50px;

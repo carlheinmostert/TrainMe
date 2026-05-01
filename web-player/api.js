@@ -213,6 +213,10 @@
             ? _coerceNumOrNull(e.hold_seconds ?? e.custom_duration_seconds)
             : null)
         : _coerceNumOrNull(e.rest_seconds),
+      // Wave 42 — per-exercise body-focus default (PR #146 schema).
+      // NULL = practitioner hasn't expressed a preference; treat as ON.
+      // Client overrides ride on top of this default per-exercise.
+      body_focus: e.body_focus ?? null,
     };
   }
 
