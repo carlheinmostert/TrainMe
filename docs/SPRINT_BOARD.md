@@ -1,5 +1,5 @@
 # Sprint Board - Stabilization Wave
-Last updated: 2026-05-01 (T2 closed + follow-up hardening/docs merged + consent preflight observability landed)
+Last updated: 2026-05-01 (T2 hardening wave through #176)
 Owner: Carl + Cursor agent
 Cadence: update on every PR open/merge and daily wrap
 
@@ -14,8 +14,8 @@ Cadence: update on every PR open/merge and daily wrap
 ## Ready
 
 ### Recommended next order
-1. **Device QA pass for T2 diagnostics** — verify publish-failure copy/clipboard on iPhone for offline/JWT/permission paths.
-2. **Publish reliability hardening follow-up** — continue remaining non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up” (after `#171`, `#174`).
+1. **Device QA pass for T2 diagnostics** — verify publish-failure copy/clipboard/warnings on iPhone for offline/JWT/permission paths.
+2. **Publish reliability hardening follow-up** — continue remaining non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up” (next: optional artifact-failure visibility from active PR).
 3. **Sprint board cadence** — keep merge-lane + ready-lane synced per PR merge.
 
 ---
@@ -39,6 +39,8 @@ Cadence: update on every PR open/merge and daily wrap
   - [`docs/canvas_data_access_seams_t1_t2.md`](canvas_data_access_seams_t1_t2.md)
 - [`#173`](https://github.com/carlheinmostert/TrainMe/pull/173) merged — sprint board synchronized after `#171/#172` merge wave.
 - [`#174`](https://github.com/carlheinmostert/TrainMe/pull/174) merged — T2 hardening follow-up: consent preflight skip observability (fail-open warning surfaced while preserving server-side `consume_credit` backstop).
+- [`#175`](https://github.com/carlheinmostert/TrainMe/pull/175) merged — sprint board closeout refresh after `#174`.
+- [`#176`](https://github.com/carlheinmostert/TrainMe/pull/176) merged — T2 hardening follow-up: refund-unconfirmed warning surfaced in visible Studio UI.
 - **T2 closed** — Publish Reliability Classification done for sprint scope:
   - [x] Classification table documented ([`docs/T2_PUBLISH_RELIABILITY.md`](T2_PUBLISH_RELIABILITY.md))
   - [x] Handling behavior implemented for documented classes (including structured `networkFailed` copy/diagnostics)
