@@ -1,5 +1,5 @@
 # Sprint Board - Stabilization Wave
-Last updated: 2026-05-01 (T2 closed this sprint)
+Last updated: 2026-05-01 (T2 closed + follow-up hardening/docs merged)
 Owner: Carl + Cursor agent
 Cadence: update on every PR open/merge and daily wrap
 
@@ -14,9 +14,9 @@ Cadence: update on every PR open/merge and daily wrap
 ## Ready
 
 ### Recommended next order
-1. **T1 Flutter seam burn-down** — shrink [`tools/data_access_seam_exceptions.json`](../tools/data_access_seam_exceptions.json) allowlist + [`docs/DATA_ACCESS_SEAM_EXCEPTIONS.md`](DATA_ACCESS_SEAM_EXCEPTIONS.md); CI guard: `tools/enforce_data_access_seams.py` (`#163`).
-2. **Publish reliability hardening follow-up** — continue non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up”.
-3. **Stale PR re-triage** — revisit numbered PRs below on GitHub (don't infer merged state from this board alone).
+1. **Publish reliability hardening follow-up** — continue non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up” (after `#171`).
+2. **Stale PR re-triage** — revisit numbered PRs below on GitHub (don't infer merged state from this board alone).
+3. **Device QA pass for T2 diagnostics** — verify publish-failure copy/clipboard on iPhone for offline/JWT/permission paths.
 
 ---
 
@@ -33,6 +33,10 @@ Cadence: update on every PR open/merge and daily wrap
 - `#165` merged — Cursor rule always ends finished-task replies with **What's next** (`.cursor/rules/trainme-whats-next.mdc`).
 - [`#166`](https://github.com/carlheinmostert/TrainMe/pull/166) merged — T2 classification doc + sprint board refresh.
 - [`#167`](https://github.com/carlheinmostert/TrainMe/pull/167) merged — curated `PublishFailurePayload` for publish `networkFailed` + Studio copy-to-clipboard diagnostics.
+- [`#171`](https://github.com/carlheinmostert/TrainMe/pull/171) merged — T2 hardening follow-up: explicit refund-outcome uncertainty + remote-version-drift diagnostics in publish failure payloads.
+- [`#172`](https://github.com/carlheinmostert/TrainMe/pull/172) merged — T1 web-player seam tail closed (allowlist retired) + docs-canvas examples:
+  - [`docs/canvas_publish_pipeline_architecture.md`](canvas_publish_pipeline_architecture.md)
+  - [`docs/canvas_data_access_seams_t1_t2.md`](canvas_data_access_seams_t1_t2.md)
 - **T2 closed** — Publish Reliability Classification done for sprint scope:
   - [x] Classification table documented ([`docs/T2_PUBLISH_RELIABILITY.md`](T2_PUBLISH_RELIABILITY.md))
   - [x] Handling behavior implemented for documented classes (including structured `networkFailed` copy/diagnostics)
