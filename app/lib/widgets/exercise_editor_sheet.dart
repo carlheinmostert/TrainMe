@@ -199,7 +199,24 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   void _onPageChanged(int next) {
     if (next == _activeTabIndex) return;
     setState(() => _activeTabIndex = next);
-    _snapSheetForTab(next);
+
+    // Round 8 — Round 7's addPostFrameCallback (~16ms defer) wasn't long
+    // enough; the user's finger remained on the touchscreen past that
+    // frame, and the residual vertical motion under the freshly-shrunk
+    // sheet was read as a drag past the dismiss floor. Listen to the
+    // PageController's scroll-settling notifier instead — guarantees
+    // the gesture and the page animation are BOTH done before snap fires.
+    final position = _pageController.position;
+    if (!position.isScrollingNotifier.value) {
+      _snapSheetForTab(next);
+      return;
+    }
+    void onSettle() {
+      if (position.isScrollingNotifier.value) return;
+      position.isScrollingNotifier.removeListener(onSettle);
+      if (mounted) _snapSheetForTab(next);
+    }
+    position.isScrollingNotifier.addListener(onSettle);
   }
 
   /// Round 5 — hard-snap the sheet to the canonical detent for the given
