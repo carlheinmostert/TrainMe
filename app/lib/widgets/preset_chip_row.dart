@@ -184,6 +184,18 @@ class _PresetChipRowState extends State<PresetChipRow> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _customFocusNode.requestFocus();
+      // Round 2 — when the chip row lives inside a bottom sheet
+      // (ExerciseEditorSheet's Dose tab), the iOS keyboard slides up
+      // OVER the inline input. Walk up to the nearest Scrollable and
+      // scroll the input row into view so it sits above the keyboard.
+      // No-op outside scrollable contexts (the original GestureDetector
+      // for the [+] tail simply gets focus and that's fine).
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      );
     });
   }
 

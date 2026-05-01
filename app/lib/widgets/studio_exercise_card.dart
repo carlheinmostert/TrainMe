@@ -71,10 +71,11 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
 
 /// Compact Studio Exercise Card — one row per non-rest exercise.
 ///
-/// Layout (mockup `docs/design/mockups/exercise-card-v2.html` states 1-5):
+/// Layout (Round 4 — vertical stack to the right of the thumbnail):
 ///
-///   [thumb 72×72] [title]                         [gear]
-///                 [Dose · summary] [Notes · …]
+///   [thumb 72×72] [title]                              [gear]
+///                 [🏋️  3 sets · 10 reps · @ 15kg · 5s]
+///                 [📝  First line of practitioner notes…]
 ///
 /// Tapping the thumbnail opens the editor sheet on the Preview tab.
 /// Tapping the Dose button opens it on the Dose tab. Tapping the Notes
@@ -143,7 +144,7 @@ class StudioExerciseCard extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: AppColors.surfaceBase,
             borderRadius: BorderRadius.circular(16),
@@ -154,43 +155,50 @@ class StudioExerciseCard extends StatelessWidget {
               width: showFocusedBorder ? 2 : 1,
             ),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _Thumbnail(
-                exercise: exercise,
-                onTap: () => _openSheet(context, ExerciseEditorTab.preview),
-                onLongPress: onReplaceMedia,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (exerciseHasMissingMedia(exercise)) ...[
-                      const _MissingMediaBanner(),
-                      const SizedBox(height: 8),
-                    ],
-                    _TitleRow(
-                      title: _resolvedTitle(),
-                      isCustomised: exerciseIsCustomised(exercise),
-                      onGearTap: () =>
-                          _openSheet(context, ExerciseEditorTab.settings),
-                    ),
-                    const SizedBox(height: 10),
-                    _TriggerRow(
-                      doseSummary: _doseSummary(exercise),
-                      notesSummary: _notesSummary(exercise),
-                      onDoseTap: () =>
-                          _openSheet(context, ExerciseEditorTab.dose),
-                      onNotesTap: () =>
-                          _openSheet(context, ExerciseEditorTab.notes),
-                    ),
-                  ],
+          // IntrinsicHeight + CrossAxisAlignment.stretch makes the
+          // thumbnail fill the column's height (title row + trigger row +
+          // spacing). Without this the column was taller than the 72pt
+          // thumbnail, leaving a visual gap below the thumbnail aligned
+          // with the trigger buttons. Round 2 fix for Issue 8 (T4.1).
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Thumbnail(
+                  exercise: exercise,
+                  onTap: () => _openSheet(context, ExerciseEditorTab.preview),
+                  onLongPress: onReplaceMedia,
                 ),
-              ),
-            ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (exerciseHasMissingMedia(exercise)) ...[
+                        const _MissingMediaBanner(),
+                        const SizedBox(height: 8),
+                      ],
+                      _TitleRow(
+                        title: _resolvedTitle(),
+                        isCustomised: exerciseIsCustomised(exercise),
+                        onGearTap: () =>
+                            _openSheet(context, ExerciseEditorTab.settings),
+                      ),
+                      const SizedBox(height: 10),
+                      _TriggerRow(
+                        doseSummary: _doseSummary(exercise),
+                        notesSummary: _notesSummary(exercise),
+                        onDoseTap: () =>
+                            _openSheet(context, ExerciseEditorTab.dose),
+                        onNotesTap: () =>
+                            _openSheet(context, ExerciseEditorTab.notes),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -234,15 +242,55 @@ class _Thumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String? thumbPath = exercise.absoluteThumbnailPath;
+    // Round 5 photo fallback chain — extends Round 4. Older photo rows
+    // never had a thumbnailPath set (only the video branch of the
+    // conversion service wrote one). The Round 4 fix fell back to the
+    // raw path, which works for new captures but not for older photos
+    // where the raw file was cleaned up at some point. The converted
+    // line-drawing JPG IS still on disk for these (it's what the web
+    // player serves as line_drawing_url), so it's a perfectly fine
+    // practitioner-side display fallback. Order: thumbnail → raw →
+    // converted → placeholder.
+    String? thumbPath = exercise.absoluteThumbnailPath;
+    if ((thumbPath == null || !File(thumbPath).existsSync()) &&
+        exercise.mediaType == MediaType.photo) {
+      // Try raw first (matches "B&W from raw" treatment used elsewhere
+      // on practitioner surfaces).
+      if (exercise.rawFilePath.isNotEmpty) {
+        final rawPath = exercise.absoluteRawFilePath;
+        if (File(rawPath).existsSync()) {
+          thumbPath = rawPath;
+        }
+      }
+      // Last resort: the converted line-drawing JPG. Still de-identified,
+      // still recognisable. Better than the placeholder for old captures
+      // where the raw was cleaned up.
+      if (thumbPath == null || !File(thumbPath).existsSync()) {
+        final convPath = exercise.absoluteConvertedFilePath;
+        if (convPath != null && File(convPath).existsSync()) {
+          thumbPath = convPath;
+        }
+      }
+    }
     final hasThumb = thumbPath != null && File(thumbPath).existsSync();
+    // Width fixed at 72pt; height: double.infinity so an IntrinsicHeight
+    // Row + CrossAxisAlignment.stretch stretches the thumbnail to match
+    // the column's height (title row + 10pt + trigger row). When there's
+    // no IntrinsicHeight context (e.g. legacy callers), Flutter falls
+    // back to the child's intrinsic height — which we don't have for
+    // this Container, so we provide a minHeight of 72 via ConstrainedBox.
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
       behavior: HitTestBehavior.opaque,
-      child: Container(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          minWidth: 72,
+          minHeight: 72,
+        ),
+        child: Container(
         width: 72,
-        height: 72,
+        height: double.infinity,
         decoration: BoxDecoration(
           color: AppColors.surfaceRaised,
           borderRadius: BorderRadius.circular(12),
@@ -280,6 +328,7 @@ class _Thumbnail extends StatelessWidget {
               ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -326,6 +375,10 @@ class _TitleRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        // Round 3 — title is read-only on the card. Inline-edit moved to
+        // the editor sheet's header so the card doesn't carry any edit
+        // affordance. The card is now a pure trigger surface; all edits
+        // happen inside the popup.
         Expanded(
           child: Text(
             title,
@@ -405,39 +458,40 @@ class _TriggerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    // Round 4 — vertically stacked, full-width buttons. With ~285pt of
+    // bounded width on iPhone 14 base, the dose summary easily fits one
+    // line; pyramid sets across 4+ values may wrap to 2.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Expanded(
-          child: _TriggerButton(
-            label: 'Dose',
-            summary: doseSummary,
-            summaryStyle: const TextStyle(
-              fontFamily: 'JetBrainsMono',
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textSecondaryOnDark,
-            ),
-            onTap: onDoseTap,
+        _TriggerButton(
+          // 18pt is deliberately lighter than the gear's 20pt — the gear
+          // is the only "action" affordance on the card; these icons play
+          // the role of a label, not a button.
+          icon: Icons.fitness_center,
+          iconColor: AppColors.primary,
+          summary: doseSummary,
+          summaryStyle: const TextStyle(
+            fontFamily: 'JetBrainsMono',
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textSecondaryOnDark,
           ),
+          onTap: onDoseTap,
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _TriggerButton(
-            label: 'Notes',
-            summary: notesSummary ?? 'Add notes…',
-            summaryStyle: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              fontStyle: notesSummary == null
-                  ? FontStyle.normal
-                  : FontStyle.italic,
-              color: notesSummary == null
-                  ? AppColors.textSecondaryOnDark
-                  : AppColors.textSecondaryOnDark,
-            ),
-            onTap: onNotesTap,
+        const SizedBox(height: 6),
+        _TriggerButton(
+          icon: Icons.note_alt_outlined,
+          iconColor: AppColors.primary,
+          summary: notesSummary ?? 'Add notes…',
+          summaryStyle: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textSecondaryOnDark,
           ),
+          onTap: onNotesTap,
         ),
       ],
     );
@@ -445,13 +499,15 @@ class _TriggerRow extends StatelessWidget {
 }
 
 class _TriggerButton extends StatelessWidget {
-  final String label;
+  final IconData icon;
+  final Color iconColor;
   final String summary;
   final TextStyle summaryStyle;
   final VoidCallback onTap;
 
   const _TriggerButton({
-    required this.label,
+    required this.icon,
+    required this.iconColor,
     required this.summary,
     required this.summaryStyle,
     required this.onTap,
@@ -459,45 +515,30 @@ class _TriggerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Round 3 defensive fallback retained — `_doseSummary` should never
+    // return empty, but device QA contradicted code analysis once already.
+    final visibleSummary = summary.isEmpty ? '—' : summary;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: AppColors.surfaceRaised,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: AppColors.surfaceBorder, width: 1),
           ),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textOnDark,
-                  letterSpacing: -0.05,
-                ),
-              ),
-              const SizedBox(width: 6),
-              const Text(
-                '·',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  color: AppColors.textSecondaryOnDark,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Flexible(
+              Icon(icon, size: 18, color: iconColor),
+              const SizedBox(width: 10),
+              Expanded(
                 child: Text(
-                  summary,
-                  maxLines: 1,
+                  visibleSummary,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: summaryStyle,
                 ),
@@ -558,8 +599,13 @@ class _MissingMediaBanner extends StatelessWidget {
 // Summary builders
 // =============================================================================
 
-/// Build the Dose summary string. Uniform sets collapse to "N × R"
-/// (optionally `@ kg`); pyramid sets fan out via slashes.
+/// Build the Dose summary string. Mirrors the web-player canonical
+/// decoded grammar (web-player/app.js buildDecodedGrammar) with full
+/// words on the practitioner surface:
+///   Uniform:   `3 sets · 10 reps · @ 15 kg · 5s hold`
+///   Pyramid:   `8/10/12 reps · @ 12.5/15/17.5 kg · 5s hold`
+///   Bodyweight: `3 sets · 10 reps · 30s hold`
+///   Rest:      `Rest · 30s`
 String _doseSummary(ExerciseCapture exercise) {
   if (exercise.isRest) {
     final secs = exercise.restHoldSeconds ?? StudioDefaults.restSeconds;
@@ -571,52 +617,38 @@ String _doseSummary(ExerciseCapture exercise) {
   final repsAll = sets.map((s) => s.reps).toList();
   final holdAll = sets.map((s) => s.holdSeconds).toList();
   final weightAll = sets.map((s) => s.weightKg).toList();
-  final breatherAll = sets.map((s) => s.breatherSecondsAfter).toList();
 
   final repsUniform = repsAll.toSet().length == 1;
   final holdUniform = holdAll.toSet().length == 1;
   final weightUniform = weightAll.toSet().length == 1;
-  final breatherUniform = breatherAll.toSet().length == 1;
+  final allBodyweight = weightAll.every((w) => w == null);
 
   final parts = <String>[];
 
-  // Reps + sets clause.
   if (repsUniform) {
-    parts.add('${sets.length} × ${repsAll.first}');
+    parts.add('${sets.length} sets');
+    parts.add('${repsAll.first} reps');
   } else {
-    parts.add(repsAll.join('/'));
+    parts.add('${repsAll.join('/')} reps');
   }
 
-  // Weight clause — only render when at least one set has a weight.
-  final allBodyweight = weightAll.every((w) => w == null);
   if (!allBodyweight) {
     if (weightUniform && weightAll.first != null) {
       parts.add('@ ${_formatKg(weightAll.first!)} kg');
     } else {
       final formatted = weightAll
-          .map((w) => w == null ? '—' : _formatKg(w))
+          .map((w) => w == null ? 'BW' : _formatKg(w))
           .join('/');
       parts.add('@ $formatted kg');
     }
-  } else {
-    parts.add('bodyweight');
   }
 
-  // Hold clause — surface only when any set has a hold.
   if (holdAll.any((h) => h > 0)) {
     if (holdUniform) {
-      parts.add('${holdAll.first} s hold');
+      parts.add('${holdAll.first}s hold');
     } else {
-      parts.add('${holdAll.join('/')} s hold');
+      parts.add('${holdAll.join('/')}s hold');
     }
-  }
-
-  // Breather clause — only when uniform AND non-default-ish, or when
-  // varied. Skip if every set has 60 s after to keep summary lean.
-  if (!breatherUniform) {
-    parts.add('${breatherAll.join('/')} s rest');
-  } else if (breatherAll.first != 60) {
-    parts.add('${breatherAll.first} s rest');
   }
 
   return parts.join(' · ');
@@ -629,10 +661,14 @@ String _formatKg(double kg) {
   return kg.toStringAsFixed(1);
 }
 
-/// Returns the truncated notes summary, or null when notes are empty.
+/// Returns the full note content with all whitespace runs (newlines, tabs,
+/// repeated spaces) collapsed into single spaces, or null when notes are
+/// empty. Width-based truncation lives in the trigger button's Text widget
+/// (maxLines: 2 + TextOverflow.ellipsis) so the surface shows as much of
+/// the note as fits in two lines.
 String? _notesSummary(ExerciseCapture exercise) {
   final notes = exercise.notes?.trim();
   if (notes == null || notes.isEmpty) return null;
-  if (notes.length <= 50) return '"$notes"';
-  return '"${notes.substring(0, 50).trimRight()}…"';
+  final flattened = notes.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return flattened.isEmpty ? null : flattened;
 }

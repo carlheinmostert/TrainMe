@@ -901,6 +901,29 @@ class LocalStorageService {
     return Session.fromMap(rows.first, exercises: exercises);
   }
 
+  /// Load a single [ExerciseCapture] by id WITH its child sets.
+  /// Returns null if not found.
+  ///
+  /// Round 2 — added so the conversion service can re-read mid-flight
+  /// without losing the seeded child sets. Calling
+  /// `ExerciseCapture.fromMap(row)` directly skips the sets join and
+  /// the subsequent `saveExercise` would `_replaceExerciseSetsTxn` with
+  /// an empty list, deleting the seeded first set.
+  Future<ExerciseCapture?> getExerciseById(String id) async {
+    final rows = await db.query(
+      'exercises',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final byExercise = await _loadSetsForExerciseIds([id]);
+    return ExerciseCapture.fromMap(
+      rows.first,
+      sets: byExercise[id] ?? const [],
+    );
+  }
+
   /// All sessions that are not soft-deleted, newest first.
   /// Published sessions remain active so the trainer can update and
   /// re-publish them.

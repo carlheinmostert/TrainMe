@@ -708,19 +708,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     );
     await File(sourcePath).copy(destPath);
 
-    // Seed an exercise. ExerciseCapture.create(...) leaves reps / sets
-    // / hold null; they read through as StudioDefaults on the card for
-    // fresh clients. For clients with prior captures we overlay the
-    // sticky per-client defaults (Milestone R / Wave 8) onto those
-    // nulls — forward-only propagation, invisible to the practitioner.
     final exercises = List<ExerciseCapture>.from(_session.exercises);
     final position = insertAt ?? exercises.length;
+    // Seed the synthetic first set up front so the card never renders
+    // "No sets yet" and sticky-defaults prefill has something to overwrite.
+    // saveExercise() also calls withPersistenceDefaults but only persists
+    // it to SQLite — without seeding here the in-memory _session would
+    // hold an empty-sets exercise and the editor sheet would open empty.
     var exercise = ExerciseCapture.create(
       position: position,
       rawFilePath: PathResolver.toRelative(destPath),
       mediaType: type,
       sessionId: _session.id,
-    );
+    ).withPersistenceDefaults();
     // Wave 39 — merge SQLite snapshot with the in-memory overlay so rapid
     // edit-then-capture sequences pick up the latest override.
     final clientId = _session.clientId;
@@ -3096,6 +3096,14 @@ class MediaViewerBody extends StatefulWidget {
   /// the parent's refresh.
   final ValueChanged<Session>? onSessionUpdate;
 
+  /// Round 3 — true when this viewer is embedded inside the
+  /// `ExerciseEditorSheet` Preview tab. Suppresses the top-right
+  /// close (X) button (the sheet drag-down + tap-outside handle dismiss)
+  /// and shifts the treatment-segment chrome down so it doesn't collide
+  /// with the editor sheet's tab strip / body-focus + rotate pills.
+  /// Defaults to false so the legacy full-screen route push is unchanged.
+  final bool embeddedInSheet;
+
   const MediaViewerBody({
     super.key,
     required this.exercises,
@@ -3103,6 +3111,7 @@ class MediaViewerBody extends StatefulWidget {
     this.onExerciseUpdate,
     this.session,
     this.onSessionUpdate,
+    this.embeddedInSheet = false,
   });
 
   @override
@@ -4044,11 +4053,25 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                         )
                       : Positioned(
                           left: 12,
-                          top: 0,
-                          bottom: 0,
+                          // Round 3 — when embedded in the editor sheet
+                          // the canvas can shrink to the 0.55 detent
+                          // (~460pt). The previously-centered vertical
+                          // treatment pill (~220pt tall) collided with
+                          // the bottom-left Body Focus / Rotate cluster
+                          // at that height. Anchor near the top instead
+                          // of center; the route-pushed full-screen path
+                          // still uses centerLeft (taller canvas, no
+                          // collision).
+                          top: widget.embeddedInSheet
+                              ? MediaQuery.of(context).padding.top + 12
+                              : 0,
+                          bottom: widget.embeddedInSheet ? null : 0,
                           child: SafeArea(
+                            top: !widget.embeddedInSheet,
                             child: Align(
-                              alignment: Alignment.centerLeft,
+                              alignment: widget.embeddedInSheet
+                                  ? Alignment.topLeft
+                                  : Alignment.centerLeft,
                               child: TreatmentSegmentedControl(
                                 orientation: Axis.vertical,
                                 active: _treatment,
@@ -4232,23 +4255,31 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                 // Returning the id (not the index) keeps the handoff
                 // robust against any reorders that may have happened
                 // inside the viewer.
-                Positioned(
-                  top: MediaQuery.of(context).padding.top + 8,
-                  right: 8,
-                  child: IconButton(
-                    onPressed: () =>
-                        Navigator.of(context).pop(_focusIdForPop),
-                    icon: const Icon(
-                      Icons.close,
-                      color: Colors.white,
-                      size: 28,
+                //
+                // Round 3 — hidden when embedded in the editor sheet.
+                // The sheet's drag-down + tap-outside dismiss; an X
+                // button on the embedded viewer would pop the sheet
+                // (since it's the topmost route), creating two redundant
+                // dismiss affordances + Carl found the visual noise
+                // distracting.
+                if (!widget.embeddedInSheet)
+                  Positioned(
+                    top: MediaQuery.of(context).padding.top + 8,
+                    right: 8,
+                    child: IconButton(
+                      onPressed: () =>
+                          Navigator.of(context).pop(_focusIdForPop),
+                      icon: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.black54,
+                      ),
+                      tooltip: 'Close',
                     ),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.black54,
-                    ),
-                    tooltip: 'Close',
                   ),
-                ),
 
                 // Tune gear — top-right column under the close X.
                 if (_crossfadeTunerVisible)
@@ -5237,21 +5268,31 @@ class _TrimPanelState extends State<_TrimPanel> {
                         ),
                       ),
                       // Start handle.
+                      //
+                      // Round 2 — switched onPan* → onHorizontalDrag* so
+                      // the trim handle wins the gesture arena against
+                      // the host bottom sheet's vertical-drag chrome.
+                      // Pan recognizes both axes and lost to nested
+                      // vertical-drag recognizers in the editor sheet
+                      // embed; horizontal-only is a stronger claim and
+                      // matches the user's actual drag axis.
                       Positioned(
                         left: startX - 14,
                         top: 0,
                         child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
-                          onPanStart: (_) {
+                          onHorizontalDragStart: (_) {
                             HapticFeedback.selectionClick();
                             widget.onDragStart?.call();
                           },
-                          onPanUpdate: (d) => _updateHandle(
+                          onHorizontalDragUpdate: (d) => _updateHandle(
                             _TrimHandle.start,
                             d.delta.dx,
                           ),
-                          onPanEnd: (_) => _onHandleReleased(_TrimHandle.start),
-                          onPanCancel: () => _onHandleReleased(_TrimHandle.start),
+                          onHorizontalDragEnd: (_) =>
+                              _onHandleReleased(_TrimHandle.start),
+                          onHorizontalDragCancel: () =>
+                              _onHandleReleased(_TrimHandle.start),
                           child: const _TrimHandlePill(),
                         ),
                       ),
@@ -5261,16 +5302,18 @@ class _TrimPanelState extends State<_TrimPanel> {
                         top: 0,
                         child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
-                          onPanStart: (_) {
+                          onHorizontalDragStart: (_) {
                             HapticFeedback.selectionClick();
                             widget.onDragStart?.call();
                           },
-                          onPanUpdate: (d) => _updateHandle(
+                          onHorizontalDragUpdate: (d) => _updateHandle(
                             _TrimHandle.end,
                             d.delta.dx,
                           ),
-                          onPanEnd: (_) => _onHandleReleased(_TrimHandle.end),
-                          onPanCancel: () => _onHandleReleased(_TrimHandle.end),
+                          onHorizontalDragEnd: (_) =>
+                              _onHandleReleased(_TrimHandle.end),
+                          onHorizontalDragCancel: () =>
+                              _onHandleReleased(_TrimHandle.end),
                           child: const _TrimHandlePill(),
                         ),
                       ),

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -6,7 +8,9 @@ import '../models/exercise_set.dart';
 import '../models/session.dart';
 import '../theme.dart';
 import 'dose_table.dart';
+import 'inline_editable_text.dart';
 import 'media_viewer_body.dart';
+import 'preset_chip_row.dart';
 
 /// Which tab the editor sheet should land on when first opened.
 enum ExerciseEditorTab { dose, notes, preview, settings }
@@ -45,6 +49,11 @@ Future<void> showExerciseEditorSheet({
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: 0.45),
     useSafeArea: true,
+    // The inner DraggableScrollableSheet owns drag behaviour. Letting
+    // showModalBottomSheet's own enableDrag also fight for vertical
+    // drags eats inner widgets (weight slider, trim handles) and the
+    // sheet refuses to expand via the drag handle.
+    enableDrag: false,
     builder: (sheetCtx) => ExerciseEditorSheet(
       exercise: exercise,
       onChanged: onChanged,
@@ -94,9 +103,24 @@ class ExerciseEditorSheet extends StatefulWidget {
 }
 
 class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
-  static const double _kInitialDetent = 0.60;
-  static const double _kMinDetent = 0.40;
+  // Round 3 — Carl's spec evolved twice. Round 2 had drag-down past 0.55
+  // dismiss; retest reported releasing below 0.55 dismissed instead of
+  // snapping. Round 3: 0.55 is the FLOOR — releases below stay at 0.55.
+  // Dismiss is via fast downward velocity (>800), tap-outside (modal
+  // barrier), or explicit close.
+  //
+  // Tab-aware default detent: Preview tab promotes to 0.95 (full canvas
+  // for the embedded media viewer); all other tabs settle at 0.55 (form
+  // controls don't need the full screen — leaves the parent visible).
+  // The tab swipe / tab-strip tap calls `_animateSheetForTab` to honour
+  // this. Initial detent is computed in `build()` via `_detentForTab`.
+  static const double _kMinDetent = 0.55;
   static const double _kMaxDetent = 0.95;
+  static const double _kPreviewDetent = 0.95;
+
+  /// Velocity threshold (logical pt/sec) for fling-down dismissal. Slow
+  /// drags below the floor snap back to 0.55 instead of dismissing.
+  static const double _kFlingDismissVelocity = 800;
 
   late final DraggableScrollableController _sheetController;
   late final PageController _pageController;
@@ -114,6 +138,15 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     _pageController = PageController(initialPage: _activeTabIndex);
     _notesController = TextEditingController(text: _exercise.notes ?? '');
     _notesFocusNode.addListener(_onNotesFocusChanged);
+  }
+
+  /// Returns the canonical detent for the given tab index — Preview goes
+  /// large (0.95) so the embedded media viewer has canvas; every other
+  /// tab snaps to 0.55 so the underlying screen stays partially visible.
+  double _detentForTab(int tabIndex) {
+    return tabIndex == _tabIndexFor(ExerciseEditorTab.preview)
+        ? _kPreviewDetent
+        : _kMinDetent;
   }
 
   @override
@@ -160,11 +193,46 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
     );
+    _snapSheetForTab(next);
   }
 
   void _onPageChanged(int next) {
     if (next == _activeTabIndex) return;
     setState(() => _activeTabIndex = next);
+
+    // Round 8 — Round 7's addPostFrameCallback (~16ms defer) wasn't long
+    // enough; the user's finger remained on the touchscreen past that
+    // frame, and the residual vertical motion under the freshly-shrunk
+    // sheet was read as a drag past the dismiss floor. Listen to the
+    // PageController's scroll-settling notifier instead — guarantees
+    // the gesture and the page animation are BOTH done before snap fires.
+    final position = _pageController.position;
+    if (!position.isScrollingNotifier.value) {
+      _snapSheetForTab(next);
+      return;
+    }
+    void onSettle() {
+      if (position.isScrollingNotifier.value) return;
+      position.isScrollingNotifier.removeListener(onSettle);
+      if (mounted) _snapSheetForTab(next);
+    }
+    position.isScrollingNotifier.addListener(onSettle);
+  }
+
+  /// Round 5 — hard-snap the sheet to the canonical detent for the given
+  /// tab. Preview promotes to 0.95 (full canvas for the embedded media
+  /// viewer); every other tab settles at 0.55 so the underlying screen
+  /// stays partially visible.
+  ///
+  /// Uses [DraggableScrollableController.jumpTo] (instant) instead of
+  /// `animateTo`. Round 4 used a 240ms easeOutCubic animation, but the
+  /// PageView's swipe gesture feeds vertical pan deltas into the same
+  /// `DraggableScrollableSheet` and cancels the in-flight animation
+  /// mid-flight — leaving the sheet parked at intermediate sizes (~65%)
+  /// when the user swipes between tabs. Hard snap eliminates the race.
+  void _snapSheetForTab(int tabIndex) {
+    if (!_sheetController.isAttached) return;
+    _sheetController.jumpTo(_detentForTab(tabIndex));
   }
 
   void _emit(ExerciseCapture next) {
@@ -184,45 +252,55 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
       controller: _sheetController,
-      initialChildSize: _kInitialDetent,
+      initialChildSize: _detentForTab(_activeTabIndex),
       minChildSize: _kMinDetent,
       maxChildSize: _kMaxDetent,
       snap: true,
-      snapSizes: const [_kInitialDetent, _kMaxDetent],
+      // Round 3 — two snap stops: 0.55 (floor) and 0.95 (full).
+      // _onChromeDragEnd dismisses ONLY on a fast downward fling
+      // (>800 logical pt/s). Slow drags below 0.55 snap back to the
+      // floor — Carl's Round 2 retest reported the previous behaviour
+      // (drag below 0.55 dismisses) was unintentional.
+      snapSizes: const [_kMinDetent, _kMaxDetent],
       expand: false,
       builder: (ctx, scrollController) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: AppColors.surfaceBase,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(24),
-              topRight: Radius.circular(24),
-            ),
-            border: Border(
-              top: BorderSide(color: AppColors.surfaceBorder, width: 1),
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 8),
-              _buildDragHandle(),
-              const SizedBox(height: 6),
-              _buildHeader(),
-              _buildTabStrip(),
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  onPageChanged: _onPageChanged,
-                  children: [
-                    _buildDoseTab(scrollController),
-                    _buildNotesTab(scrollController),
-                    _buildPreviewTab(),
-                    _buildSettingsTab(scrollController),
-                  ],
+        // Wrap in our own ScaffoldMessenger so showUndoSnackBar fires from
+        // DoseTable / etc. land INSIDE the sheet (above the modal barrier),
+        // not behind it on the host scaffold where they're invisible.
+        return ScaffoldMessenger(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Container(
+              decoration: const BoxDecoration(
+                color: AppColors.surfaceBase,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  topRight: Radius.circular(24),
+                ),
+                border: Border(
+                  top: BorderSide(color: AppColors.surfaceBorder, width: 1),
                 ),
               ),
-            ],
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildDragChrome(),
+                  _buildTabStrip(),
+                  Expanded(
+                    child: PageView(
+                      controller: _pageController,
+                      onPageChanged: _onPageChanged,
+                      children: [
+                        _buildDoseTab(scrollController),
+                        _buildNotesTab(scrollController),
+                        _buildPreviewTab(),
+                        _buildSettingsTab(scrollController),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         );
       },
@@ -233,14 +311,85 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   // Header chrome
   // ---------------------------------------------------------------------------
 
-  Widget _buildDragHandle() {
-    return Container(
-      width: 40,
-      height: 4,
-      decoration: BoxDecoration(
-        color: AppColors.surfaceBorder,
-        borderRadius: BorderRadius.circular(2),
+  /// Chrome cluster (drag handle + title) that owns the sheet's vertical
+  /// drag affordance. With `enableDrag: false` on showModalBottomSheet,
+  /// nothing else listens for vertical pulls outside the inner Scrollables
+  /// so the handle is the canonical "expand / collapse / dismiss" surface.
+  ///
+  /// Round 3 — wraps the chrome AND the drag-handle pill in their own
+  /// GestureDetectors with `behavior: opaque`. The pill itself bumps to
+  /// 48pt-tall hit area (visible bar still 4pt) so the drag region is
+  /// thumb-friendly even on the Preview tab. Carl's retest reported the
+  /// Preview tab "does not allow dragging the card up or down" — the
+  /// previous chrome surface was only ~50pt tall after the 6pt SizedBox
+  /// gap, easy to miss next to the embedded MediaViewerBody's gestures.
+  Widget _buildDragChrome() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragUpdate: _onChromeDragUpdate,
+      onVerticalDragEnd: _onChromeDragEnd,
+      child: SizedBox(
+        width: double.infinity,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag-handle pill — visible 4pt bar centered in a 22pt-tall
+            // hit zone for thumb-friendly grabbing.
+            SizedBox(
+              height: 22,
+              child: Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceBorder,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+            ),
+            _buildHeader(),
+          ],
+        ),
       ),
+    );
+  }
+
+  void _onChromeDragUpdate(DragUpdateDetails d) {
+    if (!_sheetController.isAttached) return;
+    final screenH = MediaQuery.of(context).size.height;
+    if (screenH <= 0) return;
+    final delta = d.primaryDelta ?? 0;
+    final next = (_sheetController.size - delta / screenH)
+        .clamp(_kMinDetent, _kMaxDetent);
+    _sheetController.jumpTo(next);
+  }
+
+  void _onChromeDragEnd(DragEndDetails d) {
+    if (!_sheetController.isAttached) return;
+    final size = _sheetController.size;
+    final velocity = d.primaryVelocity ?? 0;
+    // Round 3 — only a FAST downward fling dismisses. Slow drag below the
+    // floor snaps back to 0.55 instead. Tap-outside (modal barrier) is
+    // the canonical "I'm done" gesture; drag is for resizing.
+    if (velocity > _kFlingDismissVelocity) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    final double target;
+    if (velocity < -_kFlingDismissVelocity) {
+      target = _kMaxDetent;
+    } else {
+      // Snap to whichever of [min, max] is closer.
+      const detents = [_kMinDetent, _kMaxDetent];
+      target = detents.reduce(
+        (a, b) => (size - a).abs() < (size - b).abs() ? a : b,
+      );
+    }
+    _sheetController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
     );
   }
 
@@ -249,31 +398,52 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         ? _exercise.name!
         : 'Exercise ${_exercise.position + 1}';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 4, 18, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      padding: const EdgeInsets.fromLTRB(14, 4, 18, 8),
+      // Round 3 — thumbnail (P6) + inline-editable title (P5) sit
+      // side-by-side. Card surface no longer renders any edit affordance;
+      // every edit happens inside the popup, including the rename.
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontFamily: 'Montserrat',
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
-              color: AppColors.textOnDark,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            _metaLine(),
-            style: const TextStyle(
-              fontFamily: 'JetBrainsMono',
-              fontSize: 11,
-              color: AppColors.textSecondaryOnDark,
-              letterSpacing: 0.3,
+          _HeaderThumbnail(exercise: _exercise),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                InlineEditableText(
+                  // KEY ensures the editable text rebuilds when the
+                  // resolved title changes (e.g. position drift on a
+                  // capture without a name). Without the key the
+                  // controller text wouldn't refresh on a fresh exercise.
+                  key: ValueKey(
+                      'editor-title-${_exercise.id}-${_exercise.position}'),
+                  initialValue: title,
+                  hintText: 'Name this exercise…',
+                  onCommit: (next) =>
+                      _emit(_exercise.copyWith(name: next)),
+                  textStyle: const TextStyle(
+                    fontFamily: 'Montserrat',
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                    color: AppColors.textOnDark,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _metaLine(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'JetBrainsMono',
+                    fontSize: 11,
+                    color: AppColors.textSecondaryOnDark,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -298,7 +468,14 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
 
   Widget _buildTabStrip() {
     const tabs = ['Dose', 'Notes', 'Preview', 'Settings'];
-    return Container(
+    // Round 2 — tab strip listens for vertical drag too so the Preview
+    // tab (whose body owns gestures inside MediaViewerBody) still has a
+    // reliable drag region between the chrome and the page content.
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onVerticalDragUpdate: _onChromeDragUpdate,
+      onVerticalDragEnd: _onChromeDragEnd,
+      child: Container(
       decoration: const BoxDecoration(
         border: Border(
           bottom: BorderSide(color: AppColors.surfaceBorder, width: 1),
@@ -340,6 +517,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
             ),
         ],
       ),
+      ),
     );
   }
 
@@ -349,9 +527,16 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
 
   Widget _buildDoseTab(ScrollController scrollController) {
     final cycles = _circuitCycles();
+    // Round 2 — bottom padding mirrors MediaQuery.viewInsets.bottom so
+    // the iOS keyboard (when the inline custom-value editor opens)
+    // doesn't cover the bottom rows of the table OR the inline editor
+    // itself. Scrollable.ensureVisible inside PresetChipRow handles
+    // the centring; this padding prevents the sheet's bottom from
+    // getting clipped.
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return SingleChildScrollView(
       controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
       child: DoseTable(
         sets: _exercise.sets,
         onSetsChanged: _onSetsChanged,
@@ -371,9 +556,10 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 
   Widget _buildNotesTab(ScrollController scrollController) {
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return SingleChildScrollView(
       controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -464,36 +650,56 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         _emit(updated);
       },
       onSessionUpdate: widget.onSessionUpdate,
+      // Round 3 — embedded mode hides the X button (the sheet's drag-down
+      // + tap-outside dismiss) and shifts the vertical treatment pill up
+      // so it doesn't collide with the bottom-left Body Focus + Rotate
+      // pills on the shorter sheet canvas.
+      embeddedInSheet: true,
     );
   }
 
   Widget _buildSettingsTab(ScrollController scrollController) {
     final prepSeconds = _exercise.prepSeconds ?? 5;
     final videoReps = _exercise.videoRepsPerLoop ?? 3;
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return SingleChildScrollView(
       controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildSettingsPresetRow(
+          _SettingsSection(
             label: 'Prep seconds',
-            currentValue: prepSeconds,
-            unit: 's',
-            presets: const [10, 15, 20, 30, 45, 60],
-            onPick: (v) => _emit(_exercise.copyWith(prepSeconds: v)),
-          ),
-          const SizedBox(height: 18),
-          if (_exercise.mediaType == MediaType.video)
-            _buildSettingsPresetRow(
-              label: 'Video reps per loop',
-              currentValue: videoReps,
-              unit: 'reps',
-              presets: const [1, 2, 3, 4, 5],
-              onPick: (v) => _emit(_exercise.copyWith(videoRepsPerLoop: v)),
+            child: PresetChipRow(
+              controlKey: 'prep',
+              canonicalPresets: const <num>[10, 15, 20, 30, 45, 60],
+              currentValue: prepSeconds,
+              accentColor: AppColors.primary,
+              displayFormat: (v) => '${v.toInt()}s',
+              undoLabel: 'prep',
+              scrollable: false,
+              onChanged: (v) =>
+                  _emit(_exercise.copyWith(prepSeconds: v.round())),
             ),
-          const SizedBox(height: 12),
+          ),
+          const SizedBox(height: 20),
+          if (_exercise.mediaType == MediaType.video)
+            _SettingsSection(
+              label: 'Reps in Video',
+              child: PresetChipRow(
+                controlKey: 'videoRepsPerLoop',
+                canonicalPresets: const <num>[1, 2, 3, 4, 5],
+                currentValue: videoReps,
+                accentColor: AppColors.primary,
+                displayFormat: (v) => '${v.toInt()}',
+                undoLabel: 'reps per loop',
+                scrollable: false,
+                onChanged: (v) =>
+                    _emit(_exercise.copyWith(videoRepsPerLoop: v.round())),
+              ),
+            ),
+          const SizedBox(height: 16),
           const Text(
             'These rarely change once you’ve recorded the exercise.',
             style: TextStyle(
@@ -507,86 +713,128 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       ),
     );
   }
+}
 
-  Widget _buildSettingsPresetRow({
-    required String label,
-    required int currentValue,
-    required String unit,
-    required List<int> presets,
-    required ValueChanged<int> onPick,
-  }) {
+/// Vertically stacked label-above-control settings section. Matches the
+/// pattern used elsewhere in Settings screens — section header on its
+/// Round 3 (P6) — small square thumbnail rendered in the editor sheet's
+/// header. Mirrors the trainer-facing preview thumbnails used elsewhere
+/// (Studio cards, Home, Camera peek box) — same source asset, just a
+/// smaller surface (44×44 here) so it pairs neatly with the inline-
+/// editable title without dominating the chrome.
+class _HeaderThumbnail extends StatelessWidget {
+  final ExerciseCapture exercise;
+
+  const _HeaderThumbnail({required this.exercise});
+
+  @override
+  Widget build(BuildContext context) {
+    final String? thumbPath = exercise.absoluteThumbnailPath;
+    final hasThumb = thumbPath != null && File(thumbPath).existsSync();
+    final isVideo = exercise.mediaType == MediaType.video;
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.surfaceBorder, width: 1),
+        gradient: hasThumb
+            ? null
+            : const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF2A2D3A),
+                  Color(0xFF1A1D27),
+                ],
+              ),
+        image: hasThumb
+            ? DecorationImage(
+                image: FileImage(File(thumbPath)),
+                fit: BoxFit.cover,
+              )
+            : null,
+      ),
+      child: Stack(
+        children: [
+          if (isVideo)
+            const Center(
+              child: _HeaderPlayGlyph(),
+            ),
+          if (exercise.mediaType == MediaType.photo && !hasThumb)
+            const Center(
+              child: Icon(
+                Icons.photo_outlined,
+                size: 18,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+          if (exercise.isRest)
+            const Center(
+              child: Icon(
+                Icons.bedtime_outlined,
+                size: 18,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderPlayGlyph extends StatelessWidget {
+  const _HeaderPlayGlyph();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.72),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: const Padding(
+        padding: EdgeInsets.only(left: 1),
+        child: Icon(
+          Icons.play_arrow_rounded,
+          size: 12,
+          color: AppColors.textOnDark,
+        ),
+      ),
+    );
+  }
+}
+
+/// own line, control beneath. The previous inline label-and-value-on-
+/// the-same-row treatment squeezed the chip row into too little width.
+class _SettingsSection extends StatelessWidget {
+  final String label;
+  final Widget child;
+
+  const _SettingsSection({required this.label, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              label.toUpperCase(),
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textSecondaryOnDark,
-                letterSpacing: 0.5,
-              ),
-            ),
-            Text(
-              '$currentValue $unit',
-              style: const TextStyle(
-                fontFamily: 'JetBrainsMono',
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textOnDark,
-              ),
-            ),
-          ],
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textSecondaryOnDark,
+            letterSpacing: 1.0,
+          ),
         ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [
-            for (final v in presets)
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  onPick(v);
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 7),
-                  constraints: const BoxConstraints(minWidth: 44),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: v == currentValue
-                        ? AppColors.primary
-                        : AppColors.surfaceBase,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: v == currentValue
-                          ? AppColors.primary
-                          : AppColors.surfaceBorder,
-                      width: 1,
-                    ),
-                  ),
-                  child: Text(
-                    '$v',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: v == currentValue
-                          ? Colors.white
-                          : AppColors.textSecondaryOnDark,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
+        child,
       ],
     );
   }
