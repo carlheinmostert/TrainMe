@@ -83,11 +83,6 @@ const double _kEdgeFadeWidth = 40.0;
 const Cubic _kEmphasized = Cubic(0.16, 1, 0.3, 1);
 const Duration _kPulseDuration = Duration(milliseconds: 1400);
 
-/// Width reserved for the ETA widget at the right end of row 1. It sits inside
-/// the scrollable track, so the matrix sizes itself to include this slot.
-const double _kEtaSlotWidth = 96.0;
-const double _kEtaSlotGap = 12.0;
-
 // ---------------------------------------------------------------------------
 // Model
 // ---------------------------------------------------------------------------
@@ -567,11 +562,7 @@ class _ProgressPillMatrixState extends State<ProgressPillMatrix>
     final rowIndex = (clampedY / rowStride).floor();
     final column = _columns[col];
     if (rowIndex < 0 || rowIndex >= column.slideIndices.length) return null;
-    // Silence unused-param lint (trackOffsetX kept for API symmetry).
-    // ignore: unused_local_variable
-    final _ = totalHeight;
-    // ignore: unused_local_variable
-    final __ = trackOffsetX;
+    // trackOffsetX/totalHeight are intentionally accepted for API symmetry.
     return column.slideIndices[rowIndex];
   }
 
@@ -1390,54 +1381,6 @@ class _Pill extends StatelessWidget {
     );
   }
 
-  static Color _iconColor(bool isRest, bool isCompleted, bool isActive) {
-    if (isCompleted) return AppColors.textSecondaryOnDark.withValues(alpha: 0.6);
-    if (isRest) return AppColors.rest;
-    if (isActive) return AppColors.textOnDark;
-    return AppColors.textSecondaryOnDark;
-  }
-
-  /// Pipe-delimited shorthand on the pill. Full grammar teaches via the
-  /// peek overlay on long-press.
-  ///
-  ///   Standalone exercise (hold > 0):     `S|R|H`   (e.g. `3|10|5`)
-  ///   Standalone exercise (hold = 0):     `S|R`     (e.g. `3|10`)
-  ///   Circuit member (hold > 0):          `R|H`     (e.g. `10|5`)
-  ///   Circuit member (hold = 0):          `R`       (e.g. `10`)
-  ///   Rest:                               `Rest`
-  ///   Video-only (no reps/sets data):     `Ns`      (duration)
-  ///
-  /// Circuit pills drop the sets field because the matrix's row count
-  /// encodes sets directly (N rows = N cycles).
-  ///
-  /// Dense tier ([compact] = true): hold drops even when non-zero so
-  /// the label shrinks to fit. Standalone → `S|R`; circuit → `R`.
-  static String _labelFor(ProgressPillSlide slide, {required bool compact}) {
-    if (slide.isRest) return 'Rest';
-    final e = slide.exercise;
-    final firstSet = e.sets.isNotEmpty ? e.sets.first : null;
-    final isCircuit = slide.circuitId != null;
-
-    // No sets at all — fall back to the effective clip duration
-    // (video-only exercise, or a capture with empty sets list).
-    if (firstSet == null) {
-      final dur = e.effectiveDurationSeconds;
-      return dur > 0 ? '${dur}s' : '—';
-    }
-
-    final r = firstSet.reps;
-    final s = e.sets.length;
-    final hold = firstSet.holdSeconds;
-
-    if (compact) {
-      return isCircuit ? '$r' : '$s|$r';
-    }
-    if (isCircuit) {
-      return hold > 0 ? '$r|$hold' : '$r';
-    }
-    return hold > 0 ? '$s|$r|$hold' : '$s|$r';
-  }
-
   /// VoiceOver / screen-reader label. Spoken in plain English so the
   /// pill is usable even for users who can't see the shorthand.
   static String _semanticsLabelFor(ProgressPillSlide slide) {
@@ -1467,57 +1410,6 @@ class _Pill extends StatelessWidget {
     }
     return parts.join(', ');
   }
-}
-
-/// Simple inline icon painter — stick-figure body glyph or rest tick.
-/// Matches the mockup's generic glyph (stick figure) and rest tick-in-circle.
-class _PillIconPainter extends CustomPainter {
-  final bool isRest;
-  final Color color;
-
-  _PillIconPainter({required this.isRest, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    // Scale to the 14×14 viewBox used in the mockup.
-    final s = size.width / 14.0;
-    Offset p(double x, double y) => Offset(x * s, y * s);
-
-    if (isRest) {
-      // Tick in circle: circle cx=7 cy=7 r=4; path M4.5 7 l2 1.5 L9.5 5.5
-      canvas.drawCircle(p(7, 7), 4 * s, paint);
-      final path = Path()
-        ..moveTo(p(4.5, 7).dx, p(4.5, 7).dy)
-        ..relativeLineTo(2 * s, 1.5 * s)
-        ..lineTo(p(9.5, 5.5).dx, p(9.5, 5.5).dy);
-      canvas.drawPath(path, paint);
-    } else {
-      // Stick figure: head at (7, 3.5) r=1.6; body + arms + legs.
-      final fillPaint = Paint()..color = color;
-      canvas.drawCircle(p(7, 3.5), 1.6 * s, fillPaint);
-      final body = Path()
-        ..moveTo(p(7, 5.2).dx, p(7, 5.2).dy)
-        ..relativeLineTo(0, 5 * s)
-        ..moveTo(p(4, 7.2).dx, p(4, 7.2).dy)
-        ..relativeLineTo(6 * s, 0)
-        ..moveTo(p(5, 10.2).dx, p(5, 10.2).dy)
-        ..relativeLineTo(-1 * s, 2.2 * s)
-        ..moveTo(p(9, 10.2).dx, p(9, 10.2).dy)
-        ..relativeLineTo(1 * s, 2.2 * s);
-      canvas.drawPath(body, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _PillIconPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.isRest != isRest;
 }
 
 // ---------------------------------------------------------------------------

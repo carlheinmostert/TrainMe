@@ -18,7 +18,7 @@ import '../widgets/orientation_lock_guard.dart';
 /// temporarily parked behind a "coming soon" badge because the iOS
 /// GoogleSignIn 8.x SDK injects a nonce that `signInWithIdToken` rejects
 /// (see `docs/BACKLOG_GOOGLE_SIGNIN.md`). The native path stays wired in
-/// `AuthService` so re-enablement is a one-line flip of [_googleEnabled]
+/// `AuthService` so re-enablement is a one-line wiring change
 /// once upstream fixes land. Apple remains scaffolded and disabled until
 /// Carl's Apple Developer enrolment is approved.
 class SignInScreen extends StatefulWidget {
@@ -29,15 +29,6 @@ class SignInScreen extends StatefulWidget {
 }
 
 class _SignInScreenState extends State<SignInScreen> {
-  /// Flip to `true` once Google Sign-In + Supabase `signInWithIdToken` are
-  /// happy with each other again (post the SDK nonce-mismatch fix tracked
-  /// in `docs/BACKLOG_GOOGLE_SIGNIN.md`).
-  static const bool _googleEnabled = false;
-
-  /// Flip to `true` once Apple Developer enrolment is approved and Sign in
-  /// with Apple is wired up in the Supabase dashboard.
-  static const bool _appleEnabled = false;
-
   final TextEditingController _emailController = TextEditingController();
   final FocusNode _emailFocus = FocusNode();
   final TextEditingController _passwordController = TextEditingController();
@@ -50,11 +41,6 @@ class _SignInScreenState extends State<SignInScreen> {
   _MagicLinkState _state = _MagicLinkState.form;
   String? _sentToEmail;
   String? _errorText;
-
-  /// Prevents double-taps on the Google button while its handler runs
-  /// (kept even though the button is currently disabled, so re-enablement
-  /// stays a one-line flip).
-  bool _googleSigningIn = false;
 
   @override
   void dispose() {
@@ -166,22 +152,6 @@ class _SignInScreenState extends State<SignInScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _emailFocus.requestFocus();
     });
-  }
-
-  // ── Google (parked) ─────────────────────────────────────────────────────
-
-  Future<void> _signInWithGoogle() async {
-    if (_googleSigningIn) return;
-    setState(() => _googleSigningIn = true);
-    try {
-      await AuthService.instance.signInWithGoogle();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Sign-in failed: $e')),
-      );
-      setState(() => _googleSigningIn = false);
-    }
   }
 
   // ── Build ───────────────────────────────────────────────────────────────
@@ -490,30 +460,6 @@ class _SignInScreenState extends State<SignInScreen> {
       ],
     );
   }
-
-  /// Tiny multi-colour Google "G" — a plain text/icon placeholder so we
-  /// don't pull in a new asset package just for the sign-in button.
-  Widget _googleIcon() {
-    return Container(
-      width: 22,
-      height: 22,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: const Text(
-        'G',
-        style: TextStyle(
-          fontFamily: 'Montserrat',
-          fontSize: 14,
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF4285F4), // Google blue
-          height: 1.1,
-        ),
-      ),
-    );
-  }
 }
 
 /// Local enum for the magic-link form's state machine.
@@ -608,176 +554,4 @@ class _PrimaryButton extends StatelessWidget {
   }
 }
 
-/// "or continue with" divider between the email form and social providers.
-class _OrDivider extends StatelessWidget {
-  const _OrDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Expanded(
-          child: Divider(
-            color: AppColors.surfaceBorder,
-            thickness: 1,
-            height: 1,
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            'or continue with',
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.3,
-              color: AppColors.textSecondaryOnDark,
-            ),
-          ),
-        ),
-        const Expanded(
-          child: Divider(
-            color: AppColors.surfaceBorder,
-            thickness: 1,
-            height: 1,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Secondary provider button. `comingSoon` stamps a small pill badge.
-class _SignInButton extends StatelessWidget {
-  final String label;
-  final Widget icon;
-  final VoidCallback? onTap;
-  final bool loading;
-  final bool primary;
-  final bool comingSoon;
-
-  const _SignInButton({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-    this.loading = false,
-    this.primary = false,
-    this.comingSoon = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onTap != null && !loading;
-    final bg = primary
-        ? (enabled ? AppColors.primary : AppColors.primary.withValues(alpha: 0.4))
-        : AppColors.surfaceRaised;
-    final fg = primary
-        ? Colors.white
-        : (enabled ? AppColors.textOnDark : AppColors.textSecondaryOnDark);
-    final border = primary
-        ? null
-        : Border.all(color: AppColors.surfaceBorder);
-
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.6,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-          onTap: onTap,
-          child: Container(
-            height: 52,
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-              border: border,
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                SizedBox(width: 22, height: 22, child: Center(child: icon)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: fg,
-                    ),
-                  ),
-                ),
-                if (loading)
-                  const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation(Colors.white),
-                    ),
-                  )
-                else if (comingSoon)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceBorder,
-                      borderRadius: BorderRadius.circular(100),
-                    ),
-                    child: const Text(
-                      'Coming soon',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondaryOnDark,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Pulse Mark — heartbeat line tracing a house roof silhouette.
-/// Duplicated from `powered_by_footer.dart` because that file's painter is
-/// private. Kept verbatim to stay in visual lock-step.
-class _PulseMarkPainter extends CustomPainter {
-  final Color color;
-  _PulseMarkPainter({this.color = AppColors.primary});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 3.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final path = Path();
-    final w = size.width;
-    final h = size.height;
-    path.moveTo(w * 0.05, h * 0.7);
-    path.lineTo(w * 0.25, h * 0.7);
-    path.lineTo(w * 0.35, h * 0.2);
-    path.lineTo(w * 0.5, h * 0.8);
-    path.lineTo(w * 0.65, h * 0.2);
-    path.lineTo(w * 0.75, h * 0.7);
-    path.lineTo(w * 0.95, h * 0.7);
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
 

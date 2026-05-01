@@ -15,7 +15,6 @@ type Props = {
    *  on the prop surface for backwards compatibility with existing callers,
    *  but no longer drives any rendering — Wave 40 P1 retired the nav links
    *  that gated on this flag. The dashboard tiles ARE the menu. */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   isOwner?: boolean;
   /** Signed-in user's email (Wave 40 P2). Surfaced as the right-cluster
    *  chip label so the practitioner can confirm-at-a-glance which account

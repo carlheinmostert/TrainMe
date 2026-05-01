@@ -395,8 +395,8 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         final name = cam.name.toLowerCase();
         if (name.contains('ultra')) {
           _backUltrawideCamera = cam;
-        } else if (_backWideCamera == null) {
-          _backWideCamera = cam;
+        } else {
+          _backWideCamera ??= cam;
         }
       }
       // Fallback: if no "ultra" name found, treat the second back camera
@@ -1236,7 +1236,7 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
                   child: Container(
                     decoration: BoxDecoration(
                       border: Border.all(
-                        color: const Color(0xFFFF6B35).withOpacity(0.8),
+                        color: const Color(0xFFFF6B35).withValues(alpha: 0.8),
                         width: 4,
                       ),
                       borderRadius: BorderRadius.circular(12),
