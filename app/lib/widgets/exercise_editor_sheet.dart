@@ -100,13 +100,24 @@ class ExerciseEditorSheet extends StatefulWidget {
 }
 
 class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
-  // Round 2 — Carl: "Default to 95% please, seeing the background is
-  // overrated" + "don't need 30%, 55 and 95 (default) is good". Sheet
-  // opens at the large detent; the medium 0.55 detent is retained as
-  // a snap-stop on the way down. Drag past 0.55 dismisses.
-  static const double _kInitialDetent = 0.95;
+  // Round 3 — Carl's spec evolved twice. Round 2 had drag-down past 0.55
+  // dismiss; retest reported releasing below 0.55 dismissed instead of
+  // snapping. Round 3: 0.55 is the FLOOR — releases below stay at 0.55.
+  // Dismiss is via fast downward velocity (>800), tap-outside (modal
+  // barrier), or explicit close.
+  //
+  // Tab-aware default detent: Preview tab promotes to 0.95 (full canvas
+  // for the embedded media viewer); all other tabs settle at 0.55 (form
+  // controls don't need the full screen — leaves the parent visible).
+  // The tab swipe / tab-strip tap calls `_animateSheetForTab` to honour
+  // this. Initial detent is computed in `build()` via `_detentForTab`.
   static const double _kMinDetent = 0.55;
   static const double _kMaxDetent = 0.95;
+  static const double _kPreviewDetent = 0.95;
+
+  /// Velocity threshold (logical pt/sec) for fling-down dismissal. Slow
+  /// drags below the floor snap back to 0.55 instead of dismissing.
+  static const double _kFlingDismissVelocity = 800;
 
   late final DraggableScrollableController _sheetController;
   late final PageController _pageController;
@@ -124,6 +135,15 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     _pageController = PageController(initialPage: _activeTabIndex);
     _notesController = TextEditingController(text: _exercise.notes ?? '');
     _notesFocusNode.addListener(_onNotesFocusChanged);
+  }
+
+  /// Returns the canonical detent for the given tab index — Preview goes
+  /// large (0.95) so the embedded media viewer has canvas; every other
+  /// tab snaps to 0.55 so the underlying screen stays partially visible.
+  double _detentForTab(int tabIndex) {
+    return tabIndex == _tabIndexFor(ExerciseEditorTab.preview)
+        ? _kPreviewDetent
+        : _kMinDetent;
   }
 
   @override
@@ -170,11 +190,29 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
     );
+    _animateSheetForTab(next);
   }
 
   void _onPageChanged(int next) {
     if (next == _activeTabIndex) return;
     setState(() => _activeTabIndex = next);
+    _animateSheetForTab(next);
+  }
+
+  /// Round 3 — animate the sheet to the canonical detent for the given
+  /// tab. Preview promotes to 0.95 (full canvas for the embedded media
+  /// viewer); every other tab settles at 0.55 so the underlying screen
+  /// stays partially visible.
+  void _animateSheetForTab(int tabIndex) {
+    if (!_sheetController.isAttached) return;
+    final target = _detentForTab(tabIndex);
+    final current = _sheetController.size;
+    if ((current - target).abs() < 0.005) return;
+    _sheetController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   void _emit(ExerciseCapture next) {
@@ -194,13 +232,15 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
       controller: _sheetController,
-      initialChildSize: _kInitialDetent,
+      initialChildSize: _detentForTab(_activeTabIndex),
       minChildSize: _kMinDetent,
       maxChildSize: _kMaxDetent,
       snap: true,
-      // Round 2 — only two snap sizes (the initial / max + the medium
-      // floor); the previous 0.30 floor was retired per Carl. Releasing
-      // below 0.55 still triggers dismiss in _onChromeDragEnd.
+      // Round 3 — two snap stops: 0.55 (floor) and 0.95 (full).
+      // _onChromeDragEnd dismisses ONLY on a fast downward fling
+      // (>800 logical pt/s). Slow drags below 0.55 snap back to the
+      // floor — Carl's Round 2 retest reported the previous behaviour
+      // (drag below 0.55 dismisses) was unintentional.
       snapSizes: const [_kMinDetent, _kMaxDetent],
       expand: false,
       builder: (ctx, scrollController) {
@@ -302,14 +342,15 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     if (!_sheetController.isAttached) return;
     final size = _sheetController.size;
     final velocity = d.primaryVelocity ?? 0;
-    // Velocity > 0 means dragging DOWN — dismiss if released past the
-    // floor; velocity < 0 means dragging UP — snap to max.
-    if (velocity > 600 || size < _kMinDetent - 0.02) {
+    // Round 3 — only a FAST downward fling dismisses. Slow drag below the
+    // floor snaps back to 0.55 instead. Tap-outside (modal barrier) is
+    // the canonical "I'm done" gesture; drag is for resizing.
+    if (velocity > _kFlingDismissVelocity) {
       Navigator.of(context).maybePop();
       return;
     }
     final double target;
-    if (velocity < -600) {
+    if (velocity < -_kFlingDismissVelocity) {
       target = _kMaxDetent;
     } else {
       // Snap to whichever of [min, max] is closer.
