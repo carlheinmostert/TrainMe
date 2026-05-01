@@ -227,10 +227,12 @@ Canonical structure, used everywhere there's no data.
 ## Loading State
 
 - **Skeleton** for lists & cards: fill `surface.dark.raised`, animated linear gradient sweep left→right, 1.4s linear infinite. Use for any view that maps 1:1 to a data shape.
-- **Pulse Mark spinner** for full-page / initial fetch: 48px mark, `brand.default`, `motion.pulse`.
+- **Matrix-mark spinner** for full-page / initial fetch: 48–96px mark using canonical v2 matrix geometry (the same 11-pill body rendered by `docs/design/project/logos/mark.svg` and by the inline `HomefitLogo` widget/component in each codebase). Animation: the three outer ghost greys on each side breathe inward via an opacity fade, staggered at 0 / 0.1s / 0.2s with `keyTimes = [0, 0.5, 1.0]` and easing `cubic-bezier(0.4, 0, 0.6, 1)`; the four coral middle pills and the coral tint band hold **static**; the single sage rest pill pulses opacity + a slight `scaleY(1→1.1→1)` on the same cycle. Period: `motion.loop` (1.4s = 43bpm — slow, calm). The matrix mark **never animates outside loading contexts** — static is the default on every non-loading surface. Baked SMIL reference at `docs/design/project/logos/mark-session.svg`; port-ready motion lab at `docs/design/mockups/matrix-session-motion.html`.
 - **Inline spinner** for in-flight buttons: 16px circle, 2px stroke, `motion.normal` rotate.
 
-Rule: pick by expected duration. < 300ms → nothing. 300ms–2s → inline. > 2s → skeleton or Pulse Mark.
+Rule: pick by expected duration. < 300ms → nothing. 300ms–2s → inline. > 2s → skeleton or matrix-mark.
+
+**Reduced motion:** when the OS / browser signals `prefers-reduced-motion: reduce` (web) or `MediaQuery.disableAnimations == true` (Flutter), render the static matrix mark — no breathing, no sage pulse.
 
 ---
 
@@ -285,7 +287,7 @@ Single spec across all interactive elements.
 
 1200×630 PNG server-rendered.
 - Background: `surface.dark.bg`
-- Pulse Mark horizontal lockup, top-left, 48h
+- Matrix-mark horizontal lockup (`logos/lockup-horizontal.svg`, v2 geometry), top-left, 48h
 - Plan title: `display.md`, `ink.dark.primary`, left-aligned
 - Trainer name + practice: `title.md`, `ink.dark.secondary`
 - Exercise count pill: `chip.brand`
@@ -414,7 +416,7 @@ Ties the above components together. Dark-first. Flutter `CustomScrollView` with 
    - Bottom-anchored via `reverse: true` — the newest captured/imported exercise appears at the bottom edge.
 4. **Pull-tab** — right-edge vertical coral tab (22w × 72h, `radius` top-left/bottom-left `radius.md`). Swipes the Session Shell left to reveal Capture mode.
 5. **Footer** (48h, `surface.dark.base`, top-border `surface.dark.border`):
-   - "powered by homefit.studio" with Pulse Mark (horizontal lockup).
+   - "powered by homefit.studio" with matrix-mark (horizontal lockup, v2 geometry).
 
 ### Publish-lock badge
 
