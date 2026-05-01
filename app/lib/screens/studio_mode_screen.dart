@@ -920,13 +920,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
   }
 
-  void _deleteExercise(int index) {
+  Future<void> _deleteExercise(int index) async {
     final removed = _session.exercises[index];
-    final exercises = List<ExerciseCapture>.from(_session.exercises);
-    exercises.removeAt(index);
-    for (var i = 0; i < exercises.length; i++) {
-      exercises[i] = exercises[i].copyWith(position: i);
-    }
+    final originalExercises = List<ExerciseCapture>.from(_session.exercises);
+    final exercises = reindexAfterRemove(_session.exercises, index);
+    final originalExpandedIndex = _expandedIndex;
     setState(() {
       _touchAndPush(_session.copyWith(exercises: exercises));
       if (_expandedIndex == index) {
@@ -935,12 +933,33 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         _expandedIndex = _expandedIndex! - 1;
       }
     });
-    unawaited(
-      widget.storage.deleteExercise(removed.id).catchError((e, st) {
-        debugPrint('deleteExercise failed: $e');
-      }),
-    );
+
+    try {
+      await widget.storage.deleteExercise(removed.id);
+    } catch (e, st) {
+      debugPrint('deleteExercise failed: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _pushSession(_session.copyWith(exercises: originalExercises));
+        _expandedIndex = originalExpandedIndex;
+      });
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              "Couldn't delete '${removed.name ?? 'Exercise ${index + 1}'}'"
+              ' — try again.',
+            ),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      return;
+    }
+
     _saveExerciseOrder();
+    if (!mounted) return;
     showUndoSnackBar(
       context,
       label: '${removed.name ?? 'Exercise ${index + 1}'} deleted',
@@ -1063,8 +1082,25 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       context,
       label: 'Duplicated · Undo',
       onUndo: () async {
-        // Remove the duplicate from SQLite + delete its copied files.
-        await widget.storage.deleteExercise(duplicate.id);
+        try {
+          await widget.storage.deleteExercise(duplicate.id);
+        } catch (e, st) {
+          debugPrint('deleteExercise (duplicate undo) failed: $e\n$st');
+          if (!mounted) return;
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  "Couldn't undo duplicate of "
+                  "'${duplicate.name ?? 'Exercise'}' — try again.",
+                ),
+                backgroundColor: AppColors.error,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          return;
+        }
         await _refreshSession();
       },
     );
@@ -2354,6 +2390,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       await _handleNeedsConsentConfirmation(
         result.consentConfirmationClient!,
       );
+    } else if (result.isPreflightFailure) {
+      final errStr = result.toErrorString();
+      setState(() => _publishError = errStr);
+      _showMissingMediaSnackBar(result.missingFiles?.length ?? 0);
+      _scrollToFirstBrokenCard();
     } else {
       final errStr = result.toErrorString();
       setState(() => _publishError = errStr);
@@ -2572,6 +2613,54 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           ),
         ),
       );
+  }
+
+  void _showMissingMediaSnackBar(int count) {
+    final plural = count > 1;
+    final msg =
+        '$count exercise${plural ? 's' : ''} ${plural ? 'have' : 'has'} '
+        'missing media — fix before publishing.';
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          duration: const Duration(seconds: 6),
+          backgroundColor: AppColors.surfaceRaised,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: const BorderSide(color: AppColors.primary, width: 1),
+          ),
+        ),
+      );
+  }
+
+  void _scrollToFirstBrokenCard() {
+    final exercises = _session.exercises;
+    final brokenIdx = exercises.indexWhere(
+      (e) => !e.isRest && _exerciseHasMissingMedia(e),
+    );
+    if (brokenIdx < 0) return;
+    final brokenId = exercises[brokenIdx].id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final key = _rowKeys[brokenId];
+      final ctx = key?.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+        alignment: 0.5,
+      );
+    });
+  }
+
+  bool _exerciseHasMissingMedia(ExerciseCapture e) {
+    if (e.isRest) return false;
+    final path = e.absoluteConvertedFilePath ?? e.absoluteRawFilePath;
+    return path.isEmpty || !File(path).existsSync();
   }
 
   // Wave 38.1 hotfix — Import + Share restored to the bottom toolbar

@@ -1,0 +1,50 @@
+{
+  "items": {
+    "1": {
+      "note": "no on both counts",
+      "status": "fail"
+    },
+    "10": {
+      "status": "fail"
+    },
+    "11": {
+      "note": "rename \"video reps per loop\" to 'Reps in Video\"",
+      "status": "pass"
+    },
+    "12": {
+      "note": "dont need 30%, 55 and 95 (default) is good",
+      "status": "fail"
+    },
+    "2": {
+      "note": "cannot test",
+      "status": "fail"
+    },
+    "3": {
+      "note": "3.3. fails.  editor pops behinf card",
+      "status": "fail"
+    },
+    "4": {
+      "note": "This works except on Preview tab the gesture is ignored.  Default to 95% please, seeing the background is over rated.",
+      "status": "fail"
+    },
+    "5": {
+      "note": "Nope, dragging it drags the whole content area.",
+      "status": "fail"
+    },
+    "6": {
+      "status": "pass"
+    },
+    "7": {
+      "note": "They still do.",
+      "status": "fail"
+    },
+    "8": {
+      "note": "8.1 fails -   top of thumbnail aligns with top of Title, but the bottom  is above the bottom of the Dose and Notes buttons.",
+      "status": "fail"
+    },
+    "9": {
+      "note": "Nothing",
+      "status": "fail"
+    }
+  }
+}

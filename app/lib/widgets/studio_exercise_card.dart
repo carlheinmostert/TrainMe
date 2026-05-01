@@ -10,6 +10,27 @@ import '../services/api_client.dart';
 import '../theme.dart';
 import 'exercise_editor_sheet.dart';
 
+/// Matches [UploadService] file pre-flight: converted path first, then raw.
+bool exerciseHasMissingMedia(ExerciseCapture exercise) {
+  if (exercise.isRest) return false;
+  final path =
+      exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath;
+  return path.isEmpty || !File(path).existsSync();
+}
+
+/// Removes [index] and reindexes `position` for UI + SQLite consistency.
+List<ExerciseCapture> reindexAfterRemove(
+  List<ExerciseCapture> exercises,
+  int index,
+) {
+  final next = List<ExerciseCapture>.from(exercises);
+  next.removeAt(index);
+  for (var i = 0; i < next.length; i++) {
+    next[i] = next[i].copyWith(position: i);
+  }
+  return next;
+}
+
 /// Studio defaults — the global seed values for non-set persistence
 /// fields. Per-set values (reps, hold, weight, breather) live on
 /// [ExerciseSet]; this surface only carries the metadata that's still
@@ -154,6 +175,10 @@ class StudioExerciseCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (exerciseHasMissingMedia(exercise)) ...[
+                        const _MissingMediaBanner(),
+                        const SizedBox(height: 8),
+                      ],
                       _TitleRow(
                         title: _resolvedTitle(),
                         isCustomised: exerciseIsCustomised(exercise),
@@ -521,6 +546,50 @@ class _TriggerButton extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Banner when line-drawing or raw file is missing (publish pre-flight matches).
+class _MissingMediaBanner extends StatelessWidget {
+  const _MissingMediaBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.error.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: AppColors.error.withValues(alpha: 0.45),
+          width: 1,
+        ),
+      ),
+      child: const Row(
+        children: [
+          Icon(
+            Icons.warning_amber_rounded,
+            size: 14,
+            color: AppColors.error,
+          ),
+          SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Media missing — long-press to delete and recapture',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.error,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Retest — Per-set DOSE wave (PR #149 fixes)</title>
+<style>
+  :root {
+    --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5; --text-mute: #9CA3AF; --text-dim: #6B7280;
+    --coral: #FF6B35; --coral-bg: rgba(255,107,53,0.12); --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; font-size: 14px; line-height: 1.55; margin: 0; padding: 0; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 600; font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist > li { padding: 10px 12px 10px 118px; margin: 4px 0; position: relative; background: transparent; border-radius: 8px; transition: background 150ms, border-color 150ms; border: 1px solid transparent; }
+  .checklist > li:hover { background: var(--raised); }
+  .checklist > li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist > li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist > li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist > li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist > li .vote button { width: 26px; height: 26px; border: 1.5px solid var(--text-dim); border-radius: 6px; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 0; transition: all 120ms; }
+  .checklist > li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist > li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist > li[data-status="pass"] .vote button.pass { background: var(--coral); border-color: var(--coral); color: white; }
+  .checklist > li[data-status="fail"] .vote button.fail { background: #EF4444; border-color: #EF4444; color: white; }
+  .checklist > li .num { position: absolute; left: 78px; top: 13px; display: inline-block; width: 30px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--coral); text-align: right; letter-spacing: 0; }
+  .checklist > li .text { display: block; font-weight: 600; }
+  .checklist > li .was { display: block; font-size: 12px; color: var(--text-dim); font-style: italic; margin-top: 3px; }
+  .checklist > li[data-status="pass"] .was { color: var(--text-dim); }
+  .checklist > li .note-row { margin-top: 8px; display: none; }
+  .checklist > li[data-status="pass"] .note-row, .checklist > li[data-status="fail"] .note-row { display: block; }
+  .checklist > li .note-row input { width: 100%; padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px solid rgba(255,107,53,0.35); border-radius: 6px; font-family: inherit; font-size: 13px; }
+  .checklist > li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist > li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist > li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist > li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0 0; }
+  .steps li { position: relative; padding: 4px 0 4px 42px; margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; background: transparent; border: none; }
+  .steps li::before { content: attr(data-sub); position: absolute; left: 0; top: 4px; width: 34px; text-align: right; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; font-weight: 600; color: var(--text-mute); letter-spacing: 0; }
+  .checklist > li[data-status="pass"] .steps li, .checklist > li[data-status="pass"] .steps li::before { color: var(--text-dim); }
+  code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+  .info { background: var(--raised); padding: 16px 20px; border-radius: 10px; border: 1px solid var(--border); margin: 28px 0; }
+  .info h3 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px; color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .info ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .info li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Per-set DOSE wave &middot; retest after PR #149 fixes</div>
+  <h1>Retest &mdash; Per-set DOSE wave fixes</h1>
+
+  <p class="lede">
+    <strong>Round 3 retest.</strong> Round 2 (<a href="https://github.com/carlheinmostert/TrainMe/pull/150" style="color: var(--coral); text-decoration: none;">PR #150</a>) fixed seeding + most gestures but the card buttons still showed empty summaries (<code>Dose &middot; </code> / <code>Notes &middot; </code>). Round 3 (<a href="https://github.com/carlheinmostert/TrainMe/pull/151" style="color: var(--coral); text-decoration: none;">PR #151</a>) <strong>restructured the trigger button</strong>: label stacks ABOVE summary so summary gets full button width (root cause was Round 2's inline layout giving summary &lt; 31pt of bounded width on a 390pt screen, below Flutter's ellipsis-render threshold). Plus: hard 0.55 detent floor, fling-only dismiss, tab-aware default (Preview&rarr;0.95, others&rarr;0.55), inline-edit moved from card to sheet header, 44&times;44 thumbnail in sheet header, slider chrome stripped, X removed from editor. Build SHA <code>03dbd50</code>. <strong>12 checks across 5 themes &mdash; same items as round 2.</strong>
+  </p>
+
+  <div class="info">
+    <h3>Build on device</h3>
+    <ul>
+      <li>Bundle ID <code>studio.homefit.app</code>, profile build, SHA <code>03dbd50</code> (footer of Settings shows it).</li>
+      <li>The trigger button is now two-row visually (label on top, summary beneath) &mdash; eyeball whether you like the look while running through items 1, 9, 10.</li>
+      <li>Photo glyph regression queued for round 4 &mdash; conflicts with PR #151's edits; won't surface in this round.</li>
+    </ul>
+  </div>
+
+  <h2>Theme 1 &middot; Seeding (was items 6, 15)</h2>
+  <ul class="checklist">
+    <li data-num="1" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&check;</button><button class="fail" type="button" aria-label="Fail 1">&times;</button></div>
+      <span class="num">T1.1</span>
+      <span class="text">New exercise auto-seeds 1 default set in memory.</span>
+      <span class="was">Was: <em>"no default set"</em>. Fix: <code>_addCaptureFromFile</code> now calls <code>withPersistenceDefaults()</code> inline so the synthetic first set lands in <code>_session</code>, not just SQLite.</span>
+      <ol class="steps">
+        <li data-sub="1.1">Capture a NEW video or photo exercise.</li>
+        <li data-sub="1.2">Without opening the editor sheet, look at the card &mdash; the Dose button face should show a real summary (e.g. <code>1 set &middot; 10 reps &middot; bodyweight</code>), not <code>No sets yet</code>.</li>
+        <li data-sub="1.3">Open the Dose tab &mdash; one row is already present.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="2" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
+      <span class="num">T1.2</span>
+      <span class="text">Sticky defaults carry forward to the next exercise on the same client.</span>
+      <span class="was">Was: <em>"the defaults are not assumed"</em>. Fix: knock-on of T1.1 &mdash; <code>prefillCapture</code> now sees the synthetic seed and overlays sticky values on top.</span>
+      <ol class="steps">
+        <li data-sub="2.1">On exercise A, edit the Dose row to <code>12 reps</code>, <code>5 s hold</code>, <code>15 kg</code>, <code>45 s breather</code>.</li>
+        <li data-sub="2.2">Capture exercise B on the SAME client.</li>
+        <li data-sub="2.3">Without editing it, open the Dose tab &mdash; first row should reflect 12 / 5 s / 15 kg / 45 s, not the cold defaults.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>Theme 2 &middot; Pill chip regression (was item 7)</h2>
+  <ul class="checklist">
+    <li data-num="3" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&check;</button><button class="fail" type="button" aria-label="Fail 3">&times;</button></div>
+      <span class="num">T2.1</span>
+      <span class="text">Reps / hold / breather cells render the canonical PresetChipRow.</span>
+      <span class="was">Was: <em>"pills render screen wide and beneath each other"</em>. Fix: hand-rolled chip row replaced with canonical <code>PresetChipRow</code> (controlKeys <code>reps</code> / <code>hold</code> / <code>breather</code>; coral / sage accents).</span>
+      <ol class="steps">
+        <li data-sub="3.1">Open Dose tab. Tap the Reps cell on a set row.</li>
+        <li data-sub="3.2">Pills are small (~32 pt tall, 16 pt radius), flow horizontally LEFT-to-RIGHT, do NOT stack vertically full-width.</li>
+        <li data-sub="3.3">A dashed coral <code>[+]</code> tail sits at the end. Tapping it reveals an inline numeric input &mdash; no popup, no bottom sheet.</li>
+        <li data-sub="3.4">Long-press any preset pill &rarr; pill removes with an Undo SnackBar at the bottom.</li>
+        <li data-sub="3.5">Repeat for Hold and Breather cells &mdash; same widget, sage accent on Breather.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>Theme 3 &middot; Gesture conflicts (was items 3, 8, 10, 13)</h2>
+  <ul class="checklist">
+    <li data-num="4" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&check;</button><button class="fail" type="button" aria-label="Fail 4">&times;</button></div>
+      <span class="num">T3.1</span>
+      <span class="text">Drag the sheet UP to large detent (~95% screen).</span>
+      <span class="was">Was: <em>"drag gesture does not work"</em>. Fix: <code>enableDrag: false</code> on the modal; drag handle now drives <code>_sheetController.jumpTo</code> directly with snap detents <code>[0.30, 0.55, 0.95]</code>.</span>
+      <ol class="steps">
+        <li data-sub="4.1">Open the editor sheet (lands at ~55%).</li>
+        <li data-sub="4.2">Drag the sage drag-handle UPWARDS &mdash; sheet snaps to ~95% screen.</li>
+        <li data-sub="4.3">Drag back DOWN &mdash; sheet snaps back to ~55%.</li>
+        <li data-sub="4.4">Drag DOWN below ~30% &mdash; sheet dismisses.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="5" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&check;</button><button class="fail" type="button" aria-label="Fail 5">&times;</button></div>
+      <span class="num">T3.2</span>
+      <span class="text">Weight slider drag works and snaps to 2.5 kg.</span>
+      <span class="was">Was: <em>"the drag gesture does not work"</em>. Fix: same root cause as T3.1 &mdash; the modal's drag recognizer was eating the slider's horizontal pan.</span>
+      <ol class="steps">
+        <li data-sub="5.1">In the Dose tab, tap the Weight cell on a set row.</li>
+        <li data-sub="5.2">Drag the slider thumb left and right &mdash; values change in 2.5 kg steps.</li>
+        <li data-sub="5.3">Toggle the bodyweight <code>N/A</code> control &mdash; weight clears, slider hides or disables.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="6" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
+      <span class="num">T3.3</span>
+      <span class="text">Set-row swipe-to-delete + Undo SnackBar works.</span>
+      <span class="was">Was: <em>"undo does not work"</em>. Fix: sheet body wrapped in its own <code>ScaffoldMessenger</code> + <code>Scaffold</code> so the SnackBar renders INSIDE the sheet instead of behind it on the host scaffold.</span>
+      <ol class="steps">
+        <li data-sub="6.1">In the Dose tab with at least 2 set rows, swipe a row left (or use whichever delete affordance is in place).</li>
+        <li data-sub="6.2">Row deletes; an Undo SnackBar appears WITHIN the sheet (not hidden behind it).</li>
+        <li data-sub="6.3">Tap Undo &mdash; row reappears in its previous position.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="7" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&check;</button><button class="fail" type="button" aria-label="Fail 7">&times;</button></div>
+      <span class="num">T3.4</span>
+      <span class="text">Soft-trim handles in Preview tab don't drag the whole sheet.</span>
+      <span class="was">Was: <em>"dragging the soft trim editor moves the whole card"</em>. Fix: same root cause as T3.1.</span>
+      <ol class="steps">
+        <li data-sub="7.1">On a video exercise, swipe to the Preview tab inside the sheet.</li>
+        <li data-sub="7.2">Drag the LEFT soft-trim handle &mdash; the trim window changes; the sheet itself stays put.</li>
+        <li data-sub="7.3">Drag the RIGHT trim handle &mdash; same; only the trim window moves.</li>
+        <li data-sub="7.4">Release &mdash; video plays clamped to the new in / out window.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>Theme 4 &middot; Card chrome (was items 1, 11, 14)</h2>
+  <ul class="checklist">
+    <li data-num="8" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&check;</button><button class="fail" type="button" aria-label="Fail 8">&times;</button></div>
+      <span class="num">T4.1</span>
+      <span class="text">Thumbnail aligns with title row + title is inline-editable on the card.</span>
+      <span class="was">Was: <em>"thumbnail is sitting high &hellip; title is not inline edit-able"</em>. Fix: <code>crossAxisAlignment: center</code> on the card row + new <code>InlineEditableText</code> with dashed underline.</span>
+      <ol class="steps">
+        <li data-sub="8.1">Open Studio. Cards now: thumbnail vertically centred against the title + trigger row, no high-floating thumb.</li>
+        <li data-sub="8.2">Tap the title text on a card &mdash; it converts to a TextField (dashed underline preview, then editable).</li>
+        <li data-sub="8.3">Type a new name, hit return &mdash; persists.</li>
+        <li data-sub="8.4">Reopen the session &mdash; new title still there.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="9" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&check;</button><button class="fail" type="button" aria-label="Fail 9">&times;</button></div>
+      <span class="num">T4.2</span>
+      <span class="text">Notes button face: first line only, width-ellipsis, no quotes.</span>
+      <span class="was">Was: <em>"button face on the card shows the truncated first line"</em> (50-char hardcap with quotes / italics). Fix: split on <code>\n</code>, take first line, drop quotes / italics, let <code>TextOverflow.ellipsis</code> + <code>maxLines:1</code> do the truncation.</span>
+      <ol class="steps">
+        <li data-sub="9.1">Open Notes tab on any exercise. Type a multi-line note: <code>First short line</code> &lt;newline&gt; <code>Second line that is much longer than the first one</code>.</li>
+        <li data-sub="9.2">Dismiss the sheet &mdash; card&apos;s Notes button face reads <code>Notes &middot; First short line</code>, no second line, no quotes.</li>
+        <li data-sub="9.3">Edit the first line to a very long string &gt; 60 chars. Dismiss &mdash; button face truncates with an ellipsis at the END (width-based), not at 50 chars.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+    <li data-num="10" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&check;</button><button class="fail" type="button" aria-label="Fail 10">&times;</button></div>
+      <span class="num">T4.3</span>
+      <span class="text">Dose button face refreshes after edits + uses web-player canonical grammar.</span>
+      <span class="was">Was: <em>"dose button summary does not work"</em> (no grammar even after manual set additions). Fix: root cause was empty in-memory sets (T1.1) plus legacy uniform-only format. Now mirrors the player&apos;s decoded grammar: full words, slash-joined pyramids.</span>
+      <ol class="steps">
+        <li data-sub="10.1">Add a set to an exercise; close the sheet.</li>
+        <li data-sub="10.2">Card&apos;s Dose face updates IMMEDIATELY without reopening &mdash; e.g. <code>3 sets &middot; 10 reps &middot; @ 15 kg &middot; 5s hold</code>. Full words, not <code>3 &times; 10</code>.</li>
+        <li data-sub="10.3">Make sets uneven: 8 / 10 / 12 reps. Face shows <code>8 / 10 / 12 reps</code> (slash-joined).</li>
+        <li data-sub="10.4">Mix bodyweight + weighted sets. Face renders <code>@ &mdash; / 15 / 15 kg</code> or similar.</li>
+        <li data-sub="10.5">Edit notes only &mdash; Dose face stays correct (no flicker / regression).</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>Theme 5 &middot; Settings tab columns (was item 12)</h2>
+  <ul class="checklist">
+    <li data-num="11" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&check;</button><button class="fail" type="button" aria-label="Fail 11">&times;</button></div>
+      <span class="num">T5.1</span>
+      <span class="text">Settings sections render label-above-control (column layout) + chop uses PresetChipRow.</span>
+      <span class="was">Was: <em>"the chop rows are also columns, as discussed before"</em>. Fix: Settings sections now stack label above control; chop section uses canonical <code>PresetChipRow</code>.</span>
+      <ol class="steps">
+        <li data-sub="11.1">Open Settings tab inside the editor sheet.</li>
+        <li data-sub="11.2">Each section reads top-to-bottom: <strong>label</strong> on top, <strong>control</strong> beneath, not side-by-side rows.</li>
+        <li data-sub="11.3">The chop / video-reps-per-loop section uses the same small-pill widget as Reps / Hold (T2.1), not the old hand-rolled stack.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+
+  <h2>Bonus &middot; Detent divergence ack</h2>
+  <ul class="checklist">
+    <li data-num="12" data-status="">
+      <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&check;</button><button class="fail" type="button" aria-label="Fail 12">&times;</button></div>
+      <span class="num">B1</span>
+      <span class="text">Three-detent behaviour feels right (or revert to two).</span>
+      <span class="was">Agent diverged from the brief: <code>[0.30, 0.55, 0.95]</code> instead of <code>[0.55, 0.95]</code>. The 0.30 floor lets you drag down without instantly dismissing.</span>
+      <ol class="steps">
+        <li data-sub="12.1">Open the sheet (lands at ~55%).</li>
+        <li data-sub="12.2">Drag down slowly &mdash; sheet should snap to ~30% (visible above the keyboard / fingers).</li>
+        <li data-sub="12.3">Release at &lt;30% &mdash; dismisses. Release at &ge;30% &mdash; stays at floor.</li>
+        <li data-sub="12.4">Pass = <em>this is fine, keep three</em>. Fail = <em>revert to two-detent</em>.</li>
+      </ol>
+      <div class="note-row"><input type="text" class="note" placeholder=""></div>
+    </li>
+  </ul>
+</div>
+<script>
+(function() {
+  var SLUG = '2026-04-30-wave-per-set-dose-retest.results.json';
+  var API = '/api/test-results/' + SLUG;
+  var state = { items: {} };
+
+  fetch('/test-scripts/' + SLUG, { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.json() : { items: {} }; })
+    .then(function(data) {
+      state = data || { items: {} };
+      applyState();
+    })
+    .catch(function() {});
+
+  function applyState() {
+    document.querySelectorAll('.checklist > li').forEach(function(li) {
+      var num = li.getAttribute('data-num');
+      var item = state.items[num];
+      if (item) {
+        li.setAttribute('data-status', item.status);
+        var note = li.querySelector('.note');
+        if (note && item.note) note.value = item.note;
+      }
+    });
+  }
+
+  function persist() {
+    fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state),
+    }).catch(function() {});
+  }
+
+  document.querySelectorAll('.checklist > li').forEach(function(li) {
+    var num = li.getAttribute('data-num');
+
+    li.querySelector('.vote .pass').addEventListener('click', function() {
+      li.setAttribute('data-status', 'pass');
+      if (!state.items[num]) state.items[num] = {};
+      state.items[num].status = 'pass';
+      persist();
+    });
+
+    li.querySelector('.vote .fail').addEventListener('click', function() {
+      li.setAttribute('data-status', 'fail');
+      if (!state.items[num]) state.items[num] = {};
+      state.items[num].status = 'fail';
+      persist();
+    });
+
+    var note = li.querySelector('.note');
+    if (note) {
+      var debounce;
+      note.addEventListener('input', function() {
+        clearTimeout(debounce);
+        if (!state.items[num]) state.items[num] = {};
+        state.items[num].note = note.value;
+        debounce = setTimeout(persist, 400);
+      });
+    }
+  });
+})();
+</script>
+</body>
+</html>
