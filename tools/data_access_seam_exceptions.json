@@ -1,12 +1,6 @@
 {
   "last_updated": "2026-05-01",
   "allowed_violations": [
-    "flutter_direct_supabase_client|app/lib/screens/diagnostics_screen.dart|143|final response = await Supabase.instance.client",
-    "flutter_direct_supabase_client|app/lib/screens/diagnostics_screen.dart|192|await Supabase.instance.client.auth",
-    "flutter_direct_supabase_client|app/lib/screens/diagnostics_screen.dart|195|final signedIn = Supabase.instance.client.auth.currentSession != null;",
-    "flutter_direct_supabase_client|app/lib/services/client_defaults_api.dart|88|SupabaseClient get _raw => Supabase.instance.client;",
-    "flutter_direct_supabase_client|app/lib/services/loud_swallow.dart|188|final client = Supabase.instance.client;",
-    "flutter_direct_supabase_client|app/lib/services/sync_service.dart|230|_authSub = Supabase.instance.client.auth.onAuthStateChange.listen(",
     "web_player_direct_rest|web-player/middleware.js|29|`${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,",
     "web_player_direct_rest|web-player/sw.js|88|const isRestApi = url.pathname.includes('/rest/v1/');"
   ]

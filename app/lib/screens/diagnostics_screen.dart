@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config.dart';
 import '../services/auth_service.dart';
+import '../services/api_client.dart';
 import '../services/homefit_haptics.dart';
 import '../services/loud_swallow.dart';
 import '../services/sync_service.dart';
@@ -140,7 +141,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     // `ok` and the two presence booleans to classify.
     _ProbeResult result;
     try {
-      final response = await Supabase.instance.client
+      final response = await ApiClient.instance.raw
           .rpc('signed_url_self_check')
           .timeout(const Duration(seconds: 10));
       Map<String, dynamic>? row;
@@ -189,10 +190,10 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
       // Cheap auth probe — always safe, doesn't hit the DB. Verifies the
       // anon key is still accepted (a key rotation or a bad wifi captive
       // portal would fail here).
-      await Supabase.instance.client.auth
+      await ApiClient.instance.raw.auth
           .getUser()
           .timeout(const Duration(seconds: 10));
-      final signedIn = Supabase.instance.client.auth.currentSession != null;
+      final signedIn = ApiClient.instance.raw.auth.currentSession != null;
       result = _ProbeResult.green(
         signedIn ? 'Reachable, signed in.' : 'Reachable, not signed in.',
       );
