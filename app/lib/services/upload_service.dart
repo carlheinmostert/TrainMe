@@ -852,6 +852,16 @@ class UploadService {
                 // column. Mobile-side the value lives on
                 // ExerciseCapture.restHoldSeconds (SQLite v33).
                 'rest_seconds': e.restHoldSeconds,
+                // Wave 42 — per-exercise practitioner body-focus default.
+                // null = render with body-focus ON (the pre-Wave-42
+                // default; legacy rows stay unchanged on first open).
+                // true / false = explicit practitioner choice. Replaces
+                // the legacy per-device flag in the mobile preview that
+                // never reached publish. Surfaces on the web player via
+                // get_plan_full (emitted by to_jsonb(e)); the player
+                // layers per-exercise CLIENT overrides on top via
+                // localStorage homefit.overrides::{planId}.
+                'body_focus': e.bodyFocus,
               })
           .toList();
 

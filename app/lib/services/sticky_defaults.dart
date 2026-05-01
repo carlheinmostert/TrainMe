@@ -59,6 +59,8 @@ class StickyDefaults {
       ClientDefaultsApi.fPreferredTreatment;
   static const String fPrepSeconds = ClientDefaultsApi.fPrepSeconds;
   static const String fVideoRepsPerLoop = ClientDefaultsApi.fVideoRepsPerLoop;
+  // Wave 42 — per-exercise practitioner body-focus default.
+  static const String fBodyFocus = ClientDefaultsApi.fBodyFocus;
 
   /// Per-set first-set sticky seeds (per-set DOSE wave).
   static const String fFirstSetReps = ClientDefaultsApi.fFirstSetReps;
@@ -147,6 +149,12 @@ class StickyDefaults {
       prepSeconds: exercise.prepSeconds ?? _asInt(defaults[fPrepSeconds]),
       videoRepsPerLoop: exercise.videoRepsPerLoop ??
           _asInt(defaults[fVideoRepsPerLoop]),
+      // Wave 42 — body-focus default. null on the new exercise means
+      // "no explicit choice yet"; pull the client's last toggled value
+      // from defaults. The web player + mobile preview both interpret
+      // null as "render with body-focus ON" so the default-default is
+      // unchanged from pre-Wave-42 behaviour.
+      bodyFocus: exercise.bodyFocus ?? _asBool(defaults[fBodyFocus]),
     );
 
     // Apply first-set sticky values when we have a synthetic-looking
@@ -289,6 +297,16 @@ class StickyDefaults {
           value: afterFirst.breatherSecondsAfter,
         );
       }
+    }
+    // Wave 42 — body-focus fan-out. Toggling from the Studio pill
+    // updates the client's sticky default so the next new capture
+    // inherits the practitioner's latest choice.
+    if (before.bodyFocus != after.bodyFocus) {
+      recordOverride(
+        clientId: clientId,
+        field: fBodyFocus,
+        value: after.bodyFocus,
+      );
     }
   }
 

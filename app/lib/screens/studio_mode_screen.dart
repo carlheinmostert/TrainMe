@@ -7,7 +7,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
 import '../models/client.dart';
@@ -3212,19 +3211,11 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// viewer-close-before-refresh.
   bool _isMuted = false;
 
-  /// Wave 25 — Enhanced Background flag (R-10 twin of the web player's
-  /// gear-popover switch). When true, B&W + Original treatments play
-  /// the segmented raw file (Vision body-pop + dimmed background, same
-  /// mask the line drawing uses). When false, they play the untouched
-  /// archive — the practitioner sees exactly the colour file the
-  /// segmented variant was derived from. Defaults true to mirror the
-  /// web player.
-  ///
-  /// Persisted per-device under [_enhancedBackgroundPrefsKey] in
-  /// SharedPreferences — single global preference, not per-exercise —
-  /// hydrated in [initState] so the viewer opens on the practitioner's
-  /// last choice.
-  bool _enhancedBackground = true;
+  /// Wave 42 — Body Focus is now a per-exercise practitioner default
+  /// stored on `ExerciseCapture.bodyFocus`. The previous Wave 25
+  /// global per-device flag in SharedPreferences (key
+  /// [_enhancedBackgroundPrefsKey]) is retired as a source of truth;
+  /// see the [_enhancedBackground] getter below.
 
   /// Carl 2026-04-24: while a trim handle is being dragged, the video
   /// is paused and the practitioner can scrub. We remember whether
@@ -3310,12 +3301,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     // Seed from the current exercise's includeAudio (muted = !includeAudio).
     _isMuted = !_current.includeAudio;
     _initVideoForCurrent();
-    // Wave 25 — hydrate the Enhanced Background toggle from SharedPreferences
-    // off the main frame so initState stays sync. Once we know the persisted
-    // value, rebind the active video IF the resolved source path actually
-    // changes (segmented vs untouched archive). No flicker on the common
-    // case where the persisted value matches the default (true).
-    _hydrateEnhancedBackgroundPreference();
   }
 
   @override
@@ -3332,60 +3317,55 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     }
   }
 
-  /// Wave 25 — read the Enhanced Background toggle from SharedPreferences.
-  /// Async-safe: bails on `!mounted`. When the persisted value differs
-  /// from the in-memory default we rebind the active video so playback
-  /// switches sources without the practitioner having to tap the pill.
-  Future<void> _hydrateEnhancedBackgroundPreference() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final stored = prefs.getBool(_enhancedBackgroundPrefsKey);
-      if (stored == null || !mounted) return;
-      if (stored == _enhancedBackground) return;
-      setState(() => _enhancedBackground = stored);
-      // Only rebind if currently rendering a treatment that consults the
-      // toggle — Line is unaffected, so don't churn the controller.
-      if (_treatment != Treatment.line && _isVideo(_current)) {
-        _initVideoForCurrent();
-      }
-    } catch (e) {
-      debugPrint('MediaViewer: enhanced-bg pref hydrate failed — $e');
-    }
-  }
+  /// Wave 42 — Body Focus reads from the per-exercise
+  /// `bodyFocus` field. NULL → render with body-focus ON (the
+  /// pre-feature default; legacy rows stay unchanged on first open).
+  ///
+  /// Per-exercise: switching pages re-reads ITS OWN value, so the
+  /// pill state matches whatever the practitioner set on that
+  /// specific exercise.
+  bool get _enhancedBackground => _current.bodyFocus ?? true;
 
-  /// Whether the Enhanced Background toggle is meaningful for the current
-  /// exercise + treatment. Line drawings have no background to dim, so
-  /// the pill greys out + ignores taps when [_treatment] is
+  /// Whether the Body Focus pill is meaningful for the current
+  /// exercise + treatment. Line drawings have no background to dim,
+  /// so the pill greys out + ignores taps when [_treatment] is
   /// [Treatment.line]. Photos / rest rows hide the pill entirely (the
   /// build() guard piggy-backs on `_isVideo`).
   bool get _enhancedBackgroundEnabled => _treatment != Treatment.line;
 
-  /// Wave 25 — toggle the Enhanced Background pill. Writes to
-  /// SharedPreferences (fire-and-forget) and rebinds the active video
-  /// so the new source loads. Called only when the pill is enabled —
-  /// the build-time guard prevents taps when [_treatment] is
-  /// [Treatment.line].
+  /// Wave 42 — toggle the per-exercise Body Focus default. Writes to
+  /// the local `ExerciseCapture.bodyFocus` field, persists through
+  /// [LocalStorageService.saveExercise], bubbles to the parent so the
+  /// Studio card mirror stays in sync, propagates the new value into
+  /// the client's sticky defaults so the next new capture inherits
+  /// it, and rebinds the active video so the new source loads. Same
+  /// shape as the existing per-exercise mute / treatment writes.
   void _onEnhancedBackgroundToggle() {
     if (!_enhancedBackgroundEnabled) return;
     HapticFeedback.selectionClick();
-    setState(() => _enhancedBackground = !_enhancedBackground);
-    // Persist — fire-and-forget; the user has already seen the optimistic
-    // pill state change, no need to await.
+    final before = _current;
+    final next = !(before.bodyFocus ?? true);
+    final updated = before.copyWith(bodyFocus: next);
+    setState(() {
+      _exercises[_currentIndex] = updated;
+    });
+    final cb = widget.onExerciseUpdate;
+    if (cb != null) cb(updated);
     unawaited(
-      () async {
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool(
-            _enhancedBackgroundPrefsKey,
-            _enhancedBackground,
-          );
-        } catch (e) {
-          debugPrint('MediaViewer: enhanced-bg pref save failed — $e');
-        }
-      }(),
+      SyncService.instance.storage.saveExercise(updated).catchError((e, _) {
+        debugPrint('MediaViewer: saveExercise(bodyFocus) failed: $e');
+      }),
     );
-    // Rebind so the new source loads. _initVideoForCurrent rebuilds the
-    // controller from scratch — same pattern the treatment switch uses.
+    // Wave 42 — propagate into client sticky defaults so the next new
+    // capture inherits the latest choice.
+    StickyDefaults.recordOverride(
+      clientId: widget.session?.clientId,
+      field: StickyDefaults.fBodyFocus,
+      value: next,
+    );
+    // Rebind so the new source loads. _initVideoForCurrent rebuilds
+    // the controller from scratch — same pattern the treatment switch
+    // uses.
     if (_isVideo(_current)) {
       _initVideoForCurrent();
     }

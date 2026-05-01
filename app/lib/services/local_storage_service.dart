@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 33;
+  static const _dbVersion = 34;
 
   Database? _db;
 
@@ -127,6 +127,7 @@ class LocalStorageService {
         video_reps_per_loop INTEGER,
         aspect_ratio REAL,
         rotation_quarters INTEGER,
+        body_focus INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -874,6 +875,19 @@ class LocalStorageService {
           'pending_ops as part of v33 migration',
         );
       }
+    }
+    if (oldVersion < 34) {
+      // Wave 42 — per-exercise practitioner body-focus default.
+      //
+      // SQLite has no native BOOL — we store as INTEGER (1 = true, 0 =
+      // false, NULL = "no explicit choice; render with body-focus ON").
+      // Fresh installs get the column from [_createTables]; this path
+      // runs for upgraders crossing v33 → v34 only.
+      //
+      // Supabase mirror: schema_wave42_exercise_body_focus.sql.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN body_focus INTEGER',
+      );
     }
   }
 

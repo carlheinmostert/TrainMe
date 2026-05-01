@@ -258,6 +258,33 @@ class ExerciseCapture {
   /// (schema_wave28_landscape_metadata).
   final int? rotationQuarters;
 
+  /// Per-exercise practitioner body-focus default (Wave 42).
+  ///
+  /// Body Focus is the segmented body-pop look applied to the colour
+  /// treatments (B&W / Original): the body stays pristine while the
+  /// background dims. Up to Wave 25 this was a single per-device
+  /// SharedPreferences flag in the mobile preview that never reached
+  /// publish — every published plan rendered the web player's own
+  /// per-device default. Wave 42 promotes Body Focus to a per-exercise
+  /// practitioner default that publishes through, mirroring the
+  /// `preferredTreatment` plumbing.
+  ///
+  /// Semantics:
+  ///   * `null` → no explicit choice, render with body-focus ON (the
+  ///     pre-feature default). Every existing row migrates as null,
+  ///     preserving prior behaviour.
+  ///   * `true` / `false` → practitioner explicitly set the default.
+  ///
+  /// Per-exercise: moving to the next exercise in the deck doesn't
+  /// carry this forward. The web player layers a per-exercise CLIENT
+  /// override on top via `homefit.overrides::{planId}` localStorage —
+  /// that's a client-side concept and lives entirely in the browser.
+  ///
+  /// Persistence: local SQLite `exercises.body_focus` (schema v33,
+  /// stored as INTEGER 0/1) + Supabase `exercises.body_focus`
+  /// (schema_wave42_exercise_body_focus.sql, native BOOLEAN).
+  final bool? bodyFocus;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -290,6 +317,7 @@ class ExerciseCapture {
     this.videoRepsPerLoop,
     this.aspectRatio,
     this.rotationQuarters,
+    this.bodyFocus,
   });
 
   /// Create a new capture with a generated UUID.
@@ -399,6 +427,9 @@ class ExerciseCapture {
       videoRepsPerLoop: map['video_reps_per_loop'] as int?,
       aspectRatio: (map['aspect_ratio'] as num?)?.toDouble(),
       rotationQuarters: map['rotation_quarters'] as int?,
+      bodyFocus: map['body_focus'] != null
+          ? (map['body_focus'] as int) == 1
+          : null,
     );
   }
 
@@ -433,6 +464,7 @@ class ExerciseCapture {
       'video_reps_per_loop': videoRepsPerLoop,
       'aspect_ratio': aspectRatio,
       'rotation_quarters': rotationQuarters,
+      'body_focus': bodyFocus == null ? null : (bodyFocus! ? 1 : 0),
     };
   }
 
@@ -490,6 +522,8 @@ class ExerciseCapture {
     bool clearAspectRatio = false,
     int? rotationQuarters,
     bool clearRotationQuarters = false,
+    bool? bodyFocus,
+    bool clearBodyFocus = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -548,6 +582,8 @@ class ExerciseCapture {
       rotationQuarters: clearRotationQuarters
           ? null
           : (rotationQuarters ?? this.rotationQuarters),
+      bodyFocus:
+          clearBodyFocus ? null : (bodyFocus ?? this.bodyFocus),
     );
   }
 
