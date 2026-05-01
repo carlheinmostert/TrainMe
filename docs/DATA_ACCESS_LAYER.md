@@ -36,8 +36,10 @@ one file per surface that enumerates its allowed operations.
 Every surface gets exactly ONE file that wraps these primitives. No
 other file in that surface is permitted to call `supabase.from(...)`,
 `.rpc(...)`, `.storage.*`, or `fetch(...supabase.../rest/v1/...)`
-directly. Enforcement is convention + code review for MVP; an ESLint /
-`custom_lint` rule is a post-MVP sharpening.
+directly. Enforcement now runs in CI via
+`tools/enforce_data_access_seams.py`, with temporary carve-outs tracked in
+`tools/data_access_seam_exceptions.json` and documented in
+`docs/DATA_ACCESS_SEAM_EXCEPTIONS.md`.
 
 ## RPC inventory
 
@@ -237,11 +239,4 @@ When you add or change an `api.*` method:
   --simulator --dart-define=GIT_SHA=test`.
 - [ ] Web player: `node --check web-player/api.js && node --check
   web-player/app.js`.
-- [ ] Every consumer grep returns zero matches for direct Supabase
-  calls outside the api file:
-  - `grep -r "supabase\.from\|supabase\.rpc\|supabase\.storage"
-    web-portal/src/app web-portal/src/components`
-  - `grep -r "Supabase\.instance\.client\|_supabase\." app/lib` (should
-    only match `api_client.dart`)
-  - `grep -r "rest/v1/rpc" web-player/*.js` (should only match
-    `api.js`)
+- [ ] Seam guard passes: `python3 tools/enforce_data_access_seams.py`.

@@ -17,9 +17,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  data-access-seams:
+    name: Data access seams
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce Supabase seam boundaries
+        run: python3 tools/enforce_data_access_seams.py
+
   flutter-app:
     name: Flutter app
     runs-on: ubuntu-latest
+    needs: data-access-seams
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -40,6 +49,7 @@ jobs:
   web-portal:
     name: Web portal
     runs-on: ubuntu-latest
+    needs: data-access-seams
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -60,6 +70,7 @@ jobs:
   web-player:
     name: Web player
     runs-on: ubuntu-latest
+    needs: data-access-seams
     steps:
       - uses: actions/checkout@v4
       - name: node --check on web-player/*.js
