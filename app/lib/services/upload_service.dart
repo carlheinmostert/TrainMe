@@ -394,6 +394,12 @@ class PublishResult {
   bool get isNeedsConsentConfirmation =>
       !success && consentConfirmationClient != null;
 
+  /// UI hint shown on success when Step 0 consent preflight could not run.
+  String? get consentPreflightSkippedReason {
+    if (!success || !consentPreflightSkipped) return null;
+    return 'consent validation RPC unavailable';
+  }
+
   /// Human-readable error summary, suitable for snackbar display and storage
   /// in the `last_publish_error` column. Truncated to 500 chars.
   String toErrorString() {
