@@ -193,29 +193,29 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
     );
-    _animateSheetForTab(next);
+    _snapSheetForTab(next);
   }
 
   void _onPageChanged(int next) {
     if (next == _activeTabIndex) return;
     setState(() => _activeTabIndex = next);
-    _animateSheetForTab(next);
+    _snapSheetForTab(next);
   }
 
-  /// Round 3 — animate the sheet to the canonical detent for the given
+  /// Round 5 — hard-snap the sheet to the canonical detent for the given
   /// tab. Preview promotes to 0.95 (full canvas for the embedded media
   /// viewer); every other tab settles at 0.55 so the underlying screen
   /// stays partially visible.
-  void _animateSheetForTab(int tabIndex) {
+  ///
+  /// Uses [DraggableScrollableController.jumpTo] (instant) instead of
+  /// `animateTo`. Round 4 used a 240ms easeOutCubic animation, but the
+  /// PageView's swipe gesture feeds vertical pan deltas into the same
+  /// `DraggableScrollableSheet` and cancels the in-flight animation
+  /// mid-flight — leaving the sheet parked at intermediate sizes (~65%)
+  /// when the user swipes between tabs. Hard snap eliminates the race.
+  void _snapSheetForTab(int tabIndex) {
     if (!_sheetController.isAttached) return;
-    final target = _detentForTab(tabIndex);
-    final current = _sheetController.size;
-    if ((current - target).abs() < 0.005) return;
-    _sheetController.animateTo(
-      target,
-      duration: const Duration(milliseconds: 240),
-      curve: Curves.easeOutCubic,
-    );
+    _sheetController.jumpTo(_detentForTab(tabIndex));
   }
 
   void _emit(ExerciseCapture next) {
