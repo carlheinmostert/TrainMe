@@ -25,8 +25,6 @@ list tracks known legacy exceptions that still need cleanup.
 
 ### Web player (`/rest/v1/` outside `api.js`)
 
-- `web-player/app.js`
-  - One analytics event path still performs direct RPC fetch.
 - `web-player/middleware.js`
   - Edge middleware fetches plan metadata RPC for OG response shaping.
 - `web-player/sw.js`

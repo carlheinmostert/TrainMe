@@ -367,10 +367,11 @@
    *
    * Fire-and-forget; errors are logged but never thrown.
    */
-  async function logAnalyticsEvent(sessionId, eventKind, exerciseId, eventData) {
+  async function logAnalyticsEvent(sessionId, eventKind, exerciseId, eventData, options) {
     if (!sessionId || !eventKind) return;
     if (isLocalSurface()) return;
     try {
+      const keepalive = !!(options && options.keepalive);
       await fetch(
         `${SUPABASE_URL}/rest/v1/rpc/log_analytics_event`,
         {
@@ -386,6 +387,7 @@
             p_exercise_id: exerciseId || null,
             p_event_data: eventData || null,
           }),
+          keepalive,
         },
       );
     } catch (err) {

@@ -298,27 +298,15 @@ function installAnalyticsCloseHandler() {
       elapsed_ms: elapsed,
       slide_index_at_close: currentIndex,
     };
-    // Use fetch with keepalive for reliability on page close.
-    // keepalive allows the request to outlive the page. Fallback to
-    // fire-and-forget emitAnalyticsEvent if it throws.
+    // Route through the API seam with keepalive for page-close reliability.
+    // keepalive allows the request to outlive the page.
     try {
-      fetch(
-        window.HomefitApi.SUPABASE_URL + '/rest/v1/rpc/log_analytics_event',
-        {
-          method: 'POST',
-          headers: {
-            'apikey': window.HomefitApi.SUPABASE_ANON_KEY,
-            'Authorization': 'Bearer ' + window.HomefitApi.SUPABASE_ANON_KEY,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            p_session_id: analyticsSessionId,
-            p_event_kind: 'plan_closed',
-            p_exercise_id: null,
-            p_event_data: eventData,
-          }),
-          keepalive: true,
-        },
+      window.HomefitApi.logAnalyticsEvent(
+        analyticsSessionId,
+        'plan_closed',
+        null,
+        eventData,
+        { keepalive: true },
       );
     } catch (_) {
       emitAnalyticsEvent('plan_closed', null, eventData);
