@@ -5,33 +5,36 @@ import 'branded_slider_theme.dart';
 
 /// Stepped weight slider for the per-set DOSE table editor.
 ///
-/// Renders an N/A toggle on the left and a Material `Slider` on the
-/// right. Range is 0–200 kg in 2.5 kg increments (`divisions: 80`); the
-/// slider reports its current value via [onChanged] only when the
-/// active state is non-null. Toggling the N/A pill flips the value to
-/// `null` (bodyweight); a fresh tap from N/A → kg restores a sensible
-/// default (10 kg or the last-known value if the parent passes one in).
+/// Round 3 — chrome retired per Carl: no leading N/A toggle, no readout
+/// bubble, no trailing subtitle. The slider's leftmost stop (0 kg) is the
+/// bodyweight (N/A) state — drag to 0 to clear, drag right to dial in a
+/// load. The Material `Slider`'s built-in label-on-thumb shows the live
+/// value during drag.
 ///
-/// Mirrors `docs/design/mockups/exercise-card-dose-table.html` state 8
-/// (the weight editor with stepped ticks + bubble + N/A toggle).
+/// Range is 0–200 kg in 2.5 kg increments (`divisions: 80`); the slider
+/// reports `null` to the parent on the leftmost stop and the snapped kg
+/// value otherwise.
 class WeightSlider extends StatefulWidget {
   /// Current weight in kg, or `null` for bodyweight.
   final double? valueKg;
 
-  /// Fired when the practitioner adjusts the slider OR toggles N/A. The
-  /// parent should treat null as "bodyweight" — the same semantics the
-  /// `ExerciseSet.weightKg` field carries.
+  /// Fired when the practitioner adjusts the slider. The parent should
+  /// treat null as "bodyweight" — the same semantics the
+  /// `ExerciseSet.weightKg` field carries. The leftmost slider stop
+  /// (0 kg) is reported as null.
   final ValueChanged<double?> onChanged;
 
-  /// Default kg value used when toggling out of N/A. Falls back to 10 kg
-  /// if the caller doesn't pass anything.
+  /// Default kg value used as the slider's display when the persisted
+  /// value is null. Falls back to 0 (bodyweight) if the caller doesn't
+  /// pass anything. Mostly historical — Round 3 thumb starts at 0 by
+  /// default since 0 = N/A.
   final double restoreDefaultKg;
 
   const WeightSlider({
     super.key,
     required this.valueKg,
     required this.onChanged,
-    this.restoreDefaultKg = 10.0,
+    this.restoreDefaultKg = 0.0,
   });
 
   @override
@@ -48,63 +51,15 @@ class _WeightSliderState extends State<WeightSlider> {
 
   @override
   Widget build(BuildContext context) {
-    final isNa = widget.valueKg == null;
-    final activeKg = widget.valueKg ?? widget.restoreDefaultKg;
+    // Round 3 — null (bodyweight) renders as 0 on the slider; drag back
+    // to 0 emits null to the parent.
+    final activeKg = widget.valueKg ?? 0.0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Leading N/A toggle.
-            _NaToggleButton(
-              isActive: isNa,
-              onTap: _toggleNa,
-            ),
-            const SizedBox(width: 12),
-            // Trailing live readout — mirrors the mockup's bubble,
-            // simplified for inline use.
-            Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isNa
-                        ? Colors.transparent
-                        : AppColors.brandTintBg,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isNa
-                          ? AppColors.surfaceBorder
-                          : AppColors.brandTintBorder,
-                      width: 1,
-                    ),
-                  ),
-                  child: Text(
-                    isNa ? 'Bodyweight' : _formatKg(activeKg),
-                    style: TextStyle(
-                      fontFamily: 'JetBrainsMono',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: isNa
-                          ? AppColors.textSecondaryOnDark
-                          : AppColors.primary,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        // Slider — disabled when N/A is active (Material `Slider` greys
-        // itself out automatically when [onChanged] is null).
-        //
-        // Round 2 — wrap in a GestureDetector that claims horizontal pan
+        // Slider — Round 3 carries N/A semantics in its leftmost stop.
+        // Wrap in a GestureDetector that claims horizontal pan
         // explicitly. Inside the editor sheet, the host SingleChildScroll-
         // View / DraggableScrollableSheet was capturing pan gestures
         // before Slider's own HorizontalDragGestureRecognizer could win
@@ -129,20 +84,23 @@ class _WeightSliderState extends State<WeightSlider> {
               min: _kMin,
               max: _kMax,
               divisions: _kDivisions,
-              label: _formatKg(activeKg),
-              onChanged: isNa
-                  ? null
-                  : (v) => widget.onChanged(_snapToStep(v)),
+              label: _labelFor(activeKg),
+              onChanged: (v) {
+                final snapped = _snapToStep(v);
+                // Leftmost stop = bodyweight (null) by Round 3 spec.
+                widget.onChanged(snapped == 0 ? null : snapped);
+              },
             ),
           ),
         ),
-        // Tick axis — mono numerals at 0 / 50 / 100 / 150 / 200.
+        // Tick axis — mono numerals at 0 / 50 / 100 / 150 / 200. The
+        // leftmost '0' tick now reads as the N/A stop semantically.
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 10),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _AxisTick('0'),
+              _AxisTick('N/A'),
               _AxisTick('50'),
               _AxisTick('100'),
               _AxisTick('150'),
@@ -150,27 +108,8 @@ class _WeightSliderState extends State<WeightSlider> {
             ],
           ),
         ),
-        const SizedBox(height: 4),
-        const Text(
-          'drag · 2.5 kg steps · range 0–200 kg',
-          style: TextStyle(
-            fontFamily: 'JetBrainsMono',
-            fontSize: 10,
-            color: AppColors.textSecondaryOnDark,
-            letterSpacing: 0.3,
-          ),
-        ),
       ],
     );
-  }
-
-  void _toggleNa() {
-    if (widget.valueKg == null) {
-      // Restore to the configured default.
-      widget.onChanged(_snapToStep(widget.restoreDefaultKg));
-    } else {
-      widget.onChanged(null);
-    }
   }
 
   /// Snap to the nearest 2.5 kg step within [_kMin, _kMax].
@@ -180,55 +119,14 @@ class _WeightSliderState extends State<WeightSlider> {
     return stepped;
   }
 
-  String _formatKg(double kg) {
+  /// Format the slider's bubble label. 0 → 'N/A', whole kg → '15 kg',
+  /// half-step → '17.5 kg'.
+  String _labelFor(double kg) {
+    if (kg == 0) return 'N/A';
     if (kg == kg.roundToDouble()) {
       return '${kg.toStringAsFixed(0)} kg';
     }
     return '${kg.toStringAsFixed(1)} kg';
-  }
-}
-
-class _NaToggleButton extends StatelessWidget {
-  final bool isActive;
-  final VoidCallback onTap;
-
-  const _NaToggleButton({required this.isActive, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: isActive
-                ? Colors.black.withValues(alpha: 0.20)
-                : AppColors.surfaceBase,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: AppColors.surfaceBorder,
-              width: 1,
-            ),
-          ),
-          child: Text(
-            isActive ? '— N/A' : 'N/A',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: isActive
-                  ? AppColors.textSecondaryOnDark
-                  : AppColors.textOnDark,
-              letterSpacing: 0.4,
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 
