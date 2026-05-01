@@ -18,10 +18,10 @@ list tracks known legacy exceptions that still need cleanup.
 
 ### Web player (`/rest/v1/` outside `api.js`)
 
-- `web-player/middleware.js`
-  - Edge middleware fetches plan metadata RPC for OG response shaping.
-- `web-player/sw.js`
-  - Service worker checks `/rest/v1/` path to apply network-first policy.
+- None currently.  
+  Runtime infrastructure files are now handled explicitly in the seam guard:
+  - `web-player/middleware.js` is treated as an allowed edge-runtime seam for OG metadata RPC reads.
+  - `web-player/sw.js` no longer references `/rest/v1/` paths directly.
 
 ## Policy
 

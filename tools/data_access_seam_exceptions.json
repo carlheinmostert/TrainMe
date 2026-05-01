@@ -1,7 +1,4 @@
 {
   "last_updated": "2026-05-01",
-  "allowed_violations": [
-    "web_player_direct_rest|web-player/middleware.js|29|`${SUPABASE_URL}/rest/v1/rpc/get_plan_full`,",
-    "web_player_direct_rest|web-player/sw.js|88|const isRestApi = url.pathname.includes('/rest/v1/');"
-  ]
+  "allowed_violations": []
 }
