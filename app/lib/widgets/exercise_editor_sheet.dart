@@ -199,16 +199,24 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   void _onPageChanged(int next) {
     if (next == _activeTabIndex) return;
     setState(() => _activeTabIndex = next);
-    // Round 7 — defer the sheet snap one frame so the swipe gesture has
-    // fully released. Without this, jumpTo() from 0.95→0.55 instantly
-    // shrinks the sheet under an active touch; the residual vertical
-    // motion is then read as a drag past the dismiss floor and the
-    // sheet collapses entirely. Tab-strip taps (_switchTab) don't need
-    // the defer because the tap is over before the page animates.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+
+    // Round 8 — Round 7's addPostFrameCallback (~16ms defer) wasn't long
+    // enough; the user's finger remained on the touchscreen past that
+    // frame, and the residual vertical motion under the freshly-shrunk
+    // sheet was read as a drag past the dismiss floor. Listen to the
+    // PageController's scroll-settling notifier instead — guarantees
+    // the gesture and the page animation are BOTH done before snap fires.
+    final position = _pageController.position;
+    if (!position.isScrollingNotifier.value) {
       _snapSheetForTab(next);
-    });
+      return;
+    }
+    void onSettle() {
+      if (position.isScrollingNotifier.value) return;
+      position.isScrollingNotifier.removeListener(onSettle);
+      if (mounted) _snapSheetForTab(next);
+    }
+    position.isScrollingNotifier.addListener(onSettle);
   }
 
   /// Round 5 — hard-snap the sheet to the canonical detent for the given
