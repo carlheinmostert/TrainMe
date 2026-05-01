@@ -444,6 +444,13 @@ class PublishResult {
     if (e is PublishFailurePayload) return e.toClipboardText();
     return null;
   }
+
+  /// True when publish failed after debit and refund completion is unknown.
+  bool get networkFailureRefundOutcomeUnknown {
+    if (!isNetworkFailure) return false;
+    final e = error;
+    return e is PublishFailurePayload && e.refundOutcomeUnknown;
+  }
 }
 
 /// Handles uploading a completed plan to Supabase and generating a
