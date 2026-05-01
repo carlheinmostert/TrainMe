@@ -1,5 +1,5 @@
 # Sprint Board - Stabilization Wave
-Last updated: 2026-05-01 (T2 network diagnostics on `main`)
+Last updated: 2026-05-01 (T2 closed this sprint)
 Owner: Carl + Cursor agent
 Cadence: update on every PR open/merge and daily wrap
 
@@ -14,28 +14,9 @@ Cadence: update on every PR open/merge and daily wrap
 ## Ready
 
 ### Recommended next order
-1. **T2 publish reliability** — doc: `docs/T2_PUBLISH_RELIABILITY.md`; network-class UX: [`#167`](https://github.com/carlheinmostert/TrainMe/pull/167) merged. Remaining: per-class handling gaps in doc + link follow-up PRs.
-2. **T1 Flutter seam burn-down** — shrink [`tools/data_access_seam_exceptions.json`](../tools/data_access_seam_exceptions.json) allowlist + [`docs/DATA_ACCESS_SEAM_EXCEPTIONS.md`](DATA_ACCESS_SEAM_EXCEPTIONS.md); CI guard: `tools/enforce_data_access_seams.py` (`#163`).
+1. **T1 Flutter seam burn-down** — shrink [`tools/data_access_seam_exceptions.json`](../tools/data_access_seam_exceptions.json) allowlist + [`docs/DATA_ACCESS_SEAM_EXCEPTIONS.md`](DATA_ACCESS_SEAM_EXCEPTIONS.md); CI guard: `tools/enforce_data_access_seams.py` (`#163`).
+2. **Publish reliability hardening follow-up** — continue non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up”.
 3. **Stale PR re-triage** — revisit numbered PRs below on GitHub (don't infer merged state from this board alone).
-
----
-
-## In Progress
-
-### T2 - Publish Reliability Classification
-- Priority: P0
-- Effort: M
-- Owner: Mobile + Backend
-- Goal: Remove silent ambiguity in publish side effects.
-- Doc: [`docs/T2_PUBLISH_RELIABILITY.md`](T2_PUBLISH_RELIABILITY.md)
-- Done Criteria:
-  - [x] Classification table documented
-  - [ ] Handling behavior implemented for each class
-  - [x] User-visible/diagnostic status exposed — Studio uses curated `networkFailed` snackbar lines plus tap-to-copy diagnostics (`PublishFailurePayload`).
-  - [x] PR(s) linked — [`#166`](https://github.com/carlheinmostert/TrainMe/pull/166) (classification + board), [`#167`](https://github.com/carlheinmostert/TrainMe/pull/167) (network failure UX)
-  - [x] Verification checklist documented *(manual steps — [`Verification`](T2_PUBLISH_RELIABILITY.md#verification); no standalone script)*
-
-Gaps for unchecked criteria are spelled out under **Known ambiguity / gaps** in the linked doc.
 
 ---
 
@@ -52,6 +33,13 @@ Gaps for unchecked criteria are spelled out under **Known ambiguity / gaps** in 
 - `#165` merged — Cursor rule always ends finished-task replies with **What's next** (`.cursor/rules/trainme-whats-next.mdc`).
 - [`#166`](https://github.com/carlheinmostert/TrainMe/pull/166) merged — T2 classification doc + sprint board refresh.
 - [`#167`](https://github.com/carlheinmostert/TrainMe/pull/167) merged — curated `PublishFailurePayload` for publish `networkFailed` + Studio copy-to-clipboard diagnostics.
+- **T2 closed** — Publish Reliability Classification done for sprint scope:
+  - [x] Classification table documented ([`docs/T2_PUBLISH_RELIABILITY.md`](T2_PUBLISH_RELIABILITY.md))
+  - [x] Handling behavior implemented for documented classes (including structured `networkFailed` copy/diagnostics)
+  - [x] User-visible/diagnostic status exposed
+  - [x] PR(s) linked (`#166`, `#167`, this closeout PR)
+  - [x] Verification checklist documented
+- Residual non-blocking reliability edge-cases moved to [`docs/BACKLOG.md`](BACKLOG.md) (**T2 follow-up**).
 - **T3 Web Player Drift Guard:** `.github/workflows/web-player-drift-guard.yml` runs `python3 tools/check_web_player_drift.py` on PR + push to `main`; fails CI on hash drift between `web-player/*` and `app/assets/web-player/*`.
 
 ---

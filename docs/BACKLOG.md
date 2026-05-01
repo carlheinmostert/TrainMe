@@ -337,3 +337,35 @@ Short-term workaround: AirDrop a raw video from the iPhone to the Mac and drop i
 - **DB corruption recovery.** No recovery path today. Tied to backup/export above.
 - **Stolen / lost phone.** Published plans survive in the cloud; trainer's archive is local-only. The cloud raw-archive (Phase 2, post-auth) will solve this.
 - **Reinstall survival.** Relative paths via `PathResolver` plus schema migrations should hold. Worth one round of deliberate testing before MVP.
+
+---
+
+## T2 follow-up — publish durability hardening (post-sprint closeout)
+
+**Status:** Deferred follow-up after T2 closeout (`docs/T2_PUBLISH_RELIABILITY.md` +
+PRs `#166` / `#167`). Keep the classification/diagnostics milestone done, but
+track these deeper durability items explicitly.
+
+**Carry-over hardening scope:**
+
+1. **Version drift on partial failure after step 4.**
+   - Today `plans.version` can bump before a downstream failure returns
+     `PublishResult.networkFailed`.
+   - Decide mitigation: optimistic UX copy only vs transactional server-side
+     orchestration that guarantees version+exercise atomics.
+
+2. **`refund_credit` failure surfacing.**
+   - Current path is best-effort and swallow-by-design.
+   - Add an explicit practitioner/support signal when refund retry/reconcile is
+     required (without blocking publish retry UX).
+
+3. **Optional artifact failure visibility.**
+   - Raw-archive / segmented / mask / issuance failures are intentionally
+     non-blocking; evaluate whether low-noise UI telemetry is needed so
+     practitioners understand why some secondary treatments might lag.
+
+4. **Consent pre-flight observability under RPC outage.**
+   - Step 0 validation currently fails open to the server-side `consume_credit`
+     backstop (`P0003`).
+   - Consider adding a lightweight warning state when the pre-flight check is
+     skipped due to transport failure.
