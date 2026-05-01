@@ -2363,6 +2363,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
     if (!mounted) return;
     if (result.success) {
+      final consentCheckSkipped = result.consentPreflightSkippedReason;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Published \u2713'),
@@ -2396,6 +2397,24 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             ),
             backgroundColor: AppColors.primary,
             duration: const Duration(seconds: 8),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      if (consentCheckSkipped != null && consentCheckSkipped.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Published, but treatment-consent pre-check was skipped ($consentCheckSkipped). '
+              'Server guard still enforced consent.',
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                color: Colors.white,
+                fontSize: 13,
+              ),
+            ),
+            backgroundColor: AppColors.surfaceRaised,
+            duration: const Duration(seconds: 7),
             behavior: SnackBarBehavior.floating,
           ),
         );

@@ -299,6 +299,11 @@ class PublishResult {
   /// upload_service itself does NOT show UI.
   final List<String> fallbackSetExerciseIds;
 
+  /// Step 0 consent preflight warning — true when
+  /// `validate_plan_treatment_consent` failed and publish continued, relying
+  /// on server-side `consume_credit` P0003 as the backstop.
+  final bool consentPreflightSkipped;
+
   const PublishResult._({
     required this.success,
     this.url,
@@ -312,6 +317,7 @@ class PublishResult {
     this.unconsented,
     this.consentConfirmationClient,
     this.fallbackSetExerciseIds = const <String>[],
+    this.consentPreflightSkipped = false,
   });
 
   /// Successful publish.
@@ -320,6 +326,7 @@ class PublishResult {
     required int version,
     required int creditsCharged,
     List<String> fallbackSetExerciseIds = const <String>[],
+    bool consentPreflightSkipped = false,
   }) =>
       PublishResult._(
         success: true,
@@ -327,6 +334,7 @@ class PublishResult {
         version: version,
         creditsCharged: creditsCharged,
         fallbackSetExerciseIds: fallbackSetExerciseIds,
+        consentPreflightSkipped: consentPreflightSkipped,
       );
 
   /// Pre-flight validation failure. Nothing was uploaded; no plan state
@@ -385,6 +393,12 @@ class PublishResult {
   /// Convenience: was this a missing-consent-confirmation rejection?
   bool get isNeedsConsentConfirmation =>
       !success && consentConfirmationClient != null;
+
+  /// UI hint shown on success when Step 0 consent preflight could not run.
+  String? get consentPreflightSkippedReason {
+    if (!success || !consentPreflightSkipped) return null;
+    return 'consent validation RPC unavailable';
+  }
 
   /// Human-readable error summary, suitable for snackbar display and storage
   /// in the `last_publish_error` column. Truncated to 500 chars.
@@ -644,6 +658,7 @@ class UploadService {
     // failure doesn't block publish — the server-side guard still
     // catches any real violation via `consume_credit`'s P0003 path.
     // ------------------------------------------------------------------
+    bool consentPreflightSkipped = false;
     try {
       final violations = await _api.validatePlanTreatmentConsent(
         planId: session.id,
@@ -659,6 +674,11 @@ class UploadService {
     } catch (e) {
       // Swallow — the server-side consume_credit guard remains the
       // authoritative source of truth. Log for diagnostics only.
+      consentPreflightSkipped = true;
+      await _recordFailure(
+        session,
+        'Consent preflight skipped due to RPC failure; publish continued with consume_credit backstop.',
+      );
       debugPrint('UploadService: validate_plan_treatment_consent failed: $e');
     }
 
@@ -1177,6 +1197,7 @@ class UploadService {
         version: newVersion,
         creditsCharged: creditsToCharge,
         fallbackSetExerciseIds: fallbackSetIds,
+        consentPreflightSkipped: consentPreflightSkipped,
       );
     } catch (e) {
       // Clean up any storage objects we uploaded before the failure so a
