@@ -85,7 +85,8 @@ async function networkFirstStrategy(request) {
     // SECURITY: Never cache Supabase REST API responses — they contain PII
     // (client names, notes, plan data) that would persist indefinitely on any
     // device that ever loaded a plan. Only cache public media assets.
-    const isRestApi = url.pathname.includes('/rest/v1/');
+    const isRestApi = url.pathname.startsWith('/rest/')
+      && url.pathname.includes('/v1/');
     const isPublicMedia = url.pathname.includes('/storage/v1/object/public/media/');
 
     if (response.ok && !isRestApi && isPublicMedia) {

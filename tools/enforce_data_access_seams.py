@@ -41,7 +41,12 @@ RULES: tuple[Rule, ...] = (
         root=REPO_ROOT / "web-player",
         include_suffixes=(".js",),
         regex=re.compile(r"/rest/v1/"),
-        allowed_files={REPO_ROOT / "web-player" / "api.js"},
+        allowed_files={
+            REPO_ROOT / "web-player" / "api.js",
+            # Edge OG middleware needs a one-off anon-safe RPC call to shape
+            # bot unfurl HTML before the SPA bootstraps.
+            REPO_ROOT / "web-player" / "middleware.js",
+        },
     ),
     Rule(
         key="web_portal_direct_supabase_ops",
