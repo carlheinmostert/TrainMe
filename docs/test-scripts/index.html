@@ -165,11 +165,24 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-04-30-wave-per-set-dose-retest.html">
+          <div class="row">
+            <div>
+              <div class="name">1 · Retest — Per-set DOSE wave fixes (OUTDATED — pending rewrite)</div>
+              <div class="scope"><strong>STATUS:</strong> outdated. Rounds 4–8 (PRs #152–#156) reshaped the card layout (vertical-stack, icon-only buttons, popup-header inline-edit) and several items in this script no longer match what's on screen. Carl is testing on SHA <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">7768837</code> by ad-hoc bug-hunting. Rewrite this script after the 8-round stack lands. See <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">docs/CHECKPOINT_2026-05-01.md</code> for what shipped per round.</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-04-30-wave-per-set-dose.html">
           <div class="row">
             <div>
-              <div class="name">1 · Per-set DOSE table + tabbed bottom-sheet editor</div>
-              <div class="scope">Architectural shift. Exercise card collapses to a compact row (thumbnail + Dose / Notes / gear). All editing moves into a 4-tab bottom sheet (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Dose / Notes / Preview / Settings</code>) with two detents + drag-to-dismiss. DOSE goes per-set (new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">weight_kg</code> column + per-set <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">breather</code>). Web player rep-stack renders per-set with weight chips + change-load + end-of-exercise marker. <strong>22 items across 7 sections.</strong></div>
+              <div class="name">2 · Per-set DOSE table + tabbed bottom-sheet editor (full wave — original)</div>
+              <div class="scope">Original 22-item script. Items 16–22 (publish, web-player rendering, schema migration, regression, conversion) still need a pass on the new build.</div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>

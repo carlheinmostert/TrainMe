@@ -1,0 +1,48 @@
+{
+  "items": {
+    "1": {
+      "note": "1.2 fail, 1.3 pass",
+      "status": "fail"
+    },
+    "10": {
+      "note": "no test visible",
+      "status": "fail"
+    },
+    "11": {
+      "status": "pass"
+    },
+    "12": {
+      "note": "opens at 95%, there is no snap less than than",
+      "status": "fail"
+    },
+    "2": {
+      "status": "pass"
+    },
+    "3": {
+      "status": "pass"
+    },
+    "4": {
+      "note": "does not land at 55 it lands at 95, does not snap to 55 it dismisses",
+      "status": "fail"
+    },
+    "5": {
+      "note": "remove the 2 lines before and one after the slider.  make the zero level equivalent to N/A",
+      "status": "pass"
+    },
+    "6": {
+      "status": "pass"
+    },
+    "7": {
+      "note": "remove X at top right, move treatment tabs up so as not to overlap with the Body Focus and Rotate buttons",
+      "status": "pass"
+    },
+    "8": {
+      "note": "Actually I want the inline title editor removed from card and placed on the popup card.  This way the studio cards are not allowing any edit function",
+      "status": "pass"
+    },
+    "9": {
+      "note": "failing",
+      "status": "fail"
+    }
+  }
+}
