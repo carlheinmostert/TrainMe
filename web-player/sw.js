@@ -5,11 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-// MUST mirror the PLAYER_VERSION const in `web-player/app.js`. Both rev
-// together — bumping one without the other will leave the version label
-// stale on a freshly-cached client. Convention: keep `homefit-player-`
-// prefix here; drop it in PLAYER_VERSION.
-const CACHE_NAME = 'homefit-player-v82-wave42-overrides';
+const CACHE_NAME = 'homefit-player-v20-matrix-mark-loader';
 
 // App shell files — always cached
 const APP_SHELL = [
@@ -68,12 +64,7 @@ self.addEventListener('fetch', (event) => {
 
   // Media assets (images, videos from Supabase storage): cache on fetch
   if (isMediaRequest(request)) {
-    // Network-first for media. Cache-first caused stale/partial videos
-    // to persist when the client opened a plan before the publish upload
-    // fully completed — the SW cached the partial response and served it
-    // forever. Network-first always fetches the latest from CDN; cache
-    // is only a fallback when offline.
-    event.respondWith(networkFirstStrategy(request));
+    event.respondWith(cacheFirstStrategy(request));
     return;
   }
 

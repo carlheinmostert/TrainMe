@@ -29,7 +29,14 @@ class AppMotion {
   /// Progress bars, timer fills.
   static const Curve linear = Curves.linear;
 
-  // ── Pulse Mark rhythm ──
-  /// 1.4s = ~43bpm resting heartbeat. Slow, calm.
-  static const Duration pulseCycle = Duration(milliseconds: 1400);
+  // ── Shared loading rhythm ──
+  /// Matrix-mark spinner + skeleton sweep. 1.4s = ~43bpm — slow, calm.
+  /// Mirrors `motion.loop` in tokens.json.
+  static const Duration loopCycle = Duration(milliseconds: 1400);
+
+  /// Easing companion for [loopCycle]: cubic-bezier(0.4, 0, 0.6, 1).
+  static const Curve loopEasing = Curves.easeInOut;
+
+  @Deprecated('Use AppMotion.loopCycle — renamed in 1.2.0 when Pulse Mark retired.')
+  static const Duration pulseCycle = loopCycle;
 }
