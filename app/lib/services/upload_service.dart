@@ -299,6 +299,10 @@ class PublishResult {
   /// upload_service itself does NOT show UI.
   final List<String> fallbackSetExerciseIds;
 
+  /// Optional artifact warning — non-blocking raw-archive sidecar uploads had
+  /// one or more failures while main publish still succeeded.
+  final bool optionalArtifactsHadFailures;
+
   /// Step 0 consent preflight warning — true when
   /// `validate_plan_treatment_consent` failed and publish continued, relying
   /// on server-side `consume_credit` P0003 as the backstop.
@@ -317,6 +321,7 @@ class PublishResult {
     this.unconsented,
     this.consentConfirmationClient,
     this.fallbackSetExerciseIds = const <String>[],
+    this.optionalArtifactsHadFailures = false,
     this.consentPreflightSkipped = false,
   });
 
@@ -326,6 +331,7 @@ class PublishResult {
     required int version,
     required int creditsCharged,
     List<String> fallbackSetExerciseIds = const <String>[],
+    bool optionalArtifactsHadFailures = false,
     bool consentPreflightSkipped = false,
   }) =>
       PublishResult._(
@@ -334,6 +340,7 @@ class PublishResult {
         version: version,
         creditsCharged: creditsCharged,
         fallbackSetExerciseIds: fallbackSetExerciseIds,
+        optionalArtifactsHadFailures: optionalArtifactsHadFailures,
         consentPreflightSkipped: consentPreflightSkipped,
       );
 
@@ -398,6 +405,12 @@ class PublishResult {
   String? get consentPreflightSkippedReason {
     if (!success || !consentPreflightSkipped) return null;
     return 'consent validation RPC unavailable';
+  }
+
+  /// UI hint shown on success when optional raw-archive artifact uploads failed.
+  String? get optionalArtifactFailureReason {
+    if (!success || !optionalArtifactsHadFailures) return null;
+    return 'raw-archive upload incomplete';
   }
 
   /// Human-readable error summary, suitable for snackbar display and storage
@@ -1115,7 +1128,7 @@ class UploadService {
       // practitioner never waits on raw archive — they can re-publish to
       // back-fill later.
       // ----------------------------------------------------------------
-      await _uploadRawArchives(
+      final optionalArtifactsHadFailures = await _uploadRawArchives(
         session: session,
         practiceId: practiceId,
       );
@@ -1204,6 +1217,7 @@ class UploadService {
         version: newVersion,
         creditsCharged: creditsToCharge,
         fallbackSetExerciseIds: fallbackSetIds,
+        optionalArtifactsHadFailures: optionalArtifactsHadFailures,
         consentPreflightSkipped: consentPreflightSkipped,
       );
     } catch (e) {
@@ -1300,15 +1314,16 @@ class UploadService {
   /// lands, inline this call site into
   /// `ApiClient.uploadRawArchive({practiceId, planId, exerciseId, localPath})`
   /// which takes the same four inputs.
-  Future<void> _uploadRawArchives({
+  Future<bool> _uploadRawArchives({
     required Session session,
     required String practiceId,
   }) async {
+    var hadFailures = false;
     // Fast-path: if all exercises already uploaded, skip entirely.
     final nonRest = session.exercises.where((e) => !e.isRest).toList();
     if (nonRest.every((e) => e.rawArchiveUploadedAt != null)) {
       debugPrint('_uploadRawArchives: all previously uploaded — skipping entirely');
-      return;
+      return false;
     }
 
     // Some exercises need uploading. List existing files once.
@@ -1374,6 +1389,7 @@ class UploadService {
         swallow: true,
       );
       if (ok != true) {
+        hadFailures = true;
         // loudSwallow swallowed the throw. Keep the legacy on-device
         // breadcrumb so existing diagnostic tooling still sees it, even
         // though the primary signal now goes via log_error.
@@ -1458,7 +1474,7 @@ class UploadService {
         debugPrint('_uploadRawArchives: skip $segStoragePath (exists)');
         continue;
       }
-      await loudSwallow<bool>(
+      final ok = await loudSwallow<bool>(
         () async {
           await _api.uploadRawArchive(
             path: segStoragePath,
@@ -1478,6 +1494,7 @@ class UploadService {
         },
         swallow: true,
       );
+      if (ok != true) hadFailures = true;
     }
 
     // --- Photo raw upload (Wave 22) ---
@@ -1552,7 +1569,7 @@ class UploadService {
           debugPrint('_uploadRawArchives: skip photo $storagePath (exists)');
           continue;
         }
-        await loudSwallow<bool>(
+        final ok = await loudSwallow<bool>(
           () async {
             await _api.uploadRawArchive(
               path: storagePath,
@@ -1572,6 +1589,7 @@ class UploadService {
           },
           swallow: true,
         );
+        if (ok != true) hadFailures = true;
       }
     }
 
@@ -1613,7 +1631,7 @@ class UploadService {
         debugPrint('_uploadRawArchives: skip $maskStoragePath (exists)');
         continue;
       }
-      await loudSwallow<bool>(
+      final ok = await loudSwallow<bool>(
         () async {
           await _api.uploadRawArchive(path: maskStoragePath, file: maskFile);
           return true;
@@ -1629,7 +1647,9 @@ class UploadService {
         },
         swallow: true,
       );
+      if (ok != true) hadFailures = true;
     }
+    return hadFailures;
   }
 
   /// Append a raw-archive upload failure to `{Documents}/raw_archive_error.log`.
