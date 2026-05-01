@@ -2450,12 +2450,25 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       _showMissingMediaSnackBar(result.missingFiles?.length ?? 0);
       _scrollToFirstBrokenCard();
     } else {
+      final refundUnconfirmed = result.networkFailureRefundOutcomeUnknown;
       final errStr = result.toErrorString();
       setState(() => _publishError = errStr);
       _showPublishErrorSnackBar(
         errStr,
         clipboardDetail: result.networkFailureClipboardDetail,
       );
+      if (refundUnconfirmed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Credits may still be deducted. Check balance and contact support if it does not auto-reconcile.',
+            ),
+            duration: Duration(seconds: 8),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppColors.surfaceRaised,
+          ),
+        );
+      }
     }
   }
 
