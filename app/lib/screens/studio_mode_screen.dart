@@ -2451,6 +2451,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       _scrollToFirstBrokenCard();
     } else {
       final refundUnconfirmed = result.networkFailureRefundOutcomeUnknown;
+      final versionDriftWarning = result.networkFailureVersionDriftReason;
       final errStr = result.toErrorString();
       setState(() => _publishError = errStr);
       _showPublishErrorSnackBar(
@@ -2464,6 +2465,18 @@ class _StudioModeScreenState extends State<StudioModeScreen>
               'Credits may still be deducted. Check balance and contact support if it does not auto-reconcile.',
             ),
             duration: Duration(seconds: 8),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppColors.surfaceRaised,
+          ),
+        );
+      }
+      if (versionDriftWarning != null && versionDriftWarning.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$versionDriftWarning Share link may already point to this version.',
+            ),
+            duration: const Duration(seconds: 8),
             behavior: SnackBarBehavior.floating,
             backgroundColor: AppColors.surfaceRaised,
           ),
