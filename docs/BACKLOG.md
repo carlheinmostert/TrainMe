@@ -353,7 +353,7 @@ Short-term workaround: AirDrop a raw video from the iPhone to the Mac and drop i
 
 **Remaining carry-over:**
 
-1. **Version drift — mitigation decision.** Warnings exist; still choose **UX-only** vs **transactional server-side** orchestration so `plans.version` and exercise payloads advance atomically (no ambiguous halfway states).
+1. **Version drift — mitigation decision.** **Chosen (2026-05-02): UX-only + warnings/retry** unless production/support shows recurring broken-remote-state incidents; storage PUTs cannot share a Postgres transaction, so full atomicity is a larger saga/idempotency effort. Revisit if strict version+exercise coupling becomes a requirement.
 2. **`refund_credit` deeper surfacing.** RPC remains swallow-by-design on failure; add explicit **retry/reconcile/support** affordance without blocking publish retry (beyond balance-verification copy).
 3. **Optional artifact telemetry.** Snackbars cover visible lag on raw-archive paths; evaluate **logging/analytics/support pings** for segmented/mask/issuance gaps.
 
