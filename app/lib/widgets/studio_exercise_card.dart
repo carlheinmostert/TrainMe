@@ -50,10 +50,11 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
 
 /// Compact Studio Exercise Card — one row per non-rest exercise.
 ///
-/// Layout (mockup `docs/design/mockups/exercise-card-v2.html` states 1-5):
+/// Layout (Round 4 — vertical stack to the right of the thumbnail):
 ///
-///   [thumb 72×72] [title]                         [gear]
-///                 [Dose · summary] [Notes · …]
+///   [thumb 72×72] [title]                              [gear]
+///                 [🏋️  3 sets · 10 reps · @ 15kg · 5s]
+///                 [📝  First line of practitioner notes…]
 ///
 /// Tapping the thumbnail opens the editor sheet on the Preview tab.
 /// Tapping the Dose button opens it on the Dose tab. Tapping the Notes
@@ -122,7 +123,7 @@ class StudioExerciseCard extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: AppColors.surfaceBase,
             borderRadius: BorderRadius.circular(16),
@@ -403,34 +404,40 @@ class _TriggerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    // Round 4 — vertically stacked, full-width buttons. With ~285pt of
+    // bounded width on iPhone 14 base, the dose summary easily fits one
+    // line; pyramid sets across 4+ values may wrap to 2.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Expanded(
-          child: _TriggerButton(
-            label: 'Dose',
-            summary: doseSummary,
-            summaryStyle: const TextStyle(
-              fontFamily: 'JetBrainsMono',
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textSecondaryOnDark,
-            ),
-            onTap: onDoseTap,
+        _TriggerButton(
+          // 18pt is deliberately lighter than the gear's 20pt — the gear
+          // is the only "action" affordance on the card; these icons play
+          // the role of a label, not a button.
+          icon: Icons.fitness_center,
+          iconColor: AppColors.primary,
+          summary: doseSummary,
+          summaryStyle: const TextStyle(
+            fontFamily: 'JetBrainsMono',
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textSecondaryOnDark,
           ),
+          onTap: onDoseTap,
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _TriggerButton(
-            label: 'Notes',
-            summary: notesSummary ?? 'Add notes…',
-            summaryStyle: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textSecondaryOnDark,
-            ),
-            onTap: onNotesTap,
+        const SizedBox(height: 6),
+        _TriggerButton(
+          icon: Icons.note_alt_outlined,
+          iconColor: AppColors.textSecondaryOnDark,
+          summary: notesSummary ?? 'Add notes…',
+          summaryStyle: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textSecondaryOnDark,
           ),
+          onTap: onNotesTap,
         ),
       ],
     );
@@ -438,13 +445,15 @@ class _TriggerRow extends StatelessWidget {
 }
 
 class _TriggerButton extends StatelessWidget {
-  final String label;
+  final IconData icon;
+  final Color iconColor;
   final String summary;
   final TextStyle summaryStyle;
   final VoidCallback onTap;
 
   const _TriggerButton({
-    required this.label,
+    required this.icon,
+    required this.iconColor,
     required this.summary,
     required this.summaryStyle,
     required this.onTap,
@@ -452,22 +461,8 @@ class _TriggerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Round 3 P0 — defensive fallback. Round 2 retest reported the trigger
-    // row showing literally `Dose · ` / `Notes · ` with NOTHING after on
-    // device. Static analysis says `_doseSummary` always returns non-empty
-    // and `_notesSummary` is null-coalesced upstream to 'Add notes…', so
-    // the empty state shouldn't be reachable — but the device contradicts
-    // the code. Layout overflow is the remaining suspect: in the Round 2
-    // single-row layout, the summary `Expanded` got ~31pt of width on
-    // narrow buttons, which in some Flutter text-engine paths renders as
-    // empty (no ellipsis when there isn't room for the ellipsis glyph).
-    //
-    // Round 3 fix: stack label ABOVE summary so the summary gets the FULL
-    // button width to flex into, plus a hard fallback if the upstream
-    // string is somehow empty. The single-row + middot variant survived
-    // 1 round of testing but failed on retest; vertical stack is what the
-    // mockup `docs/design/mockups/exercise-card-v2.html` showed in the
-    // first place.
+    // Round 3 defensive fallback retained — `_doseSummary` should never
+    // return empty, but device QA contradicted code analysis once already.
     final visibleSummary = summary.isEmpty ? '—' : summary;
     return Material(
       color: Colors.transparent,
@@ -481,26 +476,18 @@ class _TriggerButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: AppColors.surfaceBorder, width: 1),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textSecondaryOnDark,
-                  letterSpacing: 0.6,
+              Icon(icon, size: 18, color: iconColor),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  visibleSummary,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: summaryStyle,
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                visibleSummary,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: summaryStyle,
               ),
             ],
           ),
