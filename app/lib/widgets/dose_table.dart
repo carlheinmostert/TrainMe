@@ -186,7 +186,7 @@ class _DoseTableState extends State<DoseTable> {
                 textAlign: TextAlign.center, style: headerStyle),
           ),
           Expanded(
-            flex: 2,
+            flex: 3,
             child: Text('HOLD',
                 textAlign: TextAlign.center, style: headerStyle),
           ),
@@ -271,7 +271,7 @@ class _DoseTableState extends State<DoseTable> {
                     ),
                   ),
                   Expanded(
-                    flex: 2,
+                    flex: 3,
                     child: _buildCellTap(
                       label: set.holdSeconds == 0
                           ? '—'
