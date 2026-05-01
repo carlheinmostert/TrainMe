@@ -18,6 +18,7 @@ Cadence: update on every PR open/merge and daily wrap
 - Effort: S
 - Owner: Web/Platform
 - Goal: Prevent divergence between `web-player/*` and `app/assets/web-player/*`.
+- Local check: `python3 tools/check_web_player_drift.py`
 - Done Criteria:
   - [ ] Sync/hash verification check in CI
   - [ ] Fails on drift
