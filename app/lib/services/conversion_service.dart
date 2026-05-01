@@ -313,6 +313,16 @@ class ConversionService extends ChangeNotifier {
               rotationQuarters: done.rotationQuarters ?? 0,
             );
           }
+
+          // Round 4 — point thumbnailPath at the raw photo so Studio /
+          // ClientSessions / Camera peek render the picture instead of
+          // the placeholder glyph. The video branch above does this via
+          // a dedicated extracted JPEG; for photos the raw IS already a
+          // JPEG/HEIC that Flutter's FileImage decodes natively — no
+          // separate extraction needed.
+          if (done.thumbnailPath == null && exercise.rawFilePath.isNotEmpty) {
+            done = done.copyWith(thumbnailPath: exercise.rawFilePath);
+          }
         }
 
         await _storage.saveExercise(done);

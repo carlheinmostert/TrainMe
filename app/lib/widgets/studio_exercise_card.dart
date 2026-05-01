@@ -217,7 +217,19 @@ class _Thumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String? thumbPath = exercise.absoluteThumbnailPath;
+    // Round 4 photo backfill — older photo rows in the DB never had a
+    // thumbnailPath set (only the video branch of the conversion service
+    // wrote one). Falling back to the raw path keeps existing photos
+    // visible without a recapture; FileImage decodes JPEG/HEIC directly.
+    String? thumbPath = exercise.absoluteThumbnailPath;
+    if ((thumbPath == null || !File(thumbPath).existsSync()) &&
+        exercise.mediaType == MediaType.photo &&
+        exercise.rawFilePath.isNotEmpty) {
+      final rawPath = exercise.absoluteRawFilePath;
+      if (File(rawPath).existsSync()) {
+        thumbPath = rawPath;
+      }
+    }
     final hasThumb = thumbPath != null && File(thumbPath).existsSync();
     // Width fixed at 72pt; height: double.infinity so an IntrinsicHeight
     // Row + CrossAxisAlignment.stretch stretches the thumbnail to match
