@@ -1,0 +1,1402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>homefit.studio — matrix logo motion lab</title>
+<style>
+/* motion-lab.css — page chrome for the motion lab (matches design system) */
+
+:root {
+  --bg: #0F1117;
+  --base: #1A1D27;
+  --raised: #242733;
+  --border: #2E3140;
+  --ink-primary: #F0F0F5;
+  --ink-secondary: #9CA3AF;
+  --ink-muted: #6B7280;
+  --coral: #FF6B35;
+  --coral-dark: #E85A24;
+  --coral-tint-bg: rgba(255, 107, 53, 0.12);
+  --coral-tint-border: rgba(255, 107, 53, 0.30);
+  --sage: #86EFAC;
+  --focus-ring: 0 0 0 3px rgba(255, 107, 53, 0.30);
+}
+
+* { box-sizing: border-box; }
+
+.num-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--ink-primary);
+  border-radius: 6px;
+  padding: 2px 6px;
+  width: 72px;
+  font: 600 12px "JetBrains Mono", Menlo, monospace;
+  margin-left: 8px;
+}
+.num-input:focus {
+  outline: none;
+  border-color: var(--coral);
+  box-shadow: var(--focus-ring);
+}
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink-primary);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 48px 32px 96px;
+}
+
+h1, h2, h3, h4 {
+  font-family: Montserrat, sans-serif;
+  color: var(--ink-primary);
+  letter-spacing: -0.3px;
+  margin: 0;
+}
+
+h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; }
+h2 { font-size: 20px; font-weight: 700; margin-top: 48px; margin-bottom: 16px; }
+h3 { font-size: 16px; font-weight: 600; }
+p { margin: 8px 0; color: var(--ink-secondary); }
+
+.meta {
+  color: var(--ink-muted);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+/* Control panel */
+.controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  background: var(--base);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  margin: 32px 0 48px;
+  position: sticky;
+  top: 16px;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.control-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.control-value {
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 13px;
+  color: var(--ink-primary);
+}
+
+input[type="range"] {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+}
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--coral);
+  border-radius: 50%;
+  margin-top: -6px;
+  cursor: pointer;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: var(--coral);
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+}
+input[type="range"]:focus {
+  outline: none;
+}
+input[type="range"]:focus::-webkit-slider-thumb {
+  box-shadow: var(--focus-ring);
+}
+
+button.btn {
+  background: var(--raised);
+  border: 1px solid var(--border);
+  color: var(--ink-primary);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 150ms cubic-bezier(0.2, 0, 0, 1), border-color 150ms;
+}
+button.btn:hover { background: #2d3040; }
+button.btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+button.btn.active {
+  background: var(--coral-tint-bg);
+  border-color: var(--coral-tint-border);
+  color: var(--coral);
+}
+button.btn.primary {
+  background: var(--coral);
+  border-color: var(--coral);
+  color: #fff;
+  font-weight: 600;
+}
+button.btn.primary:hover { background: var(--coral-dark); border-color: var(--coral-dark); }
+
+select.select {
+  background: var(--raised);
+  border: 1px solid var(--border);
+  color: var(--ink-primary);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%239CA3AF' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+}
+select.select:focus { outline: none; box-shadow: var(--focus-ring); }
+
+.btn-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Metaphor grid */
+.metaphor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 24px;
+}
+
+.metaphor-card {
+  background: var(--base);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.metaphor-card .stage {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 140px;
+}
+
+.metaphor-card .stage svg {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  display: block;
+}
+
+.metaphor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.metaphor-title {
+  font-family: Montserrat, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.metaphor-tag {
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 10px;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metaphor-desc {
+  font-size: 13px;
+  color: var(--ink-secondary);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.metaphor-ctx {
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-family: "JetBrains Mono", Menlo, monospace;
+}
+
+/* Scrubber */
+.scrubber-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.scrubber-row .time {
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--ink-secondary);
+  min-width: 48px;
+}
+
+/* Export section */
+.export {
+  margin-top: 64px;
+  background: var(--base);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.export h2 { margin-top: 0; }
+
+.export-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+
+.export pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  overflow-x: auto;
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-primary);
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.export pre .tag { color: #7dd3fc; }
+.export pre .attr { color: #c4b5fd; }
+.export pre .val { color: #fbbf24; }
+.export pre .comment { color: var(--ink-muted); font-style: italic; }
+
+.copy-btn-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--coral-tint-bg);
+  color: var(--coral);
+  border: 1px solid var(--coral-tint-border);
+  border-radius: 9999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: "JetBrains Mono", Menlo, monospace;
+}
+
+/* Scale previews */
+.scales-row {
+  display: flex;
+  gap: 32px;
+  align-items: center;
+  flex-wrap: wrap;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  margin-top: 16px;
+}
+
+.scale-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.scale-preview .label {
+  font-family: "JetBrains Mono", Menlo, monospace;
+  font-size: 10px;
+  color: var(--ink-muted);
+}
+
+/* Looping badge on scrubber */
+.loop-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-family: "JetBrains Mono", Menlo, monospace;
+}
+
+.loop-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+}
+.loop-dot.active { background: var(--sage); animation: breathe 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* Footer */
+footer {
+  margin-top: 64px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--ink-muted);
+  text-align: center;
+}
+footer a { color: var(--coral); text-decoration: none; }
+
+hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 48px 0;
+}
+
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel">
+// matrix-anim.jsx — the 5 motion metaphors as parameterized React components
+// Each renders an SVG matrix driven by a scalar progress `t` in [0,1].
+// Pure functions — no internal timers, so the parent can scrub freely.
+
+const { useMemo } = React;
+
+// --- Matrix geometry (viewBox 48×9.5) ---
+// Mirrors docs/design/project/logos/mark.svg byte-for-byte.
+const CORAL = "#FF6B35";
+const SAGE = "#86EFAC";
+const GHOST_OUTER = "#4B5563";
+const GHOST_MID = "#6B7280";
+const GHOST_INNER = "#9CA3AF";
+
+// Each pill: [x, y, w, h, rx, fill, role]
+// Role drives which metaphor touches which pills.
+const PILLS = [
+  // Left ghosts: outer → mid → inner
+  { x: 0,    y: 2.75, w: 2.5, h: 1.5, rx: 0.5, fill: GHOST_OUTER, role: "ghost-L-outer" },
+  { x: 4,    y: 2.45, w: 3.5, h: 2.1, rx: 0.7, fill: GHOST_MID,   role: "ghost-L-mid" },
+  { x: 9,    y: 2.15, w: 4.5, h: 2.7, rx: 0.9, fill: GHOST_INNER, role: "ghost-L-inner" },
+  // Circuit 2×2 (coral)
+  { x: 15,   y: 2,    w: 5,   h: 3,   rx: 1,   fill: CORAL,       role: "circuit-0" },
+  { x: 15,   y: 6.5,  w: 5,   h: 3,   rx: 1,   fill: CORAL,       role: "circuit-1" },
+  { x: 21.5, y: 2,    w: 5,   h: 3,   rx: 1,   fill: CORAL,       role: "circuit-2" },
+  { x: 21.5, y: 6.5,  w: 5,   h: 3,   rx: 1,   fill: CORAL,       role: "circuit-3" },
+  // Rest (sage)
+  { x: 28,   y: 2,    w: 5,   h: 3,   rx: 1,   fill: SAGE,        role: "rest" },
+  // Right ghosts: inner → mid → outer (mirror)
+  { x: 34.5, y: 2.15, w: 4.5, h: 2.7, rx: 0.9, fill: GHOST_INNER, role: "ghost-R-inner" },
+  { x: 40.5, y: 2.45, w: 3.5, h: 2.1, rx: 0.7, fill: GHOST_MID,   role: "ghost-R-mid" },
+  { x: 45.5, y: 2.75, w: 2.5, h: 1.5, rx: 0.5, fill: GHOST_OUTER, role: "ghost-R-outer" },
+];
+const BAND = { x: 14.5, y: 1, w: 12.5, h: 8.5, rx: 1.2, fill: CORAL, opacity: 0.15 };
+
+// --- Easing functions ---
+const Easing = {
+  standard:   t => 1 - Math.pow(1 - t, 3),                // cubic-bezier(0.2,0,0,1)-ish
+  emphasized: t => 1 - Math.pow(1 - t, 5),                // cubic-bezier(0.16,1,0.3,1)-ish
+  linear:     t => t,
+  bounce: t => {
+    const n1 = 7.5625, d1 = 2.75;
+    if (t < 1 / d1) return n1 * t * t;
+    if (t < 2 / d1) return n1 * (t -= 1.5 / d1) * t + 0.75;
+    if (t < 2.5 / d1) return n1 * (t -= 2.25 / d1) * t + 0.9375;
+    return n1 * (t -= 2.625 / d1) * t + 0.984375;
+  },
+};
+
+// --- Helpers ---
+// Segment a [0,1] progress into a sub-window [start,end] and apply easing.
+// Returns 0 before start, 1 after end, eased value in between.
+function seg(t, start, end, ease = Easing.standard) {
+  if (t <= start) return 0;
+  if (t >= end) return 1;
+  const u = (t - start) / (end - start);
+  return ease(u);
+}
+// Lerp scalar
+const lerp = (a, b, u) => a + (b - a) * u;
+
+// Render a pill with opacity + transform around its own center.
+function Pill({ pill, opacity = 1, scale = 1, dx = 0, dy = 0 }) {
+  const cx = pill.x + pill.w / 2;
+  const cy = pill.y + pill.h / 2;
+  // transform-origin is fill-box-like via translate-scale-translate
+  const tx = dx + cx * (1 - scale);
+  const ty = dy + cy * (1 - scale);
+  return (
+    <rect
+      x={pill.x}
+      y={pill.y}
+      width={pill.w}
+      height={pill.h}
+      rx={pill.rx}
+      fill={pill.fill}
+      opacity={opacity}
+      transform={`translate(${tx} ${ty}) scale(${scale})`}
+    />
+  );
+}
+function Band({ opacity = BAND.opacity, scale = 1 }) {
+  const cx = BAND.x + BAND.w / 2;
+  const cy = BAND.y + BAND.h / 2;
+  const tx = cx * (1 - scale);
+  const ty = cy * (1 - scale);
+  return (
+    <rect
+      x={BAND.x}
+      y={BAND.y}
+      width={BAND.w}
+      height={BAND.h}
+      rx={BAND.rx}
+      fill={BAND.fill}
+      opacity={opacity}
+      transform={`translate(${tx} ${ty}) scale(${scale})`}
+    />
+  );
+}
+
+// --- Metaphor 1: FOCUS ---
+// Ghost pills fade+scale in outer→inner, band blooms, circuit pops stagger L→R, rest lands last.
+function Focus({ t, ease = Easing.standard }) {
+  // Entry windows (of the full 0-1 timeline)
+  const outerWin  = [0.00, 0.28];
+  const midWin    = [0.10, 0.40];
+  const innerWin  = [0.22, 0.55];
+  const bandWin   = [0.40, 0.68];
+  const c0Win     = [0.55, 0.75];
+  const c1Win     = [0.60, 0.80];
+  const c2Win     = [0.65, 0.85];
+  const c3Win     = [0.70, 0.90];
+  const restWin   = [0.80, 1.00];
+
+  const windowMap = {
+    "ghost-L-outer": outerWin, "ghost-R-outer": outerWin,
+    "ghost-L-mid":   midWin,   "ghost-R-mid":   midWin,
+    "ghost-L-inner": innerWin, "ghost-R-inner": innerWin,
+    "circuit-0":     c0Win,
+    "circuit-1":     c1Win,
+    "circuit-2":     c2Win,
+    "circuit-3":     c3Win,
+    "rest":          restWin,
+  };
+
+  const bandU = seg(t, bandWin[0], bandWin[1], ease);
+
+  return (
+    <svg viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-label="homefit.studio matrix — focus">
+      <Band opacity={0.15 * bandU} scale={lerp(0.6, 1, bandU)} />
+      {PILLS.map(p => {
+        const [s, e] = windowMap[p.role];
+        const u = seg(t, s, e, ease);
+        return <Pill key={p.role} pill={p} opacity={u} scale={lerp(0.5, 1, u)} />;
+      })}
+    </svg>
+  );
+}
+
+// --- Metaphor 2: ASSEMBLE ---
+// All 11 pills drop in from scattered offsets, settle into final grid.
+function Assemble({ t, ease = Easing.standard }) {
+  // Deterministic per-role offsets — reads as chaos but is stable across renders.
+  const offsets = {
+    "ghost-L-outer": [-8, -6], "ghost-L-mid": [-6, 7], "ghost-L-inner": [-4, -8],
+    "circuit-0": [0, -9], "circuit-1": [-2, 10], "circuit-2": [2, -10], "circuit-3": [0, 9],
+    "rest": [0, -8],
+    "ghost-R-inner": [4, 8], "ghost-R-mid": [6, -7], "ghost-R-outer": [8, 6],
+  };
+  // Stagger by column index (approx x position) so it reads as an inward assembly.
+  const staggerByRole = {
+    "ghost-L-outer": 0.00, "ghost-R-outer": 0.00,
+    "ghost-L-mid":   0.08, "ghost-R-mid":   0.08,
+    "ghost-L-inner": 0.16, "ghost-R-inner": 0.16,
+    "circuit-0":     0.24, "circuit-1":     0.24,
+    "circuit-2":     0.32, "circuit-3":     0.32,
+    "rest":          0.40,
+  };
+  const windowLen = 0.55;
+  const bandU = seg(t, 0.25, 0.60, ease);
+
+  return (
+    <svg viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-label="homefit.studio matrix — assemble">
+      <Band opacity={0.15 * bandU} scale={lerp(0.8, 1, bandU)} />
+      {PILLS.map(p => {
+        const s = staggerByRole[p.role];
+        const e = Math.min(1, s + windowLen);
+        const u = seg(t, s, e, ease);
+        const [ox, oy] = offsets[p.role];
+        return (
+          <Pill
+            key={p.role}
+            pill={p}
+            opacity={u}
+            scale={1}
+            dx={ox * (1 - u)}
+            dy={oy * (1 - u)}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+// --- Metaphor 3: ROTATE-THROUGH (reel) ---
+// Pills slide horizontally as if on a reel; cycles, then settles on the canonical layout.
+// Effect: use translateX that cycles through a few full-width passes before resting at 0.
+function Reel({ t, ease = Easing.standard }) {
+  // Band + pills all translate together with a reel motion.
+  // Use a "settling" curve: 2 full 48-unit sweeps that damp out at the end.
+  // Eased t controls the position along a damped sine.
+  const u = ease(t);
+  // Damped oscillation: starts at -48*2 offset, ends at 0.
+  // Pre-final rest: 3 "cycles" of ±n dampening, final zero.
+  // Simpler: large offset * (1-u), but pulsing: offset * (1-u)^2 * cos(2π * 2 * u).
+  // Even simpler (reads as reel): offset goes -96 → 0 with three overshoots.
+  const envelope = Math.pow(1 - u, 2);
+  const osc = Math.cos(2 * Math.PI * 2.5 * u);
+  const dx = envelope * osc * 18 - (1 - u) * 2; // final DC offset goes to 0
+  const opacity = Math.min(1, u * 1.2);
+  const bandU = Math.max(0, (u - 0.3) / 0.7);
+
+  // Individual pill extra stagger: each row shifts differently based on vertical position
+  return (
+    <svg viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-label="homefit.studio matrix — reel">
+      <Band opacity={0.15 * bandU} scale={1} />
+      {PILLS.map((p, i) => {
+        // Stagger each pill slightly — odd/even rows shift in opposite directions.
+        const parity = i % 2 === 0 ? 1 : -1;
+        const personalDx = dx * (1 + 0.05 * i) + parity * envelope * 2;
+        return <Pill key={p.role} pill={p} opacity={opacity} dx={personalDx} />;
+      })}
+    </svg>
+  );
+}
+
+// --- Metaphor 4: TIMELINE SWEEP ---
+// A "playhead" sweeps L→R. Pills start dim (opacity 0.15), light to full as playhead crosses.
+// Band blooms when playhead enters circuit zone.
+function Sweep({ t, ease = Easing.standard }) {
+  const u = ease(t);
+  // Playhead X in viewBox units, 0 → 48.
+  const playheadX = u * 48;
+
+  // Per-pill: map pill's center-x to a "wake up" moment.
+  // When playhead crosses center, opacity transitions from 0.15 → 1 over a small window.
+  const wakeWindow = 3; // viewBox units
+
+  const bandEntered = (playheadX - BAND.x) / BAND.w;
+  const bandU = Math.max(0, Math.min(1, bandEntered));
+
+  return (
+    <svg viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-label="homefit.studio matrix — sweep">
+      <Band opacity={lerp(0.08, 0.22, bandU)} scale={1} />
+      {PILLS.map(p => {
+        const cx = p.x + p.w / 2;
+        const dist = playheadX - cx;
+        // Before wake window: 0.15. Inside window: ramp to 1. After: 1.
+        let opacity;
+        if (dist < -wakeWindow) opacity = 0.2;
+        else if (dist > 0) opacity = 1;
+        else opacity = lerp(0.2, 1, (dist + wakeWindow) / wakeWindow);
+        return <Pill key={p.role} pill={p} opacity={opacity} />;
+      })}
+      {/* Playhead — subtle vertical coral line */}
+      {u > 0.01 && u < 0.99 && (
+        <line
+          x1={playheadX} y1={0.2} x2={playheadX} y2={9.3}
+          stroke={CORAL} strokeWidth={0.15} opacity={0.6}
+        />
+      )}
+    </svg>
+  );
+}
+
+// --- Metaphor 5: BREATHE + PULSE ---
+// Static layout. Coral pills gently scale 1 → 1.04 → 1. Band opacity breathes.
+// 1.4s cycle at loop speed (matches motion.loop token).
+// Drive from t which the parent loops.
+function Breathe({ t }) {
+  // t is [0,1) looped. Use sin for smooth breathe.
+  const phase = Math.sin(t * Math.PI * 2);
+  // Coral pills scale: 1.0 ± 0.04
+  const coralScale = 1 + phase * 0.04;
+  // Band opacity: 0.15 ± 0.08
+  const bandOpacity = 0.15 + phase * 0.08;
+  // Ghost pills: tiny opacity breath 1.0 ± 0.1
+  const ghostOpacity = 1 - Math.abs(phase) * 0.1;
+
+  return (
+    <svg viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-label="homefit.studio matrix — breathe">
+      <Band opacity={bandOpacity} scale={1 + phase * 0.015} />
+      {PILLS.map(p => {
+        if (p.fill === CORAL) {
+          return <Pill key={p.role} pill={p} scale={coralScale} />;
+        }
+        if (p.fill === SAGE) {
+          return <Pill key={p.role} pill={p} scale={1 + phase * 0.02} />;
+        }
+        return <Pill key={p.role} pill={p} opacity={ghostOpacity} />;
+      })}
+    </svg>
+  );
+}
+
+// --- Metaphor 6: REVOLVE ---
+// The matrix stays put. An invisible globe sits behind it. The pills are
+// beads threaded on the equator of that globe: as the globe rotates, each
+// pill slides rightward through the matrix window, disappears off the right
+// edge (receding around the far side of the globe), and reappears from the
+// left edge (coming back over the horizon). At any instant the matrix looks
+// like a marquee wrapping around itself.
+//
+// The edge-fade (pills near the viewport edges fading to 0) sells the
+// curvature — pills there read as "receding over the horizon" rather than
+// being hard-clipped.
+function Revolve({ t, ease = Easing.standard }) {
+  const WIDTH = 48;
+  const FADE = 6; // px of fade at each edge
+  const dx = (t * WIDTH) % WIDTH; // 0..48 over one cycle
+
+  // Per-pill: draw it at shifted position, plus a wraparound ghost one
+  // full width to the left so pills that have wrapped around reappear
+  // seamlessly on the other side.
+  const fadeAt = (centerX) => {
+    if (centerX <= 0 || centerX >= WIDTH) return 0;
+    const left = Math.min(1, centerX / FADE);
+    const right = Math.min(1, (WIDTH - centerX) / FADE);
+    return Math.max(0, Math.min(left, right));
+  };
+
+  const renderPill = (pill, xShift, keyPrefix) => {
+    const x = pill.x + xShift;
+    const centerX = x + pill.w / 2;
+    const op = fadeAt(centerX);
+    if (op <= 0.01) return null;
+    return (
+      <rect
+        key={keyPrefix + pill.role}
+        x={x}
+        y={pill.y}
+        width={pill.w}
+        height={pill.h}
+        rx={pill.rx}
+        fill={pill.fill}
+        opacity={op}
+      />
+    );
+  };
+
+  return (
+    <svg viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-label="homefit.studio matrix — revolve" overflow="hidden" style={{ overflow: "hidden" }}>
+      {/* The band stays pinned — it's the "window" onto the orbit */}
+      <Band/>
+      {PILLS.map(pill => (
+        <React.Fragment key={pill.role}>
+          {renderPill(pill, dx, "a-")}
+          {renderPill(pill, dx - WIDTH, "b-")}
+        </React.Fragment>
+      ))}
+    </svg>
+  );
+}
+
+// --- Metaphor 7: SESSION ---
+// A real training session playing out in the matrix. The 4 circuit chips
+// (2×2) and the rest chip fill up like progress bars in sequence:
+//   TL → TR → BL → BR → REST
+// Each active chip begins as a dim "empty" placeholder and fills left-to-right
+// as its segment runs. Ghost pills stay put — they're context, not part of
+// the workout. Reads as "the session actually happening".
+function Session({ t, ease = Easing.standard, restFraction = 0.2 }) {
+  // Segment map: [role, startT, endT]. The 4 circuit chips share the non-rest
+  // fraction equally; the rest chip takes restFraction at the end.
+  const circuitTotal = Math.max(0.05, 1 - restFraction);
+  const per = circuitTotal / 4;
+  const segments = [
+    ["circuit-0", 0 * per,                         1 * per],
+    ["circuit-2", 1 * per,                         2 * per],
+    ["circuit-1", 2 * per,                         3 * per],
+    ["circuit-3", 3 * per,                         4 * per],
+    ["rest",      circuitTotal,                    1.0],
+  ];
+  const progressFor = role => {
+    const s = segments.find(s => s[0] === role);
+    if (!s) return null;
+    const [, t0, t1] = s;
+    if (t < t0) return 0;
+    if (t > t1) return 1;
+    return ease((t - t0) / (t1 - t0));
+  };
+
+  return (
+    <svg viewBox="0 0 48 9.5" xmlns="http://www.w3.org/2000/svg" aria-label="homefit.studio matrix — session">
+      <Band/>
+      {PILLS.map(pill => {
+        const progress = progressFor(pill.role);
+        if (progress === null) {
+          // Ghost pill — static
+          return <Pill key={pill.role} pill={pill}/>;
+        }
+        // Active chip: background placeholder + growing fill
+        const filledW = pill.w * progress;
+        return (
+          <g key={pill.role}>
+            <rect
+              x={pill.x} y={pill.y} width={pill.w} height={pill.h}
+              rx={pill.rx} fill={pill.fill} opacity={0.22}
+            />
+            {filledW > 0.01 && (
+              <rect
+                x={pill.x} y={pill.y} width={filledW} height={pill.h}
+                rx={pill.rx} fill={pill.fill}
+              />
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// Export all metaphor renderers
+window.MatrixAnim = {
+  Focus, Assemble, Reel, Sweep, Breathe, Revolve, Session,
+  Easing, PILLS, BAND, seg, lerp,
+};
+
+</script>
+<script type="text/babel">
+// export-svg.jsx — serialise each metaphor as a self-contained animated SVG
+// using SMIL <animate> / <animateTransform> tags. These work offline, in
+// OG cards, in email templates, etc. No JS dependency.
+
+// The serialisers below regenerate an SVG string that, when rendered by any
+// SVG-capable tool, plays the animation natively. Uses attribute interpolation
+// with values lists + keyTimes + calcMode="spline" for easing.
+
+const CORAL_E = "#FF6B35";
+const SAGE_E = "#86EFAC";
+const PILLS_E = [
+  { x: 0, y: 2.75, w: 2.5, h: 1.5, rx: 0.5, fill: "#4B5563", role: "ghost-L-outer" },
+  { x: 4, y: 2.45, w: 3.5, h: 2.1, rx: 0.7, fill: "#6B7280", role: "ghost-L-mid" },
+  { x: 9, y: 2.15, w: 4.5, h: 2.7, rx: 0.9, fill: "#9CA3AF", role: "ghost-L-inner" },
+  { x: 15, y: 2, w: 5, h: 3, rx: 1, fill: CORAL_E, role: "circuit-0" },
+  { x: 15, y: 6.5, w: 5, h: 3, rx: 1, fill: CORAL_E, role: "circuit-1" },
+  { x: 21.5, y: 2, w: 5, h: 3, rx: 1, fill: CORAL_E, role: "circuit-2" },
+  { x: 21.5, y: 6.5, w: 5, h: 3, rx: 1, fill: CORAL_E, role: "circuit-3" },
+  { x: 28, y: 2, w: 5, h: 3, rx: 1, fill: SAGE_E, role: "rest" },
+  { x: 34.5, y: 2.15, w: 4.5, h: 2.7, rx: 0.9, fill: "#9CA3AF", role: "ghost-R-inner" },
+  { x: 40.5, y: 2.45, w: 3.5, h: 2.1, rx: 0.7, fill: "#6B7280", role: "ghost-R-mid" },
+  { x: 45.5, y: 2.75, w: 2.5, h: 1.5, rx: 0.5, fill: "#4B5563", role: "ghost-R-outer" },
+];
+// SMIL keySplines for cubic-bezier(0.2, 0, 0, 1) — the "standard" easing
+const SPLINE_STANDARD = "0.2 0 0 1";
+const SPLINE_EMPHASIZED = "0.16 1 0.3 1";
+
+// Helper: build a fade-in animate tag with a delay + duration as fractions of totalDur
+function fadeIn(startFrac, endFrac, totalDurMs) {
+  const begin = (startFrac * totalDurMs).toFixed(0);
+  const dur = ((endFrac - startFrac) * totalDurMs).toFixed(0);
+  return `<animate attributeName="opacity" from="0" to="1" begin="${begin}ms" dur="${dur}ms" fill="freeze" calcMode="spline" keySplines="${SPLINE_STANDARD}" keyTimes="0;1"/>`;
+}
+
+// --- FOCUS serialiser ---
+function exportFocus(totalDurMs = 1400) {
+  const windows = {
+    "ghost-L-outer": [0.00, 0.28], "ghost-R-outer": [0.00, 0.28],
+    "ghost-L-mid":   [0.10, 0.40], "ghost-R-mid":   [0.10, 0.40],
+    "ghost-L-inner": [0.22, 0.55], "ghost-R-inner": [0.22, 0.55],
+    "circuit-0":     [0.55, 0.75],
+    "circuit-1":     [0.60, 0.80],
+    "circuit-2":     [0.65, 0.85],
+    "circuit-3":     [0.70, 0.90],
+    "rest":          [0.80, 1.00],
+  };
+  const bandWin = [0.40, 0.68];
+
+  const pillSvg = PILLS_E.map(p => {
+    const [s, e] = windows[p.role];
+    return `  <rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="${p.rx}" fill="${p.fill}" opacity="0">
+    ${fadeIn(s, e, totalDurMs)}
+  </rect>`;
+  }).join("\n");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 9.5" width="480" height="95" role="img" aria-label="homefit.studio matrix mark — focus animation">
+  <!-- Circuit tint band -->
+  <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0">
+    ${fadeIn(bandWin[0], bandWin[1], totalDurMs).replace('to="1"', 'to="0.15"')}
+  </rect>
+${pillSvg}
+</svg>`;
+}
+
+// --- ASSEMBLE serialiser ---
+// Uses animateTransform on translate + animate on opacity.
+function exportAssemble(totalDurMs = 1400) {
+  const offsets = {
+    "ghost-L-outer": [-8, -6], "ghost-L-mid": [-6, 7], "ghost-L-inner": [-4, -8],
+    "circuit-0": [0, -9], "circuit-1": [-2, 10], "circuit-2": [2, -10], "circuit-3": [0, 9],
+    "rest": [0, -8],
+    "ghost-R-inner": [4, 8], "ghost-R-mid": [6, -7], "ghost-R-outer": [8, 6],
+  };
+  const staggerByRole = {
+    "ghost-L-outer": 0.00, "ghost-R-outer": 0.00,
+    "ghost-L-mid":   0.08, "ghost-R-mid":   0.08,
+    "ghost-L-inner": 0.16, "ghost-R-inner": 0.16,
+    "circuit-0": 0.24, "circuit-1": 0.24, "circuit-2": 0.32, "circuit-3": 0.32,
+    "rest": 0.40,
+  };
+  const windowLen = 0.55;
+
+  const pillSvg = PILLS_E.map(p => {
+    const s = staggerByRole[p.role];
+    const e = Math.min(1, s + windowLen);
+    const [ox, oy] = offsets[p.role];
+    const beginMs = (s * totalDurMs).toFixed(0);
+    const durMs = ((e - s) * totalDurMs).toFixed(0);
+    return `  <g transform="translate(${ox} ${oy})">
+    <animateTransform attributeName="transform" type="translate" from="${ox} ${oy}" to="0 0" begin="${beginMs}ms" dur="${durMs}ms" fill="freeze" calcMode="spline" keySplines="${SPLINE_STANDARD}" keyTimes="0;1"/>
+    <rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="${p.rx}" fill="${p.fill}" opacity="0">
+      <animate attributeName="opacity" from="0" to="1" begin="${beginMs}ms" dur="${durMs}ms" fill="freeze"/>
+    </rect>
+  </g>`;
+  }).join("\n");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 9.5" width="480" height="95" role="img" aria-label="homefit.studio matrix mark — assemble animation">
+  <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0">
+    <animate attributeName="opacity" from="0" to="0.15" begin="${(0.25 * totalDurMs).toFixed(0)}ms" dur="${(0.35 * totalDurMs).toFixed(0)}ms" fill="freeze"/>
+  </rect>
+${pillSvg}
+</svg>`;
+}
+
+// --- SWEEP serialiser (timeline sweep) ---
+function exportSweep(totalDurMs = 1400) {
+  const pillSvg = PILLS_E.map(p => {
+    // Wake moment = when playhead (x goes 0→48) reaches pill centre.
+    const cx = p.x + p.w / 2;
+    const wakeFrac = cx / 48;
+    const wakeWidth = 3 / 48;
+    const begin = (Math.max(0, wakeFrac - wakeWidth) * totalDurMs).toFixed(0);
+    const dur = (wakeWidth * totalDurMs).toFixed(0);
+    return `  <rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="${p.rx}" fill="${p.fill}" opacity="0.2">
+    <animate attributeName="opacity" from="0.2" to="1" begin="${begin}ms" dur="${dur}ms" fill="freeze"/>
+  </rect>`;
+  }).join("\n");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 9.5" width="480" height="95" role="img" aria-label="homefit.studio matrix mark — timeline sweep animation">
+  <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.08">
+    <animate attributeName="opacity" values="0.08;0.22" keyTimes="0;1" begin="${(14.5 / 48 * totalDurMs).toFixed(0)}ms" dur="${(12.5 / 48 * totalDurMs).toFixed(0)}ms" fill="freeze"/>
+  </rect>
+${pillSvg}
+  <!-- Playhead -->
+  <line x1="0" y1="0.2" x2="0" y2="9.3" stroke="#FF6B35" stroke-width="0.15" opacity="0.6">
+    <animate attributeName="x1" from="0" to="48" dur="${totalDurMs}ms" fill="freeze"/>
+    <animate attributeName="x2" from="0" to="48" dur="${totalDurMs}ms" fill="freeze"/>
+    <animate attributeName="opacity" values="0;0.6;0.6;0" keyTimes="0;0.05;0.95;1" dur="${totalDurMs}ms" fill="freeze"/>
+  </line>
+</svg>`;
+}
+
+// --- BREATHE serialiser (looping idle) ---
+function exportBreathe(durMs = 1400) {
+  // Coral pills scale 1 → 1.04 → 1 looping. Band opacity 0.07 → 0.23 → 0.07 looping.
+  const pillSvg = PILLS_E.map(p => {
+    const cx = p.x + p.w / 2;
+    const cy = p.y + p.h / 2;
+    if (p.fill === CORAL_E) {
+      // Scale around own center via translate-scale-translate
+      return `  <g>
+    <rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="${p.rx}" fill="${p.fill}" transform-origin="${cx} ${cy}">
+      <animateTransform attributeName="transform" type="scale" values="1;1.04;1" keyTimes="0;0.5;1" dur="${durMs}ms" repeatCount="indefinite" additive="sum"/>
+    </rect>
+  </g>`;
+    }
+    if (p.fill === SAGE_E) {
+      return `  <rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="${p.rx}" fill="${p.fill}" transform-origin="${cx} ${cy}">
+    <animateTransform attributeName="transform" type="scale" values="1;1.02;1" keyTimes="0;0.5;1" dur="${durMs}ms" repeatCount="indefinite" additive="sum"/>
+  </rect>`;
+    }
+    return `  <rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="${p.rx}" fill="${p.fill}">
+    <animate attributeName="opacity" values="1;0.9;1" keyTimes="0;0.5;1" dur="${durMs}ms" repeatCount="indefinite"/>
+  </rect>`;
+  }).join("\n");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 9.5" width="480" height="95" role="img" aria-label="homefit.studio matrix mark — idle breathe">
+  <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35">
+    <animate attributeName="opacity" values="0.07;0.23;0.07" keyTimes="0;0.5;1" dur="${durMs}ms" repeatCount="indefinite"/>
+  </rect>
+${pillSvg}
+</svg>`;
+}
+
+// --- REEL serialiser (rotate-through settling) ---
+// True reel motion via SMIL is awkward (needs a damped-oscillation values list);
+// we approximate with a small keyframes list over the duration.
+function exportReel(totalDurMs = 1400) {
+  // Damped oscillation samples — 11 keyframes of dx over the duration.
+  const samples = [];
+  for (let i = 0; i <= 10; i++) {
+    const u = i / 10;
+    const envelope = Math.pow(1 - u, 2);
+    const osc = Math.cos(2 * Math.PI * 2.5 * u);
+    const dx = envelope * osc * 18 - (1 - u) * 2;
+    samples.push(dx.toFixed(2));
+  }
+  const keyTimes = Array.from({ length: 11 }, (_, i) => (i / 10).toFixed(2)).join(";");
+  const values = samples.join(";") + " ";
+  // Actually we need translate values as "dx 0"
+  const transValues = samples.map(v => `${v} 0`).join(";");
+
+  const pillSvg = PILLS_E.map((p, i) => {
+    const parity = i % 2 === 0 ? 1 : -1;
+    // Each pill's translate series scaled + parity-flipped
+    const pVals = samples.map(v => {
+      const base = parseFloat(v);
+      const extra = parity * Math.pow(1 - parseFloat(keyTimes.split(";")[samples.indexOf(v)]), 2) * 2;
+      return `${(base * (1 + 0.05 * i) + extra).toFixed(2)} 0`;
+    }).join(";");
+    return `  <rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="${p.rx}" fill="${p.fill}" opacity="0">
+    <animate attributeName="opacity" values="0;1" keyTimes="0;0.6" dur="${totalDurMs}ms" fill="freeze"/>
+    <animateTransform attributeName="transform" type="translate" values="${pVals}" keyTimes="${keyTimes}" dur="${totalDurMs}ms" fill="freeze"/>
+  </rect>`;
+  }).join("\n");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 9.5" width="480" height="95" role="img" aria-label="homefit.studio matrix mark — reel animation">
+  <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0">
+    <animate attributeName="opacity" values="0;0.15" keyTimes="0;1" begin="${(0.3 * totalDurMs).toFixed(0)}ms" dur="${(0.7 * totalDurMs).toFixed(0)}ms" fill="freeze"/>
+  </rect>
+${pillSvg}
+</svg>`;
+}
+
+// --- REVOLVE serialiser (marquee wrap with edge fade) ---
+// The matrix window stays put. Each pill is drawn twice (current + one
+// width earlier) and animated sliding rightward; fade-in/out curves keep
+// the pills invisible past the viewport edges. Infinite loop.
+function exportRevolve(durMs = 1400) {
+  const WIDTH = 48;
+  const FADE = 6;
+  const N = 33;
+  const keyTimes = [];
+  for (let i = 0; i <= N; i++) keyTimes.push((i / N).toFixed(4));
+
+  // Opacity curve for a pill whose center-x follows cx(p) = base + p*WIDTH (mod WIDTH)
+  // is piecewise: fade in over FADE at left, stay 1, fade out over FADE at right.
+  // Per-pill, for each copy (a and b = shift -WIDTH), emit a translate animation
+  // (single component moving rightward by WIDTH) and an opacity list sampled
+  // along the trajectory.
+  const makePillAnim = (pill, shiftAtT0) => {
+    const translates = [];
+    const opacities = [];
+    for (let i = 0; i <= N; i++) {
+      const p = i / N;
+      const dx = (p * WIDTH) % WIDTH; // 0..48
+      const x = pill.x + dx + shiftAtT0;
+      const cx_center = x + pill.w / 2;
+      let op = 0;
+      if (cx_center > 0 && cx_center < WIDTH) {
+        const left = Math.min(1, cx_center / FADE);
+        const right = Math.min(1, (WIDTH - cx_center) / FADE);
+        op = Math.max(0, Math.min(left, right));
+      }
+      translates.push(`${(dx + shiftAtT0).toFixed(3)} 0`);
+      opacities.push(op.toFixed(3));
+    }
+    return { translates, opacities };
+  };
+
+  const pillSvg = PILLS_E.map((pill, idx) => {
+    // Two copies per pill for seamless wraparound
+    return [0, -WIDTH].map(shift => {
+      const { translates, opacities } = makePillAnim(pill, shift);
+      return `    <rect x="${pill.x}" y="${pill.y}" width="${pill.w}" height="${pill.h}" rx="${pill.rx}" fill="${pill.fill}" opacity="0">
+      <animateTransform attributeName="transform" type="translate" values="${translates.join(";")}" keyTimes="${keyTimes.join(";")}" dur="${durMs}ms" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="${opacities.join(";")}" keyTimes="${keyTimes.join(";")}" dur="${durMs}ms" repeatCount="indefinite"/>
+    </rect>`;
+    }).join("\n");
+  }).join("\n");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 9.5" width="480" height="95" role="img" aria-label="homefit.studio matrix mark — revolve" overflow="hidden" style="overflow:hidden">
+  <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>
+${pillSvg}
+</svg>`;
+}
+
+// --- SESSION serialiser (circuit+rest progress fill, looping) ---
+function exportSession(durMs = 1400, restFraction = 0.2) {
+  const circuitTotal = Math.max(0.05, 1 - restFraction);
+  const per = circuitTotal / 4;
+  const segments = [
+    ["circuit-0", 0 * per,        1 * per],
+    ["circuit-2", 1 * per,        2 * per],
+    ["circuit-1", 2 * per,        3 * per],
+    ["circuit-3", 3 * per,        4 * per],
+    ["rest",      circuitTotal,   1.0],
+  ];
+  const activeRoles = new Set(segments.map(s => s[0]));
+  const out = [];
+  // Band stays static
+  out.push(`  <rect x="14.5" y="1" width="12.5" height="8.5" rx="1.2" fill="#FF6B35" opacity="0.15"/>`);
+  PILLS_E.forEach(pill => {
+    if (!activeRoles.has(pill.role)) {
+      out.push(`  <rect x="${pill.x}" y="${pill.y}" width="${pill.w}" height="${pill.h}" rx="${pill.rx}" fill="${pill.fill}"/>`);
+      return;
+    }
+    const seg = segments.find(s => s[0] === pill.role);
+    const [, t0, t1] = seg;
+    // Dim placeholder
+    out.push(`  <rect x="${pill.x}" y="${pill.y}" width="${pill.w}" height="${pill.h}" rx="${pill.rx}" fill="${pill.fill}" opacity="0.22"/>`);
+    // Looping fill: 0 until t0, then 0→pill.w by t1, then pill.w held until end of cycle.
+    // keyTimes must start with 0 and end with 1. If t0 == 0, collapse first stop.
+    const keyTimes = [];
+    const values = [];
+    if (t0 > 0) {
+      keyTimes.push("0", t0.toFixed(4));
+      values.push("0", "0");
+    } else {
+      keyTimes.push("0");
+      values.push("0");
+    }
+    keyTimes.push(t1.toFixed(4));
+    values.push(pill.w.toString());
+    if (t1 < 1) {
+      keyTimes.push("1");
+      values.push(pill.w.toString());
+    }
+    out.push(`  <rect x="${pill.x}" y="${pill.y}" width="0" height="${pill.h}" rx="${pill.rx}" fill="${pill.fill}">
+    <animate attributeName="width" values="${values.join(";")}" keyTimes="${keyTimes.join(";")}" dur="${durMs}ms" repeatCount="indefinite"/>
+  </rect>`);
+  });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 9.5" width="480" height="95" role="img" aria-label="homefit.studio matrix mark — session">
+${out.join("\n")}
+</svg>`;
+}
+
+window.MatrixExport = { exportFocus, exportAssemble, exportSweep, exportBreathe, exportReel, exportRevolve, exportSession };
+
+</script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+const { Focus, Assemble, Reel, Sweep, Breathe, Revolve, Session, Easing } = window.MatrixAnim;
+const { exportFocus, exportAssemble, exportSweep, exportBreathe, exportReel, exportRevolve, exportSession } = window.MatrixExport;
+
+const METAPHORS = [
+  { id: "session",  label: "Session",          tag: "SESSION",  Component: Session,  looping: true,  desc: "The actual workout playing out. The four circuit chips (2×2) fill left-to-right in sequence — TL → TR → BL → BR — then the sage rest chip fills last. Dimmed placeholders sit behind each active chip so you can read the 'remaining' progress at any instant. Ghost pills stay static; they're context, not part of the session.", ctx: "Session-in-progress header · Workout-complete celebration · Loading state while a session is generating" },
+];
+
+const EASINGS = [
+  { id: "standard",   label: "Standard (ease-out)",   fn: Easing.standard },
+  { id: "emphasized", label: "Emphasized (long-tail)", fn: Easing.emphasized },
+  { id: "linear",     label: "Linear",                fn: Easing.linear },
+  { id: "bounce",     label: "Bounce",                fn: Easing.bounce },
+];
+
+// --- Main app ---
+function App() {
+  const [t, setT] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [speed, setSpeed] = useState(1);
+  const [duration, setDuration] = useState(2400); // ms
+  const [easingId, setEasingId] = useState("standard");
+  const [loop, setLoop] = useState(true);
+  const [reverse, setReverse] = useState(false);
+  const [exportMetaphor, setExportMetaphor] = useState("session");
+  const [restFraction, setRestFraction] = useState(0.2);
+
+  const ease = EASINGS.find(e => e.id === easingId).fn;
+  const rafRef = useRef(null);
+  const lastTimeRef = useRef(null);
+
+  // Animation loop
+  useEffect(() => {
+    if (!playing) {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      lastTimeRef.current = null;
+      return;
+    }
+    const tick = now => {
+      if (lastTimeRef.current == null) lastTimeRef.current = now;
+      const dt = (now - lastTimeRef.current) / 1000; // seconds
+      lastTimeRef.current = now;
+      const increment = (dt * 1000 * speed) / duration;
+
+      setT(prev => {
+        let next = reverse ? prev - increment : prev + increment;
+        if (next > 1) {
+          if (loop) next = next - 1;
+          else { next = 1; setPlaying(false); }
+        } else if (next < 0) {
+          if (loop) next = 1 + next;
+          else { next = 0; setPlaying(false); }
+        }
+        return next;
+      });
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      lastTimeRef.current = null;
+    };
+  }, [playing, speed, duration, loop, reverse]);
+
+  const handleScrub = e => {
+    setPlaying(false);
+    setT(parseFloat(e.target.value));
+  };
+  const togglePlay = () => {
+    if (t >= 1 && !reverse && !loop) setT(0);
+    if (t <= 0 && reverse && !loop) setT(1);
+    setPlaying(p => !p);
+  };
+  const restart = () => {
+    setT(reverse ? 1 : 0);
+    setPlaying(true);
+  };
+
+  // Export SVG — bake the EFFECTIVE cycle time (duration / speed) so the
+  // SVG preview below matches the scrubbed preview above. The React loop
+  // above divides by speed, so without this the SVG would drift whenever
+  // speed != 1.
+  const effectiveDur = Math.round(duration / Math.max(0.01, speed));
+  const exportedSvg = useMemo(() => {
+    switch (exportMetaphor) {
+      case "focus":    return exportFocus(effectiveDur);
+      case "assemble": return exportAssemble(effectiveDur);
+      case "reel":     return exportReel(effectiveDur);
+      case "sweep":    return exportSweep(effectiveDur);
+      case "breathe":  return exportBreathe(effectiveDur);
+      case "revolve":  return exportRevolve(effectiveDur);
+      case "session":  return exportSession(effectiveDur, restFraction);
+      default:         return "";
+    }
+  }, [exportMetaphor, effectiveDur, restFraction]);
+
+  const copyExport = async () => {
+    try {
+      await navigator.clipboard.writeText(exportedSvg);
+      const btn = document.getElementById("copy-btn");
+      if (btn) {
+        const orig = btn.textContent;
+        btn.textContent = "Copied!";
+        setTimeout(() => btn.textContent = orig, 1200);
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  return (
+    <div className="container">
+      <header>
+        <h1>Matrix mark — Session motion</h1>
+        <p>A circuit training session playing out in the matrix logo. The 2×2 circuit chips fill in sequence, then the rest chip fills last. Tune the timing, copy the SVG.</p>
+        <p className="meta">Canonical viewBox <code>0 0 48 9.5</code> · 11-pill geometry frozen · loop token <code>motion.loop</code> = 1400ms</p>
+      </header>
+
+      {/* Controls */}
+      <div className="controls">
+        <div className="control-group" style={{ gridColumn: "span 2" }}>
+          <div className="control-label">Playback</div>
+          <div className="scrubber-row">
+            <div className="time">{Math.round(t * duration)}ms</div>
+            <input type="range" min="0" max="1" step="0.001" value={t} onChange={handleScrub}/>
+            <div className="time">/ {duration}ms</div>
+          </div>
+          <div className="btn-row" style={{ marginTop: 6 }}>
+            <button className="btn primary" onClick={togglePlay}>{playing ? "⏸ Pause" : "▶ Play"}</button>
+            <button className="btn" onClick={restart}>↻ Restart</button>
+            <button className={"btn " + (loop ? "active" : "")} onClick={() => setLoop(l => !l)}>Loop</button>
+            <button className={"btn " + (reverse ? "active" : "")} onClick={() => setReverse(r => !r)}>Reverse</button>
+            <span className="loop-state">
+              <span className={"loop-dot " + (playing ? "active" : "")}></span>
+              {playing ? (loop ? "looping" : "playing") : "paused"}
+            </span>
+          </div>
+        </div>
+
+        <div className="control-group">
+          <div className="control-label">
+            Speed
+            <input type="number" className="num-input" min="0.05" max="5" step="0.05" value={speed} onChange={e => setSpeed(Math.max(0.05, Math.min(5, parseFloat(e.target.value) || 1)))}/>
+            <span className="control-value">×</span>
+          </div>
+          <input type="range" min="0.1" max="2" step="0.05" value={speed} onChange={e => setSpeed(parseFloat(e.target.value))}/>
+        </div>
+
+        <div className="control-group">
+          <div className="control-label">
+            Duration
+            <input type="number" className="num-input" min="100" max="30000" step="50" value={duration} onChange={e => setDuration(Math.max(100, Math.min(30000, parseInt(e.target.value) || 2400)))}/>
+            <span className="control-value">ms</span>
+          </div>
+          <input type="range" min="400" max="8000" step="100" value={duration} onChange={e => setDuration(parseInt(e.target.value))}/>
+        </div>
+
+        <div className="control-group">
+          <div className="control-label">
+            Rest fraction
+            <input type="number" className="num-input" min="0.05" max="0.6" step="0.01" value={restFraction} onChange={e => setRestFraction(Math.max(0.05, Math.min(0.6, parseFloat(e.target.value) || 0.2)))}/>
+            <span className="control-value">of cycle</span>
+          </div>
+          <input type="range" min="0.05" max="0.6" step="0.01" value={restFraction} onChange={e => setRestFraction(parseFloat(e.target.value))}/>
+        </div>
+
+        <div className="control-group">
+          <div className="control-label">Easing</div>
+          <select className="select" value={easingId} onChange={e => setEasingId(e.target.value)}>
+            {EASINGS.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Metaphor stage */}
+      <h2>Session — circuit progress fill</h2>
+      <p>Scrub through one full cycle. Tune speed, duration, easing, and the rest-chip fraction to taste.</p>
+      <div className="metaphor-grid">
+        {METAPHORS.map(m => {
+          const { Component } = m;
+          // Breathe is looping by nature — always drive it from a continuous t.
+          return (
+            <div className="metaphor-card" key={m.id}>
+              <div className="metaphor-header">
+                <div>
+                  <div className="metaphor-title">{m.label}</div>
+                  <div className="metaphor-tag">{m.tag}{m.looping ? " · LOOP" : " · ONE-SHOT"}</div>
+                </div>
+                <span className="badge">t = {t.toFixed(2)}</span>
+              </div>
+              <div className="stage">
+                <Component t={t} ease={ease} restFraction={restFraction}/>
+              </div>
+              <p className="metaphor-desc">{m.desc}</p>
+              <div className="metaphor-ctx">Use in: {m.ctx}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Scale preview */}
+      <h2>Scale test — at rest</h2>
+      <p>The winning animation must survive favicon size. Scrub the timeline and verify legibility at 16px.</p>
+      <div className="scales-row">
+        {[160, 96, 48, 24, 16].map(size => {
+          const m = METAPHORS.find(m => m.id === exportMetaphor);
+          const { Component } = m;
+          return (
+            <div className="scale-preview" key={size}>
+              <div style={{ width: size * (48/9.5), height: size, maxWidth: 400 }}>
+                <Component t={t} ease={ease} restFraction={restFraction}/>
+              </div>
+              <div className="label">{size}px tall</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Export section */}
+      <div className="export">
+        <h2>Export — self-contained animated SVG</h2>
+        <p>Every metaphor below is pure SMIL <code>&lt;animate&gt;</code> / <code>&lt;animateTransform&gt;</code>. Drops into OG cards, email templates, README badges — anything that renders SVG. No JS runtime.</p>
+        <div className="copy-btn-row">
+          <button id="copy-btn" className="btn primary" onClick={copyExport}>📋 Copy SVG</button>
+          <span className="meta">{exportedSvg.length} chars · cycle baked at {effectiveDur}ms{speed !== 1 ? ` (duration ${duration}ms ÷ speed ${speed}×)` : ""} · rest {(restFraction * 100).toFixed(0)}%</span>
+        </div>
+        <pre>{exportedSvg}</pre>
+
+        <h3 style={{ marginTop: 32 }}>Preview — rendered from the exported string</h3>
+        <div className="stage" style={{ marginTop: 12 }} dangerouslySetInnerHTML={{ __html: exportedSvg }} key={exportMetaphor + effectiveDur + restFraction}/>
+        <p className="meta">This preview re-keys each time you switch metaphor or change duration, so the animation actually restarts. Refresh the page to restart a looping preview.</p>
+      </div>
+
+      <hr/>
+
+      <section>
+        <h2>Session — suggested uses</h2>
+        <ul style={{ color: "var(--ink-secondary)", lineHeight: 1.7 }}>
+          <li><strong style={{ color: "var(--ink-primary)" }}>Session-in-progress header:</strong> 3000ms duration, rest ~20% — calm, unhurried, reads as "your workout is underway".</li>
+          <li><strong style={{ color: "var(--ink-primary)" }}>Workout-complete celebration:</strong> 1600ms duration, rest ~15% — snappier; ends with the rest chip filling like a victory lap.</li>
+          <li><strong style={{ color: "var(--ink-primary)" }}>Generating-session loader:</strong> 4000ms+ duration, rest ~25% — ambient, loops gently while the backend is thinking.</li>
+        </ul>
+      </section>
+
+      <footer>
+        <div>homefit.studio design system · matrix motion lab v0.1 · produced 2026-04-22</div>
+        <div style={{ marginTop: 8 }}>
+          Back to reference: <a href="index.html">index.html</a> · logos: <a href="logos/mark.svg">logos/mark.svg</a>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
