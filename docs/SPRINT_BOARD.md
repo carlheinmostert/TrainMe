@@ -1,5 +1,5 @@
 # Sprint Board - Stabilization Wave
-Last updated: 2026-05-01 (T2 hardening wave through #177 + device-QA script queued)
+Last updated: 2026-05-02 (T2 wave through #180; backlog/T2 doc synced with shipped warnings)
 Owner: Carl + Cursor agent
 Cadence: update on every PR open/merge and daily wrap
 
@@ -15,7 +15,7 @@ Cadence: update on every PR open/merge and daily wrap
 
 ### Recommended next order
 1. **Device QA pass for T2 diagnostics** — run the iPhone checklist for publish-failure copy/clipboard/warnings on offline/JWT/permission paths and record outcomes.
-2. **Publish reliability hardening follow-up** — continue remaining non-blocking edge-case hardening listed in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up” (next: network-failure version-drift warning surfacing).
+2. **Publish reliability hardening follow-up** — remaining items in [`docs/BACKLOG.md`](BACKLOG.md) under “T2 follow-up”: **(a)** decide version+exercise atomicity vs UX-only mitigation, **(b)** deeper `refund_credit` retry/reconcile/support signal, **(c)** optional telemetry for non-snackbar artifact gaps.
 3. **Sprint board cadence** — keep merge-lane + ready-lane synced per PR merge.
 
 ---
@@ -42,6 +42,9 @@ Cadence: update on every PR open/merge and daily wrap
 - [`#175`](https://github.com/carlheinmostert/TrainMe/pull/175) merged — sprint board closeout refresh after `#174`.
 - [`#176`](https://github.com/carlheinmostert/TrainMe/pull/176) merged — T2 hardening follow-up: refund-unconfirmed warning surfaced in visible Studio UI.
 - [`#177`](https://github.com/carlheinmostert/TrainMe/pull/177) merged — T2 hardening follow-up: optional artifact upload failures surfaced as non-blocking publish-success warning.
+- [`#178`](https://github.com/carlheinmostert/TrainMe/pull/178) merged — sprint board: recorded `#177` merge + queued device QA script readiness.
+- [`#179`](https://github.com/carlheinmostert/TrainMe/pull/179) merged — T2 hardening follow-up: version-drift warning snackbar on `networkFailed` when step 4 likely committed.
+- [`#180`](https://github.com/carlheinmostert/TrainMe/pull/180) merged — T2 device QA outcomes run sheet + link from pending device tests.
 - **T2 closed** — Publish Reliability Classification done for sprint scope:
   - [x] Classification table documented ([`docs/T2_PUBLISH_RELIABILITY.md`](T2_PUBLISH_RELIABILITY.md))
   - [x] Handling behavior implemented for documented classes (including structured `networkFailed` copy/diagnostics)

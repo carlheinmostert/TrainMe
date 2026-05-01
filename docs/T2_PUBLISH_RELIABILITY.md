@@ -19,15 +19,19 @@
 
 ### Follow-up hardening (post-T2 closeout)
 
-- **`networkFailed`** — snackbar shows a short practitioner line; tap-to-copy carries **PostgREST code / socket / inner text** plus a **refund attempted** note when the publish path debited credits. When refund completion is unknown, Studio also shows an explicit follow-up warning to verify balance.
-- **Failure after step 4, before durable exercise replace:** remote **`plans.version`** may advance while the app surfaces **`networkFailed`** and local SQLite still holds the old **`session.version`** until the next successful publish — **no remote downgrade** in catch.
-- **Version-drift visibility:** when that step-4-ahead condition is detected, Studio now surfaces an explicit follow-up warning (not just clipboard diagnostics) so practitioners know the cloud version may already be newer.
-- **`refund_credit` RPC failure:** swallowed; ledger may need manual reconciliation.
-- **Step 0 consent RPC failure:** logged and skipped; server **`consume_credit`** guard (**P0003**) remains backstop.
-- **Raw-archive, segmented, photo raw, mask, issuance:** failures do **not** flip `PublishResult`; practitioner sees success while optional cloud artefacts may be missing until a later republish. Studio now surfaces a low-noise warning when optional raw-archive artifact uploads failed.
+**Shipped in the hardening wave (`#171`, `#174`, `#176`, `#177`, `#179`):**
 
-These are intentionally tracked as follow-up reliability hardening items (see
-`docs/BACKLOG.md`) rather than blockers for this T2 sprint closeout.
+- **`networkFailed`** — short practitioner line + tap-to-copy diagnostics (**PostgREST code / socket / inner text**); when debit occurred and refund completion is unknown, a **second snackbar** asks the practitioner to verify balance (`#171`, `#176`).
+- **Failure after step 4** — remote **`plans.version`** may advance while Studio shows **`networkFailed`** and local SQLite keeps the prior **`session.version`** until the next successful publish (**no remote downgrade** in catch).
+- **Version-drift visibility** — when step 4 likely committed, Studio surfaces an explicit **follow-up snackbar** (not only clipboard text) that cloud may already be on a newer version (`#171`, `#179`).
+- **Step 0 consent RPC failure** — logged/skipped; server **`consume_credit`** guard (**P0003**) remains backstop; Studio warns when preflight was skipped (`#174`).
+- **Raw-archive sidecars on success** — failures do **not** flip `PublishResult`; Studio surfaces a low-noise warning when optional raw-archive artifact uploads failed (`#177`).
+
+**Still open (see `docs/BACKLOG.md` → T2 follow-up):**
+
+- **`refund_credit` RPC failure** remains swallow-by-design; ledger may need manual reconciliation — extend with explicit retry/reconcile/support affordance later.
+- **Segmented/mask/issuance** optional gaps — same non-blocking posture as today; telemetry/logging may still be warranted beyond practitioner-facing snackbars.
+- **Atomic version + exercises** — product/engineering decision if halfway remote states must be eliminated server-side.
 
 ### Verification
 
