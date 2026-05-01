@@ -6,6 +6,21 @@ Work that has landed on `main` but hasn't been visually verified on Carl's iPhon
 
 ---
 
+## 2026-05-01 — T2 publish diagnostics hardening (active run sheet)
+
+Use this as the live pass/fail capture sheet for the T2 warning stack:
+
+- [`docs/T2_DEVICE_QA_OUTCOMES_2026-05-01.md`](T2_DEVICE_QA_OUTCOMES_2026-05-01.md)
+
+Scope covered by this run:
+- consent-preflight skipped warning
+- optional artifact-failure success warning
+- refund-unconfirmed failure warning
+- version-drift failure warning
+- baseline regression checks
+
+---
+
 ## 2026-04-20 checkpoint (historic)
 
 **On device:** `fa3efa7` — the offline-first merge (at the time this was written). Everything below has since landed on main + been superseded by the Wave 2 + Wave 3 QA cadence.
