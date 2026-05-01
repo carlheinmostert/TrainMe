@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -6,6 +8,7 @@ import '../models/exercise_set.dart';
 import '../models/session.dart';
 import '../theme.dart';
 import 'dose_table.dart';
+import 'inline_editable_text.dart';
 import 'media_viewer_body.dart';
 import 'preset_chip_row.dart';
 
@@ -378,31 +381,52 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         ? _exercise.name!
         : 'Exercise ${_exercise.position + 1}';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 4, 18, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      padding: const EdgeInsets.fromLTRB(14, 4, 18, 8),
+      // Round 3 — thumbnail (P6) + inline-editable title (P5) sit
+      // side-by-side. Card surface no longer renders any edit affordance;
+      // every edit happens inside the popup, including the rename.
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontFamily: 'Montserrat',
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
-              color: AppColors.textOnDark,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            _metaLine(),
-            style: const TextStyle(
-              fontFamily: 'JetBrainsMono',
-              fontSize: 11,
-              color: AppColors.textSecondaryOnDark,
-              letterSpacing: 0.3,
+          _HeaderThumbnail(exercise: _exercise),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                InlineEditableText(
+                  // KEY ensures the editable text rebuilds when the
+                  // resolved title changes (e.g. position drift on a
+                  // capture without a name). Without the key the
+                  // controller text wouldn't refresh on a fresh exercise.
+                  key: ValueKey(
+                      'editor-title-${_exercise.id}-${_exercise.position}'),
+                  initialValue: title,
+                  hintText: 'Name this exercise…',
+                  onCommit: (next) =>
+                      _emit(_exercise.copyWith(name: next)),
+                  textStyle: const TextStyle(
+                    fontFamily: 'Montserrat',
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                    color: AppColors.textOnDark,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _metaLine(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'JetBrainsMono',
+                    fontSize: 11,
+                    color: AppColors.textSecondaryOnDark,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -676,6 +700,98 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
 
 /// Vertically stacked label-above-control settings section. Matches the
 /// pattern used elsewhere in Settings screens — section header on its
+/// Round 3 (P6) — small square thumbnail rendered in the editor sheet's
+/// header. Mirrors the trainer-facing preview thumbnails used elsewhere
+/// (Studio cards, Home, Camera peek box) — same source asset, just a
+/// smaller surface (44×44 here) so it pairs neatly with the inline-
+/// editable title without dominating the chrome.
+class _HeaderThumbnail extends StatelessWidget {
+  final ExerciseCapture exercise;
+
+  const _HeaderThumbnail({required this.exercise});
+
+  @override
+  Widget build(BuildContext context) {
+    final String? thumbPath = exercise.absoluteThumbnailPath;
+    final hasThumb = thumbPath != null && File(thumbPath).existsSync();
+    final isVideo = exercise.mediaType == MediaType.video;
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.surfaceBorder, width: 1),
+        gradient: hasThumb
+            ? null
+            : const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF2A2D3A),
+                  Color(0xFF1A1D27),
+                ],
+              ),
+        image: hasThumb
+            ? DecorationImage(
+                image: FileImage(File(thumbPath)),
+                fit: BoxFit.cover,
+              )
+            : null,
+      ),
+      child: Stack(
+        children: [
+          if (isVideo)
+            const Center(
+              child: _HeaderPlayGlyph(),
+            ),
+          if (exercise.mediaType == MediaType.photo && !hasThumb)
+            const Center(
+              child: Icon(
+                Icons.photo_outlined,
+                size: 18,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+          if (exercise.isRest)
+            const Center(
+              child: Icon(
+                Icons.bedtime_outlined,
+                size: 18,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderPlayGlyph extends StatelessWidget {
+  const _HeaderPlayGlyph();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.72),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: const Padding(
+        padding: EdgeInsets.only(left: 1),
+        child: Icon(
+          Icons.play_arrow_rounded,
+          size: 12,
+          color: AppColors.textOnDark,
+        ),
+      ),
+    );
+  }
+}
+
 /// own line, control beneath. The previous inline label-and-value-on-
 /// the-same-row treatment squeezed the chip row into too little width.
 class _SettingsSection extends StatelessWidget {

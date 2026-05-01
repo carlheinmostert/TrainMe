@@ -9,7 +9,6 @@ import '../models/exercise_set.dart';
 import '../services/api_client.dart';
 import '../theme.dart';
 import 'exercise_editor_sheet.dart';
-import 'inline_editable_text.dart';
 
 /// Studio defaults — the global seed values for non-set persistence
 /// fields. Per-set values (reps, hold, weight, breather) live on
@@ -159,8 +158,6 @@ class StudioExerciseCard extends StatelessWidget {
                         isCustomised: exerciseIsCustomised(exercise),
                         onGearTap: () =>
                             _openSheet(context, ExerciseEditorTab.settings),
-                        onRename: (next) =>
-                            onUpdate(exercise.copyWith(name: next)),
                       ),
                       const SizedBox(height: 10),
                       _TriggerRow(
@@ -311,13 +308,11 @@ class _TitleRow extends StatelessWidget {
   final String title;
   final bool isCustomised;
   final VoidCallback onGearTap;
-  final ValueChanged<String> onRename;
 
   const _TitleRow({
     required this.title,
     required this.isCustomised,
     required this.onGearTap,
-    required this.onRename,
   });
 
   @override
@@ -325,11 +320,16 @@ class _TitleRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        // Round 3 — title is read-only on the card. Inline-edit moved to
+        // the editor sheet's header so the card doesn't carry any edit
+        // affordance. The card is now a pure trigger surface; all edits
+        // happen inside the popup.
         Expanded(
-          child: InlineEditableText(
-            initialValue: title,
-            onCommit: onRename,
-            textStyle: const TextStyle(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
               fontFamily: 'Montserrat',
               fontSize: 16,
               fontWeight: FontWeight.w700,
