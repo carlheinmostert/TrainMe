@@ -452,53 +452,55 @@ class _TriggerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Round 3 P0 — defensive fallback. Round 2 retest reported the trigger
+    // row showing literally `Dose · ` / `Notes · ` with NOTHING after on
+    // device. Static analysis says `_doseSummary` always returns non-empty
+    // and `_notesSummary` is null-coalesced upstream to 'Add notes…', so
+    // the empty state shouldn't be reachable — but the device contradicts
+    // the code. Layout overflow is the remaining suspect: in the Round 2
+    // single-row layout, the summary `Expanded` got ~31pt of width on
+    // narrow buttons, which in some Flutter text-engine paths renders as
+    // empty (no ellipsis when there isn't room for the ellipsis glyph).
+    //
+    // Round 3 fix: stack label ABOVE summary so the summary gets the FULL
+    // button width to flex into, plus a hard fallback if the upstream
+    // string is somehow empty. The single-row + middot variant survived
+    // 1 round of testing but failed on retest; vertical stack is what the
+    // mockup `docs/design/mockups/exercise-card-v2.html` showed in the
+    // first place.
+    final visibleSummary = summary.isEmpty ? '—' : summary;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: AppColors.surfaceRaised,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: AppColors.surfaceBorder, width: 1),
           ),
-          // Row WITHOUT mainAxisSize.min so the Container fills the parent
-          // Expanded width and Expanded(summary) gets a real bounded width
-          // to flex into. With min + Flexible, the summary's intrinsic
-          // text width drove the layout — ellipsis didn't kick in and on
-          // narrow phones the trailing children (· + summary) collapsed
-          // off-canvas, leaving only the label visible. Round 2 fix.
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 label,
                 style: const TextStyle(
                   fontFamily: 'Inter',
-                  fontSize: 13,
+                  fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: AppColors.textOnDark,
-                  letterSpacing: -0.05,
-                ),
-              ),
-              const SizedBox(width: 6),
-              const Text(
-                '·',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
                   color: AppColors.textSecondaryOnDark,
+                  letterSpacing: 0.6,
                 ),
               ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  summary,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: summaryStyle,
-                ),
+              const SizedBox(height: 2),
+              Text(
+                visibleSummary,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: summaryStyle,
               ),
             ],
           ),
