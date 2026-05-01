@@ -441,7 +441,7 @@ class _TriggerRow extends StatelessWidget {
         const SizedBox(height: 6),
         _TriggerButton(
           icon: Icons.note_alt_outlined,
-          iconColor: AppColors.textSecondaryOnDark,
+          iconColor: AppColors.primary,
           summary: notesSummary ?? 'Add notes…',
           summaryStyle: const TextStyle(
             fontFamily: 'Inter',
