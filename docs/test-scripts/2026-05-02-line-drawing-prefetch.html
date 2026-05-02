@@ -256,13 +256,50 @@
       <li data-num="12" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
         <span class="num">12.</span>
-        <span class="text">Tap the locked segment on a <strong>photo</strong> exercise (older capture where the raw JPG was pruned, or a session where the photo's raw isn't local). SnackBar appears with the consent copy — no chip, no download (photos use a CSS filter on the same local raw JPG; nothing to fetch). No crash, no stale generic copy.</span>
+        <span class="text">Tap the locked segment on a <strong>photo</strong> exercise on a cloud-only session (the practitioner's never had this raw locally — clean device install + cloud-only pull). The same coral "Downloading original…" chip appears, the JPG is pulled from <code>raw-archive/{practice}/{plan}/{exercise}.jpg</code>, the segment unlocks, and the active treatment switches to whatever was tapped (Original = full colour photo, B&amp;W = ColorFiltered grayscale of the same JPG). os_log shows <code>prefetchRawArchive exerciseId=&lt;id&gt; — …</code> with the JPG signed URL. No SnackBar, no consent copy, no crash.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="13" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
         <span class="num">13.</span>
         <span class="text">Force a download failure to verify the chip clears + segment stays locked. Open a cloud-only session, tap a locked B&amp;W segment to trigger the prefetch, then immediately turn on airplane mode. Within ~5-15s the chip vanishes (failed → idle), the segment stays locked, and os_log shows <code>prefetchRawArchive exerciseId=&lt;id&gt; failed: …</code>. Tap the locked segment again — a fresh prefetch fires (no infinite-loop guard blocking the retry), chip reappears, fails again. Turn airplane mode off, tap a third time — the download succeeds, segment unlocks, active treatment switches.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>7 · Photo three-treatment download (Wave 22 + locked-tap parity)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Photos used to surface the consent SnackBar even when the real problem was a missing local raw JPG (cloud-only session post-PR #190). Now they ride the same silent-prefetch rail as videos — wrapper RPC <code>sign_practice_raw_archive_url(…, p_extension)</code> signs <code>.jpg</code> paths, the prefetch writes to <code>{Documents}/raw/{exerciseId}.jpg</code> and stamps <code>raw_file_path</code>, and the photo render path picks up the new file on the next rebuild. The same diagnostic SnackBar is gone — failures show <strong>"Couldn't download original — try again."</strong> instead of the diag string.
+    </p>
+    <ul class="checklist">
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+        <span class="num">14.</span>
+        <span class="text">Open a cloud-only session that contains a <strong>photo</strong> exercise. The B&amp;W and Original segments below the exercise name show lock glyphs (no local raw JPG yet). Tap the locked Original segment. Coral "Downloading original…" chip appears centred above the bottom-left chrome. os_log shows <code>prefetchRawArchive exerciseId=&lt;id&gt;</code> with no errors. Within 1-3s the chip vanishes, the segment unlocks, and the active treatment auto-switches to Original — the full colour photo renders.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+        <span class="num">15.</span>
+        <span class="text">On the same photo exercise (or a fresh one), tap the locked B&amp;W segment instead. Same chip + auto-switch flow. After completion, the active treatment lands on B&amp;W — the photo renders with the ColorFiltered grayscale matrix on top of the freshly-downloaded raw JPG. Both segments stay unlocked (one source file backs both treatments). Toggling between B&amp;W ↔ Original is instant — no second download.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
+        <span class="num">16.</span>
+        <span class="text">Re-open the same session in the same app run. The photo exercise's segments stay unlocked (the freshly-downloaded JPG is still on disk + the row carries <code>rawFilePath</code>). Tapping any segment switches treatment immediately, no chip, no download. Force-quit the app + relaunch + re-open the session — segments still unlocked, instant switching, os_log shows no <code>prefetchRawArchive</code> activity for that exercise (idempotent on cold restart via the on-disk + size-non-zero short-circuit).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
+        <span class="num">17.</span>
+        <span class="text">Open a session for a client whose <code>video_consent.original</code> is <code>false</code> AND who has photo exercises. The <em>get_plan_full</em> response on this session signs <code>line_drawing_url</code> only — no raw JPG is reachable from the player surface. The local raw JPG is on disk (the practitioner originally captured it on this device, before the consent toggle was flipped off), so <code>_hasArchive</code> returns true → segments are <em>not</em> locked from the local-file perspective. Treatment switches work normally. Now flip the same client's consent OFF for B&amp;W + Original on the portal, then revisit the session: segments lock again, tap surfaces the consent SnackBar (<code>Grant {Client} consent for B&amp;W to unlock.</code>) — not the download chip. Confirms consent gate vs missing-archive gate are still distinguished correctly for photos.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
+        <span class="num">18.</span>
+        <span class="text">Verify the diagnostic SnackBar is gone. Force a photo download failure (cloud-only photo session + airplane mode immediately after tap). Within ~5-15s the chip disappears and a SnackBar reads <strong>"Couldn't download original — try again."</strong> exactly — no <code>DIAG4: pid=… plan=… ex=…</code> string, no UUID fragments, no stack-trace text. The segment stays locked. Tapping again retries (no guard blocks).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>

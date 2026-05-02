@@ -4607,18 +4607,16 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   ///
   /// Two reasons a segment can be locked:
   ///   1. The local raw-archive file isn't on disk yet (cloud-only
-  ///      session post-PR #190). For VIDEO exercises we silently
-  ///      kick off a background download from the private
-  ///      `raw-archive` bucket via [MediaPrefetchService.prefetchRawArchive].
-  ///      A coral "Downloading original…" chip overlays the active
-  ///      video tile while the pull is in flight; on completion the
-  ///      local row's `archive_file_path` is stamped, `_hasArchive`
-  ///      flips true on the next rebuild, and the active treatment
-  ///      switches to whichever segment the user tapped (B&W or
-  ///      Original) so they see the result without a second tap.
-  ///      Photos fall through to the SnackBar — photo treatment
-  ///      switching is `ColorFiltered`-based and doesn't need a
-  ///      separate file.
+  ///      session post-PR #190). We silently kick off a background
+  ///      download from the private `raw-archive` bucket via
+  ///      [MediaPrefetchService.prefetchRawArchive]. A coral
+  ///      "Downloading original…" chip overlays the active media
+  ///      tile while the pull is in flight; on completion the
+  ///      relevant local column is stamped (`archive_file_path` for
+  ///      videos, `raw_file_path` for photos), `_hasArchive` flips
+  ///      true on the next rebuild, and the active treatment switches
+  ///      to whichever segment the user tapped (B&W or Original) so
+  ///      they see the result without a second tap.
   ///   2. Archive exists but the client hasn't granted that treatment.
   ///      We surface a SnackBar pointing the practitioner at the client
   ///      consent page, with the actual client name + treatment word
@@ -4632,24 +4630,26 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     final exercise = _current;
     final missingArchive = !_hasArchive(exercise);
     final session = _session;
-    final practiceId = session?.practiceId;
+    // session.practiceId is NULL on cloud-pulled rows because the local
+    // sessions table has no practice_id column (and toMap() doesn't emit
+    // one). Mirror the publish path's fallback: read the active practice
+    // from AuthService when the session itself doesn't carry it.
+    final practiceId =
+        session?.practiceId ?? AuthService.instance.currentPracticeId.value;
     final planId = session?.id;
 
-    if (missingArchive &&
-        _isVideo(exercise) &&
-        practiceId != null &&
-        planId != null) {
-      // Cloud-only session — the raw mp4 hasn't been pulled yet.
-      // Fire a background download; the chip overlay on the active
-      // video tile is the only feedback. On completion we update the
-      // in-memory exercise so _hasArchive flips true, then switch the
-      // active treatment to the one the user tapped.
+    if (missingArchive && practiceId != null && planId != null) {
+      // Cloud-only session — the raw file (mp4 for videos, jpg for
+      // photos) hasn't been pulled yet. Fire a background download;
+      // the chip overlay on the active media tile is the only
+      // feedback. On completion we update the in-memory exercise so
+      // _hasArchive flips true, then switch the active treatment to
+      // the one the user tapped.
       //
       // Optimistic treatment switch is deferred to the onDownloaded
-      // callback because _initVideoForCurrent reads
-      // _sourcePathForTreatment which falls back to absoluteArchiveFilePath
-      // — switching now (before the file lands) would briefly try to
-      // play a non-existent path.
+      // callback because _initVideoForCurrent / the photo render path
+      // both read the local file directly — switching now (before the
+      // file lands) would briefly try to render a non-existent path.
       unawaited(
         MediaPrefetchService.instance.prefetchRawArchive(
           exercise: exercise,
@@ -4659,19 +4659,26 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
           onDownloaded: (downloadedId) {
             if (!mounted) return;
             // Re-read the freshly-stamped row from SQLite so the
-            // viewer's in-memory copy carries `archiveFilePath`.
+            // viewer's in-memory copy carries the new path.
             unawaited(_refreshDownloadedExercise(downloadedId, t));
+          },
+          onFailed: (_) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Couldn't download original — try again."),
+                duration: Duration(seconds: 3),
+              ),
+            );
           },
         ),
       );
       return;
     }
 
-    // Either archive exists but consent is missing (the "real" lock
-    // case) OR a missing-archive photo (the download path is line-
-    // drawing-only for photos; B&W applies a CSS filter on the same
-    // local raw JPG, no separate download needed). Both land on the
-    // consent SnackBar.
+    // Archive exists but consent is missing (the "real" lock case).
+    // Surface the SnackBar pointing the practitioner at the client
+    // consent page.
     final rawClientName = session?.clientName ?? '';
     final clientName = rawClientName.trim().isEmpty
         ? 'this client'
