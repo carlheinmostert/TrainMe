@@ -218,6 +218,22 @@
       </li>
     </ul>
 
+    <h2>6 · Cross-exercise navigation in the sheet</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Open the editor sheet on a video exercise → Hero tab → wait for the video preview to load. Then use the prev/next chevrons (or page-swipe) to navigate to the <strong>next video exercise</strong> while staying on the Hero tab. Expect: the preview + scrubber update to the new exercise's video (different first frame, fresh time row). The OLD bug was the Hero tab freezing on the previous exercise's video; the <code>ValueKey('hero-tab-${id}')</code> on <code>_HeroTab</code> forces a re-mount on every navigation.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">From a video exercise's Hero tab, navigate to a photo or rest exercise. Expect: the placeholder copy from #6 / #7 takes over (no leftover video preview from the previous exercise). Then navigate back to the video — Hero tab re-initialises cleanly (cloud-only video should also re-trigger the prefetch flow if it hasn't been pulled yet).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
     <footer>
       Pass-notes feed the next wave's polish list. Failures will spawn a targeted follow-up.
     </footer>

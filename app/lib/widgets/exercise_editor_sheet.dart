@@ -847,6 +847,13 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     final practiceId = widget.session.practiceId ??
         AuthService.instance.currentPracticeId.value;
     return _HeroTab(
+      // Force re-mount on prev/next navigation. _HeroTab owns its own
+      // VideoPlayerController + scrubber state seeded from the exercise
+      // in initState — without a unique key Flutter reuses the old
+      // widget instance and the controller stays pinned to the previous
+      // exercise's raw mp4. Mirrors the Preview tab's `preview-tab-${id}`
+      // key trick.
+      key: ValueKey('hero-tab-${_exercise.id}'),
       exercise: _exercise,
       onChanged: _emit,
       practiceId: practiceId,
@@ -1234,6 +1241,7 @@ class _HeroTab extends StatefulWidget {
   final String? planId;
 
   const _HeroTab({
+    super.key,
     required this.exercise,
     required this.onChanged,
     this.practiceId,
@@ -1528,16 +1536,34 @@ class _HeroTabState extends State<_HeroTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Live preview surface — square-ish letterbox honouring the
-          // video's natural aspect.
+          // Live preview surface — letterbox the video at its
+          // rotation-corrected aspect. iPhone portrait captures store
+          // a 90°/270° rotation transform; `c.value.aspectRatio` returns
+          // the UNROTATED 16:9 aspect, which made portrait videos render
+          // stretched-wide. Mirror the Studio mode pattern from
+          // studio_mode_screen.dart:4838-4855: swap the aspect when
+          // rotationQuarters is odd, then RotatedBox to apply the turn
+          // visually so the frame is upright.
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: Container(
                 color: Colors.black,
-                child: AspectRatio(
-                  aspectRatio: c.value.aspectRatio,
-                  child: VideoPlayer(c),
+                child: Builder(
+                  builder: (context) {
+                    final quarters =
+                        (widget.exercise.rotationQuarters ?? 0) % 4;
+                    final rawAspect = c.value.aspectRatio;
+                    final aspect =
+                        quarters.isOdd ? 1 / rawAspect : rawAspect;
+                    return AspectRatio(
+                      aspectRatio: aspect,
+                      child: RotatedBox(
+                        quarterTurns: quarters,
+                        child: VideoPlayer(c),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),
