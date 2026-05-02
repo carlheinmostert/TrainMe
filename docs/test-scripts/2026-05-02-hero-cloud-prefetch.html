@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Hero tab cloud prefetch</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 9999px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+    background: var(--coral-bg); color: var(--coral);
+    border: 1px solid rgba(255,107,53,0.3);
+    margin-right: 6px;
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-02 · Hero tab cloud prefetch</div>
+    <h1>Device QA — Hero tab cloud prefetch</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify the editor sheet's <em>Hero</em> tab no longer hard-fails with "Raw video file not found." on cloud-hydrated sessions. Stacks on top of PR #190 (sessions hydrate from cloud) and PR #189 (Hero tab feature). Tapping a video exercise → Hero tab now silently kicks off the same <code>raw-archive</code> prefetch the locked-segment tap path uses.
+      <br><br>
+      <strong>In scope:</strong> <code>_HeroTab</code> + <code>_HeroTabState</code> in <code>app/lib/widgets/exercise_editor_sheet.dart</code>; new <code>practiceId</code> + <code>planId</code> threading from <code>_buildHeroTab</code>; <code>MediaPrefetchService.prefetchRawArchive</code> integration; coral spinner + "Downloading original…" placeholder; failure copy "Original video unavailable — recapture to use Hero." Photo/rest placeholders unchanged.
+      <br><br>
+      <strong>Out of scope:</strong> the Studio locked-segment tap path (already shipped); analytics events; consent gates; the line-drawing prefetch for Studio MiniPreview cards.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Branch <code>claude/strange-hypatia-5b5736</code> installed on Carl's iPhone <code>00008150-001A31D40E88401C</code>.</li>
+        <li>At least one cloud-only session with video exercises whose raw mp4 has NOT been pulled locally yet (force via fresh re-install + sign-in).</li>
+        <li>Same client must have <code>video_consent.original = true</code> so the signed URL path actually returns a URL.</li>
+        <li>Stream device logs in a terminal: <code>idevicesyslog --udid 00008150-001A31D40E88401C 2>&amp;1 | grep -E 'MediaPrefetchService|_HeroTab|prefetchRawArchive'</code>.</li>
+      </ul>
+    </div>
+
+    <h2>1 · Cloud-only video → Hero tab triggers prefetch</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The headline test. The bug was the Hero tab bailing with "Raw video file not found." instead of pulling the file from cloud.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Reinstall from main, sign in, wait for clients list to populate. Tap a client → tap a session that was published from another device (so the raw mp4 is NOT on this iPhone). Tap any video exercise card to open the editor sheet. Tap the <strong>Hero</strong> tab. Expect: a coral spinner above "Downloading original…" — NOT the red "Raw video file not found." string. os_log shows <code>MediaPrefetchService: prefetchRawArchive exerciseId=&lt;id&gt; — …</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Within ~3-15s the spinner clears and the live video preview + scrubber render. The video plays muted, soft-trim window is honoured, scrubber is interactive (drag → video seeks to that frame). The "Set as Hero" button is disabled until the scrubber position differs from the saved focus offset.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Set Hero, regen succeeds</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Drag the scrubber to a frame about a third of the way through the video. The "Set as Hero" button highlights coral. Tap it. Expect: brief inline spinner, button greys out, then re-enables marked as committed. Dismiss the sheet and look at the Studio exercise card — the thumbnail / MiniPreview poster reflects the new Hero frame on the next paint. No crashes, no SnackBars.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · Re-open later — local-first, no spinner</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Without restarting the app, dismiss the sheet, then tap the same exercise + Hero tab again. Expect: video preview + scrubber render <strong>immediately</strong> (the prefetch has stamped the local mp4, so the local-first branch wins). os_log shows no second <code>prefetchRawArchive</code> for this exercise. Force-quit the app, relaunch, and re-open the same Hero tab — same result, instant render with no download.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · Network failure during prefetch</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Failures must clear the spinner cleanly. No infinite spinner, no crashes.
+    </p>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Force a fresh cloud-only state: reinstall, sign in, BUT before opening any session, turn airplane mode on. Tap a session → video exercise → Hero tab. Expect: spinner appears, then within ~5-15s clears to the static fallback "Original video unavailable — recapture to use Hero." (NOT the old "Raw video file not found." string). No crash, no SnackBar leak from the editor sheet. Dismiss the sheet — Studio looks normal.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Photo + rest placeholders unchanged</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Open the editor sheet on a <strong>photo</strong> exercise → Hero tab. Expect the existing copy verbatim: <em>"Photos are already the Hero frame — no scrubbing needed."</em> No spinner, no download attempt, no error string.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Open the editor sheet on a <strong>rest period</strong> → Hero tab is hidden / replaced by the Rest tab as before; if reachable, expect the existing copy <em>"Rest periods have no Hero frame."</em> No regression on these placeholder paths.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass-notes feed the next wave's polish list. Failures will spawn a targeted follow-up.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-02-hero-cloud-prefetch.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'hero-cloud-prefetch', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setStatus(status) {
+          li.setAttribute('data-status', status);
+          if (!state[num]) state[num] = {};
+          state[num].status = status;
+          save();
+        }
+
+        passBtn.addEventListener('click', function() { setStatus('pass'); });
+        failBtn.addEventListener('click', function() { setStatus('fail'); });
+
+        if (noteInput) {
+          var debounce;
+          noteInput.addEventListener('input', function() {
+            clearTimeout(debounce);
+            if (!state[num]) state[num] = {};
+            state[num].note = noteInput.value;
+            debounce = setTimeout(save, 400);
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
