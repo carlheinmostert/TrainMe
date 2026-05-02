@@ -11,6 +11,7 @@ import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import 'api_client.dart';
 import 'local_storage_service.dart';
+import 'original_video_service.dart';
 import 'path_resolver.dart';
 
 /// Per-exercise prefetch state surfaced to the Studio card UI.
@@ -85,10 +86,18 @@ class MediaPrefetchService {
   /// higher just risks Supabase storage 429 throttling on bulk pulls.
   static const int _maxParallel = 3;
 
-  /// Per-exercise live status. Cards subscribe via
-  /// [ValueListenableBuilder] and surface a `_DownloadingOverlay` when
-  /// the value flips to [MediaPrefetchStatus.downloading].
+  /// Per-exercise live status for the LINE-DRAWING prefetch. Cards
+  /// subscribe via [ValueListenableBuilder] and surface a
+  /// `_DownloadingOverlay` when the value flips to
+  /// [MediaPrefetchStatus.downloading].
   final Map<String, ValueNotifier<MediaPrefetchStatus>> _status =
+      <String, ValueNotifier<MediaPrefetchStatus>>{};
+
+  /// Per-exercise live status for the RAW-ARCHIVE prefetch. Distinct
+  /// from [_status] so a B&W / Original on-demand pull never collides
+  /// with the line-drawing session-open prefetch — the two run on
+  /// different buckets, different URL signers, and different banners.
+  final Map<String, ValueNotifier<MediaPrefetchStatus>> _archiveStatus =
       <String, ValueNotifier<MediaPrefetchStatus>>{};
 
   /// Sessions we've already kicked off prefetch for in this app run.
@@ -130,6 +139,21 @@ class MediaPrefetchService {
   /// Inspect the current status without subscribing.
   MediaPrefetchStatus currentStatus(String exerciseId) =>
       _status[exerciseId]?.value ?? MediaPrefetchStatus.idle;
+
+  /// Notifier for the raw-archive prefetch ([prefetchRawArchive]).
+  /// Studio's `_MediaViewer` subscribes per-current-exercise and
+  /// surfaces the "Downloading original…" coral chip on the active
+  /// video tile.
+  ValueNotifier<MediaPrefetchStatus> archiveStatusFor(String exerciseId) {
+    return _archiveStatus.putIfAbsent(
+      exerciseId,
+      () => ValueNotifier<MediaPrefetchStatus>(MediaPrefetchStatus.idle),
+    );
+  }
+
+  /// Inspect the raw-archive status without subscribing.
+  MediaPrefetchStatus currentArchiveStatus(String exerciseId) =>
+      _archiveStatus[exerciseId]?.value ?? MediaPrefetchStatus.idle;
 
   /// Kick off a best-effort prefetch for every exercise on [session]
   /// that has a cloud line-drawing URL but no valid local file. Returns
@@ -263,6 +287,197 @@ class MediaPrefetchService {
       t.completer.complete();
       return true;
     });
+  }
+
+  /// Pull the raw archive (B&W / Original source) for [exercise] from
+  /// the private `raw-archive` Supabase bucket into the canonical local
+  /// path (`{Documents}/archive/{exerciseId}.mp4`). Stamps
+  /// `archive_file_path` on the local row so [_hasArchive] flips true
+  /// on the next rebuild.
+  ///
+  /// Mirrors [prefetchSession] for line drawings, but on a different
+  /// bucket and via signed URL ([OriginalVideoService.resolveSource]
+  /// signs the URL through `ApiClient.signRawArchiveUrl`). The status
+  /// flows through [_archiveStatus] (parallel to [_status]) so a
+  /// session-open line-drawing prefetch and an on-demand archive pull
+  /// can run simultaneously without overwriting each other's banner.
+  ///
+  /// Fire-and-forget — the caller is the locked-segment tap handler in
+  /// Studio's `_MediaViewer`; UI feedback is the coral chip on the
+  /// active video tile (subscribed via [archiveStatusFor]).
+  ///
+  /// [onDownloaded] fires once the archive lands locally and the row
+  /// has been stamped. Studio uses this to refresh its in-memory
+  /// session copy + re-init the video controller against the new
+  /// treatment so the user sees the result without a second tap.
+  ///
+  /// Idempotent on multiple fronts:
+  ///   * If a download is already in flight for this exercise's
+  ///     archive, the call is a no-op.
+  ///   * If the local archive file already exists, the call is a
+  ///     no-op (the row may already be stamped — short-circuit before
+  ///     hitting the network).
+  Future<void> prefetchRawArchive({
+    required ExerciseCapture exercise,
+    required String practiceId,
+    required String planId,
+    required LocalStorageService storage,
+    void Function(String exerciseId)? onDownloaded,
+  }) async {
+    // Already running — let the in-flight call finish.
+    final current = currentArchiveStatus(exercise.id);
+    if (current == MediaPrefetchStatus.downloading) {
+      dev.log(
+        'prefetchRawArchive exerciseId=${exercise.id} — already in flight',
+        name: 'MediaPrefetchService',
+      );
+      return;
+    }
+
+    // Already on disk + stamped — nothing to do. The caller's segment
+    // is already unlocked (or will be on the next rebuild).
+    final existingPath = exercise.absoluteArchiveFilePath;
+    if (existingPath != null && existingPath.isNotEmpty) {
+      final f = File(existingPath);
+      if (f.existsSync() && f.lengthSync() > 0) {
+        dev.log(
+          'prefetchRawArchive exerciseId=${exercise.id} — '
+          'archive already on disk; firing onDownloaded',
+          name: 'MediaPrefetchService',
+        );
+        _setArchiveStatus(exercise.id, MediaPrefetchStatus.done);
+        onDownloaded?.call(exercise.id);
+        return;
+      }
+    }
+
+    _setArchiveStatus(exercise.id, MediaPrefetchStatus.downloading);
+
+    try {
+      final source = await OriginalVideoService.instance.resolveSource(
+        exercise: exercise,
+        practiceId: practiceId,
+        planId: planId,
+      );
+
+      // Race-recovery — a parallel publish path could have stamped the
+      // local archive between our existsSync check above and now.
+      // resolveSource walks the same File.exists path internally and
+      // returns local in that case.
+      if (source.localFile != null) {
+        final relative = PathResolver.toRelative(source.localFile!.path);
+        await _stampArchiveOnRow(storage, exercise.id, relative);
+        _setArchiveStatus(exercise.id, MediaPrefetchStatus.done);
+        onDownloaded?.call(exercise.id);
+        return;
+      }
+
+      final remoteUrl = source.remoteUrl;
+      if (remoteUrl == null || remoteUrl.isEmpty) {
+        dev.log(
+          'prefetchRawArchive exerciseId=${exercise.id} — '
+          'no source available (signed URL returned null)',
+          name: 'MediaPrefetchService',
+        );
+        _setArchiveStatus(exercise.id, MediaPrefetchStatus.failed);
+        return;
+      }
+
+      // Canonical local path mirrors OriginalVideoService /
+      // VideoConverterChannel: {Documents}/archive/{exerciseId}.mp4.
+      // Using this exact shape means _hasArchive (which calls
+      // absoluteArchiveFilePath → File(path).existsSync()) picks it
+      // up automatically on the next Studio rebuild.
+      final docsDir = await getApplicationDocumentsDirectory();
+      final archiveDir = Directory(p.join(docsDir.path, 'archive'));
+      if (!archiveDir.existsSync()) {
+        archiveDir.createSync(recursive: true);
+      }
+      final absoluteTarget = p.join(archiveDir.path, '${exercise.id}.mp4');
+      final partialTarget = '$absoluteTarget.partial';
+
+      final partialFile = File(partialTarget);
+      if (partialFile.existsSync()) {
+        try {
+          partialFile.deleteSync();
+        } catch (_) {
+          /* ignore */
+        }
+      }
+
+      final client = _http ??= HttpClient();
+      final request = await client.getUrl(Uri.parse(remoteUrl));
+      final response = await request.close();
+      if (response.statusCode >= 400) {
+        throw HttpException(
+          'HTTP ${response.statusCode} downloading raw archive',
+          uri: Uri.parse(remoteUrl),
+        );
+      }
+      final sink = partialFile.openWrite();
+      try {
+        await response.pipe(sink);
+      } finally {
+        await sink.flush();
+        await sink.close();
+      }
+
+      // Atomic rename. Same-volume rename on iOS is atomic.
+      final finalFile = File(absoluteTarget);
+      if (finalFile.existsSync()) {
+        try {
+          finalFile.deleteSync();
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      await partialFile.rename(absoluteTarget);
+
+      final relative = PathResolver.toRelative(absoluteTarget);
+      await _stampArchiveOnRow(storage, exercise.id, relative);
+
+      _setArchiveStatus(exercise.id, MediaPrefetchStatus.done);
+      onDownloaded?.call(exercise.id);
+    } catch (e, st) {
+      dev.log(
+        'prefetchRawArchive exerciseId=${exercise.id} failed: $e',
+        name: 'MediaPrefetchService',
+        error: e,
+        stackTrace: st,
+      );
+      _setArchiveStatus(exercise.id, MediaPrefetchStatus.failed);
+    }
+  }
+
+  /// Persist the archive path on the local row. Reload + copyWith so
+  /// every other column survives — saveExercise replaces the whole
+  /// row. Stamps `archivedAt` to "now" so the 90-day retention purge
+  /// treats this download identically to a fresh capture.
+  Future<void> _stampArchiveOnRow(
+    LocalStorageService storage,
+    String exerciseId,
+    String relativePath,
+  ) async {
+    final fresh = await storage.getExerciseById(exerciseId);
+    if (fresh == null) {
+      dev.log(
+        '_stampArchiveOnRow exerciseId=$exerciseId — '
+        'no local row to update; bytes still landed on disk',
+        name: 'MediaPrefetchService',
+      );
+      return;
+    }
+    await storage.saveExercise(
+      fresh.copyWith(archiveFilePath: relativePath, archivedAt: DateTime.now()),
+    );
+  }
+
+  void _setArchiveStatus(String exerciseId, MediaPrefetchStatus next) {
+    final notifier = _archiveStatus.putIfAbsent(
+      exerciseId,
+      () => ValueNotifier<MediaPrefetchStatus>(MediaPrefetchStatus.idle),
+    );
+    if (notifier.value != next) notifier.value = next;
   }
 
   // ------------------------------------------------------------------

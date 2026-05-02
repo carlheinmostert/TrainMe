@@ -4320,6 +4320,38 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                       ),
                     ),
 
+                  // Raw-archive download chip — coral pill on the
+                  // active video tile while a B&W / Original fetch is
+                  // in flight (kicked off by tapping a locked segment
+                  // on a cloud-only session). Mirrors the line-drawing
+                  // _DownloadingChip pattern in StudioExerciseCard;
+                  // disappears when the prefetch settles to done /
+                  // failed (`_hasArchive` then unlocks the segment
+                  // organically on the next rebuild).
+                  if (_isVideo(_current))
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom:
+                          MediaQuery.of(context).padding.bottom +
+                          72 +
+                          _bottomChromeTrimLiftFor(compact: isLandscape),
+                      child: IgnorePointer(
+                        child: Center(
+                          child: ValueListenableBuilder<MediaPrefetchStatus>(
+                            valueListenable: MediaPrefetchService.instance
+                                .archiveStatusFor(_current.id),
+                            builder: (context, status, _) {
+                              if (status != MediaPrefetchStatus.downloading) {
+                                return const SizedBox.shrink();
+                              }
+                              return const _ArchiveDownloadingChip();
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+
                   // Soft-trim editor. Compact bar in landscape.
                   if (_trimPanelVisible)
                     Positioned(
@@ -4575,17 +4607,24 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   ///
   /// Two reasons a segment can be locked:
   ///   1. The local raw-archive file isn't on disk yet (cloud-only
-  ///      session post-PR #190). For VIDEO exercises we route the tap
-  ///      into the existing `showDownloadOriginalSheet` so the
-  ///      practitioner can pull the raw down on demand. Photos fall
-  ///      through to the SnackBar — that download path isn't wired
-  ///      through the sheet yet.
+  ///      session post-PR #190). For VIDEO exercises we silently
+  ///      kick off a background download from the private
+  ///      `raw-archive` bucket via [MediaPrefetchService.prefetchRawArchive].
+  ///      A coral "Downloading original…" chip overlays the active
+  ///      video tile while the pull is in flight; on completion the
+  ///      local row's `archive_file_path` is stamped, `_hasArchive`
+  ///      flips true on the next rebuild, and the active treatment
+  ///      switches to whichever segment the user tapped (B&W or
+  ///      Original) so they see the result without a second tap.
+  ///      Photos fall through to the SnackBar — photo treatment
+  ///      switching is `ColorFiltered`-based and doesn't need a
+  ///      separate file.
   ///   2. Archive exists but the client hasn't granted that treatment.
   ///      We surface a SnackBar pointing the practitioner at the client
   ///      consent page, with the actual client name + treatment word
   ///      interpolated so the next step is concrete.
   ///
-  /// Haptic + SnackBar / sheet; no modal (R-01).
+  /// Haptic + chip overlay / SnackBar; no modal (R-01).
   void _onLockedSegmentTap(Treatment t) {
     HapticFeedback.lightImpact();
     if (!mounted) return;
@@ -4593,23 +4632,46 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     final exercise = _current;
     final missingArchive = !_hasArchive(exercise);
     final session = _session;
+    final practiceId = session?.practiceId;
+    final planId = session?.id;
 
-    if (missingArchive && _isVideo(exercise)) {
+    if (missingArchive &&
+        _isVideo(exercise) &&
+        practiceId != null &&
+        planId != null) {
       // Cloud-only session — the raw mp4 hasn't been pulled yet.
-      // showDownloadOriginalSheet stamps the local archive path on
-      // success and the segments unlock organically on the next rebuild.
-      showDownloadOriginalSheet(
-        context,
-        exercise: exercise,
-        practiceId: session?.practiceId,
-        planId: session?.id,
+      // Fire a background download; the chip overlay on the active
+      // video tile is the only feedback. On completion we update the
+      // in-memory exercise so _hasArchive flips true, then switch the
+      // active treatment to the one the user tapped.
+      //
+      // Optimistic treatment switch is deferred to the onDownloaded
+      // callback because _initVideoForCurrent reads
+      // _sourcePathForTreatment which falls back to absoluteArchiveFilePath
+      // — switching now (before the file lands) would briefly try to
+      // play a non-existent path.
+      unawaited(
+        MediaPrefetchService.instance.prefetchRawArchive(
+          exercise: exercise,
+          practiceId: practiceId,
+          planId: planId,
+          storage: SyncService.instance.storage,
+          onDownloaded: (downloadedId) {
+            if (!mounted) return;
+            // Re-read the freshly-stamped row from SQLite so the
+            // viewer's in-memory copy carries `archiveFilePath`.
+            unawaited(_refreshDownloadedExercise(downloadedId, t));
+          },
+        ),
       );
       return;
     }
 
     // Either archive exists but consent is missing (the "real" lock
-    // case) OR the missing-archive photo path that the download sheet
-    // doesn't handle yet. Both land on the consent SnackBar.
+    // case) OR a missing-archive photo (the download path is line-
+    // drawing-only for photos; B&W applies a CSS filter on the same
+    // local raw JPG, no separate download needed). Both land on the
+    // consent SnackBar.
     final rawClientName = session?.clientName ?? '';
     final clientName = rawClientName.trim().isEmpty
         ? 'this client'
@@ -4623,6 +4685,42 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
         duration: const Duration(seconds: 2),
       ),
     );
+  }
+
+  /// Pull the freshly-stamped row from SQLite and merge into the
+  /// viewer's in-memory `_exercises` so `_hasArchive` flips true on
+  /// the next rebuild. Then switch the active treatment to [tapped]
+  /// (B&W or Original) so the user sees the file they were waiting
+  /// for without having to tap the segment a second time.
+  ///
+  /// If the prefetch fired for an exercise other than the currently-
+  /// shown one (rare — the user paged away mid-download), we still
+  /// update the in-memory copy but skip the treatment switch.
+  Future<void> _refreshDownloadedExercise(
+    String exerciseId,
+    Treatment tapped,
+  ) async {
+    final fresh = await SyncService.instance.storage.getExerciseById(
+      exerciseId,
+    );
+    if (fresh == null || !mounted) return;
+    final idx = _exercises.indexWhere((e) => e.id == exerciseId);
+    if (idx < 0) return;
+    setState(() {
+      _exercises[idx] = fresh;
+    });
+    final cb = widget.onExerciseUpdate;
+    if (cb != null) cb(fresh);
+    // Only switch treatment when the download landed for the page
+    // currently in view — otherwise we'd reach across PageView pages
+    // and surprise the user.
+    if (idx != _currentIndex) return;
+    if (!_hasArchive(_exercises[_currentIndex])) return;
+    if (tapped == _treatment) return;
+    if (tapped == Treatment.line) return;
+    setState(() => _treatment = tapped);
+    _persistPreferredTreatment(tapped);
+    _initVideoForCurrent();
   }
 
   /// Wave 27 — stacked dual-video crossfade. Both VideoPlayer widgets
@@ -5120,6 +5218,55 @@ class _VideoPagePlaceholder extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Center(
       child: Icon(Icons.play_circle_outline, size: 72, color: Colors.white24),
+    );
+  }
+}
+
+/// Coral chip — shown over the active video tile in `_MediaViewer`
+/// while the raw archive (B&W / Original source) is being pulled from
+/// the private `raw-archive` Supabase bucket. Only feedback for the
+/// locked-segment tap on a cloud-only session; vanishes once the file
+/// lands and `_hasArchive` flips true.
+///
+/// Mirrors the line-drawing `_DownloadingChip` in `studio_exercise_card.dart`
+/// (same fontFamily / weight / radius / spinner stroke). Sized for
+/// the larger viewer surface — slightly more padding so the chip
+/// reads at a glance from arm's length.
+class _ArchiveDownloadingChip extends StatelessWidget {
+  const _ArchiveDownloadingChip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(9999),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.6,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ),
+          SizedBox(width: 10),
+          Text(
+            'Downloading original…',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
