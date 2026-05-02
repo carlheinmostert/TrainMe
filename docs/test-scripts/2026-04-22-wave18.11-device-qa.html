@@ -143,7 +143,7 @@
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
         <span class="num">1.</span>
-        <span class="text">Expand any section (<code>DOSE</code> / <code>PACING</code> / <code>PLAYBACK</code> / <code>NOTES</code>). The body sits on <code>surfaceRaised</code> — <strong>one elevation up</strong> from the outer card's <code>surfaceBase</code>, so <strong>noticeably BRIGHTER</strong> than the card (not darker, which was 18.10's recessed treatment). Rounded <strong>8pt corners</strong> visible on all four edges. A thin <strong>1pt neutral border</strong> at 6% white alpha traces the full perimeter — NOT a left-only stroke. There is <strong>NO coral</strong> on the body itself — no stripe, no tint. The effect reads as "nested sub-card that belongs to the parent card", mirroring the outer card's 12pt radius at one step smaller (8pt).</span>
+        <span class="text">Expand any section (<code>PLAN</code> / <code>PACING</code> / <code>PLAYBACK</code> / <code>NOTES</code>). The body sits on <code>surfaceRaised</code> — <strong>one elevation up</strong> from the outer card's <code>surfaceBase</code>, so <strong>noticeably BRIGHTER</strong> than the card (not darker, which was 18.10's recessed treatment). Rounded <strong>8pt corners</strong> visible on all four edges. A thin <strong>1pt neutral border</strong> at 6% white alpha traces the full perimeter — NOT a left-only stroke. There is <strong>NO coral</strong> on the body itself — no stripe, no tint. The effect reads as "nested sub-card that belongs to the parent card", mirroring the outer card's 12pt radius at one step smaller (8pt).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -153,7 +153,7 @@
       <li data-num="2" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
         <span class="num">2.</span>
-        <span class="text">Expand DOSE: the <code>REPS</code> value (e.g. <code>10</code>), <code>SETS</code> value (<code>3</code>), <code>HOLD</code> value (<code>5s</code>) are all roughly <strong>~12pt from the sub-card's right edge</strong> — not cramped against it (Wave 18.10 had only 4pt right padding). Same check on PACING: the <code>PREP</code> dashed-value and <code>DURATION PER REP</code> dashed-value both have proper right-margin. Same check on PLAYBACK: the Muted toggle sits away from the right edge with breathing room.</span>
+        <span class="text">Expand PLAN: the <code>REPS</code> value (e.g. <code>10</code>), <code>SETS</code> value (<code>3</code>), <code>HOLD</code> value (<code>5s</code>) are all roughly <strong>~12pt from the sub-card's right edge</strong> — not cramped against it (Wave 18.10 had only 4pt right padding). Same check on PACING: the <code>PREP</code> dashed-value and <code>DURATION PER REP</code> dashed-value both have proper right-margin. Same check on PLAYBACK: the Muted toggle sits away from the right edge with breathing room.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -183,13 +183,13 @@
       <li data-num="5" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
         <span class="num">5.</span>
-        <span class="text">Rapid-switch: tap PLAYBACK (opens; single-open enforced). Tap DOSE (PLAYBACK closes, DOSE opens as the elevated sub-card with right-padding + 8pt radius). Tap NOTES (DOSE closes, NOTES opens; TextField editable inside the sub-card). Chevron is still visually centred on the Montserrat 18pt label line box (Wave 18.10 fix preserved). Hierarchy still reads: Montserrat 18pt section headers vs 12pt inner-tier labels (Wave 18.9). Inline editors still stack <strong>full-width UNDER</strong> the DURATION PER REP and PREP labels (Wave 18.8 behaviour). Section breaks still have ~12pt breathing room BEFORE each next header (Wave 18.10's <code>top: 12</code> unchanged).</span>
+        <span class="text">Rapid-switch: tap PLAYBACK (opens; single-open enforced). Tap PLAN (PLAYBACK closes, PLAN opens as the elevated sub-card with right-padding + 8pt radius). Tap NOTES (PLAN closes, NOTES opens; TextField editable inside the sub-card). Chevron is still visually centred on the Montserrat 18pt label line box (Wave 18.10 fix preserved). Hierarchy still reads: Montserrat 18pt section headers vs 12pt inner-tier labels (Wave 18.9). Inline editors still stack <strong>full-width UNDER</strong> the DURATION PER REP and PREP labels (Wave 18.8 behaviour). Section breaks still have ~12pt breathing room BEFORE each next header (Wave 18.10's <code>top: 12</code> unchanged).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
     <footer>
-      Wave 18.11 corrects Wave 18.10's expanded-body treatment after Carl's live review (see <a href="./2026-04-22-wave18.10-device-qa.html" style="color: var(--coral);">wave18.10</a>). The outer-card grammar (<code>surfaceBase</code> @ r12, coral perimeter when editing) is unchanged; the sub-card just nests one tier up at r8 with a neutral border. Wave 18.1 remains the canonical baseline — run that if anything around DOSE / PACING / rest bar feels off. Storage semantics of all model fields unchanged by Wave 18.11 — display-only adjustments.
+      Wave 18.11 corrects Wave 18.10's expanded-body treatment after Carl's live review (see <a href="./2026-04-22-wave18.10-device-qa.html" style="color: var(--coral);">wave18.10</a>). The outer-card grammar (<code>surfaceBase</code> @ r12, coral perimeter when editing) is unchanged; the sub-card just nests one tier up at r8 with a neutral border. Wave 18.1 remains the canonical baseline — run that if anything around PLAN / PACING / rest bar feels off. Storage semantics of all model fields unchanged by Wave 18.11 — display-only adjustments.
     </footer>
   </div>
   <script>

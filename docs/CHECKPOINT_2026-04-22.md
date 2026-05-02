@@ -15,8 +15,8 @@ A single ~12-hour marathon of Studio-UI refinement driven by device QA on every 
 | Wave | Commit | Summary |
 |---|---|---|
 | 18 prep | `b8fc9cd` | Home-screen Settings top-right, Diagnostics queue-dump button, SRF hotfix SQL |
-| 18 | `ab219b6` | Studio visual hygiene — 10 items: new StudioToolbar (Import/Preview/Publish/Share with coral triangles), exercise card groups PLAYBACK/DOSE/PACING/NOTES, preset chip rows (Reps/Sets/Hold), Rest bar chip row, SessionCard cleanup, Media Viewer coral mute pill, `saveExercise` dirty-stamp fix |
-| 18.1 | `4ef9dfc` | Accordion (DOSE/PACING/NOTES single-open), unified mutable chip lists (cap 8 MRU), toolbar 52→40pt, rest-row Dismissible restored, **atomic `replace_plan_exercises` RPC** (closes 23505 regression on publish-reorder) |
+| 18 | `ab219b6` | Studio visual hygiene — 10 items: new StudioToolbar (Import/Preview/Publish/Share with coral triangles), exercise card groups PLAYBACK/PLAN/PACING/NOTES, preset chip rows (Reps/Sets/Hold), Rest bar chip row, SessionCard cleanup, Media Viewer coral mute pill, `saveExercise` dirty-stamp fix |
+| 18.1 | `4ef9dfc` | Accordion (PLAN/PACING/NOTES single-open), unified mutable chip lists (cap 8 MRU), toolbar 52→40pt, rest-row Dismissible restored, **atomic `replace_plan_exercises` RPC** (closes 23505 regression on publish-reorder) |
 | 18.2 | `e44c616` | Toolbar gap tighter, mixed-case header summary, PLAYBACK joined accordion, coral dot LEFT of chevron, summary wrap (3 lines), chip text vertically centred, rest chips wrap to multi-row |
 | 18.3 | `d9d3b43` + `305d3d2` + `0a269c6` | Rest chip layout cascade fix (wrap + IntrinsicWidth on chips + minHeight on container), coral dot moved RIGHT, expanded header preserves label+summary |
 | 18.4 | `4fa6dd4` | `[Custom]` → `[+]` icon, chip spacing 6→4pt, section header 11→13pt |

@@ -1,4 +1,4 @@
--- homefit.studio — Wave per-set DOSE: rest-period round-trip fix (forward only)
+-- homefit.studio — Wave per-set PLAN: rest-period round-trip fix (forward only)
 -- =============================================================================
 -- Run via:  supabase db query --linked --file supabase/schema_wave_per_set_dose_rest_fix.sql
 -- Carl reviews before apply. Single forward-only file. No down migration.
@@ -40,7 +40,7 @@
 -- WHAT THIS MIGRATION DOES *NOT* DO
 --   * Does NOT modify or recover the dropped data — production rest rows
 --     keep their NULL until the next publish overwrites them.
---   * Does NOT touch exercise_sets or the per-set DOSE shape. Rest rows
+--   * Does NOT touch exercise_sets or the per-set PLAN shape. Rest rows
 --     intentionally have no exercise_sets child rows; rest duration lives
 --     on the parent exercise via the new column.
 --   * Does NOT change SQLite-side schema. Mobile already has the field.

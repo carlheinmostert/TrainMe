@@ -113,7 +113,7 @@ class _InlineEditableTextState extends State<InlineEditableText> {
 
 /// Wraps [child] in the same dashed underline affordance used by
 /// [InlineEditableText]. Apply anywhere a value will trigger a popup or
-/// pill editor (Dose cells, Settings summaries, rest bar duration).
+/// pill editor (Plan cells, Settings summaries, rest bar duration).
 class DashedUnderline extends StatelessWidget {
   final Widget child;
   final Color color;

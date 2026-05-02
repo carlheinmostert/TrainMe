@@ -45,7 +45,7 @@ COMMENT ON COLUMN public.exercises.body_focus IS
 -- 2. RPC wiring — NOT duplicated in this file
 --
 --    `get_plan_full(uuid)` and `replace_plan_exercises(uuid, jsonb)`
---    evolve with the per-set DOSE stack (`schema_wave_per_set_dose.sql`,
+--    evolve with the per-set PLAN stack (`schema_wave_per_set_dose.sql`,
 --    `schema_wave_per_set_dose_rest_fix.sql`, …). Those migrations define
 --    `replace_plan_exercises` as RETURNS jsonb (plan_version +
 --    fallback_set_exercise_ids) with INSERT lists that already include

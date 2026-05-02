@@ -133,7 +133,7 @@
       <h3>Prerequisites</h3>
       <ul>
         <li>Wave 18.8 merged. Wave 18.9 branch <code>fix/wave-18.9-polish</code> installed via <code>./install-device.sh</code>.</li>
-        <li>At least one session with: (a) a video exercise WITH probed duration; (b) values set in DOSE (e.g. reps=10, sets=3, hold=5s) so the section-header summary is populated.</li>
+        <li>At least one session with: (a) a video exercise WITH probed duration; (b) values set in PLAN (e.g. reps=10, sets=3, hold=5s) so the section-header summary is populated.</li>
         <li>iPhone 17 Pro or similar 393pt-wide device.</li>
       </ul>
     </div>
@@ -143,13 +143,13 @@
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
         <span class="num">1.</span>
-        <span class="text">Open any exercise card, tap to expand DOSE. The section header <code>DOSE · 10 reps · 3 sets · 5s hold</code> renders in <strong>Montserrat</strong> (wider, display-style letterforms — visually distinct from Inter). Weight stays bold on label (coral uppercase) and medium on summary (mixed-case grey). No font-fallback artefacts; <code>M</code>, <code>R</code>, <code>S</code> should have Montserrat's characteristic wider geometry.</span>
+        <span class="text">Open any exercise card, tap to expand PLAN. The section header <code>PLAN · 10 reps · 3 sets · 5s hold</code> renders in <strong>Montserrat</strong> (wider, display-style letterforms — visually distinct from Inter). Weight stays bold on label (coral uppercase) and medium on summary (mixed-case grey). No font-fallback artefacts; <code>M</code>, <code>R</code>, <code>S</code> should have Montserrat's characteristic wider geometry.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="2" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
         <span class="num">2.</span>
-        <span class="text">Hierarchy now reads obviously. Section header at <strong>18pt Montserrat</strong> vs inner tier at <strong>12pt Inter</strong> gives a CLEAR 6pt absolute gap (vs Wave 18.8's 3pt). The coral <code>DOSE</code> / <code>PACING</code> / <code>PLAYBACK</code> / <code>NOTES</code> labels visually dominate the card as section headers — no more perceptual tie with the grey inner labels. Scan the expanded card: your eye should land on the section header first, then step down to the inner rows.</span>
+        <span class="text">Hierarchy now reads obviously. Section header at <strong>18pt Montserrat</strong> vs inner tier at <strong>12pt Inter</strong> gives a CLEAR 6pt absolute gap (vs Wave 18.8's 3pt). The coral <code>PLAN</code> / <code>PACING</code> / <code>PLAYBACK</code> / <code>NOTES</code> labels visually dominate the card as section headers — no more perceptual tie with the grey inner labels. Scan the expanded card: your eye should land on the section header first, then step down to the inner rows.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -159,7 +159,7 @@
       <li data-num="3" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
         <span class="num">3.</span>
-        <span class="text">Inner labels (<code>REPS</code>, <code>SETS</code>, <code>HOLD</code>, <code>PREP</code>, <code>DURATION PER REP</code>) AND inner values (<code>10</code>, <code>3</code>, <code>5s</code>, <code>45</code>, <code>3s</code>) all render at <strong>12pt</strong> — a noticeable 1pt shrink from Wave 18.8. Consistent across DOSE / PACING / NOTES — no row renders at 13pt any more. Font families unchanged (labels = Inter w600 uppercase grey; values = JetBrainsMono w700 white).</span>
+        <span class="text">Inner labels (<code>REPS</code>, <code>SETS</code>, <code>HOLD</code>, <code>PREP</code>, <code>DURATION PER REP</code>) AND inner values (<code>10</code>, <code>3</code>, <code>5s</code>, <code>45</code>, <code>3s</code>) all render at <strong>12pt</strong> — a noticeable 1pt shrink from Wave 18.8. Consistent across PLAN / PACING / NOTES — no row renders at 13pt any more. Font families unchanged (labels = Inter w600 uppercase grey; values = JetBrainsMono w700 white).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -187,7 +187,7 @@
     </ul>
 
     <footer>
-      Wave 18.9 closes two items from Wave 18.8 live device QA (see <a href="./2026-04-22-wave18.8-device-qa.html" style="color: var(--coral);">wave18.8</a>). Wave 18.1 remains the canonical baseline — run that if anything around DOSE / PACING / rest bar feels off. Storage semantics of <code>customDurationSeconds</code>, <code>prepSeconds</code>, <code>notes</code>, and all other model fields unchanged by Wave 18.9 — display-only adjustments.
+      Wave 18.9 closes two items from Wave 18.8 live device QA (see <a href="./2026-04-22-wave18.8-device-qa.html" style="color: var(--coral);">wave18.8</a>). Wave 18.1 remains the canonical baseline — run that if anything around PLAN / PACING / rest bar feels off. Storage semantics of <code>customDurationSeconds</code>, <code>prepSeconds</code>, <code>notes</code>, and all other model fields unchanged by Wave 18.9 — display-only adjustments.
     </footer>
   </div>
   <script>

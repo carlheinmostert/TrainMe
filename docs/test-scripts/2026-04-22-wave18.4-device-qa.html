@@ -122,7 +122,7 @@
     <div class="kicker">2026-04-22 · Wave 18.4 — polish patch</div>
     <h1>Device QA — Wave 18.4 patch</h1>
     <p class="lede">
-      <strong>Purpose:</strong> two polish items from live device feedback on Wave 18.3. Delta-only — this script validates ONLY the items that changed in 18.4. Items covered: (1) the <code>[Custom]</code> text pill has been replaced with a <code>[+]</code> icon in a 32×32 dashed coral/sage circle (saves ~40pt per chip row, so a full canonical + a few customs fit one line on iPhone); inter-chip spacing tightened 6pt → 4pt; (2) section header labels (PLAYBACK / DOSE / PACING / NOTES) bumped 11pt → 13pt so the label reads clearly against the 13-14pt body content; summary stays 11pt to preserve hierarchy.
+      <strong>Purpose:</strong> two polish items from live device feedback on Wave 18.3. Delta-only — this script validates ONLY the items that changed in 18.4. Items covered: (1) the <code>[Custom]</code> text pill has been replaced with a <code>[+]</code> icon in a 32×32 dashed coral/sage circle (saves ~40pt per chip row, so a full canonical + a few customs fit one line on iPhone); inter-chip spacing tightened 6pt → 4pt; (2) section header labels (PLAYBACK / PLAN / PACING / NOTES) bumped 11pt → 13pt so the label reads clearly against the 13-14pt body content; summary stays 11pt to preserve hierarchy.
       <br><br>
       <strong>In scope:</strong> mobile-only (no R-10 mirror). Preset chip row (<code>preset_chip_row.dart</code>) + group header inside the studio exercise card (<code>studio_exercise_card.dart</code>).
       <br><br>
@@ -183,7 +183,7 @@
       <li data-num="7" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
         <span class="num">7.</span>
-        <span class="text">Expand DOSE on any exercise card. The Reps / Sets / Hold chip rows each end with a <strong>coral</strong> <code>[+]</code> circle — same 32×32 shape, dashed outline, same <code>+</code> glyph. NOT a text pill reading "Custom". Tap works identically (opens inline input); long-press is still a no-op.</span>
+        <span class="text">Expand PLAN on any exercise card. The Reps / Sets / Hold chip rows each end with a <strong>coral</strong> <code>[+]</code> circle — same 32×32 shape, dashed outline, same <code>+</code> glyph. NOT a text pill reading "Custom". Tap works identically (opens inline input); long-press is still a no-op.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -199,7 +199,7 @@
       <li data-num="9" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
         <span class="num">9.</span>
-        <span class="text">On the DOSE rows (scrollable <code>ListView</code> variant — Reps / Sets / Hold) the gap between adjacent chips is also 4pt. Chips sit closer together than in Wave 18.3. Horizontal scroll still engages if the row outgrows the card width (unchanged from 18.3).</span>
+        <span class="text">On the PLAN rows (scrollable <code>ListView</code> variant — Reps / Sets / Hold) the gap between adjacent chips is also 4pt. Chips sit closer together than in Wave 18.3. Horizontal scroll still engages if the row outgrows the card width (unchanged from 18.3).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -209,7 +209,7 @@
       <li data-num="10" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
         <span class="num">10.</span>
-        <span class="text">Collapse all four group headers (PLAYBACK / DOSE / PACING / NOTES). Each label renders at <strong>13pt uppercase coral w700</strong> — visibly larger than Wave 18.3's 11pt. Letter-spacing stays at 0.8. Compare with screenshots of 18.3: the label is now clearly legible at normal arm's-length reading distance, no longer "diminutive" against the 13-14pt body content.</span>
+        <span class="text">Collapse all four group headers (PLAYBACK / PLAN / PACING / NOTES). Each label renders at <strong>13pt uppercase coral w700</strong> — visibly larger than Wave 18.3's 11pt. Letter-spacing stays at 0.8. Compare with screenshots of 18.3: the label is now clearly legible at normal arm's-length reading distance, no longer "diminutive" against the 13-14pt body content.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="11" data-status="">

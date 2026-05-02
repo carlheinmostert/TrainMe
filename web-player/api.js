@@ -63,7 +63,7 @@
  * is purely a playback-time clamp. This module normalises both keys
  * to explicit null when absent.
  *
- * ## Per-set DOSE (Wave 41 — current)
+ * ## Per-set PLAN (Wave 41 — current)
  *
  * `get_plan_full` now returns one row per exercise carrying:
  *   - sets: [{position, reps, hold_seconds, weight_kg,
@@ -200,7 +200,7 @@
       // preserving pre-Wave-24 playback math). Drives the per-rep
       // duration derivation in calculatePerSetSeconds.
       video_reps_per_loop: e.video_reps_per_loop ?? null,
-      // Wave 41 per-set DOSE. Always present as an array (empty for
+      // Wave 41 per-set PLAN. Always present as an array (empty for
       // rest exercises). Each entry: position, reps, hold_seconds,
       // weight_kg (null = bodyweight), breather_seconds_after.
       sets: _normaliseSets(e.sets),

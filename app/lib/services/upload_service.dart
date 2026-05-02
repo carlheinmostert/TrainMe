@@ -283,7 +283,7 @@ class PublishResult {
   /// the sheet without re-fetching.
   final PracticeClient? consentConfirmationClient;
 
-  /// Per-set DOSE wave — exercise IDs whose incoming `sets` array was
+  /// Per-set PLAN wave — exercise IDs whose incoming `sets` array was
   /// missing or empty at publish time. The server-side
   /// `replace_plan_exercises` RPC inserted a synthetic single-set
   /// fallback (`reps=1, hold=0, weight=NULL, breather=60`) for these so
@@ -1028,7 +1028,7 @@ class UploadService {
       // Step 6: Upsert exercise rows (batched). FK to plans is satisfied
       // from Step 4.
       // ----------------------------------------------------------------
-      // Per-set DOSE wave — payload now carries a nested `sets` array
+      // Per-set PLAN wave — payload now carries a nested `sets` array
       // per video/photo exercise. Rest exercises emit an empty `sets`
       // array (the RPC ignores it for media_type='rest'). Each set
       // serialises as {position, reps, hold_seconds, weight_kg,
@@ -1078,7 +1078,7 @@ class UploadService {
                 // re-derive from natural dimensions + rotation).
                 'aspect_ratio': e.aspectRatio,
                 'rotation_quarters': e.rotationQuarters,
-                // Per-set DOSE rest-fix (schema_wave_per_set_dose_rest_fix.sql).
+                // Per-set PLAN rest-fix (schema_wave_per_set_dose_rest_fix.sql).
                 // Only meaningful for media_type='rest'; null for video/photo.
                 // The Wave-1 migration dropped exercises.hold_seconds (which
                 // had been the rest-duration carrier for rest rows); this
@@ -1100,7 +1100,7 @@ class UploadService {
           .toList();
 
       // Atomic replace-all — DELETE + INSERT in one transaction server-side.
-      // Per-set DOSE wave: the RPC also rewrites the per-exercise child
+      // Per-set PLAN wave: the RPC also rewrites the per-exercise child
       // rows in `exercise_sets` and returns a list of fallback exercise
       // IDs whose incoming `sets` array was missing/empty. Surface
       // those to the caller via [PublishResult.fallbackSetExerciseIds].

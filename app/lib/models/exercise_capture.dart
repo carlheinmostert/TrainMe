@@ -25,7 +25,7 @@ class ExerciseCapture {
   final MediaType mediaType;
   final ConversionStatus conversionStatus;
 
-  /// Per-set DOSE rows (Wave: per-set DOSE relational model). Empty for
+  /// Per-set PLAN rows (Wave: per-set PLAN relational model). Empty for
   /// rest exercises and brand-new captures whose
   /// [withPersistenceDefaults] hasn't yet seeded the synthetic first
   /// set. Each set is a playable row — reps, hold, optional weight,
@@ -322,7 +322,7 @@ class ExerciseCapture {
 
   /// Create a new capture with a generated UUID.
   ///
-  /// Per-set DOSE wave: video + photo captures are seeded with a
+  /// Per-set PLAN wave: video + photo captures are seeded with a
   /// synthetic first set (10 reps, no hold, bodyweight, 30s breather)
   /// up-front so every consumer (Studio card summary, sticky-defaults
   /// prefill, conversion service re-read, publish flow) sees a non-empty
@@ -589,8 +589,8 @@ class ExerciseCapture {
 
   /// Backfill the per-capture persistence defaults.
   ///
-  /// Per-set DOSE wave: when a practitioner captures a video or photo
-  /// exercise without ever opening the DOSE editor, the [sets] list is
+  /// Per-set PLAN wave: when a practitioner captures a video or photo
+  /// exercise without ever opening the PLAN editor, the [sets] list is
   /// empty — which would publish an empty plan. We seed a single
   /// canonical first set so downstream consumers (web player + mobile
   /// preview + duration estimator) always have at least one playable
@@ -673,7 +673,7 @@ class ExerciseCapture {
     return total;
   }
 
-  /// The duration to use everywhere — Wave: per-set DOSE collapses the
+  /// The duration to use everywhere — Wave: per-set PLAN collapses the
   /// previous `customDurationSeconds` override into [estimatedDurationSeconds]
   /// (the per-set sum is now the only source of truth). Kept as a thin
   /// alias for callers that still reference it.

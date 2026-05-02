@@ -1,9 +1,9 @@
 # Checkpoint — 2026-05-01
 
-**Per-set DOSE wave — post-merge QA stack (Rounds 1–8)**
+**Per-set PLAN wave — post-merge QA stack (Rounds 1–8)**
 
 This document is the fresh-session handoff for the post-merge QA work that landed
-on top of the per-set DOSE wave (PR #148, merged earlier this day on commit
+on top of the per-set PLAN wave (PR #148, merged earlier this day on commit
 `c6f5e6e`). Eight rounds of fixes were spawned via background agents over the
 course of the session, none of them merged yet.
 
@@ -15,7 +15,7 @@ course of the session, none of them merged yet.
 
 ## Where main is
 
-- HEAD: `c6f5e6e feat(dose): per-set DOSE table + tabbed bottom-sheet editor`
+- HEAD: `c6f5e6e feat(dose): per-set PLAN table + tabbed bottom-sheet editor`
   (this was PR #148, the wave's original landing)
 - Nothing since `c6f5e6e` has merged. The 8 round PRs are open and waiting.
 
@@ -46,8 +46,8 @@ see "Merge strategy" below.
 
 ### Studio exercise card
 - **Vertical 3-row layout** (Round 4): thumbnail left; right column = title row,
-  Dose row, Notes row. Each row is full-width.
-- **Icon-only labels** (Round 4): `Icons.fitness_center` (coral) for Dose,
+  Plan row, Notes row. Each row is full-width.
+- **Icon-only labels** (Round 4): `Icons.fitness_center` (coral) for Plan,
   `Icons.note_alt_outlined` for Notes. **Notes icon is also coral** (Round 5)
   for visual parity.
 - **Tightened margins** (Round 4): card outer 14→10pt; button padding 12×8 → 10×6pt.
@@ -57,7 +57,7 @@ see "Merge strategy" below.
 - **Photo thumbnail backfill** (Round 4 + 5): photos render their actual
   picture. Fallback chain is `thumbnailPath → rawFilePath → convertedFilePath
   → Icons.photo_outlined`.
-- **Dose grammar** mirrors web-player canonical: `3 sets · 10 reps · @ 15 kg ·
+- **Plan grammar** mirrors web-player canonical: `3 sets · 10 reps · @ 15 kg ·
   5s hold` (Round 3, full words not `3 × 10`).
 - **Notes summary uses FULL text** (Round 6) — flattens whitespace incl.
   newlines into single spaces; no more "first paragraph only" truncation.
@@ -80,7 +80,7 @@ see "Merge strategy" below.
   threshold or tap-outside. Treatment pill anchored top-left, no longer
   overlapping Body Focus / Rotate buttons.
 
-### Dose table (inside Dose tab)
+### Plan table (inside Plan tab)
 - **Reps cell uses canonical `PresetChipRow`** (Round 1 → 2): small horizontal
   pills, inline `[+]` numeric input (no popup), long-press to delete with Undo.
 - **Weight slider** isolated from sheet's gesture (Round 5 GestureDetector

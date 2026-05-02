@@ -122,7 +122,7 @@
     <div class="kicker">2026-04-22 · Wave 18.6 — polish round 3</div>
     <h1>Device QA — Wave 18.6</h1>
     <p class="lede">
-      <strong>Purpose:</strong> five items from live QA of Wave 18.5. <strong>(1)</strong> <code>[+]</code> horizontal padding 6pt → 12pt so the pill reads as a proper pill (~42pt wide), matching the visual weight of text chips. <strong>(2)</strong> Rest-row outer container flipped from <code>surfaceRaised</code> to <code>surfaceBase</code> so the unselected chips (which fill with <code>surfaceRaised</code>) sit against a contrasting background — same chip-on-surface contrast as DOSE chips. <strong>(3)</strong> Collapsed group headers tightened: inner vertical padding 10pt → 2pt, inter-group <code>SizedBox(height: 16)</code> spacers removed entirely. Groups flow directly against each other with no divider lines. Card stack is visibly much shorter when all four groups collapsed. <strong>(4)</strong> "Duration per rep" label stacks above its control (segmented or single pill) instead of sharing a horizontal row — fixes the iPhone overflow where the segmented control scrolled off-screen. <strong>(5)</strong> Font rebalance across accordion groups: section headers (coral w700 uppercase), inner labels (grey w600 uppercase) and inner values (mono w700 white) ALL at 13pt. Hierarchy carried by font family + weight + colour + case alone.
+      <strong>Purpose:</strong> five items from live QA of Wave 18.5. <strong>(1)</strong> <code>[+]</code> horizontal padding 6pt → 12pt so the pill reads as a proper pill (~42pt wide), matching the visual weight of text chips. <strong>(2)</strong> Rest-row outer container flipped from <code>surfaceRaised</code> to <code>surfaceBase</code> so the unselected chips (which fill with <code>surfaceRaised</code>) sit against a contrasting background — same chip-on-surface contrast as PLAN chips. <strong>(3)</strong> Collapsed group headers tightened: inner vertical padding 10pt → 2pt, inter-group <code>SizedBox(height: 16)</code> spacers removed entirely. Groups flow directly against each other with no divider lines. Card stack is visibly much shorter when all four groups collapsed. <strong>(4)</strong> "Duration per rep" label stacks above its control (segmented or single pill) instead of sharing a horizontal row — fixes the iPhone overflow where the segmented control scrolled off-screen. <strong>(5)</strong> Font rebalance across accordion groups: section headers (coral w700 uppercase), inner labels (grey w600 uppercase) and inner values (mono w700 white) ALL at 13pt. Hierarchy carried by font family + weight + colour + case alone.
       <br><br>
       <strong>In scope:</strong> mobile-only. <code>preset_chip_row.dart</code> (<code>[+]</code> padding bump) + <code>studio_mode_screen.dart</code> (rest row background) + <code>studio_exercise_card.dart</code> (group header spacing, Duration per rep stacked layout, font rebalance).
       <br><br>
@@ -143,17 +143,17 @@
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
         <span class="num">1.</span>
-        <span class="text">Open any exercise card, expand DOSE. The <code>[+]</code> tail at the end of the Reps chip row is <strong>visibly a pill (~42pt wide)</strong> — NOT square, NOT near-circle. Visual weight now matches a text chip like <code>[15]</code> or <code>[12]</code>. Compare against Wave 18.5: the old <code>[+]</code> was ~30pt and read near-square; the new one reads as a member of the same chip family, just dashed instead of filled and narrower only by a few pt. Long-press still no-op; tap still opens the inline input.</span>
+        <span class="text">Open any exercise card, expand PLAN. The <code>[+]</code> tail at the end of the Reps chip row is <strong>visibly a pill (~42pt wide)</strong> — NOT square, NOT near-circle. Visual weight now matches a text chip like <code>[15]</code> or <code>[12]</code>. Compare against Wave 18.5: the old <code>[+]</code> was ~30pt and read near-square; the new one reads as a member of the same chip family, just dashed instead of filled and narrower only by a few pt. Long-press still no-op; tap still opens the inline input.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>2 · Rest row — chip contrast matches DOSE</h2>
+    <h2>2 · Rest row — chip contrast matches PLAN</h2>
     <ul class="checklist">
       <li data-num="2" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
         <span class="num">2.</span>
-        <span class="text">Open a session that has a rest row. The sage chip row (<code>[15s] [30s] [60s] [90s] [+]</code> + any customs) now sits against the <strong>SAME background colour as DOSE chips</strong> on the exercise card (the darker card body fill, <code>surfaceBase</code>). Compare: an exercise card expanded with DOSE visible, side-by-side with a rest row. Chip-on-surface contrast is identical. No more "blended into its container" rest chips.</span>
+        <span class="text">Open a session that has a rest row. The sage chip row (<code>[15s] [30s] [60s] [90s] [+]</code> + any customs) now sits against the <strong>SAME background colour as PLAN chips</strong> on the exercise card (the darker card body fill, <code>surfaceBase</code>). Compare: an exercise card expanded with PLAN visible, side-by-side with a rest row. Chip-on-surface contrast is identical. No more "blended into its container" rest chips.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -163,7 +163,7 @@
       <li data-num="3" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
         <span class="num">3.</span>
-        <span class="text">Expand an exercise card with <strong>all four group headers collapsed</strong> (PLAYBACK / DOSE / PACING / NOTES). The card is <strong>visibly much shorter than Wave 18.5</strong> — rows flow tight against each other, no visible gap between them. Carl's "multiples of the size of the header" complaint is gone; this is now closer to one-times-header per row.</span>
+        <span class="text">Expand an exercise card with <strong>all four group headers collapsed</strong> (PLAYBACK / PLAN / PACING / NOTES). The card is <strong>visibly much shorter than Wave 18.5</strong> — rows flow tight against each other, no visible gap between them. Carl's "multiples of the size of the header" complaint is gone; this is now closer to one-times-header per row.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="4" data-status="">
@@ -175,7 +175,7 @@
       <li data-num="5" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
         <span class="num">5.</span>
-        <span class="text">Tap any collapsed group (e.g. DOSE). It expands. The body contents (chip rows, REPS / SETS / HOLD labels + values) still have <strong>normal breathing room</strong> — the 8pt inner spacing around control rows is unchanged. Nothing about the expanded-body layout is cramped.</span>
+        <span class="text">Tap any collapsed group (e.g. PLAN). It expands. The body contents (chip rows, REPS / SETS / HOLD labels + values) still have <strong>normal breathing room</strong> — the 8pt inner spacing around control rows is unchanged. Nothing about the expanded-body layout is cramped.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="6" data-status="">
@@ -225,7 +225,7 @@
       <li data-num="12" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
         <span class="num">12.</span>
-        <span class="text">Expand DOSE on any exercise. Compare visually: the coral uppercase section header <code>DOSE</code>, the grey uppercase inner label <code>REPS</code>, and the white mono inner value (e.g. <code>12</code>) — <strong>all three render at the same size (13pt)</strong>. Wave 18.5 regression is gone: the value at 14pt no longer looks larger than the 13pt header. Hierarchy is now carried by font family (mono vs Inter) + weight (w700 vs w600) + colour (coral vs grey vs white) + case (upper vs upper vs number).</span>
+        <span class="text">Expand PLAN on any exercise. Compare visually: the coral uppercase section header <code>PLAN</code>, the grey uppercase inner label <code>REPS</code>, and the white mono inner value (e.g. <code>12</code>) — <strong>all three render at the same size (13pt)</strong>. Wave 18.5 regression is gone: the value at 14pt no longer looks larger than the 13pt header. Hierarchy is now carried by font family (mono vs Inter) + weight (w700 vs w600) + colour (coral vs grey vs white) + case (upper vs upper vs number).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="13" data-status="">
@@ -271,7 +271,7 @@
     </ul>
 
     <footer>
-      Wave 18.6 closes five items from Wave 18.5 live device QA. Wave 18.1 remains the canonical baseline (run if anything around DOSE / PACING / rest bar feels off). No storage-model changes — legacy sessions read through cleanly.
+      Wave 18.6 closes five items from Wave 18.5 live device QA. Wave 18.1 remains the canonical baseline (run if anything around PLAN / PACING / rest bar feels off). No storage-model changes — legacy sessions read through cleanly.
     </footer>
   </div>
   <script>

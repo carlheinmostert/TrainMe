@@ -168,19 +168,19 @@
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
         <span class="num">4.</span>
-        <span class="text">Tap any exercise card to expand it. <strong>ALL FOUR</strong> groups (PLAYBACK / DOSE / PACING / NOTES) render as collapsed header rows on initial open. PLAYBACK is NO LONGER auto-expanded — the card reads lean + quiet with only chevron + label + summary per row.</span>
+        <span class="text">Tap any exercise card to expand it. <strong>ALL FOUR</strong> groups (PLAYBACK / PLAN / PACING / NOTES) render as collapsed header rows on initial open. PLAYBACK is NO LONGER auto-expanded — the card reads lean + quiet with only chevron + label + summary per row.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="5" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
         <span class="num">5.</span>
-        <span class="text">Tap <strong>PLAYBACK</strong> header. PLAYBACK expands (treatment tiles + Muted toggle visible). Tap <strong>DOSE</strong>. PLAYBACK <strong>collapses automatically</strong>; DOSE expands. Single-open spans all four groups now — PLAYBACK is no longer an independent toggle.</span>
+        <span class="text">Tap <strong>PLAYBACK</strong> header. PLAYBACK expands (treatment tiles + Muted toggle visible). Tap <strong>PLAN</strong>. PLAYBACK <strong>collapses automatically</strong>; PLAN expands. Single-open spans all four groups now — PLAYBACK is no longer an independent toggle.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="6" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
         <span class="num">6.</span>
-        <span class="text">From item 5's state (DOSE open), tap <strong>DOSE</strong> again. DOSE collapses, all four groups now closed. Tap <strong>NOTES</strong>. NOTES expands; everything else stays closed. Tap NOTES again → closes. All four can end up collapsed; only one can be open at a time. Chevron rotation + <code>selectionClick</code> haptic on every tap.</span>
+        <span class="text">From item 5's state (PLAN open), tap <strong>PLAN</strong> again. PLAN collapses, all four groups now closed. Tap <strong>NOTES</strong>. NOTES expands; everything else stays closed. Tap NOTES again → closes. All four can end up collapsed; only one can be open at a time. Chevron rotation + <code>selectionClick</code> haptic on every tap.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -196,7 +196,7 @@
       <li data-num="8" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
         <span class="num">8.</span>
-        <span class="text">A group at all-default has <strong>no ghost space</strong> for the coral dot — the chevron sits flush left, label follows immediately after. Compare a default DOSE header (no dot) to a non-default one (dot present) — the chevron position shifts right by ~11pt when the dot appears. No leftover blank slot.</span>
+        <span class="text">A group at all-default has <strong>no ghost space</strong> for the coral dot — the chevron sits flush left, label follows immediately after. Compare a default PLAN header (no dot) to a non-default one (dot present) — the chevron position shifts right by ~11pt when the dot appears. No leftover blank slot.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -222,7 +222,7 @@
       <li data-num="11" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
         <span class="num">11.</span>
-        <span class="text">Expand DOSE on any exercise. Look at the Reps chip row — e.g. <code>[5][8][10][12][15][Custom]</code>. Text inside every chip sits <strong>dead centre vertically</strong> inside the 32pt pill. No visible drift towards the bottom of the pill (previously Inter's default line-height left a ~1-2pt low-drift). Compare selected chip (coral fill, white text) to unselected chips (raised fill, light text) — both sit on the same baseline.</span>
+        <span class="text">Expand PLAN on any exercise. Look at the Reps chip row — e.g. <code>[5][8][10][12][15][Custom]</code>. Text inside every chip sits <strong>dead centre vertically</strong> inside the 32pt pill. No visible drift towards the bottom of the pill (previously Inter's default line-height left a ~1-2pt low-drift). Compare selected chip (coral fill, white text) to unselected chips (raised fill, light text) — both sit on the same baseline.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="12" data-status="">
@@ -250,7 +250,7 @@
       <li data-num="15" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
         <span class="num">15.</span>
-        <span class="text">DOSE chip rows (reps / sets / hold) do NOT wrap — they still scroll horizontally as in Wave 18.1. Only the rest bar's non-scrollable chip row wraps. Verify by adding lots of custom Reps values until the ListView scrolls; the row never grows vertically.</span>
+        <span class="text">PLAN chip rows (reps / sets / hold) do NOT wrap — they still scroll horizontally as in Wave 18.1. Only the rest bar's non-scrollable chip row wraps. Verify by adding lots of custom Reps values until the ListView scrolls; the row never grows vertically.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>

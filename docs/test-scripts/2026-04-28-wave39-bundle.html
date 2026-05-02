@@ -67,10 +67,10 @@
       <span class="text">Edit fields on exercise 1, capture exercise 2 on same client &rarr; pre-fills with overridden values.</span>
       <ol class="steps">
         <li data-sub="1.1">Open Client A. Create a new session. Capture a video (long-press shutter, ~3s). Wait for conversion to finish.</li>
-        <li data-sub="1.2">Open the exercise card&apos;s DOSE accordion. Set reps = 12 (tap the 12 chip). Set sets = 4 (tap 4 chip). Set hold = 5s.</li>
+        <li data-sub="1.2">Open the exercise card&apos;s PLAN accordion. Set reps = 12 (tap the 12 chip). Set sets = 4 (tap 4 chip). Set hold = 5s.</li>
         <li data-sub="1.3">Open the exercise card&apos;s PACING accordion. Set prep seconds = 10 (override input). Set DURATION PER REP &rarr; Manual &rarr; 6s.</li>
         <li data-sub="1.4">Swipe right to Capture mode IMMEDIATELY (don&apos;t wait). Long-press shutter and record exercise 2.</li>
-        <li data-sub="1.5">Swipe back to Studio. Open exercise 2&apos;s DOSE accordion. Reps reads <strong>12</strong>, sets reads <strong>4</strong>, hold reads <strong>5s</strong>. NOT the system defaults of 10 / 3 / 0s.</li>
+        <li data-sub="1.5">Swipe back to Studio. Open exercise 2&apos;s PLAN accordion. Reps reads <strong>12</strong>, sets reads <strong>4</strong>, hold reads <strong>5s</strong>. NOT the system defaults of 10 / 3 / 0s.</li>
         <li data-sub="1.6">Open exercise 2&apos;s PACING accordion. Prep seconds reads <strong>10</strong>. DURATION PER REP&apos;s Manual seed reads <strong>6s</strong>.</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
@@ -82,7 +82,7 @@
       <ol class="steps">
         <li data-sub="2.1">Carry the Client A defaults from item 1 (reps=12, sets=4, hold=5s).</li>
         <li data-sub="2.2">Back out to Home. Open or create Client B. Create a new session. Capture an exercise.</li>
-        <li data-sub="2.3">Open the exercise card&apos;s DOSE accordion. Reps reads <strong>10</strong> (system default), sets reads <strong>3</strong>, hold reads <strong>0s</strong>. The Client A overrides do NOT leak.</li>
+        <li data-sub="2.3">Open the exercise card&apos;s PLAN accordion. Reps reads <strong>10</strong> (system default), sets reads <strong>3</strong>, hold reads <strong>0s</strong>. The Client A overrides do NOT leak.</li>
         <li data-sub="2.4">Edit Client B&apos;s exercise: reps = 8, sets = 2. Capture another exercise on Client B. New card opens with reps=8, sets=2.</li>
         <li data-sub="2.5">Switch back to Client A &rarr; create another new session &rarr; capture &rarr; reps=12, sets=4 (Client A&apos;s map preserved through the round-trip; not contaminated by Client B&apos;s 8/2).</li>
       </ol>

@@ -5,19 +5,19 @@ import '../models/exercise_capture.dart';
 import '../models/exercise_set.dart';
 import '../models/session.dart';
 import '../theme.dart';
-import 'dose_table.dart';
+import 'plan_table.dart';
 import 'inline_editable_text.dart';
 import 'media_viewer_body.dart';
 import 'mini_preview.dart';
 import 'preset_chip_row.dart';
 
 /// Which tab the editor sheet should land on when first opened.
-enum ExerciseEditorTab { dose, notes, preview, settings }
+enum ExerciseEditorTab { plan, notes, preview, settings }
 
 /// The tabbed bottom-sheet editor for an exercise.
 ///
 /// Mounts via [showExerciseEditorSheet]. Hosts four tabs:
-///   * **Dose** — `DoseTable` editing per-set rows.
+///   * **Plan** — `PlanTable` editing per-set rows.
 ///   * **Notes** — multiline `TextField` for practitioner-only notes.
 ///   * **Preview** — embeds `MediaViewerBody` so the practitioner can
 ///     verify what the client will see, scoped to the active exercise.
@@ -44,7 +44,7 @@ Future<void> showExerciseEditorSheet({
   required int initialExerciseIndex,
   required void Function(int index, ExerciseCapture updated) onExerciseChanged,
   ValueChanged<Session>? onSessionUpdate,
-  ExerciseEditorTab initialTab = ExerciseEditorTab.dose,
+  ExerciseEditorTab initialTab = ExerciseEditorTab.plan,
 }) async {
   HapticFeedback.selectionClick();
   // Pause every Studio-list MiniPreview for the duration of the sheet
@@ -102,7 +102,7 @@ class ExerciseEditorSheet extends StatefulWidget {
   /// the embed propagate back to the Studio screen.
   final ValueChanged<Session>? onSessionUpdate;
 
-  /// Tab to land on when the sheet opens. Defaults to Dose.
+  /// Tab to land on when the sheet opens. Defaults to Plan.
   final ExerciseEditorTab initialTab;
 
   const ExerciseEditorSheet({
@@ -111,7 +111,7 @@ class ExerciseEditorSheet extends StatefulWidget {
     required this.initialExerciseIndex,
     required this.onExerciseChanged,
     this.onSessionUpdate,
-    this.initialTab = ExerciseEditorTab.dose,
+    this.initialTab = ExerciseEditorTab.plan,
   });
 
   @override
@@ -199,7 +199,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
 
   int _tabIndexFor(ExerciseEditorTab t) {
     switch (t) {
-      case ExerciseEditorTab.dose:
+      case ExerciseEditorTab.plan:
         return 0;
       case ExerciseEditorTab.notes:
         return 1;
@@ -341,7 +341,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       expand: false,
       builder: (ctx, scrollController) {
         // Wrap in our own ScaffoldMessenger so showUndoSnackBar fires from
-        // DoseTable / etc. land INSIDE the sheet (above the modal barrier),
+        // PlanTable / etc. land INSIDE the sheet (above the modal barrier),
         // not behind it on the host scaffold where they're invisible.
         return ScaffoldMessenger(
           child: Scaffold(
@@ -371,7 +371,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                               _buildRestTab(scrollController),
                             ]
                           : [
-                              _buildDoseTab(scrollController),
+                              _buildPlanTab(scrollController),
                               _buildNotesTab(scrollController),
                               _buildPreviewTab(),
                               _buildSettingsTab(scrollController),
@@ -592,7 +592,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   Widget _buildTabStrip() {
     final tabs = _exercise.isRest
         ? const ['Rest']
-        : const ['Dose', 'Notes', 'Preview', 'Settings'];
+        : const ['Plan', 'Notes', 'Preview', 'Settings'];
     // Round 2 — tab strip listens for vertical drag too so the Preview
     // tab (whose body owns gestures inside MediaViewerBody) still has a
     // reliable drag region between the chrome and the page content.
@@ -650,7 +650,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   // Tab bodies
   // ---------------------------------------------------------------------------
 
-  Widget _buildDoseTab(ScrollController scrollController) {
+  Widget _buildPlanTab(ScrollController scrollController) {
     final cycles = _circuitCycles();
     // Round 2 — bottom padding mirrors MediaQuery.viewInsets.bottom so
     // the iOS keyboard (when the inline custom-value editor opens)
@@ -662,7 +662,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     return SingleChildScrollView(
       controller: scrollController,
       padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
-      child: DoseTable(
+      child: PlanTable(
         sets: _exercise.sets,
         onSetsChanged: _onSetsChanged,
         circuitCycles: cycles,
@@ -1030,7 +1030,7 @@ class _ChevronButton extends StatelessWidget {
   }
 }
 
-/// Collapsible row for the Settings tab — mirrors the Dose-table pattern
+/// Collapsible row for the Settings tab — mirrors the Plan-table pattern
 /// where the row shows label + current value, and tapping expands an
 /// inline editor below. Tapping a value in the editor commits and
 /// collapses the row (handled by the caller via [setState]).

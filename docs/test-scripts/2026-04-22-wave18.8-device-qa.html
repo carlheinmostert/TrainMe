@@ -143,7 +143,7 @@
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
         <span class="num">1.</span>
-        <span class="text">Open any exercise card, expand DOSE. The <code>[+]</code> tail renders as a <strong>~38pt-wide dashed pill</strong> (was ~42pt in Wave 18.7). Still visibly padded — there's room around the centred <code>+</code> icon — but leaner, with the visual weight more closely matching the text chips <code>[15]</code>, <code>[12]</code>, <code>[10]</code>. Long-press <code>[+]</code> → no-op. Tap <code>[+]</code> → inline Cancel / numeric field / Done opens (NOT a modal).</span>
+        <span class="text">Open any exercise card, expand PLAN. The <code>[+]</code> tail renders as a <strong>~38pt-wide dashed pill</strong> (was ~42pt in Wave 18.7). Still visibly padded — there's room around the centred <code>+</code> icon — but leaner, with the visual weight more closely matching the text chips <code>[15]</code>, <code>[12]</code>, <code>[10]</code>. Long-press <code>[+]</code> → no-op. Tap <code>[+]</code> → inline Cancel / numeric field / Done opens (NOT a modal).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -153,13 +153,13 @@
       <li data-num="2" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
         <span class="num">2.</span>
-        <span class="text">Expand an exercise card with DOSE values set (e.g. reps=10, sets=3, hold=5s). Section header <code>DOSE</code> (coral w700 uppercase) reads <strong>visibly LARGER than</strong> the 13pt inner labels <code>REPS</code> / <code>SETS</code> / <code>HOLD</code>. Hierarchy restored after Wave 18.7's 14pt label perceptually tied with grey inner labels. The coral header dominates the row.</span>
+        <span class="text">Expand an exercise card with PLAN values set (e.g. reps=10, sets=3, hold=5s). Section header <code>PLAN</code> (coral w700 uppercase) reads <strong>visibly LARGER than</strong> the 13pt inner labels <code>REPS</code> / <code>SETS</code> / <code>HOLD</code>. Hierarchy restored after Wave 18.7's 14pt label perceptually tied with grey inner labels. The coral header dominates the row.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="3" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
         <span class="num">3.</span>
-        <span class="text">Section header <strong>summary</strong> text (after the <code>·</code> — e.g. <code>DOSE · 10 reps · 3 sets · 5s hold</code>) renders at the <strong>same 16pt size as the label</strong>. Differentiation is purely weight + case + colour: label = w700 uppercase coral; summary = w500 mixed-case grey. The row reads as one unified header.</span>
+        <span class="text">Section header <strong>summary</strong> text (after the <code>·</code> — e.g. <code>PLAN · 10 reps · 3 sets · 5s hold</code>) renders at the <strong>same 16pt size as the label</strong>. Differentiation is purely weight + case + colour: label = w700 uppercase coral; summary = w500 mixed-case grey. The row reads as one unified header.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="4" data-status="">
@@ -181,7 +181,7 @@
       <li data-num="6" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
         <span class="num">6.</span>
-        <span class="text">Expand DOSE. The gap between the <code>DOSE</code> header row and the first inner content (REPS row) is <strong>visually tight (~2pt)</strong>, not the previous 8pt. Header + body feel like one connected unit, not two separated blocks.</span>
+        <span class="text">Expand PLAN. The gap between the <code>PLAN</code> header row and the first inner content (REPS row) is <strong>visually tight (~2pt)</strong>, not the previous 8pt. Header + body feel like one connected unit, not two separated blocks.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="7" data-status="">
@@ -193,7 +193,7 @@
       <li data-num="8" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
         <span class="num">8.</span>
-        <span class="text">INTRA-content spacing inside an expanded body is <strong>unchanged</strong>. Inside DOSE: still ~8pt breathing room between REPS → SETS → HOLD rows. Inside PACING: still breathing room between PREP row and DURATION PER REP row. Only the very first gap (header → first row) was tightened.</span>
+        <span class="text">INTRA-content spacing inside an expanded body is <strong>unchanged</strong>. Inside PLAN: still ~8pt breathing room between REPS → SETS → HOLD rows. Inside PACING: still breathing room between PREP row and DURATION PER REP row. Only the very first gap (header → first row) was tightened.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -231,7 +231,7 @@
     </ul>
 
     <footer>
-      Wave 18.8 closes five items from Wave 18.7 live device QA (see <a href="./2026-04-22-wave18.7-device-qa.html" style="color: var(--coral);">wave18.7</a>). Wave 18.1 remains the canonical baseline — run that if anything around DOSE / PACING / rest bar feels off. Storage semantics of <code>customDurationSeconds</code>, <code>prepSeconds</code>, <code>notes</code>, and all other model fields unchanged by Wave 18.8 — display-only adjustments.
+      Wave 18.8 closes five items from Wave 18.7 live device QA (see <a href="./2026-04-22-wave18.7-device-qa.html" style="color: var(--coral);">wave18.7</a>). Wave 18.1 remains the canonical baseline — run that if anything around PLAN / PACING / rest bar feels off. Storage semantics of <code>customDurationSeconds</code>, <code>prepSeconds</code>, <code>notes</code>, and all other model fields unchanged by Wave 18.8 — display-only adjustments.
     </footer>
   </div>
   <script>

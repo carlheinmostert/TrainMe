@@ -1,4 +1,4 @@
--- homefit.studio — Wave: per-set DOSE relational model (clean cutover)
+-- homefit.studio — Wave: per-set PLAN relational model (clean cutover)
 -- =============================================================================
 -- Run via:  supabase db query --linked --file supabase/schema_wave_per_set_dose.sql
 -- Carl reviews before apply. Single forward-only file. No down migration.
@@ -6,8 +6,8 @@
 -- WHY
 --   Until now, every exercise carried uniform `(reps, sets, hold_seconds,
 --   inter_set_rest_seconds)` columns — every set played identical to every
---   other. The new DOSE table mockup
---   (`docs/design/mockups/exercise-card-dose-table.html`) supports per-set
+--   other. The new PLAN table mockup
+--   (`docs/design/mockups/exercise-card-plan-table.html`) supports per-set
 --   variation: pyramids (10/8/6 reps), per-set weight escalation, weighted
 --   exercises (`weight_kg`), and per-set breather. The model has to change.
 --
@@ -573,7 +573,7 @@ BEGIN
                                1800)
                         ELSE NULL
                       END,
-                    -- NEW: per-set DOSE rows. Empty array for rest exercises
+                    -- NEW: per-set PLAN rows. Empty array for rest exercises
                     -- and for any video/photo exercise that has no child rows
                     -- (shouldn't happen post-backfill, but degrade safely).
                     'sets',

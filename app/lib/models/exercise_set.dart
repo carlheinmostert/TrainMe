@@ -13,7 +13,7 @@ const Object _kSentinel = _Sentinel();
 
 /// One playable set inside an [ExerciseCapture].
 ///
-/// Wave: per-set DOSE relational model. Each row carries reps, hold,
+/// Wave: per-set PLAN relational model. Each row carries reps, hold,
 /// optional weight, and the breather AFTER that set. The set's
 /// [position] is 1-based and unique within its parent exercise.
 ///

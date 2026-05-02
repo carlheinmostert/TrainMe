@@ -138,7 +138,7 @@ class LocalStorageService {
       ON exercises(session_id, position)
     ''');
 
-    // Per-set DOSE child table (Wave: per-set DOSE relational model).
+    // Per-set PLAN child table (Wave: per-set PLAN relational model).
     // Mirrors the cloud `public.exercise_sets` schema. One row per
     // playable set; ordered by `position` (1-based, UNIQUE per
     // exercise). Cascade-deleted with the parent.
@@ -152,7 +152,7 @@ class LocalStorageService {
     await _createOfflineFirstTables(db);
   }
 
-  /// Shared DDL for the per-set DOSE child table. Called from both
+  /// Shared DDL for the per-set PLAN child table. Called from both
   /// [_createTables] (fresh installs) and the v33 migration branch.
   /// Mirrors the cloud `public.exercise_sets` table column-for-column
   /// (id PK, exercise_id FK, position, reps, hold_seconds, weight_kg
@@ -696,7 +696,7 @@ class LocalStorageService {
       );
     }
     if (oldVersion < 33) {
-      // Per-set DOSE relational model (Wave: per-set DOSE).
+      // Per-set PLAN relational model (Wave: per-set PLAN).
       //
       // Server side already cut over (see
       // `supabase/schema_wave_per_set_dose.sql`). The Flutter cache must
@@ -1241,7 +1241,7 @@ class LocalStorageService {
         );
       }
 
-      // Per-set DOSE wave: brand-new captures get a synthetic single
+      // Per-set PLAN wave: brand-new captures get a synthetic single
       // set seeded so downstream consumers always have a playable row.
       // See [ExerciseCapture.withPersistenceDefaults].
       final toPersist = existing == null
@@ -1353,7 +1353,7 @@ class LocalStorageService {
     if (prev.preferredTreatment != next.preferredTreatment) return true;
     if ((prev.notes ?? '') != (next.notes ?? '')) return true;
     if (prev.circuitId != next.circuitId) return true;
-    // Per-set DOSE — any change in the sets list is a user-content
+    // Per-set PLAN — any change in the sets list is a user-content
     // edit. Compare element-wise via [ExerciseSet]'s value equality so
     // additions, deletions, position swaps, reps/hold/weight/breather
     // edits all dirty the session.
@@ -1413,7 +1413,7 @@ class LocalStorageService {
         );
       }
       await batch.commit(noResult: true);
-      // Per-set DOSE — replace child rows for each exercise. Done
+      // Per-set PLAN — replace child rows for each exercise. Done
       // post-batch so the parent inserts have committed and the FKs
       // resolve. A second batch keeps fsync amortised.
       for (final ex in exercises) {
