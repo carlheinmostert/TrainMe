@@ -142,6 +142,15 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   late final PageController _pageController;
   late int _exerciseIndex;
   late ExerciseCapture _exercise;
+  // Local mirror of `widget.session.exercises`. The widget reference is
+  // captured at sheet-open time and never updates, so reading from it
+  // when navigating between exercises returns stale snapshots — any
+  // edits made earlier in the same sheet session would be silently
+  // dropped on navigate-and-return (and a subsequent _emit would write
+  // the stale state back to the parent, clobbering SQLite). Every
+  // _emit mirrors its update into this list; _navigateExercise reads
+  // from it.
+  late List<ExerciseCapture> _exercises;
   int _activeTabIndex = 0;
   // Set in _switchTab while animateToPage is in flight. _onPageChanged
   // ignores intermediate page-crosses while non-null so the sheet doesn't
@@ -156,7 +165,8 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   void initState() {
     super.initState();
     _exerciseIndex = widget.initialExerciseIndex;
-    _exercise = widget.session.exercises[_exerciseIndex];
+    _exercises = List<ExerciseCapture>.from(widget.session.exercises);
+    _exercise = _exercises[_exerciseIndex];
     // Rest exercises render only one tab ("Rest") — clamp the active
     // index to 0 regardless of the requested initialTab so the
     // PageController doesn't init beyond the only valid page.
@@ -264,7 +274,10 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 
   void _emit(ExerciseCapture next) {
-    setState(() => _exercise = next);
+    setState(() {
+      _exercise = next;
+      _exercises[_exerciseIndex] = next;
+    });
     widget.onExerciseChanged(_exerciseIndex, next);
   }
 
@@ -277,10 +290,13 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   /// shape (rest = 1 tab, non-rest = 4). Reset the active tab to 0 so
   /// the PageView lands on a valid page in either world.
   void _navigateExercise(int newIndex) {
-    if (newIndex < 0 || newIndex >= widget.session.exercises.length) return;
+    if (newIndex < 0 || newIndex >= _exercises.length) return;
     if (newIndex == _exerciseIndex) return;
     HapticFeedback.selectionClick();
-    final next = widget.session.exercises[newIndex];
+    // Read from the local mirror, NOT widget.session — the widget
+    // reference is the open-time snapshot and would silently drop any
+    // edits made in this sheet session before the user navigated away.
+    final next = _exercises[newIndex];
     final crossesRestBoundary = next.isRest != _exercise.isRest;
     setState(() {
       _exerciseIndex = newIndex;
@@ -492,7 +508,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         ? _exercise.name!
         : 'Exercise ${_exercise.position + 1}';
     final canPrev = _exerciseIndex > 0;
-    final canNext = _exerciseIndex < widget.session.exercises.length - 1;
+    final canNext = _exerciseIndex < _exercises.length - 1;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
       // Live mini preview on the left (168×110) with chevrons overlaid
