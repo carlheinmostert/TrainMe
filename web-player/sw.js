@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v20-matrix-mark-loader';
+const CACHE_NAME = 'homefit-player-v21-restore-top-stack';
 
 // App shell files — always cached
 const APP_SHELL = [
