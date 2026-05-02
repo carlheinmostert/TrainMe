@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -10,6 +8,7 @@ import '../theme.dart';
 import 'dose_table.dart';
 import 'inline_editable_text.dart';
 import 'media_viewer_body.dart';
+import 'mini_preview.dart';
 import 'preset_chip_row.dart';
 
 /// Which tab the editor sheet should land on when first opened.
@@ -48,25 +47,34 @@ Future<void> showExerciseEditorSheet({
   ExerciseEditorTab initialTab = ExerciseEditorTab.dose,
 }) async {
   HapticFeedback.selectionClick();
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.45),
-    useSafeArea: true,
-    // The inner DraggableScrollableSheet owns drag behaviour. Letting
-    // showModalBottomSheet's own enableDrag also fight for vertical
-    // drags eats inner widgets (weight slider, trim handles) and the
-    // sheet refuses to expand via the drag handle.
-    enableDrag: false,
-    builder: (sheetCtx) => ExerciseEditorSheet(
-      session: session,
-      initialExerciseIndex: initialExerciseIndex,
-      onExerciseChanged: onExerciseChanged,
-      onSessionUpdate: onSessionUpdate,
-      initialTab: initialTab,
-    ),
-  );
+  // Pause every Studio-list MiniPreview for the duration of the sheet
+  // so background motion doesn't distract while editing. The sheet's
+  // own chrome MiniPreview leaves respectGlobalPause: false, so the
+  // focused exercise's preview keeps playing inside the sheet.
+  MiniPreview.studioPauseAll.value = true;
+  try {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      useSafeArea: true,
+      // The inner DraggableScrollableSheet owns drag behaviour. Letting
+      // showModalBottomSheet's own enableDrag also fight for vertical
+      // drags eats inner widgets (weight slider, trim handles) and the
+      // sheet refuses to expand via the drag handle.
+      enableDrag: false,
+      builder: (sheetCtx) => ExerciseEditorSheet(
+        session: session,
+        initialExerciseIndex: initialExerciseIndex,
+        onExerciseChanged: onExerciseChanged,
+        onSessionUpdate: onSessionUpdate,
+        initialTab: initialTab,
+      ),
+    );
+  } finally {
+    MiniPreview.studioPauseAll.value = false;
+  }
 }
 
 /// The sheet body. Exposed publicly so tests / future callers can mount
@@ -149,7 +157,11 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     super.initState();
     _exerciseIndex = widget.initialExerciseIndex;
     _exercise = widget.session.exercises[_exerciseIndex];
-    _activeTabIndex = _tabIndexFor(widget.initialTab);
+    // Rest exercises render only one tab ("Rest") — clamp the active
+    // index to 0 regardless of the requested initialTab so the
+    // PageController doesn't init beyond the only valid page.
+    _activeTabIndex =
+        _exercise.isRest ? 0 : _tabIndexFor(widget.initialTab);
     _sheetController = DraggableScrollableController();
     _pageController = PageController(initialPage: _activeTabIndex);
     _notesController = TextEditingController(text: _exercise.notes ?? '');
@@ -260,16 +272,29 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   /// dot row). Out-of-range / no-op calls are silently ignored. Resets the
   /// Notes controller so stale text from the previous exercise can't
   /// linger, and collapses any open Settings row.
+  ///
+  /// When crossing the rest / non-rest boundary the tab strip changes
+  /// shape (rest = 1 tab, non-rest = 4). Reset the active tab to 0 so
+  /// the PageView lands on a valid page in either world.
   void _navigateExercise(int newIndex) {
     if (newIndex < 0 || newIndex >= widget.session.exercises.length) return;
     if (newIndex == _exerciseIndex) return;
     HapticFeedback.selectionClick();
+    final next = widget.session.exercises[newIndex];
+    final crossesRestBoundary = next.isRest != _exercise.isRest;
     setState(() {
       _exerciseIndex = newIndex;
-      _exercise = widget.session.exercises[newIndex];
+      _exercise = next;
       _notesController.text = _exercise.notes ?? '';
       _activeSettingsKey = null;
+      if (crossesRestBoundary) {
+        _activeTabIndex = 0;
+        _pendingFinalTab = null;
+      }
     });
+    if (crossesRestBoundary && _pageController.hasClients) {
+      _pageController.jumpToPage(0);
+    }
   }
 
   void _onSetsChanged(List<ExerciseSet> sets) {
@@ -325,12 +350,16 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                     child: PageView(
                       controller: _pageController,
                       onPageChanged: _onPageChanged,
-                      children: [
-                        _buildDoseTab(scrollController),
-                        _buildNotesTab(scrollController),
-                        _buildPreviewTab(),
-                        _buildSettingsTab(scrollController),
-                      ],
+                      children: _exercise.isRest
+                          ? [
+                              _buildRestTab(scrollController),
+                            ]
+                          : [
+                              _buildDoseTab(scrollController),
+                              _buildNotesTab(scrollController),
+                              _buildPreviewTab(),
+                              _buildSettingsTab(scrollController),
+                            ],
                     ),
                   ),
                 ],
@@ -462,35 +491,29 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     final title = _exercise.name?.trim().isNotEmpty == true
         ? _exercise.name!
         : 'Exercise ${_exercise.position + 1}';
-    final total = widget.session.exercises.length;
     final canPrev = _exerciseIndex > 0;
-    final canNext = _exerciseIndex < total - 1;
+    final canNext = _exerciseIndex < widget.session.exercises.length - 1;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 4, 6, 8),
-      // Chevrons flank the title block; counter + close × cluster on
-      // the right edge. Tapping a chevron steps the active exercise by
-      // ±1 — the sheet stays open and the body re-renders against the
-      // new exercise.
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+      // Live mini preview on the left (168×110) with chevrons overlaid
+      // at the vertical midline. Title block sits to the right, vertical
+      // stack: editable title above the meta line.
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          IconButton(
-            onPressed: canPrev
-                ? () => _navigateExercise(_exerciseIndex - 1)
-                : null,
-            padding: EdgeInsets.zero,
-            constraints: BoxConstraints.tightFor(width: 36, height: 36),
-            iconSize: 22,
-            icon: Icon(
-              Icons.chevron_left,
-              size: 22,
-              color: canPrev
-                  ? AppColors.textOnDark
-                  : AppColors.textSecondaryOnDark.withValues(alpha: 0.4),
+          MiniPreview(
+            exercise: _exercise,
+            width: 168,
+            height: 110,
+            borderRadius: BorderRadius.circular(12),
+            overlay: _ChevronNavOverlay(
+              canPrev: canPrev,
+              canNext: canNext,
+              onPrev: () => _navigateExercise(_exerciseIndex - 1),
+              onNext: () => _navigateExercise(_exerciseIndex + 1),
             ),
           ),
-          _HeaderThumbnail(exercise: _exercise),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -515,10 +538,10 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                     color: AppColors.textOnDark,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 4),
                 Text(
                   _metaLine(),
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontFamily: 'JetBrainsMono',
@@ -528,43 +551,6 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                   ),
                 ),
               ],
-            ),
-          ),
-          IconButton(
-            onPressed: canNext
-                ? () => _navigateExercise(_exerciseIndex + 1)
-                : null,
-            padding: EdgeInsets.zero,
-            constraints: BoxConstraints.tightFor(width: 36, height: 36),
-            iconSize: 22,
-            icon: Icon(
-              Icons.chevron_right,
-              size: 22,
-              color: canNext
-                  ? AppColors.textOnDark
-                  : AppColors.textSecondaryOnDark.withValues(alpha: 0.4),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            '${_exerciseIndex + 1} of $total',
-            style: const TextStyle(
-              fontFamily: 'JetBrainsMono',
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondaryOnDark,
-            ),
-          ),
-          const SizedBox(width: 4),
-          IconButton(
-            onPressed: () => Navigator.of(context).maybePop(),
-            padding: EdgeInsets.zero,
-            constraints: BoxConstraints.tightFor(width: 36, height: 36),
-            iconSize: 22,
-            icon: const Icon(
-              Icons.close,
-              size: 22,
-              color: AppColors.textOnDark,
             ),
           ),
         ],
@@ -588,7 +574,9 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 
   Widget _buildTabStrip() {
-    const tabs = ['Dose', 'Notes', 'Preview', 'Settings'];
+    final tabs = _exercise.isRest
+        ? const ['Rest']
+        : const ['Dose', 'Notes', 'Preview', 'Settings'];
     // Round 2 — tab strip listens for vertical drag too so the Preview
     // tab (whose body owns gestures inside MediaViewerBody) still has a
     // reliable drag region between the chrome and the page content.
@@ -783,6 +771,10 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       );
     }
     return MediaViewerBody(
+      // Force re-mount on chevron / dot navigation. MediaViewerBody owns
+      // its own VideoPlayerController and treatment-state — without a
+      // unique key it doesn't pick up the new exercise via didUpdateWidget.
+      key: ValueKey('preview-tab-${_exercise.id}'),
       exercises: [_exercise],
       initialIndex: 0,
       session: widget.session,
@@ -796,6 +788,58 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       // pills on the shorter sheet canvas.
       embeddedInSheet: true,
     );
+  }
+
+  /// Rest-exercise editor body. Single collapsible row (label "Rest
+  /// period" + summary "${seconds}s") that expands a [PresetChipRow]
+  /// of canonical durations. Mirrors the rest-bar in Studio so the
+  /// affordance is familiar when the practitioner taps a rest from
+  /// the editor sheet.
+  Widget _buildRestTab(ScrollController scrollController) {
+    final restSecs = _exercise.restHoldSeconds ?? 30;
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
+    return SingleChildScrollView(
+      controller: scrollController,
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _CollapsibleSettingsRow(
+            label: 'Rest period',
+            summary: _formatRestSummary(restSecs),
+            isExpanded: _activeSettingsKey == 'rest',
+            onTap: () => setState(() {
+              _activeSettingsKey =
+                  _activeSettingsKey == 'rest' ? null : 'rest';
+            }),
+            editor: PresetChipRow(
+              controlKey: 'rest',
+              canonicalPresets: const <num>[15, 30, 60, 90],
+              currentValue: restSecs,
+              accentColor: AppColors.rest,
+              displayFormat: (v) => _formatRestSummary(v.round()),
+              undoLabel: 'rest',
+              scrollable: false,
+              onChanged: (v) {
+                _emit(_exercise.copyWith(restHoldSeconds: v.round()));
+                setState(() => _activeSettingsKey = null);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// `s < 60 → "${s}s"`, else `"${m}m"` or `"${m}m${s}s"` — mirrors
+  /// the rest-bar `_format` helper in `studio_mode_screen.dart`.
+  String _formatRestSummary(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    if (s == 0) return '${m}m';
+    return '${m}m${s}s';
   }
 
   Widget _buildSettingsTab(ScrollController scrollController) {
@@ -864,94 +908,106 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 }
 
-/// Vertically stacked label-above-control settings section. Matches the
-/// pattern used elsewhere in Settings screens — section header on its
-/// Round 3 (P6) — small square thumbnail rendered in the editor sheet's
-/// header. Mirrors the trainer-facing preview thumbnails used elsewhere
-/// (Studio cards, Home, Camera peek box) — same source asset, just a
-/// smaller surface (44×44 here) so it pairs neatly with the inline-
-/// editable title without dominating the chrome.
-class _HeaderThumbnail extends StatelessWidget {
-  final ExerciseCapture exercise;
+/// Chevron pair overlaid on the editor-sheet header's MiniPreview.
+/// Painted at the vertical midline, hugging the left/right edges (4pt
+/// inset). Both chevrons are 32×32 hit areas with a 26pt coral glyph and
+/// a soft drop shadow so they remain legible against any frame of the
+/// underlying line-drawing video.
+///
+/// Disabled state (at the first / last exercise) drops opacity and
+/// nulls the tap handler so it's an unambiguous no-op.
+class _ChevronNavOverlay extends StatelessWidget {
+  final bool canPrev;
+  final bool canNext;
+  final VoidCallback onPrev;
+  final VoidCallback onNext;
 
-  const _HeaderThumbnail({required this.exercise});
+  const _ChevronNavOverlay({
+    required this.canPrev,
+    required this.canNext,
+    required this.onPrev,
+    required this.onNext,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final String? thumbPath = exercise.absoluteThumbnailPath;
-    final hasThumb = thumbPath != null && File(thumbPath).existsSync();
-    final isVideo = exercise.mediaType == MediaType.video;
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.surfaceBorder, width: 1),
-        gradient: hasThumb
-            ? null
-            : const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(0xFF2A2D3A),
-                  Color(0xFF1A1D27),
-                ],
-              ),
-        image: hasThumb
-            ? DecorationImage(
-                image: FileImage(File(thumbPath)),
-                fit: BoxFit.cover,
-              )
-            : null,
-      ),
-      child: Stack(
-        children: [
-          if (isVideo)
-            const Center(
-              child: _HeaderPlayGlyph(),
+    return Stack(
+      children: [
+        Positioned(
+          left: 4,
+          top: 0,
+          bottom: 0,
+          child: Center(
+            child: _ChevronButton(
+              icon: Icons.chevron_left,
+              enabled: canPrev,
+              onTap: onPrev,
             ),
-          if (exercise.mediaType == MediaType.photo && !hasThumb)
-            const Center(
-              child: Icon(
-                Icons.photo_outlined,
-                size: 18,
-                color: AppColors.textSecondaryOnDark,
-              ),
+          ),
+        ),
+        Positioned(
+          right: 4,
+          top: 0,
+          bottom: 0,
+          child: Center(
+            child: _ChevronButton(
+              icon: Icons.chevron_right,
+              enabled: canNext,
+              onTap: onNext,
             ),
-          if (exercise.isRest)
-            const Center(
-              child: Icon(
-                Icons.bedtime_outlined,
-                size: 18,
-                color: AppColors.textSecondaryOnDark,
-              ),
-            ),
-        ],
-      ),
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _HeaderPlayGlyph extends StatelessWidget {
-  const _HeaderPlayGlyph();
+class _ChevronButton extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _ChevronButton({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 18,
-      height: 18,
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.72),
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: const Padding(
-        padding: EdgeInsets.only(left: 1),
-        child: Icon(
-          Icons.play_arrow_rounded,
-          size: 12,
-          color: AppColors.textOnDark,
+    final color = enabled
+        ? AppColors.primary
+        : AppColors.primary.withValues(alpha: 0.30);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(
+          width: 32,
+          height: 32,
+          // Drop shadow under the icon for legibility against the
+          // line-drawing video. Two stacked icons — black slightly
+          // offset, then the coral glyph on top — render the shadow
+          // without needing a Container/BoxShadow that would clip.
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 26,
+                color: Colors.black.withValues(alpha: 0.55),
+              ),
+              Positioned(
+                top: -1,
+                child: Icon(
+                  icon,
+                  size: 26,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1010,15 +1066,17 @@ class _CollapsibleSettingsRow extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                Text(
-                  summary,
-                  style: TextStyle(
-                    fontFamily: 'JetBrainsMono',
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: isExpanded
-                        ? AppColors.primary
-                        : AppColors.textSecondaryOnDark,
+                DashedUnderline(
+                  child: Text(
+                    summary,
+                    style: TextStyle(
+                      fontFamily: 'JetBrainsMono',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: isExpanded
+                          ? AppColors.primary
+                          : AppColors.textSecondaryOnDark,
+                    ),
                   ),
                 ),
               ],
