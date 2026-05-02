@@ -53,22 +53,21 @@ class ApiClient {
     // having to remember to clear the flag. Attach errors are
     // swallowed — the banner is a recovery hint, not load-bearing.
     try {
-      _authSub = Supabase.instance.client.auth.onAuthStateChange.listen(
-        (state) {
-          if (state.event == AuthChangeEvent.signedIn ||
-              state.event == AuthChangeEvent.tokenRefreshed) {
-            sessionExpired.value = false;
-          } else if (state.event == AuthChangeEvent.signedOut) {
-            // On signedOut we do NOT clear sessionExpired — if this
-            // sign-out was triggered by `_detectRevokedSession`, the
-            // caller set sessionExpired BEFORE the sign-out fired, and
-            // we want the banner to stick until a successful sign-in.
-            // Explicit user-initiated sign-outs clear the flag in
-            // AuthService.signOut().
-          }
-        },
-        onError: (_) {},
-      );
+      _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((
+        state,
+      ) {
+        if (state.event == AuthChangeEvent.signedIn ||
+            state.event == AuthChangeEvent.tokenRefreshed) {
+          sessionExpired.value = false;
+        } else if (state.event == AuthChangeEvent.signedOut) {
+          // On signedOut we do NOT clear sessionExpired — if this
+          // sign-out was triggered by `_detectRevokedSession`, the
+          // caller set sessionExpired BEFORE the sign-out fired, and
+          // we want the banner to stick until a successful sign-in.
+          // Explicit user-initiated sign-outs clear the flag in
+          // AuthService.signOut().
+        }
+      }, onError: (_) {});
     } catch (e) {
       // Plugin not initialised yet — unlikely because ApiClient is only
       // accessed after Supabase.initialize in main.dart. Non-fatal.
@@ -122,7 +121,8 @@ class ApiClient {
     // gate's 403 body surface the same string in `toString()`, so we
     // also check the stringified form as a fallback.
     final msg = error.toString();
-    final looksLikeRevoked = msg.contains('session_not_found') ||
+    final looksLikeRevoked =
+        msg.contains('session_not_found') ||
         (error is AuthException &&
             (error.code == 'session_not_found' ||
                 error.message.contains('session_not_found')));
@@ -132,10 +132,7 @@ class ApiClient {
     // Log line deliberately matches the brief's phrasing so grepping
     // `dev.log` archives turns up matches even though the
     // sign-out itself is deferred to the user's banner tap.
-    dev.log(
-      'session revoked — forcing sign-out',
-      name: 'ApiClient',
-    );
+    dev.log('session revoked — forcing sign-out', name: 'ApiClient');
   }
 
   /// Thin wrapper around a single async op that routes known
@@ -285,7 +282,9 @@ class ApiClient {
   /// Returns the practice id (uuid as string). Raises `AuthException`
   /// from the underlying client on DB errors — callers own the try/catch.
   Future<String?> bootstrapPracticeForUser() async {
-    final result = await _guardAuth(() => raw.rpc('bootstrap_practice_for_user'));
+    final result = await _guardAuth(
+      () => raw.rpc('bootstrap_practice_for_user'),
+    );
     if (result == null) return null;
     return result is String ? result : result.toString();
   }
@@ -312,11 +311,13 @@ class ApiClient {
       // narrow to a concrete List type — the subsequent `is! List`
       // defence-in-depth was there to protect against Supabase drivers
       // that could return a non-list on unexpected shapes.
-      final dynamic response = await _guardAuth(() => raw
-          .from('practice_members')
-          .select('role, practice_id, practices:practice_id ( id, name )')
-          .eq('trainer_id', userId)
-          .order('joined_at', ascending: true));
+      final dynamic response = await _guardAuth(
+        () => raw
+            .from('practice_members')
+            .select('role, practice_id, practices:practice_id ( id, name )')
+            .eq('trainer_id', userId)
+            .order('joined_at', ascending: true),
+      );
       if (response is! List) return const [];
       return response
           .whereType<Map>()
@@ -329,11 +330,15 @@ class ApiClient {
             final id = practice['id'];
             final name = practice['name'];
             if (id is! String || name is! String) return null;
-            final role = r['role'] is String ? r['role'] as String : 'practitioner';
+            final role = r['role'] is String
+                ? r['role'] as String
+                : 'practitioner';
             return PracticeMembership(
               id: id,
               name: name,
-              role: role == 'owner' ? PracticeRole.owner : PracticeRole.practitioner,
+              role: role == 'owner'
+                  ? PracticeRole.owner
+                  : PracticeRole.practitioner,
             );
           })
           .whereType<PracticeMembership>()
@@ -352,10 +357,12 @@ class ApiClient {
   /// error should NOT be mistaken for "you're out of credits".
   Future<int?> practiceCreditBalance({required String practiceId}) async {
     try {
-      final result = await _guardAuth(() => raw.rpc(
-            'practice_credit_balance',
-            params: {'p_practice_id': practiceId},
-          ));
+      final result = await _guardAuth(
+        () => raw.rpc(
+          'practice_credit_balance',
+          params: {'p_practice_id': practiceId},
+        ),
+      );
       if (result is int) return result;
       if (result is num) return result.toInt();
       if (result is String) return int.tryParse(result);
@@ -379,11 +386,13 @@ class ApiClient {
     try {
       // Wrap in dynamic so the `is! List` defence below survives T-
       // inference narrowing. See [listMyPractices] for the same pattern.
-      final dynamic result = await _guardAuth(() => raw
-          .from('plans')
-          .select('id, client_id')
-          .eq('practice_id', practiceId)
-          .not('client_id', 'is', null));
+      final dynamic result = await _guardAuth(
+        () => raw
+            .from('plans')
+            .select('id, client_id')
+            .eq('practice_id', practiceId)
+            .not('client_id', 'is', null),
+      );
       if (result is! List) return const [];
       return result
           .whereType<Map>()
@@ -396,6 +405,76 @@ class ApiClient {
           .whereType<PlanClientLink>()
           .toList(growable: false);
     } catch (_) {
+      return const [];
+    }
+  }
+
+  /// `list_practice_plans(p_practice_id)` — full cloud→mobile session
+  /// pull surface. Returns every non-deleted plan in the practice with
+  /// embedded exercises + per-set rows, scoped by membership.
+  ///
+  /// One round-trip; no anon access. The mobile [SyncService] hydrates
+  /// SQLite (sessions / exercises / exercise_sets) for any plan id it
+  /// doesn't yet have locally; existing local rows are NOT clobbered
+  /// (local-wins on collisions, per the offline-first contract).
+  ///
+  /// Returns `[]` on any error so callers render the shell without
+  /// crashing — the missing pull is purely additive (zero sessions
+  /// locally just means the previous behaviour persists). Throws are
+  /// swallowed; tests should assert on the post-pull SQLite state.
+  ///
+  /// Result rows have the wire shape emitted by the SECURITY DEFINER fn
+  /// (see `supabase/schema_pull_practice_plans.sql`):
+  ///
+  ///   {
+  ///     id, practice_id, client_id, client_name, title, version,
+  ///     created_at, sent_at, first_opened_at, last_opened_at,
+  ///     last_published_at, last_trainer_id, deleted_at,
+  ///     circuit_cycles, preferred_rest_interval_seconds,
+  ///     crossfade_lead_ms, crossfade_fade_ms,
+  ///     unlock_credit_prepaid_at,
+  ///     exercises: [{ id, position, name, media_url, line_drawing_url,
+  ///                   thumbnail_url, media_type, notes, circuit_id,
+  ///                   include_audio, created_at, preferred_treatment,
+  ///                   prep_seconds, start_offset_ms, end_offset_ms,
+  ///                   video_reps_per_loop, aspect_ratio,
+  ///                   rotation_quarters, body_focus, rest_seconds,
+  ///                   sets: [{ position, reps, hold_seconds,
+  ///                            weight_kg, breather_seconds_after }] }]
+  ///   }
+  ///
+  /// `line_drawing_url` is the public `media` bucket URL for the line-
+  /// drawing treatment (always public read; same URL the web player uses
+  /// as the default treatment). NULL for rest rows and never-published
+  /// rows. The mobile [MediaPrefetchService] reads this field on Studio
+  /// session-open and downloads each video / photo so cloud-pulled cards
+  /// play from local files.
+  Future<List<Map<String, dynamic>>> listPracticePlans(
+    String practiceId,
+  ) async {
+    try {
+      final result = await _guardAuth(
+        () => raw.rpc(
+          'list_practice_plans',
+          params: {'p_practice_id': practiceId},
+        ),
+      );
+      // RPC returns jsonb { plans: [...] }. Tolerate the rare case where
+      // the wrapper isn't present (older fn variant) by also accepting a
+      // bare list.
+      List<dynamic>? plans;
+      if (result is Map && result['plans'] is List) {
+        plans = result['plans'] as List<dynamic>;
+      } else if (result is List) {
+        plans = result;
+      }
+      if (plans == null) return const [];
+      return plans
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList(growable: false);
+    } catch (e) {
+      debugPrint('ApiClient.listPracticePlans failed: $e');
       return const [];
     }
   }
@@ -424,14 +503,16 @@ class ApiClient {
     required String planId,
     required int credits,
   }) async {
-    final result = await _guardAuth(() => raw.rpc(
-          'consume_credit',
-          params: {
-            'p_practice_id': practiceId,
-            'p_plan_id': planId,
-            'p_credits': credits,
-          },
-        ));
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'consume_credit',
+        params: {
+          'p_practice_id': practiceId,
+          'p_plan_id': planId,
+          'p_credits': credits,
+        },
+      ),
+    );
     return result is Map
         ? Map<String, dynamic>.from(result)
         : const <String, dynamic>{};
@@ -453,10 +534,12 @@ class ApiClient {
   Future<List<UnconsentedTreatment>> validatePlanTreatmentConsent({
     required String planId,
   }) async {
-    final result = await _guardAuth(() => raw.rpc(
-          'validate_plan_treatment_consent',
-          params: {'p_plan_id': planId},
-        ));
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'validate_plan_treatment_consent',
+        params: {'p_plan_id': planId},
+      ),
+    );
     if (result is! List) return const [];
     final out = <UnconsentedTreatment>[];
     for (final row in result) {
@@ -464,14 +547,14 @@ class ApiClient {
       final exerciseId = row['exercise_id'];
       final treatment = row['preferred_treatment'];
       final consentKey = row['consent_key'];
-      if (exerciseId is String &&
-          treatment is String &&
-          consentKey is String) {
-        out.add(UnconsentedTreatment(
-          exerciseId: exerciseId,
-          preferredTreatment: treatment,
-          consentKey: consentKey,
-        ));
+      if (exerciseId is String && treatment is String && consentKey is String) {
+        out.add(
+          UnconsentedTreatment(
+            exerciseId: exerciseId,
+            preferredTreatment: treatment,
+            consentKey: consentKey,
+          ),
+        );
       }
     }
     return out;
@@ -495,10 +578,9 @@ class ApiClient {
   Future<Map<String, dynamic>> unlockPlanForEdit({
     required String planId,
   }) async {
-    final result = await _guardAuth(() => raw.rpc(
-          'unlock_plan_for_edit',
-          params: {'p_plan_id': planId},
-        ));
+    final result = await _guardAuth(
+      () => raw.rpc('unlock_plan_for_edit', params: {'p_plan_id': planId}),
+    );
     return result is Map
         ? Map<String, dynamic>.from(result)
         : const <String, dynamic>{};
@@ -511,10 +593,9 @@ class ApiClient {
   /// matching consumption, or any swallowed error).
   Future<bool> refundCredit({required String planId}) async {
     try {
-      final result = await _guardAuth(() => raw.rpc(
-            'refund_credit',
-            params: {'p_plan_id': planId},
-          ));
+      final result = await _guardAuth(
+        () => raw.rpc('refund_credit', params: {'p_plan_id': planId}),
+      );
       return result == true;
     } catch (_) {
       return false;
@@ -552,10 +633,12 @@ class ApiClient {
     String practiceId,
   ) async {
     try {
-      final dynamic result = await _guardAuth(() => raw.rpc(
-            'list_all_client_names',
-            params: {'p_practice_id': practiceId},
-          ));
+      final dynamic result = await _guardAuth(
+        () => raw.rpc(
+          'list_all_client_names',
+          params: {'p_practice_id': practiceId},
+        ),
+      );
       if (result is! List) return const <String>{};
       return result
           .whereType<Map>()
@@ -563,9 +646,7 @@ class ApiClient {
           .whereType<String>()
           .toSet();
     } catch (e) {
-      debugPrint(
-        'ApiClient.listAllClientNamesIncludingDeleted failed: $e',
-      );
+      debugPrint('ApiClient.listAllClientNamesIncludingDeleted failed: $e');
       return const <String>{};
     }
   }
@@ -583,16 +664,18 @@ class ApiClient {
   /// state, which is the safe default.
   Future<Map<String, dynamic>?> getPlanPublishState(String planId) async {
     try {
-      final dynamic result = await _guardAuth(() => raw
-          .from('plans')
-          .select(
-            // Wave 33: pull `last_opened_at` alongside `first_opened_at`
-            // so SessionShell can reconcile both into the local SQLite
-            // mirror — the Studio analytics row needs both timestamps.
-            'version, sent_at, first_opened_at, last_opened_at, unlock_credit_prepaid_at',
-          )
-          .eq('id', planId)
-          .maybeSingle());
+      final dynamic result = await _guardAuth(
+        () => raw
+            .from('plans')
+            .select(
+              // Wave 33: pull `last_opened_at` alongside `first_opened_at`
+              // so SessionShell can reconcile both into the local SQLite
+              // mirror — the Studio analytics row needs both timestamps.
+              'version, sent_at, first_opened_at, last_opened_at, unlock_credit_prepaid_at',
+            )
+            .eq('id', planId)
+            .maybeSingle(),
+      );
       if (result is Map) {
         return Map<String, dynamic>.from(result);
       }
@@ -631,13 +714,12 @@ class ApiClient {
     required String planId,
     required List<Map<String, dynamic>> rows,
   }) async {
-    final raw0 = await _guardAuth(() => raw.rpc(
-          'replace_plan_exercises',
-          params: {
-            'p_plan_id': planId,
-            'p_rows': rows,
-          },
-        ));
+    final raw0 = await _guardAuth(
+      () => raw.rpc(
+        'replace_plan_exercises',
+        params: {'p_plan_id': planId, 'p_rows': rows},
+      ),
+    );
     if (raw0 is Map) {
       final m = Map<String, dynamic>.from(raw0);
       final version = _asNullableInt(m['plan_version']);
@@ -675,30 +757,27 @@ class ApiClient {
 
   /// Upload a file to the media bucket at [path]. Uses upsert semantics so
   /// re-publishes overwrite the existing object at the same path.
-  Future<void> uploadMedia({
-    required String path,
-    required File file,
-  }) async {
-    await _guardAuth(() => raw.storage.from(mediaBucket).upload(
-          path,
-          file,
-          fileOptions: const FileOptions(upsert: true),
-        ));
+  Future<void> uploadMedia({required String path, required File file}) async {
+    await _guardAuth(
+      () => raw.storage
+          .from(mediaBucket)
+          .upload(path, file, fileOptions: const FileOptions(upsert: true)),
+    );
   }
 
   /// List files in the media bucket under [prefix]. Used by the publish
   /// skip-if-unchanged optimisation to avoid re-uploading identical files.
   Future<List<FileObject>> listMedia({required String prefix}) async {
-    return await _guardAuth(() => raw.storage.from(mediaBucket).list(
-          path: prefix,
-        ));
+    return await _guardAuth(
+      () => raw.storage.from(mediaBucket).list(path: prefix),
+    );
   }
 
   /// List files in the raw-archive bucket under [prefix].
   Future<List<FileObject>> listRawArchive({required String prefix}) async {
-    return await _guardAuth(() => raw.storage.from(rawArchiveBucket).list(
-          path: prefix,
-        ));
+    return await _guardAuth(
+      () => raw.storage.from(rawArchiveBucket).list(path: prefix),
+    );
   }
 
   /// Return the public URL for an object at [path] in the media bucket.
@@ -740,10 +819,9 @@ class ApiClient {
   /// ```
   Future<Map<String, dynamic>?> getPlanFull(String planId) async {
     try {
-      final result = await _guardAuth(() => raw.rpc(
-            'get_plan_full',
-            params: {'p_plan_id': planId},
-          ));
+      final result = await _guardAuth(
+        () => raw.rpc('get_plan_full', params: {'p_plan_id': planId}),
+      );
       if (result is Map) return Map<String, dynamic>.from(result);
       return null;
     } catch (e) {
@@ -808,10 +886,12 @@ class ApiClient {
     required String practiceId,
     required String name,
   }) async {
-    final result = await _guardAuth(() => raw.rpc(
-          'upsert_client',
-          params: {'p_practice_id': practiceId, 'p_name': name},
-        ));
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'upsert_client',
+        params: {'p_practice_id': practiceId, 'p_name': name},
+      ),
+    );
     if (result is String && result.isNotEmpty) return result;
     return null;
   }
@@ -839,14 +919,12 @@ class ApiClient {
     required String practiceId,
     required String name,
   }) async {
-    final result = await _guardAuth(() => raw.rpc(
-          'upsert_client_with_id',
-          params: {
-            'p_id': clientId,
-            'p_practice_id': practiceId,
-            'p_name': name,
-          },
-        ));
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'upsert_client_with_id',
+        params: {'p_id': clientId, 'p_practice_id': practiceId, 'p_name': name},
+      ),
+    );
     if (result is String && result.isNotEmpty) return result;
     return null;
   }
@@ -872,10 +950,12 @@ class ApiClient {
     required String newName,
   }) async {
     try {
-      await _guardAuth(() => raw.rpc(
-            'rename_client',
-            params: {'p_client_id': clientId, 'p_new_name': newName},
-          ));
+      await _guardAuth(
+        () => raw.rpc(
+          'rename_client',
+          params: {'p_client_id': clientId, 'p_new_name': newName},
+        ),
+      );
     } on PostgrestException catch (e) {
       switch (e.code) {
         case '23505':
@@ -904,10 +984,12 @@ class ApiClient {
     required String planId,
     required String newTitle,
   }) async {
-    await _guardAuth(() => raw.rpc(
-          'rename_session',
-          params: {'p_plan_id': planId, 'p_new_title': newTitle},
-        ));
+    await _guardAuth(
+      () => raw.rpc(
+        'rename_session',
+        params: {'p_plan_id': planId, 'p_new_title': newTitle},
+      ),
+    );
   }
 
   /// `delete_client(p_client_id)` — soft-deletes the client and cascades
@@ -922,10 +1004,9 @@ class ApiClient {
   /// (SyncService) lets those bubble so [markPendingOpFailed] records
   /// the error for diagnostics.
   Future<void> deleteClient({required String clientId}) async {
-    await _guardAuth(() => raw.rpc(
-          'delete_client',
-          params: {'p_client_id': clientId},
-        ));
+    await _guardAuth(
+      () => raw.rpc('delete_client', params: {'p_client_id': clientId}),
+    );
   }
 
   /// `restore_client(p_client_id)` — reverses [deleteClient]. Restores the
@@ -935,10 +1016,9 @@ class ApiClient {
   ///
   /// Idempotent — no-op on a live client.
   Future<void> restoreClient({required String clientId}) async {
-    await _guardAuth(() => raw.rpc(
-          'restore_client',
-          params: {'p_client_id': clientId},
-        ));
+    await _guardAuth(
+      () => raw.rpc('restore_client', params: {'p_client_id': clientId}),
+    );
   }
 
   /// List the clients belonging to a practice. Used by the Your-clients
@@ -969,10 +1049,12 @@ class ApiClient {
   Future<List<PracticeClient>> listPracticeClientsOrThrow(
     String practiceId,
   ) async {
-    final result = await _guardAuth(() => raw.rpc(
-          'list_practice_clients',
-          params: {'p_practice_id': practiceId},
-        ));
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'list_practice_clients',
+        params: {'p_practice_id': practiceId},
+      ),
+    );
     if (result is! List) return const [];
     return result
         .whereType<Map>()
@@ -1023,10 +1105,9 @@ class ApiClient {
       if (analyticsAllowed != null) {
         params['p_analytics_allowed'] = analyticsAllowed;
       }
-      await _guardAuth(() => raw.rpc(
-            'set_client_video_consent',
-            params: params,
-          ));
+      await _guardAuth(
+        () => raw.rpc('set_client_video_consent', params: params),
+      );
       return true;
     } catch (e) {
       debugPrint('ApiClient.setClientVideoConsent failed: $e');
@@ -1048,13 +1129,12 @@ class ApiClient {
     required String? avatarPath,
   }) async {
     try {
-      final dynamic result = await _guardAuth(() => raw.rpc(
-            'set_client_avatar',
-            params: {
-              'p_client_id': clientId,
-              'p_avatar_path': avatarPath,
-            },
-          ));
+      final dynamic result = await _guardAuth(
+        () => raw.rpc(
+          'set_client_avatar',
+          params: {'p_client_id': clientId, 'p_avatar_path': avatarPath},
+        ),
+      );
       if (result is List && result.isNotEmpty) {
         final first = result.first;
         if (first is Map) {
@@ -1086,14 +1166,16 @@ class ApiClient {
   }) async {
     if (avatarPath.isEmpty) return null;
     try {
-      final result = await _guardAuth(() => raw.rpc(
-            'sign_storage_url',
-            params: {
-              'bucket': rawArchiveBucket,
-              'path': avatarPath,
-              'expires_in': expiresIn,
-            },
-          ));
+      final result = await _guardAuth(
+        () => raw.rpc(
+          'sign_storage_url',
+          params: {
+            'bucket': rawArchiveBucket,
+            'path': avatarPath,
+            'expires_in': expiresIn,
+          },
+        ),
+      );
       if (result is String && result.isNotEmpty) return result;
       return null;
     } catch (e) {
@@ -1140,14 +1222,15 @@ class ApiClient {
     required File file,
     String contentType = 'video/mp4',
   }) async {
-    await _guardAuth(() => raw.storage.from(rawArchiveBucket).upload(
-          path,
-          file,
-          fileOptions: FileOptions(
-            upsert: false,
-            contentType: contentType,
+    await _guardAuth(
+      () => raw.storage
+          .from(rawArchiveBucket)
+          .upload(
+            path,
+            file,
+            fileOptions: FileOptions(upsert: false, contentType: contentType),
           ),
-        ));
+    );
   }
 
   /// Sign a time-limited URL for an object in the private `raw-archive`
@@ -1155,34 +1238,43 @@ class ApiClient {
   /// `sign_storage_url` helper returns NULL in that case — see
   /// `schema_milestone_g_three_treatment.sql`) or when the RPC errors.
   ///
-  /// Path shape: `{practice_id}/{plan_id}/{exercise_id}.mp4`. Used by the
-  /// download-original action sheet (Wave 19.5) as a fallback when the
-  /// local `archiveFilePath` is missing or past its 90-day retention
-  /// window. Unlike the `get_plan_full` embedded signed URLs, this path
-  /// is for practitioner-side playback of THEIR OWN capture — no client-
-  /// consent gate applies.
+  /// Path shape: `{practice_id}/{plan_id}/{exercise_id}.{extension}`.
+  /// Default `mp4` for the video flow; pass `jpg` for photo three-treatment
+  /// pulls (raw colour JPG, same source serves both Original + B&W). Used by
+  /// the download-original action sheet (Wave 19.5) and the locked-segment
+  /// silent prefetch as a fallback when the local archive / raw photo isn't
+  /// on disk. Unlike the `get_plan_full` embedded signed URLs, this path is
+  /// for practitioner-side playback of THEIR OWN capture — no client-consent
+  /// gate applies.
   ///
   /// `expiresIn` is seconds; defaults to 30 min (matches the
   /// `get_plan_full` helper's default). The signed URL is single-use from
   /// the caller's perspective: it's consumed immediately to download the
-  /// video to a temp file, so caching the URL serves no purpose.
+  /// file to a temp / archive path, so caching the URL serves no purpose.
   Future<String?> signRawArchiveUrl({
     required String practiceId,
     required String planId,
     required String exerciseId,
     int expiresIn = 1800,
+    String extension = 'mp4',
   }) async {
     try {
-      final path =
-          '$practiceId/$planId/$exerciseId.mp4';
-      final result = await _guardAuth(() => raw.rpc(
-            'sign_storage_url',
-            params: {
-              'bucket': rawArchiveBucket,
-              'path': path,
-              'expires_in': expiresIn,
-            },
-          ));
+      // Routes through the membership-checked SECURITY DEFINER wrapper.
+      // The underlying public.sign_storage_url is granted to service_role
+      // only; sign_practice_raw_archive_url runs as postgres and gates on
+      // user_practice_ids() / user_is_practice_owner().
+      final result = await _guardAuth(
+        () => raw.rpc(
+          'sign_practice_raw_archive_url',
+          params: {
+            'p_practice_id': practiceId,
+            'p_plan_id': planId,
+            'p_exercise_id': exerciseId,
+            'p_expires_in': expiresIn,
+            'p_extension': extension,
+          },
+        ),
+      );
       if (result is String && result.isNotEmpty) return result;
       return null;
     } catch (e) {
@@ -1206,10 +1298,12 @@ class ApiClient {
   /// are expected to handle errors and retry (e.g. the
   /// "Couldn't load — tap to retry" row in Settings).
   Future<String> ensureReferralCode(String practiceId) async {
-    final result = await _guardAuth(() => raw.rpc(
-          'generate_referral_code',
-          params: {'p_practice_id': practiceId},
-        ));
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'generate_referral_code',
+        params: {'p_practice_id': practiceId},
+      ),
+    );
     if (result is String && result.isNotEmpty) return result;
     if (result is List && result.isNotEmpty) {
       final first = result.first;
@@ -1230,10 +1324,12 @@ class ApiClient {
   /// Map or a List-of-one-Map depending on the RPC return semantics; we
   /// tolerate both shapes.
   Future<ReferralStats> getReferralStats(String practiceId) async {
-    final result = await _guardAuth(() => raw.rpc(
-          'referral_dashboard_stats',
-          params: {'p_practice_id': practiceId},
-        ));
+    final result = await _guardAuth(
+      () => raw.rpc(
+        'referral_dashboard_stats',
+        params: {'p_practice_id': practiceId},
+      ),
+    );
     Map<String, dynamic>? row;
     if (result is Map<String, dynamic>) {
       row = result;
@@ -1259,10 +1355,12 @@ class ApiClient {
   /// renders. Returns null on any error so callers render a placeholder.
   Future<PlanAnalyticsSummary?> getPlanAnalyticsSummary(String planId) async {
     try {
-      final result = await _guardAuth(() => raw.rpc(
-            'get_plan_analytics_summary',
-            params: {'p_plan_id': planId},
-          ));
+      final result = await _guardAuth(
+        () => raw.rpc(
+          'get_plan_analytics_summary',
+          params: {'p_plan_id': planId},
+        ),
+      );
       Map<String, dynamic>? row;
       if (result is Map<String, dynamic>) {
         row = result;
@@ -1285,10 +1383,12 @@ class ApiClient {
     String clientId,
   ) async {
     try {
-      final result = await _guardAuth(() => raw.rpc(
-            'get_client_analytics_summary',
-            params: {'p_client_id': clientId},
-          ));
+      final result = await _guardAuth(
+        () => raw.rpc(
+          'get_client_analytics_summary',
+          params: {'p_client_id': clientId},
+        ),
+      );
       Map<String, dynamic>? row;
       if (result is Map<String, dynamic>) {
         row = result;
@@ -1333,15 +1433,17 @@ class ApiClient {
     Map<String, dynamic>? meta,
   }) async {
     try {
-      await _guardAuth(() => raw.rpc(
-            'log_share_event',
-            params: {
-              'p_practice_id': practiceId,
-              'p_channel': channel,
-              'p_event_kind': eventKind,
-              ...meta == null ? const {} : {'p_meta': meta},
-            },
-          ));
+      await _guardAuth(
+        () => raw.rpc(
+          'log_share_event',
+          params: {
+            'p_practice_id': practiceId,
+            'p_channel': channel,
+            'p_event_kind': eventKind,
+            ...meta == null ? const {} : {'p_meta': meta},
+          },
+        ),
+      );
     } catch (e) {
       debugPrint('ApiClient.logShareEvent($channel/$eventKind) failed: $e');
     }
@@ -1420,6 +1522,7 @@ class ExerciseTreatmentUrls {
   final String? lineDrawingUrl;
   final String? grayscaleUrl;
   final String? originalUrl;
+
   /// Rest-period duration (seconds). Null for video/photo rows; positive
   /// integer for media_type='rest'. Round-trips through the
   /// `exercises.rest_seconds` column added in

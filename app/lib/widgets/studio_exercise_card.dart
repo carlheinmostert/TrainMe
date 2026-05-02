@@ -8,6 +8,7 @@ import '../models/exercise_capture.dart';
 import '../models/exercise_set.dart';
 import '../models/session.dart';
 import '../services/api_client.dart';
+import '../services/media_prefetch_service.dart';
 import '../theme.dart';
 import 'exercise_editor_sheet.dart';
 import 'mini_preview.dart';
@@ -248,7 +249,7 @@ class StudioExerciseCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (exerciseHasMissingMedia(exercise))
-                      const _MissingMediaBanner(),
+                      _MediaStatusBanner(exerciseId: exercise.id),
                     const Spacer(),
                     Text(
                       _resolvedTitle(),
@@ -356,8 +357,7 @@ class _SummaryRow extends StatelessWidget {
               style: TextStyle(
                 fontFamily: monospace ? 'JetBrainsMono' : 'Inter',
                 fontSize: 12,
-                fontWeight:
-                    monospace ? FontWeight.w700 : FontWeight.w500,
+                fontWeight: monospace ? FontWeight.w700 : FontWeight.w500,
                 color: AppColors.textOnDark,
                 shadows: const [
                   Shadow(
@@ -375,9 +375,40 @@ class _SummaryRow extends StatelessWidget {
   }
 }
 
-/// Banner when line-drawing or raw file is missing (publish pre-flight matches).
-class _MissingMediaBanner extends StatelessWidget {
-  const _MissingMediaBanner();
+/// Live banner that flips between "downloading…" (while
+/// [MediaPrefetchService] is pulling the line-drawing file from the
+/// public media bucket on Studio session-open) and the canonical
+/// "Media missing — long-press to recapture" red chip when no
+/// download is in flight or the download failed. Showing the banner
+/// at all is gated by `exerciseHasMissingMedia` upstream — if the
+/// local file is on disk, we never render either state.
+class _MediaStatusBanner extends StatelessWidget {
+  const _MediaStatusBanner({required this.exerciseId});
+
+  final String exerciseId;
+
+  @override
+  Widget build(BuildContext context) {
+    final notifier = MediaPrefetchService.instance.statusFor(exerciseId);
+    return ValueListenableBuilder<MediaPrefetchStatus>(
+      valueListenable: notifier,
+      builder: (context, status, _) {
+        if (status == MediaPrefetchStatus.downloading) {
+          return const _DownloadingChip();
+        }
+        // idle / failed / done all fall back to the missing chip — done
+        // is transient (Studio re-reads SQLite immediately after, which
+        // flips `exerciseHasMissingMedia` false and unmounts this widget).
+        return const _MissingMediaChip();
+      },
+    );
+  }
+}
+
+/// Red chip — original missing-media affordance. Practitioner long-
+/// presses the card to re-capture.
+class _MissingMediaChip extends StatelessWidget {
+  const _MissingMediaChip();
 
   @override
   Widget build(BuildContext context) {
@@ -390,15 +421,57 @@ class _MissingMediaBanner extends StatelessWidget {
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.warning_amber_rounded,
-            size: 14,
-            color: Colors.white,
-          ),
+          Icon(Icons.warning_amber_rounded, size: 14, color: Colors.white),
           SizedBox(width: 6),
           Flexible(
             child: Text(
               'Media missing — long-press to recapture',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Coral chip — line-drawing file is being pulled from the public
+/// media bucket. Spinner + "downloading" copy. No tap target; the
+/// download settles to either `Media missing` (failed) or vanishes
+/// (Studio re-reads SQLite once the file lands).
+class _DownloadingChip extends StatelessWidget {
+  const _DownloadingChip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ),
+          SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              'Downloading line drawing…',
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 11,
@@ -480,4 +553,3 @@ String _formatKg(double kg) {
   }
   return kg.toStringAsFixed(1);
 }
-

@@ -1069,6 +1069,81 @@ class LocalStorageService {
     );
   }
 
+  /// Cloud→local hydration of one plan. Inserts the [session], its
+  /// [exercises], and the per-set rows in a single transaction WHEN the
+  /// session id is not already present locally. Existing local rows are
+  /// left untouched — local wins on collisions, per the offline-first
+  /// contract (see [SyncService] doc-comment).
+  ///
+  /// Returns `true` when the hydrate landed (i.e. no prior local row
+  /// existed); `false` when a local row was already present (no-op). The
+  /// caller (SyncService._pullSessions) uses the boolean to count and
+  /// log "N plans pulled".
+  ///
+  /// Only the wire-shaped fields are populated. Pipeline byproducts that
+  /// are owned by the on-device capture flow — `raw_file_path`,
+  /// `converted_file_path`, `archive_file_path`, `archived_at`,
+  /// `raw_archive_uploaded_at`, `video_duration_ms`, `segmented_raw_file_path`,
+  /// `mask_file_path`, `last_publish_error`, `publish_attempt_count` —
+  /// stay NULL/0. The Studio "open path" tolerates missing local files via
+  /// [PathResolver]; remote re-download for a freshly-installed device is
+  /// out of scope for this fix.
+  Future<bool> upsertCloudPlanIfMissing({
+    required Session session,
+    required List<ExerciseCapture> exercises,
+  }) async {
+    return db.transaction<bool>((txn) async {
+      final existing = await txn.query(
+        'sessions',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [session.id],
+        limit: 1,
+      );
+      if (existing.isNotEmpty) return false;
+
+      await txn.insert(
+        'sessions',
+        session.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      for (final ex in exercises) {
+        await txn.insert(
+          'exercises',
+          ex.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        // Replace any pre-existing child rows for this exercise (defensive
+        // — shouldn't be any since the parent didn't exist) and seed the
+        // sets that came down from the cloud.
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        await txn.delete(
+          'exercise_sets',
+          where: 'exercise_id = ?',
+          whereArgs: [ex.id],
+        );
+        if (ex.sets.isNotEmpty) {
+          final batch = txn.batch();
+          for (final s in ex.sets) {
+            batch.insert(
+              'exercise_sets',
+              <String, Object?>{
+                ...s.toMap(),
+                'exercise_id': ex.id,
+                'created_at': nowMs,
+                'updated_at': nowMs,
+              },
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+          await batch.commit(noResult: true);
+        }
+      }
+      return true;
+    });
+  }
+
   /// Return all soft-deleted sessions, newest deletion first.
   Future<List<Session>> getDeletedSessions() async {
     final rows = await db.query(

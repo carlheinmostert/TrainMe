@@ -89,19 +89,47 @@ class OriginalVideoService {
   /// sessions that never associated with a practice — in that case the
   /// signed-URL fallback is skipped and the caller falls through to
   /// source-missing if the local archive isn't there either.
+  ///
+  /// Media-type-aware: video exercises probe `absoluteArchiveFilePath`
+  /// and sign `.mp4` paths; photo exercises probe `absoluteRawFilePath`
+  /// (the raw colour JPG IS the local "archive" for photos — there's no
+  /// separate raw-vs-archive split like there is for videos) and sign
+  /// `.jpg` paths against the same `raw-archive` bucket.
   Future<ResolvedOriginalSource> resolveSource({
     required ExerciseCapture exercise,
     String? practiceId,
     String? planId,
   }) async {
-    // 1. Local archive — fastest path. `absoluteArchiveFilePath` already
-    //    resolves through PathResolver, so we get a stable absolute
-    //    path regardless of install / reinstall.
-    final localPath = exercise.absoluteArchiveFilePath;
-    if (localPath != null) {
-      final file = File(localPath);
-      if (await file.exists()) {
-        return ResolvedOriginalSource.local(file);
+    final isPhoto = exercise.mediaType == MediaType.photo;
+
+    // 1. Local probe — fastest path.
+    //    Videos: `{Documents}/archive/{exerciseId}.mp4` (90-day archive).
+    //    Photos: the raw colour JPG itself, since photos don't have a
+    //    separate compressed archive — the on-disk raw IS the source for
+    //    both Original + B&W treatments (B&W applies a CSS / ColorFiltered
+    //    grayscale on top of the same file).
+    if (isPhoto) {
+      final rawPath = exercise.absoluteRawFilePath;
+      if (rawPath.isNotEmpty && !rawPath.startsWith('http')) {
+        final lower = rawPath.toLowerCase();
+        final isImage = lower.endsWith('.jpg') ||
+            lower.endsWith('.jpeg') ||
+            lower.endsWith('.png') ||
+            lower.endsWith('.heic');
+        if (isImage) {
+          final file = File(rawPath);
+          if (await file.exists()) {
+            return ResolvedOriginalSource.local(file);
+          }
+        }
+      }
+    } else {
+      final localPath = exercise.absoluteArchiveFilePath;
+      if (localPath != null) {
+        final file = File(localPath);
+        if (await file.exists()) {
+          return ResolvedOriginalSource.local(file);
+        }
       }
     }
 
@@ -112,6 +140,7 @@ class OriginalVideoService {
           practiceId: practiceId,
           planId: planId,
           exerciseId: exercise.id,
+          extension: isPhoto ? 'jpg' : 'mp4',
         );
         if (url != null && url.isNotEmpty) {
           return ResolvedOriginalSource.remote(url);
