@@ -166,8 +166,12 @@ class _DoseTableState extends State<DoseTable> {
       color: AppColors.textSecondaryOnDark,
       letterSpacing: 0.6,
     );
+    // Horizontal padding 4 (not 8) to match the row's
+    // EdgeInsets.symmetric(horizontal: 4) below — keeps every header cell
+    // aligned with its value cell. With 8/4 they drifted by ~2pt per
+    // column and the BREATHER header wrapped on iOS Dynamic Type ≥ 1.1×.
     return Container(
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+      padding: const EdgeInsets.fromLTRB(4, 6, 4, 8),
       decoration: const BoxDecoration(
         border: Border(
           bottom: BorderSide(color: AppColors.surfaceBorder, width: 1),
@@ -178,27 +182,47 @@ class _DoseTableState extends State<DoseTable> {
           SizedBox(
             width: 36,
             child: Text('SET',
-                textAlign: TextAlign.center, style: headerStyle),
+                textAlign: TextAlign.center,
+                style: headerStyle,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade),
           ),
           Expanded(
             flex: 2,
             child: Text('REPS',
-                textAlign: TextAlign.center, style: headerStyle),
+                textAlign: TextAlign.center,
+                style: headerStyle,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade),
           ),
           Expanded(
             flex: 3,
             child: Text('HOLD',
-                textAlign: TextAlign.center, style: headerStyle),
+                textAlign: TextAlign.center,
+                style: headerStyle,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade),
           ),
           Expanded(
             flex: 3,
             child: Text('WEIGHT',
-                textAlign: TextAlign.center, style: headerStyle),
+                textAlign: TextAlign.center,
+                style: headerStyle,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade),
           ),
           Expanded(
             flex: 3,
             child: Text('BREATHER',
-                textAlign: TextAlign.center, style: headerStyle),
+                textAlign: TextAlign.center,
+                style: headerStyle,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade),
           ),
           SizedBox(width: 28),
         ],
@@ -464,96 +488,64 @@ class _DoseTableState extends State<DoseTable> {
         ),
       ),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildEditorEyebrow(target, set.position),
-          const SizedBox(height: 8),
-          if (target == _DoseEditorTarget.reps)
-            PresetChipRow(
-              controlKey: 'reps',
-              canonicalPresets: const <num>[5, 8, 10, 12, 15],
-              currentValue: set.reps,
-              accentColor: AppColors.primary,
-              undoLabel: 'reps',
-              scrollable: false,
-              onChanged: (v) => _commitReps(index, v.round()),
-            ),
-          if (target == _DoseEditorTarget.hold)
-            PresetChipRow(
-              controlKey: 'hold',
-              canonicalPresets: const <num>[0, 5, 10, 30, 60],
-              currentValue: set.holdSeconds,
-              accentColor: AppColors.primary,
-              displayFormat: (v) => v == 0 ? 'Off' : '${v.toInt()}s',
-              undoLabel: 'hold',
-              scrollable: false,
-              onChanged: (v) => _commitHold(index, v.round()),
-            ),
-          if (target == _DoseEditorTarget.weight)
-            WeightSlider(
-              valueKg: set.weightKg,
-              onChanged: (v) => _commitWeight(index, v),
-            ),
-          if (target == _DoseEditorTarget.breather)
-            PresetChipRow(
-              controlKey: 'breather',
-              canonicalPresets: const <num>[15, 30, 45, 60, 90, 120],
-              currentValue: set.breatherSecondsAfter,
-              accentColor: AppColors.rest,
-              displayFormat: (v) => '${v.toInt()}s',
-              undoLabel: 'breather',
-              scrollable: false,
-              onChanged: (v) => _commitBreather(index, v.round()),
-            ),
-        ],
-      ),
+      // Eyebrow label + hint removed — pills speak for themselves and the
+      // user dismisses by tapping a value (the chip-row callbacks now also
+      // collapse the editor) or tapping a different cell.
+      child: switch (target) {
+        _DoseEditorTarget.reps => PresetChipRow(
+            controlKey: 'reps',
+            canonicalPresets: const <num>[5, 8, 10, 12, 15],
+            currentValue: set.reps,
+            accentColor: AppColors.primary,
+            undoLabel: 'reps',
+            scrollable: false,
+            onChanged: (v) {
+              _commitReps(index, v.round());
+              _closeEditor();
+            },
+          ),
+        _DoseEditorTarget.hold => PresetChipRow(
+            controlKey: 'hold',
+            canonicalPresets: const <num>[0, 5, 10, 30, 60],
+            currentValue: set.holdSeconds,
+            accentColor: AppColors.primary,
+            displayFormat: (v) => v == 0 ? 'Off' : '${v.toInt()}s',
+            undoLabel: 'hold',
+            scrollable: false,
+            onChanged: (v) {
+              _commitHold(index, v.round());
+              _closeEditor();
+            },
+          ),
+        // Weight is a continuous slider — leaving the editor open while
+        // the user nudges the value. They dismiss by tapping the cell
+        // again or a different cell.
+        _DoseEditorTarget.weight => WeightSlider(
+            valueKg: set.weightKg,
+            onChanged: (v) => _commitWeight(index, v),
+          ),
+        _DoseEditorTarget.breather => PresetChipRow(
+            controlKey: 'breather',
+            canonicalPresets: const <num>[15, 30, 45, 60, 90, 120],
+            currentValue: set.breatherSecondsAfter,
+            accentColor: AppColors.rest,
+            displayFormat: (v) => '${v.toInt()}s',
+            undoLabel: 'breather',
+            scrollable: false,
+            onChanged: (v) {
+              _commitBreather(index, v.round());
+              _closeEditor();
+            },
+          ),
+      },
     );
   }
 
-  Widget _buildEditorEyebrow(_DoseEditorTarget target, int position) {
-    final label = switch (target) {
-      _DoseEditorTarget.reps => 'Reps · set $position',
-      _DoseEditorTarget.hold => 'Hold · set $position',
-      _DoseEditorTarget.weight => 'Weight · set $position',
-      _DoseEditorTarget.breather => 'Breather · after set $position',
-    };
-    final hint = switch (target) {
-      _DoseEditorTarget.reps => 'tap a value, or re-tap to dismiss',
-      _DoseEditorTarget.hold => 'duration of the held position',
-      _DoseEditorTarget.weight => 'snaps to 2.5 kg steps · 0–200 kg',
-      _DoseEditorTarget.breather => 'rest before the next set',
-    };
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: AppColors.primary,
-            letterSpacing: 0.6,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Flexible(
-          child: Text(
-            hint,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textSecondaryOnDark,
-              letterSpacing: 0.3,
-            ),
-          ),
-        ),
-      ],
-    );
+  void _closeEditor() {
+    setState(() {
+      _activeRowIndex = null;
+      _activeTarget = null;
+    });
   }
 
   // ---------------------------------------------------------------------------

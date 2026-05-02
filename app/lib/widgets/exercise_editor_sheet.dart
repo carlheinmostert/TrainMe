@@ -31,14 +31,19 @@ enum ExerciseEditorTab { dose, notes, preview, settings }
 /// an internal `PageView`. The Notes tab promotes the sheet to large
 /// when the textarea gains focus so the keyboard doesn't eat the field.
 ///
-/// On every meaningful edit the sheet fires [onChanged] with a fresh
-/// `ExerciseCapture` so the Studio screen can persist + re-render
-/// without waiting for the sheet to dismiss.
+/// On every meaningful edit the sheet fires [onExerciseChanged] with the
+/// (index, fresh ExerciseCapture) so the Studio screen can persist +
+/// re-render without waiting for the sheet to dismiss.
+///
+/// The sheet hosts prev/next chevrons and a dot row so the practitioner
+/// can step through the parent session's exercises without closing and
+/// reopening the sheet. The active index lives in sheet state and may
+/// diverge from [initialExerciseIndex] over the lifetime of the sheet.
 Future<void> showExerciseEditorSheet({
   required BuildContext context,
-  required ExerciseCapture exercise,
-  required ValueChanged<ExerciseCapture> onChanged,
-  Session? session,
+  required Session session,
+  required int initialExerciseIndex,
+  required void Function(int index, ExerciseCapture updated) onExerciseChanged,
   ValueChanged<Session>? onSessionUpdate,
   ExerciseEditorTab initialTab = ExerciseEditorTab.dose,
 }) async {
@@ -55,9 +60,9 @@ Future<void> showExerciseEditorSheet({
     // sheet refuses to expand via the drag handle.
     enableDrag: false,
     builder: (sheetCtx) => ExerciseEditorSheet(
-      exercise: exercise,
-      onChanged: onChanged,
       session: session,
+      initialExerciseIndex: initialExerciseIndex,
+      onExerciseChanged: onExerciseChanged,
       onSessionUpdate: onSessionUpdate,
       initialTab: initialTab,
     ),
@@ -67,19 +72,22 @@ Future<void> showExerciseEditorSheet({
 /// The sheet body. Exposed publicly so tests / future callers can mount
 /// it inside a custom host without going through [showExerciseEditorSheet].
 class ExerciseEditorSheet extends StatefulWidget {
-  /// Exercise being edited. The sheet keeps a local mirror so it can
-  /// fire [onChanged] with the freshly-mutated copy on every edit.
-  final ExerciseCapture exercise;
+  /// Parent session. The sheet reads `session.exercises` to drive prev/
+  /// next chevrons + the dot row, and keeps a local mirror of the active
+  /// exercise so it can fire [onExerciseChanged] with the freshly-mutated
+  /// copy on every edit.
+  final Session session;
 
-  /// Called whenever the practitioner mutates the exercise (sets,
-  /// notes, prep seconds, video reps per loop). The Studio screen wires
-  /// this to its `_updateExercise` so SQLite + in-memory + UI stay in
-  /// step.
-  final ValueChanged<ExerciseCapture> onChanged;
+  /// Index into `session.exercises` to land on when the sheet opens.
+  final int initialExerciseIndex;
 
-  /// Optional parent session — passed through to `MediaViewerBody` for
-  /// crossfade timings + circuit-cycle reconciliation in the Dose tab.
-  final Session? session;
+  /// Called whenever the practitioner mutates an exercise (sets, notes,
+  /// prep seconds, video reps per loop). The Studio screen wires this
+  /// directly to its `_updateExercise(int, ExerciseCapture)` so SQLite +
+  /// in-memory + UI stay in step. The reported index is the index of the
+  /// EXERCISE CURRENTLY EDITED inside the sheet — which may differ from
+  /// [initialExerciseIndex] once the practitioner has navigated.
+  final void Function(int index, ExerciseCapture updated) onExerciseChanged;
 
   /// Optional session-update callback — wired to the Preview tab's
   /// `MediaViewerBody.onSessionUpdate` so crossfade-tuner edits inside
@@ -91,9 +99,9 @@ class ExerciseEditorSheet extends StatefulWidget {
 
   const ExerciseEditorSheet({
     super.key,
-    required this.exercise,
-    required this.onChanged,
-    this.session,
+    required this.session,
+    required this.initialExerciseIndex,
+    required this.onExerciseChanged,
     this.onSessionUpdate,
     this.initialTab = ExerciseEditorTab.dose,
   });
@@ -124,15 +132,23 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
 
   late final DraggableScrollableController _sheetController;
   late final PageController _pageController;
+  late int _exerciseIndex;
   late ExerciseCapture _exercise;
   int _activeTabIndex = 0;
+  // Set in _switchTab while animateToPage is in flight. _onPageChanged
+  // ignores intermediate page-crosses while non-null so the sheet doesn't
+  // briefly snap to a transitional tab's detent (e.g. Notes → Settings
+  // crosses Preview, which would otherwise jump the sheet to 0.95).
+  int? _pendingFinalTab;
+  String? _activeSettingsKey;
   final FocusNode _notesFocusNode = FocusNode();
   late TextEditingController _notesController;
 
   @override
   void initState() {
     super.initState();
-    _exercise = widget.exercise;
+    _exerciseIndex = widget.initialExerciseIndex;
+    _exercise = widget.session.exercises[_exerciseIndex];
     _activeTabIndex = _tabIndexFor(widget.initialTab);
     _sheetController = DraggableScrollableController();
     _pageController = PageController(initialPage: _activeTabIndex);
@@ -173,12 +189,14 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 
   void _onNotesFocusChanged() {
-    if (!_notesFocusNode.hasFocus) return;
+    // setState rebuilds the Notes tab so the Done button shows/hides as
+    // focus changes. Listener fires on BOTH gain and loss of focus.
+    if (mounted) setState(() {});
     if (!_sheetController.isAttached) return;
-    // Promote to the larger detent so the keyboard doesn't squash the
-    // textarea. Animation matches the sheet's natural snap motion.
+    // Promote on focus gain (so keyboard doesn't squash the textarea),
+    // restore to floor detent on focus loss (Notes' canonical detent).
     _sheetController.animateTo(
-      _kMaxDetent,
+      _notesFocusNode.hasFocus ? _kMaxDetent : _kMinDetent,
       duration: const Duration(milliseconds: 280),
       curve: Curves.easeOutCubic,
     );
@@ -187,36 +205,34 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   void _switchTab(int next) {
     if (next == _activeTabIndex) return;
     HapticFeedback.selectionClick();
+    _pendingFinalTab = next;
     setState(() => _activeTabIndex = next);
-    _pageController.animateToPage(
-      next,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-    );
+    _pageController
+        .animateToPage(
+          next,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        )
+        .whenComplete(() {
+      if (mounted && _pendingFinalTab == next) _pendingFinalTab = null;
+    });
     _snapSheetForTab(next);
   }
 
   void _onPageChanged(int next) {
+    // While _switchTab's animateToPage is in flight across non-adjacent
+    // pages, ignore intermediate page-crosses so we don't snap to a
+    // transitional tab's detent (e.g. Preview's 0.95 mid-flight).
+    if (_pendingFinalTab != null && next != _pendingFinalTab) return;
     if (next == _activeTabIndex) return;
     setState(() => _activeTabIndex = next);
-
-    // Round 8 — Round 7's addPostFrameCallback (~16ms defer) wasn't long
-    // enough; the user's finger remained on the touchscreen past that
-    // frame, and the residual vertical motion under the freshly-shrunk
-    // sheet was read as a drag past the dismiss floor. Listen to the
-    // PageController's scroll-settling notifier instead — guarantees
-    // the gesture and the page animation are BOTH done before snap fires.
-    final position = _pageController.position;
-    if (!position.isScrollingNotifier.value) {
-      _snapSheetForTab(next);
-      return;
-    }
-    void onSettle() {
-      if (position.isScrollingNotifier.value) return;
-      position.isScrollingNotifier.removeListener(onSettle);
-      if (mounted) _snapSheetForTab(next);
-    }
-    position.isScrollingNotifier.addListener(onSettle);
+    // Snap immediately. The earlier settle-listener defer was a workaround
+    // for the shouldCloseOnMinExtent auto-dismiss bug: residual vertical
+    // finger motion at floor would trigger the dismiss observer. With
+    // shouldCloseOnMinExtent: false we no longer need that defer, and
+    // immediate snap is more reliable (Preview → Settings/Notes via swipe
+    // sometimes failed to snap when settle fired too early).
+    _snapSheetForTab(next);
   }
 
   /// Round 5 — hard-snap the sheet to the canonical detent for the given
@@ -237,7 +253,23 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
 
   void _emit(ExerciseCapture next) {
     setState(() => _exercise = next);
-    widget.onChanged(next);
+    widget.onExerciseChanged(_exerciseIndex, next);
+  }
+
+  /// Step the active exercise by ±1 (or jump to a specific index from the
+  /// dot row). Out-of-range / no-op calls are silently ignored. Resets the
+  /// Notes controller so stale text from the previous exercise can't
+  /// linger, and collapses any open Settings row.
+  void _navigateExercise(int newIndex) {
+    if (newIndex < 0 || newIndex >= widget.session.exercises.length) return;
+    if (newIndex == _exerciseIndex) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _exerciseIndex = newIndex;
+      _exercise = widget.session.exercises[newIndex];
+      _notesController.text = _exercise.notes ?? '';
+      _activeSettingsKey = null;
+    });
   }
 
   void _onSetsChanged(List<ExerciseSet> sets) {
@@ -256,12 +288,15 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       minChildSize: _kMinDetent,
       maxChildSize: _kMaxDetent,
       snap: true,
-      // Round 3 — two snap stops: 0.55 (floor) and 0.95 (full).
-      // _onChromeDragEnd dismisses ONLY on a fast downward fling
-      // (>800 logical pt/s). Slow drags below 0.55 snap back to the
-      // floor — Carl's Round 2 retest reported the previous behaviour
-      // (drag below 0.55 dismisses) was unintentional.
+      // Two snap stops: 0.55 (floor) and 0.95 (full).
       snapSizes: const [_kMinDetent, _kMaxDetent],
+      // CRITICAL: defaults to true. When true, _BottomSheetState.extentChanged
+      // (Flutter framework) auto-closes the route the moment extent equals
+      // minChildSize — which is exactly where our slow drag-down lands and
+      // where _snapSheetForTab parks every non-Preview tab. Disabling this
+      // hands all dismissal control back to us. Tap-outside (modal barrier)
+      // remains the canonical "I'm done" gesture.
+      shouldCloseOnMinExtent: false,
       expand: false,
       builder: (ctx, scrollController) {
         // Wrap in our own ScaffoldMessenger so showUndoSnackBar fires from
@@ -328,6 +363,11 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       behavior: HitTestBehavior.opaque,
       onVerticalDragUpdate: _onChromeDragUpdate,
       onVerticalDragEnd: _onChromeDragEnd,
+      // Horizontal swipe on the chrome navigates between exercises.
+      // The drag system picks the dominant axis: mostly-vertical = resize,
+      // mostly-horizontal = navigate. Threshold 200 pt/s ensures a slow
+      // wobble doesn't trigger nav.
+      onHorizontalDragEnd: _onChromeHorizontalDragEnd,
       child: SizedBox(
         width: double.infinity,
         child: Column(
@@ -365,19 +405,44 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     _sheetController.jumpTo(next);
   }
 
+  void _onChromeHorizontalDragEnd(DragEndDetails d) {
+    final velocity = d.primaryVelocity ?? 0;
+    // Standard PageView convention: finger moves left → next, right → prev.
+    if (velocity < -200) {
+      _navigateExercise(_exerciseIndex + 1);
+    } else if (velocity > 200) {
+      _navigateExercise(_exerciseIndex - 1);
+    }
+  }
+
   void _onChromeDragEnd(DragEndDetails d) {
     if (!_sheetController.isAttached) return;
     final size = _sheetController.size;
     final velocity = d.primaryVelocity ?? 0;
-    // Round 3 — only a FAST downward fling dismisses. Slow drag below the
-    // floor snaps back to 0.55 instead. Tap-outside (modal barrier) is
-    // the canonical "I'm done" gesture; drag is for resizing.
-    if (velocity > _kFlingDismissVelocity) {
-      Navigator.of(context).maybePop();
+    // No-op when the sheet is already exactly at a detent (no real drag
+    // happened). This handles a tab-strip tap that the outer drag
+    // recognizer arena-claims as a zero-motion "drag": without this guard
+    // _onChromeDragEnd would animateTo the current detent, racing with
+    // _switchTab's jumpTo to the NEW tab's detent (e.g. tapping Settings
+    // from Preview while at 0.95 — animateTo(0.95) would override
+    // jumpTo(0.55) and the sheet would stay parked at Preview's detent).
+    const detentTol = 0.005;
+    if ((size - _kMinDetent).abs() < detentTol ||
+        (size - _kMaxDetent).abs() < detentTol) {
       return;
     }
+    // Drag is for resizing ONLY. Dismissal is via tap-outside (modal
+    // barrier). Velocity-based dismiss was tried in Round 3 (>800 pt/s)
+    // but caused two bugs: (1) a normal drag-down from 0.95 to 0.55
+    // released with enough residual velocity to dismiss instead of snap,
+    // and (2) a tap on a tab — even with no intentional motion — was
+    // sometimes claimed by the outer GestureDetector's vertical-drag
+    // recognizer (sub-slop finger jitter under HitTestBehavior.translucent)
+    // and ended with velocity > 800, dismissing the sheet on a tab tap.
     final double target;
     if (velocity < -_kFlingDismissVelocity) {
+      // Fast UPWARD fling promotes to the max detent. Useful and
+      // unambiguous — no wrong-direction tap-jitter risk.
       target = _kMaxDetent;
     } else {
       // Snap to whichever of [min, max] is closer.
@@ -397,14 +462,33 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     final title = _exercise.name?.trim().isNotEmpty == true
         ? _exercise.name!
         : 'Exercise ${_exercise.position + 1}';
+    final total = widget.session.exercises.length;
+    final canPrev = _exerciseIndex > 0;
+    final canNext = _exerciseIndex < total - 1;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 18, 8),
-      // Round 3 — thumbnail (P6) + inline-editable title (P5) sit
-      // side-by-side. Card surface no longer renders any edit affordance;
-      // every edit happens inside the popup, including the rename.
+      padding: const EdgeInsets.fromLTRB(6, 4, 6, 8),
+      // Chevrons flank the title block; counter + close × cluster on
+      // the right edge. Tapping a chevron steps the active exercise by
+      // ±1 — the sheet stays open and the body re-renders against the
+      // new exercise.
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          IconButton(
+            onPressed: canPrev
+                ? () => _navigateExercise(_exerciseIndex - 1)
+                : null,
+            padding: EdgeInsets.zero,
+            constraints: BoxConstraints.tightFor(width: 36, height: 36),
+            iconSize: 22,
+            icon: Icon(
+              Icons.chevron_left,
+              size: 22,
+              color: canPrev
+                  ? AppColors.textOnDark
+                  : AppColors.textSecondaryOnDark.withValues(alpha: 0.4),
+            ),
+          ),
           _HeaderThumbnail(exercise: _exercise),
           const SizedBox(width: 12),
           Expanded(
@@ -444,6 +528,43 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                   ),
                 ),
               ],
+            ),
+          ),
+          IconButton(
+            onPressed: canNext
+                ? () => _navigateExercise(_exerciseIndex + 1)
+                : null,
+            padding: EdgeInsets.zero,
+            constraints: BoxConstraints.tightFor(width: 36, height: 36),
+            iconSize: 22,
+            icon: Icon(
+              Icons.chevron_right,
+              size: 22,
+              color: canNext
+                  ? AppColors.textOnDark
+                  : AppColors.textSecondaryOnDark.withValues(alpha: 0.4),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '${_exerciseIndex + 1} of $total',
+            style: const TextStyle(
+              fontFamily: 'JetBrainsMono',
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondaryOnDark,
+            ),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            onPressed: () => Navigator.of(context).maybePop(),
+            padding: EdgeInsets.zero,
+            constraints: BoxConstraints.tightFor(width: 36, height: 36),
+            iconSize: 22,
+            icon: const Icon(
+              Icons.close,
+              size: 22,
+              color: AppColors.textOnDark,
             ),
           ),
         ],
@@ -546,27 +667,55 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 
   /// Resolved circuit cycle count, or null when the exercise isn't part
-  /// of a circuit (or the parent session is missing).
+  /// of a circuit.
   int? _circuitCycles() {
     final circuitId = _exercise.circuitId;
     if (circuitId == null) return null;
-    final session = widget.session;
-    if (session == null) return null;
-    return session.circuitCycles[circuitId];
+    return widget.session.circuitCycles[circuitId];
   }
 
   Widget _buildNotesTab(ScrollController scrollController) {
     final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
-    return SingleChildScrollView(
-      controller: scrollController,
-      padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + keyboardInset),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 200),
-            child: TextField(
+    return GestureDetector(
+      // Tap anywhere outside the textarea dismisses the keyboard. translucent
+      // so the TextField still claims its own taps via the gesture arena.
+      behavior: HitTestBehavior.translucent,
+      onTap: () => _notesFocusNode.unfocus(),
+      child: SingleChildScrollView(
+        controller: scrollController,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + keyboardInset),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Done button — only takes vertical space when visible, so the
+            // textarea sits flush under the tab strip when the keyboard
+            // is closed.
+            if (_notesFocusNode.hasFocus)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => _notesFocusNode.unfocus(),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    minimumSize: const Size(0, 28),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    foregroundColor: AppColors.primary,
+                  ),
+                  child: const Text(
+                    'Done',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 200),
+              child: TextField(
               controller: _notesController,
               focusNode: _notesFocusNode,
               minLines: 8,
@@ -610,17 +759,8 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          const Text(
-            'Notes appear in your session view, not on the client web player.',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              color: AppColors.textSecondaryOnDark,
-              height: 1.5,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -669,9 +809,15 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _SettingsSection(
+          _CollapsibleSettingsRow(
             label: 'Prep seconds',
-            child: PresetChipRow(
+            summary: '${prepSeconds}s',
+            isExpanded: _activeSettingsKey == 'prep',
+            onTap: () => setState(() {
+              _activeSettingsKey =
+                  _activeSettingsKey == 'prep' ? null : 'prep';
+            }),
+            editor: PresetChipRow(
               controlKey: 'prep',
               canonicalPresets: const <num>[10, 15, 20, 30, 45, 60],
               currentValue: prepSeconds,
@@ -679,15 +825,25 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
               displayFormat: (v) => '${v.toInt()}s',
               undoLabel: 'prep',
               scrollable: false,
-              onChanged: (v) =>
-                  _emit(_exercise.copyWith(prepSeconds: v.round())),
+              onChanged: (v) {
+                _emit(_exercise.copyWith(prepSeconds: v.round()));
+                setState(() => _activeSettingsKey = null);
+              },
             ),
           ),
-          const SizedBox(height: 20),
-          if (_exercise.mediaType == MediaType.video)
-            _SettingsSection(
+          if (_exercise.mediaType == MediaType.video) ...[
+            const SizedBox(height: 8),
+            _CollapsibleSettingsRow(
               label: 'Reps in Video',
-              child: PresetChipRow(
+              summary: '$videoReps',
+              isExpanded: _activeSettingsKey == 'videoRepsPerLoop',
+              onTap: () => setState(() {
+                _activeSettingsKey =
+                    _activeSettingsKey == 'videoRepsPerLoop'
+                        ? null
+                        : 'videoRepsPerLoop';
+              }),
+              editor: PresetChipRow(
                 controlKey: 'videoRepsPerLoop',
                 canonicalPresets: const <num>[1, 2, 3, 4, 5],
                 currentValue: videoReps,
@@ -695,20 +851,13 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                 displayFormat: (v) => '${v.toInt()}',
                 undoLabel: 'reps per loop',
                 scrollable: false,
-                onChanged: (v) =>
-                    _emit(_exercise.copyWith(videoRepsPerLoop: v.round())),
+                onChanged: (v) {
+                  _emit(_exercise.copyWith(videoRepsPerLoop: v.round()));
+                  setState(() => _activeSettingsKey = null);
+                },
               ),
             ),
-          const SizedBox(height: 16),
-          const Text(
-            'These rarely change once you’ve recorded the exercise.',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              color: AppColors.textSecondaryOnDark,
-              height: 1.5,
-            ),
-          ),
+          ],
         ],
       ),
     );
@@ -809,32 +958,78 @@ class _HeaderPlayGlyph extends StatelessWidget {
   }
 }
 
-/// own line, control beneath. The previous inline label-and-value-on-
-/// the-same-row treatment squeezed the chip row into too little width.
-class _SettingsSection extends StatelessWidget {
+/// Collapsible row for the Settings tab — mirrors the Dose-table pattern
+/// where the row shows label + current value, and tapping expands an
+/// inline editor below. Tapping a value in the editor commits and
+/// collapses the row (handled by the caller via [setState]).
+class _CollapsibleSettingsRow extends StatelessWidget {
   final String label;
-  final Widget child;
+  final String summary;
+  final bool isExpanded;
+  final VoidCallback onTap;
+  final Widget editor;
 
-  const _SettingsSection({required this.label, required this.child});
+  const _CollapsibleSettingsRow({
+    required this.label,
+    required this.summary,
+    required this.isExpanded,
+    required this.onTap,
+    required this.editor,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          label.toUpperCase(),
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textSecondaryOnDark,
-            letterSpacing: 1.0,
+        InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: isExpanded
+                      ? AppColors.primary
+                      : AppColors.surfaceBorder,
+                  width: isExpanded ? 2 : 1,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textOnDark,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  summary,
+                  style: TextStyle(
+                    fontFamily: 'JetBrainsMono',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: isExpanded
+                        ? AppColors.primary
+                        : AppColors.textSecondaryOnDark,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        const SizedBox(height: 8),
-        child,
+        if (isExpanded)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+            child: editor,
+          ),
       ],
     );
   }

@@ -1776,6 +1776,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       final Widget cardBody = StudioExerciseCard(
         key: rowKey,
         exercise: exercise,
+        session: _session,
+        index: dataIndex,
         isExpanded: _expandedIndex == dataIndex,
         isFocused: isFocused,
         isInCircuit: isInCircuit,
@@ -1799,9 +1801,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             _focusedExerciseId = null;
           });
         },
-        onUpdate: (u) {
+        // The editor sheet may navigate away from `dataIndex` via its
+        // chevrons / dot row, so it reports the index it is currently
+        // editing. Pipe that straight to `_updateExercise` — the card's
+        // own `dataIndex` is just the entry point.
+        onUpdate: (sheetIndex, u) {
           _clearFocusOnInteraction();
-          _updateExercise(dataIndex, u);
+          _updateExercise(sheetIndex, u);
         },
         onThumbnailTap: () => _openMediaViewer(exercise),
         onReplaceMedia: () => _replaceMedia(dataIndex),
@@ -3002,6 +3008,8 @@ class _RestBar extends StatefulWidget {
 }
 
 class _RestBarState extends State<_RestBar> {
+  bool _expanded = false;
+
   int get _duration => widget.exercise.restHoldSeconds ?? 30;
 
   static String _format(num v) {
@@ -3017,32 +3025,25 @@ class _RestBarState extends State<_RestBar> {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      child: Row(
-        // Wave 18.3.1 — top-align so the icon + "Rest" pair stay
-        // anchored at the top of the row when the chip row wraps to
-        // multiple lines. Center would drift them down as the chip row
-        // grows.
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Wave 30 — icon + label as ONE element. Earlier the two were
-          // padded independently (icon top:11, label top:12) and read as
-          // "icon centred + label nudged down". Shared 40pt SizedBox
-          // matches the chip row's vertical box, with center alignment
-          // giving icon + label a single visual centre line.
-          const SizedBox(
-            height: 40,
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: EdgeInsets.only(left: 4, right: 10),
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.self_improvement,
                     size: 18,
                     color: AppColors.rest,
                   ),
-                  SizedBox(width: 8),
-                  Text(
+                  const SizedBox(width: 8),
+                  const Text(
                     'Rest',
                     style: TextStyle(
                       fontFamily: 'Inter',
@@ -3051,34 +3052,45 @@ class _RestBarState extends State<_RestBar> {
                       color: AppColors.rest,
                     ),
                   ),
+                  const Spacer(),
+                  Text(
+                    _format(_duration),
+                    style: TextStyle(
+                      fontFamily: 'JetBrainsMono',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: _expanded
+                          ? AppColors.primary
+                          : AppColors.rest,
+                    ),
+                  ),
                 ],
               ),
             ),
           ),
-          Expanded(
-            child: PresetChipRow(
-              controlKey: 'rest',
-              canonicalPresets: const <num>[15, 30, 60, 90],
-              currentValue: _duration,
-              onChanged: (v) {
-                widget.onUpdate(
-                  widget.exercise.copyWith(restHoldSeconds: v.round()),
-                );
-              },
-              displayFormat: _format,
-              accentColor: AppColors.rest,
-              undoLabel: 'rest',
-              // Wave 18.1 — non-scrolling chip row. The rest bar's
-              // horizontal extent is the swipe-to-delete gesture path;
-              // a horizontally-scrolling ListView would eat that swipe
-              // before the outer Dismissible could see it.
-              scrollable: false,
+          if (_expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+              child: PresetChipRow(
+                controlKey: 'rest',
+                canonicalPresets: const <num>[15, 30, 60, 90],
+                currentValue: _duration,
+                onChanged: (v) {
+                  widget.onUpdate(
+                    widget.exercise.copyWith(restHoldSeconds: v.round()),
+                  );
+                  setState(() => _expanded = false);
+                },
+                displayFormat: _format,
+                accentColor: AppColors.rest,
+                undoLabel: 'rest',
+                // Wave 18.1 — non-scrolling chip row. The rest bar's
+                // horizontal extent is the swipe-to-delete gesture path;
+                // a horizontally-scrolling ListView would eat that swipe
+                // before the outer Dismissible could see it.
+                scrollable: false,
+              ),
             ),
-          ),
-          // Delete × removed — swipe-left on the whole rest row
-          // triggers onDelete via the rest-row Dismissible wired up in
-          // _buildRestRow. Consistent with exercise cards, which get
-          // their own Dismissible wrapper in _buildRowWithContext.
         ],
       ),
     );

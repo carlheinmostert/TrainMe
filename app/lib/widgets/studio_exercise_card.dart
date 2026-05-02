@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../config.dart';
 import '../models/exercise_capture.dart';
 import '../models/exercise_set.dart';
+import '../models/session.dart';
 import '../services/api_client.dart';
 import '../theme.dart';
 import 'exercise_editor_sheet.dart';
@@ -102,6 +103,16 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
 class StudioExerciseCard extends StatelessWidget {
   final ExerciseCapture exercise;
 
+  /// Parent session — passed through to the editor sheet so the
+  /// chevrons + dot row can step through siblings.
+  final Session session;
+
+  /// This card's index inside `session.exercises`. The editor sheet uses
+  /// it as the initial active index; the practitioner may navigate away
+  /// from it inside the sheet, in which case `onUpdate` arrives keyed to
+  /// the SHEET's current index (not necessarily this card's).
+  final int index;
+
   /// Parent's expansion flag — kept for backwards compatibility with
   /// callers that wired it to drive a focus-ring effect. The new card
   /// has no inline expanded body, so this flag now only feeds the focus
@@ -110,7 +121,12 @@ class StudioExerciseCard extends StatelessWidget {
   final bool isFocused;
   final bool isInCircuit;
   final VoidCallback onTap;
-  final ValueChanged<ExerciseCapture> onUpdate;
+
+  /// Called when the editor sheet emits an update. The reported index
+  /// is the editor sheet's CURRENT index (which may differ from
+  /// [index] once the practitioner has paged through siblings via
+  /// chevrons / dot row).
+  final void Function(int index, ExerciseCapture updated) onUpdate;
   final VoidCallback onThumbnailTap;
   final VoidCallback onReplaceMedia;
   final VoidCallback onDelete;
@@ -121,6 +137,8 @@ class StudioExerciseCard extends StatelessWidget {
   const StudioExerciseCard({
     super.key,
     required this.exercise,
+    required this.session,
+    required this.index,
     required this.isExpanded,
     this.isFocused = false,
     this.isInCircuit = false,
@@ -218,8 +236,9 @@ class StudioExerciseCard extends StatelessWidget {
     HapticFeedback.selectionClick();
     await showExerciseEditorSheet(
       context: context,
-      exercise: exercise,
-      onChanged: onUpdate,
+      session: session,
+      initialExerciseIndex: index,
+      onExerciseChanged: onUpdate,
       initialTab: initialTab,
     );
   }
