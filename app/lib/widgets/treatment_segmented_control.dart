@@ -32,7 +32,7 @@ class TreatmentSegmentedControl extends StatelessWidget {
   final bool grayscaleAvailable;
   final bool originalAvailable;
   final ValueChanged<Treatment> onChanged;
-  final VoidCallback onLockTap;
+  final ValueChanged<Treatment> onLockTap;
 
   /// Per-treatment override for the locked-state tooltip copy. Falls back
   /// to the default messages used by the plan preview if a key is absent.
@@ -155,8 +155,8 @@ class TreatmentSegmentedControl extends StatelessWidget {
       color: selected
           ? Colors.white
           : (available
-              ? AppColors.textOnDark
-              : AppColors.textSecondaryOnDark.withValues(alpha: 0.6)),
+                ? AppColors.textOnDark
+                : AppColors.textSecondaryOnDark.withValues(alpha: 0.6)),
     );
 
     // Lock glyph, when present, sits next to the label along the same
@@ -179,10 +179,7 @@ class TreatmentSegmentedControl extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (!available) ...[
-              lockIcon,
-              const SizedBox(width: 4),
-            ],
+            if (!available) ...[lockIcon, const SizedBox(width: 4)],
             Text(t.shortLabel, style: labelStyle),
           ],
         ),
@@ -193,10 +190,7 @@ class TreatmentSegmentedControl extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           if (!available)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: lockIcon,
-            ),
+            Padding(padding: const EdgeInsets.only(right: 4), child: lockIcon),
           Text(t.shortLabel, style: labelStyle),
         ],
       );
@@ -230,7 +224,7 @@ class TreatmentSegmentedControl extends StatelessWidget {
           if (available) {
             onChanged(t);
           } else {
-            onLockTap();
+            onLockTap(t);
           }
         },
         behavior: HitTestBehavior.opaque,
@@ -252,8 +246,24 @@ class TreatmentSegmentedControl extends StatelessWidget {
 /// the control also needs this filter to render the grayscale frame
 /// without re-encoding the source.
 const ColorFilter grayscaleColorFilter = ColorFilter.matrix(<double>[
-  0.2126, 0.7152, 0.0722, 0, 0,
-  0.2126, 0.7152, 0.0722, 0, 0,
-  0.2126, 0.7152, 0.0722, 0, 0,
-  0,      0,      0,      1, 0,
+  0.2126,
+  0.7152,
+  0.0722,
+  0,
+  0,
+  0.2126,
+  0.7152,
+  0.0722,
+  0,
+  0,
+  0.2126,
+  0.7152,
+  0.0722,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  0,
 ]);

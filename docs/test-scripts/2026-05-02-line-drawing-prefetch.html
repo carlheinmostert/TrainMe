@@ -230,6 +230,31 @@
       </li>
     </ul>
 
+    <h2>6 · Locked treatment tap routes to download sheet</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Patch on top of the prefetch wave: tapping a locked B&amp;W or Original segment now disambiguates between "raw not on disk" (opens the download sheet) and "client hasn't consented" (SnackBar names the client + treatment).
+    </p>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">Open a cloud-only session whose video exercises haven't been pulled yet (or force the state by killing the app mid-prefetch). In Studio, open a video exercise's <em>MediaViewer</em>; the B&amp;W or Original segment shows a lock glyph because <code>_hasArchive</code> is false. Tap the locked segment. The <strong>Download Original</strong> bottom sheet opens (Save / Share options). No SnackBar about consent. Cancel out — segment stays locked. Tap again, choose Save — once the download completes the segment unlocks on the next rebuild.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">Open a session for a client whose <code>video_consent</code> denies grayscale (or original). The raw archive IS on disk locally — confirm by opening the same exercise in another session where consent is granted; B&amp;W plays. Now back in the consent-denied session, tap the locked B&amp;W segment. SnackBar reads <code>Grant {ClientName} consent for B&amp;W to unlock.</code> with the actual client name. Tap the locked Original segment — SnackBar reads <code>Grant {ClientName} consent for Original to unlock.</code> No download sheet appears.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Tap the locked segment on a <strong>photo</strong> exercise (older capture where the raw JPG was pruned, or a session where the photo's raw isn't local). SnackBar appears with the consent copy — no download sheet (photo download isn't wired through the sheet yet, so the SnackBar fallback is correct). No crash, no stale "Grant consent on the client page" generic copy.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
     <footer>
       Pass-notes feed the next wave's polish list. Failures will spawn a targeted follow-up. Out-of-scope items observed during this pass (e.g. B&amp;W segment behaviour, partial files, Wi-Fi vs cellular timing) should be flagged in the <code>fail</code> note for triage rather than re-tested here.
     </footer>

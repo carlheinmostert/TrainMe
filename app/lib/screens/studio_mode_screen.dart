@@ -4573,19 +4573,54 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
 
   /// Tap handler for a locked segment in the segmented control.
   ///
-  /// Consent now lives at the client level (ClientSessionsScreen). The
-  /// inline toggle that used to sit below this pill is gone, so when a
-  /// segment is locked we gently point the practitioner at where to go
-  /// grant access. Haptic + short SnackBar; no modal (R-01).
-  void _onLockedSegmentTap() {
+  /// Two reasons a segment can be locked:
+  ///   1. The local raw-archive file isn't on disk yet (cloud-only
+  ///      session post-PR #190). For VIDEO exercises we route the tap
+  ///      into the existing `showDownloadOriginalSheet` so the
+  ///      practitioner can pull the raw down on demand. Photos fall
+  ///      through to the SnackBar — that download path isn't wired
+  ///      through the sheet yet.
+  ///   2. Archive exists but the client hasn't granted that treatment.
+  ///      We surface a SnackBar pointing the practitioner at the client
+  ///      consent page, with the actual client name + treatment word
+  ///      interpolated so the next step is concrete.
+  ///
+  /// Haptic + SnackBar / sheet; no modal (R-01).
+  void _onLockedSegmentTap(Treatment t) {
     HapticFeedback.lightImpact();
     if (!mounted) return;
+
+    final exercise = _current;
+    final missingArchive = !_hasArchive(exercise);
+    final session = _session;
+
+    if (missingArchive && _isVideo(exercise)) {
+      // Cloud-only session — the raw mp4 hasn't been pulled yet.
+      // showDownloadOriginalSheet stamps the local archive path on
+      // success and the segments unlock organically on the next rebuild.
+      showDownloadOriginalSheet(
+        context,
+        exercise: exercise,
+        practiceId: session?.practiceId,
+        planId: session?.id,
+      );
+      return;
+    }
+
+    // Either archive exists but consent is missing (the "real" lock
+    // case) OR the missing-archive photo path that the download sheet
+    // doesn't handle yet. Both land on the consent SnackBar.
+    final rawClientName = session?.clientName ?? '';
+    final clientName = rawClientName.trim().isEmpty
+        ? 'this client'
+        : rawClientName;
+    final treatmentWord = t == Treatment.grayscale ? 'B&W' : 'Original';
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Text(
-          'Grant consent on the client page to enable this treatment.',
+          'Grant $clientName consent for $treatmentWord to unlock.',
         ),
-        duration: Duration(seconds: 2),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
