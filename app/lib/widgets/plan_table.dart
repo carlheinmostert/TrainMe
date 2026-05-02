@@ -9,12 +9,12 @@ import 'undo_snackbar.dart';
 import 'weight_slider.dart';
 
 /// The cell currently being edited (none = collapsed table).
-enum _DoseEditorTarget { reps, hold, weight, breather }
+enum _PlanEditorTarget { reps, hold, weight, breather }
 
-/// DOSE table — per-set editor for the Wave: per-set DOSE relational
+/// PLAN table — per-set editor for the Wave: per-set PLAN relational
 /// model. Renders [ExerciseSet] rows with `Set / Reps / Hold / Weight /
 /// Breather` columns; each cell drops an inline editor below its row
-/// when tapped. Mirrors `docs/design/mockups/exercise-card-dose-table.html`.
+/// when tapped. Mirrors `docs/design/mockups/exercise-card-plan-table.html`.
 ///
 /// Drag-to-reorder uses [ReorderableListView]; the row body lays out
 /// like a table via fixed column flex. Swipe-delete uses [Dismissible]
@@ -25,7 +25,7 @@ enum _DoseEditorTarget { reps, hold, weight, breather }
 /// non-shrink-wrapped — wrap me in a bounded-height container if you
 /// hit "unbounded constraints". The host `ExerciseEditorSheet` provides
 /// that container via the sheet body's `SingleChildScrollView`.
-class DoseTable extends StatefulWidget {
+class PlanTable extends StatefulWidget {
   /// Current set list. The widget renders rows in list order; [position]
   /// values are recomputed on every save (1-based).
   final List<ExerciseSet> sets;
@@ -40,7 +40,7 @@ class DoseTable extends StatefulWidget {
   /// as "won't play" ghost-skip.
   final int? circuitCycles;
 
-  const DoseTable({
+  const PlanTable({
     super.key,
     required this.sets,
     required this.onSetsChanged,
@@ -48,13 +48,13 @@ class DoseTable extends StatefulWidget {
   });
 
   @override
-  State<DoseTable> createState() => _DoseTableState();
+  State<PlanTable> createState() => _PlanTableState();
 }
 
-class _DoseTableState extends State<DoseTable> {
+class _PlanTableState extends State<PlanTable> {
   /// Index of the row currently expanded for editing, or null.
   int? _activeRowIndex;
-  _DoseEditorTarget? _activeTarget;
+  _PlanEditorTarget? _activeTarget;
 
   @override
   Widget build(BuildContext context) {
@@ -238,12 +238,12 @@ class _DoseTableState extends State<DoseTable> {
   Widget _buildRow(int index, ExerciseSet set, {required bool isGhostSkip}) {
     final isActiveRow = _activeRowIndex == index;
     return Column(
-      key: ValueKey('dose-row-${set.id}'),
+      key: ValueKey('plan-row-${set.id}'),
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Dismissible(
-          key: ValueKey('dose-dismiss-${set.id}'),
+          key: ValueKey('plan-dismiss-${set.id}'),
           direction: DismissDirection.endToStart,
           background: Container(
             color: AppColors.error,
@@ -289,10 +289,10 @@ class _DoseTableState extends State<DoseTable> {
                       label: '${set.reps}',
                       unit: null,
                       isActive: isActiveRow &&
-                          _activeTarget == _DoseEditorTarget.reps,
+                          _activeTarget == _PlanEditorTarget.reps,
                       isGhost: isGhostSkip,
                       onTap: () =>
-                          _toggleEditor(index, _DoseEditorTarget.reps),
+                          _toggleEditor(index, _PlanEditorTarget.reps),
                     ),
                   ),
                   Expanded(
@@ -304,10 +304,10 @@ class _DoseTableState extends State<DoseTable> {
                       unit: set.holdSeconds == 0 ? null : 's',
                       isNa: set.holdSeconds == 0,
                       isActive: isActiveRow &&
-                          _activeTarget == _DoseEditorTarget.hold,
+                          _activeTarget == _PlanEditorTarget.hold,
                       isGhost: isGhostSkip,
                       onTap: () =>
-                          _toggleEditor(index, _DoseEditorTarget.hold),
+                          _toggleEditor(index, _PlanEditorTarget.hold),
                     ),
                   ),
                   Expanded(
@@ -319,10 +319,10 @@ class _DoseTableState extends State<DoseTable> {
                       unit: set.weightKg == null ? null : 'kg',
                       isNa: set.weightKg == null,
                       isActive: isActiveRow &&
-                          _activeTarget == _DoseEditorTarget.weight,
+                          _activeTarget == _PlanEditorTarget.weight,
                       isGhost: isGhostSkip,
                       onTap: () =>
-                          _toggleEditor(index, _DoseEditorTarget.weight),
+                          _toggleEditor(index, _PlanEditorTarget.weight),
                     ),
                   ),
                   Expanded(
@@ -331,10 +331,10 @@ class _DoseTableState extends State<DoseTable> {
                       label: '${set.breatherSecondsAfter}',
                       unit: 's',
                       isActive: isActiveRow &&
-                          _activeTarget == _DoseEditorTarget.breather,
+                          _activeTarget == _PlanEditorTarget.breather,
                       isGhost: isGhostSkip,
                       onTap: () =>
-                          _toggleEditor(index, _DoseEditorTarget.breather),
+                          _toggleEditor(index, _PlanEditorTarget.breather),
                     ),
                   ),
                   // Drag handle — long-press to reorder.
@@ -514,7 +514,7 @@ class _DoseTableState extends State<DoseTable> {
       // user dismisses by tapping a value (the chip-row callbacks now also
       // collapse the editor) or tapping a different cell.
       child: switch (target) {
-        _DoseEditorTarget.reps => PresetChipRow(
+        _PlanEditorTarget.reps => PresetChipRow(
             controlKey: 'reps',
             canonicalPresets: const <num>[5, 8, 10, 12, 15],
             currentValue: set.reps,
@@ -526,7 +526,7 @@ class _DoseTableState extends State<DoseTable> {
               _closeEditor();
             },
           ),
-        _DoseEditorTarget.hold => PresetChipRow(
+        _PlanEditorTarget.hold => PresetChipRow(
             controlKey: 'hold',
             canonicalPresets: const <num>[0, 5, 10, 30, 60],
             currentValue: set.holdSeconds,
@@ -542,12 +542,12 @@ class _DoseTableState extends State<DoseTable> {
         // Weight is a continuous slider. onCommit fires on drag-end or
         // tap-to-position (Slider.onChangeEnd) so the editor block
         // dismisses on commit, matching the chip-row pills above.
-        _DoseEditorTarget.weight => WeightSlider(
+        _PlanEditorTarget.weight => WeightSlider(
             valueKg: set.weightKg,
             onChanged: (v) => _commitWeight(index, v),
             onCommit: _closeEditor,
           ),
-        _DoseEditorTarget.breather => PresetChipRow(
+        _PlanEditorTarget.breather => PresetChipRow(
             controlKey: 'breather',
             canonicalPresets: const <num>[15, 30, 45, 60, 90, 120],
             currentValue: set.breatherSecondsAfter,
@@ -742,7 +742,7 @@ class _DoseTableState extends State<DoseTable> {
   // Mutations
   // ---------------------------------------------------------------------------
 
-  void _toggleEditor(int index, _DoseEditorTarget target) {
+  void _toggleEditor(int index, _PlanEditorTarget target) {
     HapticFeedback.selectionClick();
     setState(() {
       if (_activeRowIndex == index && _activeTarget == target) {

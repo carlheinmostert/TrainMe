@@ -90,9 +90,9 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
 /// top-right.
 ///
 /// Tap zones:
-///   * Whole card (default)        → editor sheet on Dose tab.
+///   * Whole card (default)        → editor sheet on Plan tab.
 ///   * Gear (⚙)                    → editor sheet on Settings tab.
-///   * Dose row (🏋)               → editor sheet on Dose tab.
+///   * Plan row (🏋)               → editor sheet on Plan tab.
 ///   * Notes row (📝)              → editor sheet on Notes tab.
 ///   * Long-press anywhere         → replace media (image-picker).
 ///
@@ -101,7 +101,7 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
 ///     the focus / collapse signal).
 ///   * [onUpdate] fires on every meaningful edit inside the editor sheet.
 ///   * [onThumbnailTap] is retained for backwards-compat but no longer
-///     wired (the whole card opens the editor on Dose now).
+///     wired (the whole card opens the editor on Plan now).
 ///   * [onReplaceMedia] fires on a long-press (image-picker swap).
 ///   * [onDelete], [onDownloadOriginal] retained for parent compatibility.
 class StudioExerciseCard extends StatelessWidget {
@@ -133,7 +133,7 @@ class StudioExerciseCard extends StatelessWidget {
   final void Function(int index, ExerciseCapture updated) onUpdate;
 
   /// Retained for backwards compatibility. The flood-fill layout no
-  /// longer wires this — the whole card opens the editor on Dose.
+  /// longer wires this — the whole card opens the editor on Plan.
   final VoidCallback onThumbnailTap;
   final VoidCallback onReplaceMedia;
   final VoidCallback onDelete;
@@ -170,7 +170,7 @@ class StudioExerciseCard extends StatelessWidget {
       child: InkWell(
         onTap: () {
           onTap();
-          _openSheet(context, ExerciseEditorTab.dose);
+          _openSheet(context, ExerciseEditorTab.plan);
         },
         onLongPress: onReplaceMedia,
         borderRadius: BorderRadius.circular(16),
@@ -237,10 +237,10 @@ class StudioExerciseCard extends StatelessWidget {
                   ),
                 ),
               ),
-              // Layer 3 — content overlay. Title + dose summary at bottom.
+              // Layer 3 — content overlay. Title + plan summary at bottom.
               // Settings (gear) and Notes have been removed from the card
               // surface — both are still reachable from inside the editor
-              // sheet via the tab strip. Whole-card tap → editor on Dose;
+              // sheet via the tab strip. Whole-card tap → editor on Plan;
               // long-press → replace media; that's the entire affordance.
               Padding(
                 padding: const EdgeInsets.all(12),
@@ -272,7 +272,7 @@ class StudioExerciseCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     _SummaryRow(
                       icon: Icons.fitness_center,
-                      text: _doseSummary(exercise),
+                      text: _planSummary(exercise),
                       monospace: true,
                     ),
                   ],
@@ -315,7 +315,7 @@ class StudioExerciseCard extends StatelessWidget {
 /// "customised" state floats an 8pt coral dot at the gear's top-right
 /// (1.5pt black border so it pops against bright backgrounds).
 /// Summary row — 14pt icon + 12pt text on the gradient scrim. Mono-
-/// spaced when [monospace] is true (dose grammar lines up).
+/// spaced when [monospace] is true (plan grammar lines up).
 class _SummaryRow extends StatelessWidget {
   final IconData icon;
   final String text;
@@ -419,14 +419,14 @@ class _MissingMediaBanner extends StatelessWidget {
 // Summary builders
 // =============================================================================
 
-/// Build the Dose summary string. Mirrors the web-player canonical
+/// Build the Plan summary string. Mirrors the web-player canonical
 /// decoded grammar (web-player/app.js buildDecodedGrammar) with full
 /// words on the practitioner surface:
 ///   Uniform:   `3 sets · 10 reps · @ 15 kg · 5s hold`
 ///   Pyramid:   `8/10/12 reps · @ 12.5/15/17.5 kg · 5s hold`
 ///   Bodyweight: `3 sets · 10 reps · 30s hold`
 ///   Rest:      `Rest · 30s`
-String _doseSummary(ExerciseCapture exercise) {
+String _planSummary(ExerciseCapture exercise) {
   if (exercise.isRest) {
     final secs = exercise.restHoldSeconds ?? StudioDefaults.restSeconds;
     return 'Rest · ${secs}s';

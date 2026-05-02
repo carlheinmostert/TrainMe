@@ -28,19 +28,19 @@ import 'sync_service.dart';
 ///   2. **Write-back** — given a client id, a field key, and a value,
 ///      queue a local-first write of the new default through
 ///      [SyncService]. Called on every practitioner override on the
-///      DOSE editor / pacing controls so the next new capture for this
+///      PLAN editor / pacing controls so the next new capture for this
 ///      client inherits the latest choice.
 ///
 /// **Forward-only.** Editing exercise N doesn't retroactively touch
 /// exercise N-1; it only biases the NEXT new exercise.
 ///
-/// **Per-set DOSE wave note** — the legacy field set (`reps`, `sets`,
+/// **Per-set PLAN wave note** — the legacy field set (`reps`, `sets`,
 /// `hold_seconds`, `inter_set_rest_seconds`, `custom_duration_seconds`)
 /// retired alongside the database migration. The replacement keys are
 /// scoped to the FIRST set (`first_set_reps`, `first_set_hold_seconds`,
 /// `first_set_weight_kg`, `first_set_breather_seconds`) — matching the
 /// "common case" the practitioner would have wanted seeded. Subsequent
-/// sets within the same exercise are practitioner-authored on the DOSE
+/// sets within the same exercise are practitioner-authored on the PLAN
 /// table; we don't try to forward-propagate full set lists.
 ///
 /// **Wave 39 — in-memory overlay.** A static `_memoryOverlay`
@@ -62,7 +62,7 @@ class StickyDefaults {
   // Wave 42 — per-exercise practitioner body-focus default.
   static const String fBodyFocus = ClientDefaultsApi.fBodyFocus;
 
-  /// Per-set first-set sticky seeds (per-set DOSE wave).
+  /// Per-set first-set sticky seeds (per-set PLAN wave).
   static const String fFirstSetReps = ClientDefaultsApi.fFirstSetReps;
   static const String fFirstSetHoldSeconds =
       ClientDefaultsApi.fFirstSetHoldSeconds;
@@ -226,7 +226,7 @@ class StickyDefaults {
   }
 
   /// Compare any two exercise snapshots and queue every sticky-field
-  /// delta. Per-set DOSE wave: scalars are compared directly; first-set
+  /// delta. Per-set PLAN wave: scalars are compared directly; first-set
   /// fields are derived from `sets.first` when both snapshots have at
   /// least one set.
   static void recordAllDeltas({

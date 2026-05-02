@@ -902,7 +902,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // Rest periods skip (they don't carry the reps/sets/hold/etc.
     // vocabulary).
     if (!updated.isRest) {
-      // Per-set DOSE wave: deltas now flow through the per-set field
+      // Per-set PLAN wave: deltas now flow through the per-set field
       // set (first_set_*) plus the surviving scalars. The legacy
       // custom_duration_per_rep sticky write was retired alongside the
       // manual per-rep editor.
@@ -1015,7 +1015,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
 
     // Build the duplicate exercise with a fresh UUID and position + 1.
-    // Per-set DOSE wave: deep-copy each set with a fresh uuid so the
+    // Per-set PLAN wave: deep-copy each set with a fresh uuid so the
     // duplicate's child rows don't collide with the originals on the
     // UNIQUE (exercise_id, position) index.
     final duplicateSets = original.sets
@@ -2017,7 +2017,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           // Wave 18.6 — outer container flipped from surfaceRaised to
           // surfaceBase so the inner chips (which fill with surfaceRaised
           // in their unselected state) sit against a contrasting
-          // background instead of blending. Matches the way DOSE chips
+          // background instead of blending. Matches the way PLAN chips
           // render against the exercise card's surfaceBase body.
           color: AppColors.surfaceBase,
           borderRadius: BorderRadius.circular(12),
@@ -2385,7 +2385,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           ),
         ),
       );
-      // Per-set DOSE wave \u2014 surface a follow-up SnackBar when the
+      // Per-set PLAN wave \u2014 surface a follow-up SnackBar when the
       // server fell back to default sets for one or more exercises
       // (publish payload missing / empty `sets[]`). The practitioner
       // needs a nudge to open the editor and set real reps/weight.
@@ -4013,7 +4013,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     // AutomaticKeepAliveClientMixin contract — required so the State
     // is registered with the enclosing PageView's keep-alive scope.
     // Without this the Preview tab in `ExerciseEditorSheet` would be
-    // disposed when the practitioner swipes to Dose / Notes / Settings,
+    // disposed when the practitioner swipes to Plan / Notes / Settings,
     // killing the video controllers + treatment listeners mid-edit
     // (the same gotcha that caused the photo-spinner regression).
     super.build(context);

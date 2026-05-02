@@ -143,7 +143,7 @@
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
         <span class="num">1.</span>
-        <span class="text">Open any exercise card. On every collapsed section header (<code>PLAYBACK</code> / <code>DOSE</code> / <code>PACING</code> / <code>NOTES</code>), the leading chevron icon visually aligns with the middle of the <strong>Montserrat 18pt label line box</strong> — no more floating high above the letterforms. Compare to Wave 18.9 where the chevron was sitting roughly at the cap-height top. Check all four headers. If a header has a coral non-default dot (trailing), the dot also aligns — chevron and dot read as a pair on the label's cap-height centre.</span>
+        <span class="text">Open any exercise card. On every collapsed section header (<code>PLAYBACK</code> / <code>PLAN</code> / <code>PACING</code> / <code>NOTES</code>), the leading chevron icon visually aligns with the middle of the <strong>Montserrat 18pt label line box</strong> — no more floating high above the letterforms. Compare to Wave 18.9 where the chevron was sitting roughly at the cap-height top. Check all four headers. If a header has a coral non-default dot (trailing), the dot also aligns — chevron and dot read as a pair on the label's cap-height centre.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -153,7 +153,7 @@
       <li data-num="2" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
         <span class="num">2.</span>
-        <span class="text">Expand any one group (say DOSE). The gap BETWEEN the end of the expanded DOSE body and the NEXT section header (PACING) feels like a <strong>real section break</strong> — ~12pt of breathing room. Wave 18.8's tight run-on feel is gone. Conversely, the gap between DOSE's own header and its expanded body stays tight (~2pt below the header — Wave 18.8 behaviour preserved). PLAYBACK (the first header) sits close to the card's top edge with no double-padding — its <code>isFirst: true</code> suppresses the top-12 that other headers get.</span>
+        <span class="text">Expand any one group (say PLAN). The gap BETWEEN the end of the expanded PLAN body and the NEXT section header (PACING) feels like a <strong>real section break</strong> — ~12pt of breathing room. Wave 18.8's tight run-on feel is gone. Conversely, the gap between PLAN's own header and its expanded body stays tight (~2pt below the header — Wave 18.8 behaviour preserved). PLAYBACK (the first header) sits close to the card's top edge with no double-padding — its <code>isFirst: true</code> suppresses the top-12 that other headers get.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -163,13 +163,13 @@
       <li data-num="3" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
         <span class="num">3.</span>
-        <span class="text">Expand DOSE. The expanded body (REPS / SETS / HOLD rows and their chip rails) sits on a <strong>visibly DARKER fill</strong> than the rest of the card. The contrast is subtle but clearly a distinct "tray" — the card's own <code>surfaceBase</code> (<code>#1A1D27</code>) vs the body's <code>surfaceBg</code> (<code>#0F1117</code>, matching the app root). Content reads as contained. Same treatment on PLAYBACK, PACING, NOTES.</span>
+        <span class="text">Expand PLAN. The expanded body (REPS / SETS / HOLD rows and their chip rails) sits on a <strong>visibly DARKER fill</strong> than the rest of the card. The contrast is subtle but clearly a distinct "tray" — the card's own <code>surfaceBase</code> (<code>#1A1D27</code>) vs the body's <code>surfaceBg</code> (<code>#0F1117</code>, matching the app root). Content reads as contained. Same treatment on PLAYBACK, PACING, NOTES.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
         <span class="num">4.</span>
-        <span class="text">Expand DOSE. The <strong>LEFT edge of the expanded body</strong> has a 2pt vertical stroke running its full height, coloured muted coral (coral at ~45% alpha — subtle, not screaming). Confirms "this section is open / live". Only the left edge — no border on top, right, or bottom. Same treatment on PLAYBACK, PACING, NOTES when expanded.</span>
+        <span class="text">Expand PLAN. The <strong>LEFT edge of the expanded body</strong> has a 2pt vertical stroke running its full height, coloured muted coral (coral at ~45% alpha — subtle, not screaming). Confirms "this section is open / live". Only the left edge — no border on top, right, or bottom. Same treatment on PLAYBACK, PACING, NOTES when expanded.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
@@ -179,13 +179,13 @@
       <li data-num="5" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
         <span class="num">5.</span>
-        <span class="text">Rapid-switch between sections: tap PLAYBACK (opens); tap DOSE (PLAYBACK closes, DOSE opens with its recessed+hairline body); tap NOTES (DOSE closes, NOTES opens; TextField editable inside the recessed body). Transitions feel smooth — no flash, no layout jump beyond the body itself swapping. Text field in NOTES still captures input. All Wave 18.9 hierarchy (Montserrat 18pt header / 12pt inner tier / stacked editors in PACING) preserved.</span>
+        <span class="text">Rapid-switch between sections: tap PLAYBACK (opens); tap PLAN (PLAYBACK closes, PLAN opens with its recessed+hairline body); tap NOTES (PLAN closes, NOTES opens; TextField editable inside the recessed body). Transitions feel smooth — no flash, no layout jump beyond the body itself swapping. Text field in NOTES still captures input. All Wave 18.9 hierarchy (Montserrat 18pt header / 12pt inner tier / stacked editors in PACING) preserved.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
     <footer>
-      Wave 18.10 closes three items from Wave 18.9 live device QA (see <a href="./2026-04-22-wave18.9-device-qa.html" style="color: var(--coral);">wave18.9</a>). Wave 18.1 remains the canonical baseline — run that if anything around DOSE / PACING / rest bar feels off. Storage semantics of <code>customDurationSeconds</code>, <code>prepSeconds</code>, <code>notes</code>, and all other model fields unchanged by Wave 18.10 — display-only adjustments.
+      Wave 18.10 closes three items from Wave 18.9 live device QA (see <a href="./2026-04-22-wave18.9-device-qa.html" style="color: var(--coral);">wave18.9</a>). Wave 18.1 remains the canonical baseline — run that if anything around PLAN / PACING / rest bar feels off. Storage semantics of <code>customDurationSeconds</code>, <code>prepSeconds</code>, <code>notes</code>, and all other model fields unchanged by Wave 18.10 — display-only adjustments.
     </footer>
   </div>
   <script>

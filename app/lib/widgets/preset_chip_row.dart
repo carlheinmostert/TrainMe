@@ -185,7 +185,7 @@ class _PresetChipRowState extends State<PresetChipRow> {
       if (!mounted) return;
       _customFocusNode.requestFocus();
       // Round 2 — when the chip row lives inside a bottom sheet
-      // (ExerciseEditorSheet's Dose tab), the iOS keyboard slides up
+      // (ExerciseEditorSheet's Plan tab), the iOS keyboard slides up
       // OVER the inline input. Walk up to the nearest Scrollable and
       // scroll the input row into view so it sits above the keyboard.
       // No-op outside scrollable contexts (the original GestureDetector
@@ -281,7 +281,7 @@ class _PresetChipRowState extends State<PresetChipRow> {
       );
     }
 
-    // Scrollable variant (DOSE rows): horizontal ListView.
+    // Scrollable variant (PLAN rows): horizontal ListView.
     // Wave 18.4 — padding tightened 6pt → 4pt per chip (same as Wrap).
     // Wave 18.5 — tightened further 4pt → 2pt to mirror the Wrap branch.
     final children = <Widget>[

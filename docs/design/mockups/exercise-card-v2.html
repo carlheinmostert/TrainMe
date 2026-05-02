@@ -7,7 +7,7 @@
   <style>
     /* ================================================================== */
     /*  Tokens — mirrored verbatim from docs/design/mockups/                */
-    /*  exercise-card-dose-table.html  (source of truth for this family)    */
+    /*  exercise-card-plan-table.html  (source of truth for this family)    */
     /* ================================================================== */
     :root {
       --brand-default: #ff6b35;
@@ -611,9 +611,9 @@
     /* ================================================================== */
 
     /* ================================================================== */
-    /*  DOSE TABLE — copied verbatim from exercise-card-dose-table.html    */
+    /*  PLAN TABLE — copied verbatim from exercise-card-plan-table.html    */
     /* ================================================================== */
-    .dose-table {
+    .plan-table {
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
@@ -621,7 +621,7 @@
       font-size: 13px;
     }
 
-    .dose-table thead th {
+    .plan-table thead th {
       font-family: var(--font-body);
       font-size: 10px;
       font-weight: 700;
@@ -634,24 +634,24 @@
       background: transparent;
     }
 
-    .dose-table thead th.col-set    { width: 40px; text-align: center; }
-    .dose-table thead th.col-reps   { width: 14%; text-align: center; }
-    .dose-table thead th.col-hold   { width: 16%; text-align: center; }
-    .dose-table thead th.col-weight { width: 24%; text-align: center; }
-    .dose-table thead th.col-rest   { width: auto; text-align: center; }
+    .plan-table thead th.col-set    { width: 40px; text-align: center; }
+    .plan-table thead th.col-reps   { width: 14%; text-align: center; }
+    .plan-table thead th.col-hold   { width: 16%; text-align: center; }
+    .plan-table thead th.col-weight { width: 24%; text-align: center; }
+    .plan-table thead th.col-rest   { width: auto; text-align: center; }
 
-    .dose-table tbody tr {
+    .plan-table tbody tr {
       transition: background 150ms var(--ease-standard);
     }
 
-    .dose-table tbody td {
+    .plan-table tbody td {
       padding: 9px 6px;
       border-bottom: 1px solid var(--surface-border);
       vertical-align: middle;
     }
 
-    .dose-table tbody tr:last-child td { border-bottom: none; }
-    .dose-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+    .plan-table tbody tr:last-child td { border-bottom: none; }
+    .plan-table tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     .set-num {
       display: inline-flex;
@@ -1741,8 +1741,8 @@
       <h1>Exercise card v2 · tabbed bottom-sheet editor</h1>
       <p>
         Replaces the inline-accordion exercise card. The card collapses to a single compact row
-        (thumb · title · Dose / Notes triggers · gear). Editing happens in a tabbed bottom sheet
-        with two detents — full DOSE table, freeform Notes, client-eye Preview, and Settings.
+        (thumb · title · Plan / Notes triggers · gear). Editing happens in a tabbed bottom sheet
+        with two detents — full PLAN table, freeform Notes, client-eye Preview, and Settings.
         Each trigger lands the sheet on its home tab; swipe horizontally or tap to switch.
       </p>
     </header>
@@ -1753,7 +1753,7 @@
     <section>
       <div class="section-head">
         <h2><span class="section-num">01</span>Card · default state</h2>
-        <p>Pyramid sets fan out in the Dose summary. Notes summary truncates. Gear sits muted at far right because no settings deviate from defaults.</p>
+        <p>Pyramid sets fan out in the Plan summary. Notes summary truncates. Gear sits muted at far right because no settings deviate from defaults.</p>
       </div>
 
       <div class="ex-card-v2">
@@ -1768,8 +1768,8 @@
             </span>
           </div>
           <div class="triggers">
-            <button class="trigger dose">
-              <span class="trigger-label">Dose</span>
+            <button class="trigger plan">
+              <span class="trigger-label">Plan</span>
               <span class="trigger-sep">·</span>
               <span class="trigger-summary">10/8/6 @ 12.5/15/17.5 kg</span>
             </button>
@@ -1804,8 +1804,8 @@
             </span>
           </div>
           <div class="triggers">
-            <button class="trigger dose">
-              <span class="trigger-label">Dose</span>
+            <button class="trigger plan">
+              <span class="trigger-label">Plan</span>
               <span class="trigger-sep">·</span>
               <span class="trigger-summary">3 × 10 @ 15 kg</span>
             </button>
@@ -1825,7 +1825,7 @@
     <section>
       <div class="section-head">
         <h2><span class="section-num">03</span>Card · bodyweight exercise</h2>
-        <p>No weight clause — the dose summary surfaces the hold instead. Same compact density as the loaded variant.</p>
+        <p>No weight clause — the plan summary surfaces the hold instead. Same compact density as the loaded variant.</p>
       </div>
 
       <div class="ex-card-v2">
@@ -1840,8 +1840,8 @@
             </span>
           </div>
           <div class="triggers">
-            <button class="trigger dose">
-              <span class="trigger-label">Dose</span>
+            <button class="trigger plan">
+              <span class="trigger-label">Plan</span>
               <span class="trigger-sep">·</span>
               <span class="trigger-summary">3 × 12 · 30 s hold · bodyweight</span>
             </button>
@@ -1882,8 +1882,8 @@
             </span>
           </div>
           <div class="triggers">
-            <button class="trigger dose">
-              <span class="trigger-label">Dose</span>
+            <button class="trigger plan">
+              <span class="trigger-label">Plan</span>
               <span class="trigger-sep">·</span>
               <span class="trigger-summary">12/10 @ 10/12.5 kg · last set repeats</span>
             </button>
@@ -1919,8 +1919,8 @@
               </span>
             </div>
             <div class="triggers">
-              <button class="trigger dose">
-                <span class="trigger-label">Dose</span>
+              <button class="trigger plan">
+                <span class="trigger-label">Plan</span>
                 <span class="trigger-sep">·</span>
                 <span class="trigger-summary">3 × 10 @ 15 kg</span>
               </button>
@@ -1945,8 +1945,8 @@
               </span>
             </div>
             <div class="triggers">
-              <button class="trigger dose">
-                <span class="trigger-label">Dose</span>
+              <button class="trigger plan">
+                <span class="trigger-label">Plan</span>
                 <span class="trigger-sep">·</span>
                 <span class="trigger-summary">3 × 8 @ 22.5 kg · 90 s rest</span>
               </button>
@@ -1971,8 +1971,8 @@
               </span>
             </div>
             <div class="triggers">
-              <button class="trigger dose">
-                <span class="trigger-label">Dose</span>
+              <button class="trigger plan">
+                <span class="trigger-label">Plan</span>
                 <span class="trigger-sep">·</span>
                 <span class="trigger-summary">3 × 1 · 30/45/60 s hold</span>
               </button>
@@ -1990,12 +1990,12 @@
     </section>
 
     <!-- ============================================================== -->
-    <!--  6. Sheet open · Dose tab · medium detent                       -->
+    <!--  6. Sheet open · Plan tab · medium detent                       -->
     <!-- ============================================================== -->
     <section>
       <div class="section-head">
-        <h2><span class="section-num">06</span>Sheet · Dose tab · medium detent</h2>
-        <p>Sheet covers the bottom ~56% of the screen. Cards behind it dim. Drag-handle visible at top. Full DOSE table now uses the entire sheet width — far more horizontal room than the cramped card-internal version.</p>
+        <h2><span class="section-num">06</span>Sheet · Plan tab · medium detent</h2>
+        <p>Sheet covers the bottom ~56% of the screen. Cards behind it dim. Drag-handle visible at top. Full PLAN table now uses the entire sheet width — far more horizontal room than the cramped card-internal version.</p>
       </div>
 
       <div class="stage tall">
@@ -2019,7 +2019,7 @@
                   <span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span>
                 </div>
                 <div class="triggers">
-                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
+                  <button class="trigger plan"><span class="trigger-label">Plan</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
                   <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
                 </div>
               </div>
@@ -2029,7 +2029,7 @@
               <div class="body">
                 <div class="title-row"><h3 class="title">Romanian Deadlift</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
                 <div class="triggers">
-                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 8 @ 22.5 kg</span></button>
+                  <button class="trigger plan"><span class="trigger-label">Plan</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 8 @ 22.5 kg</span></button>
                   <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary">"hinge from hip, soft knees"</span></button>
                 </div>
               </div>
@@ -2042,13 +2042,13 @@
             <h3 class="sheet-title">Goblet Squat</h3>
             <p class="sheet-meta">VIDEO · 8s · 3 reps captured</p>
             <div class="sheet-tabs">
-              <button class="sheet-tab is-active">Dose</button>
+              <button class="sheet-tab is-active">Plan</button>
               <button class="sheet-tab">Notes</button>
               <button class="sheet-tab">Preview</button>
               <button class="sheet-tab">Settings</button>
             </div>
             <div class="sheet-body">
-              <table class="dose-table">
+              <table class="plan-table">
                 <thead>
                   <tr>
                     <th class="col-set">Set</th>
@@ -2091,11 +2091,11 @@
     </section>
 
     <!-- ============================================================== -->
-    <!--  7. Sheet open · Dose tab · large detent                        -->
+    <!--  7. Sheet open · Plan tab · large detent                        -->
     <!-- ============================================================== -->
     <section>
       <div class="section-head">
-        <h2><span class="section-num">07</span>Sheet · Dose tab · large detent · weight slider open</h2>
+        <h2><span class="section-num">07</span>Sheet · Plan tab · large detent · weight slider open</h2>
         <p>Drag the handle up → sheet snaps to ~92% of the screen. Pyramid 10/8/6 with the weight slider editor active on row 2. Plenty of breathing room for the slider, ticks, axis labels, and the "drag · or tap a tick" help.</p>
       </div>
 
@@ -2113,7 +2113,7 @@
               <div class="body">
                 <div class="title-row"><h3 class="title">Bench Press</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
                 <div class="triggers">
-                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">10/8/6 @ 12.5/15/17.5 kg</span></button>
+                  <button class="trigger plan"><span class="trigger-label">Plan</span><span class="trigger-sep">·</span><span class="trigger-summary">10/8/6 @ 12.5/15/17.5 kg</span></button>
                   <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
                 </div>
               </div>
@@ -2126,13 +2126,13 @@
             <h3 class="sheet-title">Bench Press</h3>
             <p class="sheet-meta">VIDEO · 12s · 3 reps captured</p>
             <div class="sheet-tabs">
-              <button class="sheet-tab is-active">Dose</button>
+              <button class="sheet-tab is-active">Plan</button>
               <button class="sheet-tab">Notes</button>
               <button class="sheet-tab">Preview</button>
               <button class="sheet-tab">Settings</button>
             </div>
             <div class="sheet-body">
-              <table class="dose-table">
+              <table class="plan-table">
                 <thead>
                   <tr>
                     <th class="col-set">Set</th>
@@ -2225,7 +2225,7 @@
               <div class="body">
                 <div class="title-row"><h3 class="title">Goblet Squat</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
                 <div class="triggers">
-                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
+                  <button class="trigger plan"><span class="trigger-label">Plan</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
                   <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary">"left knee, watch valgus…"</span></button>
                 </div>
               </div>
@@ -2238,7 +2238,7 @@
             <h3 class="sheet-title">Goblet Squat</h3>
             <p class="sheet-meta">VIDEO · 8s · 3 reps captured</p>
             <div class="sheet-tabs">
-              <button class="sheet-tab">Dose</button>
+              <button class="sheet-tab">Plan</button>
               <button class="sheet-tab is-active">Notes</button>
               <button class="sheet-tab">Preview</button>
               <button class="sheet-tab">Settings</button>
@@ -2276,7 +2276,7 @@
               <div class="body">
                 <div class="title-row"><h3 class="title">Bench Press</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
                 <div class="triggers">
-                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">10/8/6 @ 12.5/15/17.5 kg</span></button>
+                  <button class="trigger plan"><span class="trigger-label">Plan</span><span class="trigger-sep">·</span><span class="trigger-summary">10/8/6 @ 12.5/15/17.5 kg</span></button>
                   <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
                 </div>
               </div>
@@ -2289,7 +2289,7 @@
             <h3 class="sheet-title">Bench Press</h3>
             <p class="sheet-meta">VIDEO · 12s · 3 reps captured</p>
             <div class="sheet-tabs">
-              <button class="sheet-tab">Dose</button>
+              <button class="sheet-tab">Plan</button>
               <button class="sheet-tab">Notes</button>
               <button class="sheet-tab is-active">Preview</button>
               <button class="sheet-tab">Settings</button>
@@ -2390,7 +2390,7 @@
               <div class="body">
                 <div class="title-row"><h3 class="title">Goblet Squat</h3><span class="gear has-changes"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
                 <div class="triggers">
-                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
+                  <button class="trigger plan"><span class="trigger-label">Plan</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
                   <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
                 </div>
               </div>
@@ -2403,7 +2403,7 @@
             <h3 class="sheet-title">Goblet Squat</h3>
             <p class="sheet-meta">VIDEO · 8s · 3 reps captured</p>
             <div class="sheet-tabs">
-              <button class="sheet-tab">Dose</button>
+              <button class="sheet-tab">Plan</button>
               <button class="sheet-tab">Notes</button>
               <button class="sheet-tab">Preview</button>
               <button class="sheet-tab is-active">Settings</button>
@@ -2466,7 +2466,7 @@
               <div class="body">
                 <div class="title-row"><h3 class="title">Goblet Squat</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
                 <div class="triggers">
-                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
+                  <button class="trigger plan"><span class="trigger-label">Plan</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 10 @ 15 kg</span></button>
                   <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
                 </div>
               </div>
@@ -2476,7 +2476,7 @@
               <div class="body">
                 <div class="title-row"><h3 class="title">Romanian Deadlift</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
                 <div class="triggers">
-                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 8 @ 22.5 kg</span></button>
+                  <button class="trigger plan"><span class="trigger-label">Plan</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 8 @ 22.5 kg</span></button>
                   <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary">"hinge from hip…"</span></button>
                 </div>
               </div>
@@ -2486,7 +2486,7 @@
               <div class="body">
                 <div class="title-row"><h3 class="title">Plank</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
                 <div class="triggers">
-                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 1 · 30/45/60 s hold</span></button>
+                  <button class="trigger plan"><span class="trigger-label">Plan</span><span class="trigger-sep">·</span><span class="trigger-summary">3 × 1 · 30/45/60 s hold</span></button>
                   <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
                 </div>
               </div>
@@ -2498,7 +2498,7 @@
             <div class="sheet-handle-row"><span class="sheet-handle is-dragging"></span></div>
             <h3 class="sheet-title">Goblet Squat</h3>
             <div class="sheet-tabs">
-              <button class="sheet-tab is-active">Dose</button>
+              <button class="sheet-tab is-active">Plan</button>
               <button class="sheet-tab">Notes</button>
               <button class="sheet-tab">Preview</button>
               <button class="sheet-tab">Settings</button>
@@ -2545,7 +2545,7 @@
           </div>
           <div class="name">Medium</div>
           <div class="pct">~50%</div>
-          <div class="blurb">Default landing detent. Dose table and Settings fit without scroll.</div>
+          <div class="blurb">Default landing detent. Plan table and Settings fit without scroll.</div>
         </div>
 
         <div class="detent-card">
@@ -2596,7 +2596,7 @@
               <div class="body">
                 <div class="title-row"><h3 class="title">Bench Press</h3><span class="gear"><svg class="ico" viewBox="0 0 22 22" width="20" height="20"><path d="M11 3.2 L12.3 3.2 L12.7 4.95 L13.85 5.43 L15.35 4.4 L16.6 5.65 L15.57 7.15 L16.05 8.3 L17.8 8.7 L17.8 10 L17.8 12 L17.8 13.3 L16.05 13.7 L15.57 14.85 L16.6 16.35 L15.35 17.6 L13.85 16.57 L12.7 17.05 L12.3 18.8 L9.7 18.8 L9.3 17.05 L8.15 16.57 L6.65 17.6 L5.4 16.35 L6.43 14.85 L5.95 13.7 L4.2 13.3 L4.2 10 L4.2 8.7 L5.95 8.3 L6.43 7.15 L5.4 5.65 L6.65 4.4 L8.15 5.43 L9.3 4.95 L9.7 3.2 Z"/><circle cx="11" cy="11" r="2.6"/></svg></span></div>
                 <div class="triggers">
-                  <button class="trigger dose"><span class="trigger-label">Dose</span><span class="trigger-sep">·</span><span class="trigger-summary">10/8/6 @ 12.5/15/17.5 kg</span></button>
+                  <button class="trigger plan"><span class="trigger-label">Plan</span><span class="trigger-sep">·</span><span class="trigger-summary">10/8/6 @ 12.5/15/17.5 kg</span></button>
                   <button class="trigger notes"><span class="trigger-label">Notes</span><span class="trigger-sep">·</span><span class="trigger-summary empty">Add notes…</span></button>
                 </div>
               </div>
@@ -2609,7 +2609,7 @@
             <h3 class="sheet-title">Bench Press</h3>
             <p class="sheet-meta">VIDEO · 12s · 3 reps captured</p>
             <div class="sheet-tabs">
-              <button class="sheet-tab">Dose</button>
+              <button class="sheet-tab">Plan</button>
               <button class="sheet-tab">Notes</button>
               <button class="sheet-tab is-active">Preview</button>
               <button class="sheet-tab">Settings</button>

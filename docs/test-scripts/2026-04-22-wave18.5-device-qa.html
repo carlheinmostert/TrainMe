@@ -143,7 +143,7 @@
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
         <span class="num">1.</span>
-        <span class="text">Open a session, expand the DOSE group on any exercise card. The <strong>Reps</strong> chip row renders <code>[5] [8] [10] [12] [15]</code> + <code>[+]</code> + one custom chip <strong>all on ONE horizontal line</strong>. No horizontal scroll needed to reach the <code>[+]</code>. If reps has no custom yet, tap <code>[+]</code> + enter e.g. <code>20</code> first so there's a custom in the row.</span>
+        <span class="text">Open a session, expand the PLAN group on any exercise card. The <strong>Reps</strong> chip row renders <code>[5] [8] [10] [12] [15]</code> + <code>[+]</code> + one custom chip <strong>all on ONE horizontal line</strong>. No horizontal scroll needed to reach the <code>[+]</code>. If reps has no custom yet, tap <code>[+]</code> + enter e.g. <code>20</code> first so there's a custom in the row.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="2" data-status="">
@@ -165,7 +165,7 @@
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
         <span class="num">4.</span>
-        <span class="text">Inspect the <code>[+]</code> tail on any DOSE row. It renders as a <strong>dashed pill</strong> — 32pt tall, 16pt border radius, same family as the text chips. NOT a perfect square, NOT a pure circle (the old 18.4 shape derived from <code>shortestSide/2</code>). Slightly narrower than "15s" or "10" text chips, but reads as the same PILL aesthetic.</span>
+        <span class="text">Inspect the <code>[+]</code> tail on any PLAN row. It renders as a <strong>dashed pill</strong> — 32pt tall, 16pt border radius, same family as the text chips. NOT a perfect square, NOT a pure circle (the old 18.4 shape derived from <code>shortestSide/2</code>). Slightly narrower than "15s" or "10" text chips, but reads as the same PILL aesthetic.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="5" data-status="">
@@ -187,7 +187,7 @@
       <li data-num="7" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
         <span class="num">7.</span>
-        <span class="text">Collapse all four group headers (PLAYBACK / DOSE / PACING / NOTES). On a row with a non-default summary (e.g. <code>DOSE · 10 reps · 3 sets · 5s hold</code>), the <strong>label and summary render at the same size (13pt)</strong>. The label stands out via weight (w700 vs w500) + uppercase + coral colour. The summary stays normal-case, secondary-grey, w500. No more 13pt-vs-11pt size mismatch.</span>
+        <span class="text">Collapse all four group headers (PLAYBACK / PLAN / PACING / NOTES). On a row with a non-default summary (e.g. <code>PLAN · 10 reps · 3 sets · 5s hold</code>), the <strong>label and summary render at the same size (13pt)</strong>. The label stands out via weight (w700 vs w500) + uppercase + coral colour. The summary stays normal-case, secondary-grey, w500. No more 13pt-vs-11pt size mismatch.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="8" data-status="">
@@ -239,7 +239,7 @@
     </ul>
 
     <footer>
-      Wave 18.5 closes the Wave 18.4 polish-fail items + rolls in a pacing-section redesign. Wave 18.1 remains the canonical baseline (run if anything around DOSE / PACING / rest bar feels off). Storage semantics of <code>customDurationSeconds</code> are unchanged — legacy sessions read through cleanly, a previously-toggled video-length exercise simply renders as <code>Manual: Xs</code> with X = video length.
+      Wave 18.5 closes the Wave 18.4 polish-fail items + rolls in a pacing-section redesign. Wave 18.1 remains the canonical baseline (run if anything around PLAN / PACING / rest bar feels off). Storage semantics of <code>customDurationSeconds</code> are unchanged — legacy sessions read through cleanly, a previously-toggled video-length exercise simply renders as <code>Manual: Xs</code> with X = video length.
     </footer>
   </div>
   <script>

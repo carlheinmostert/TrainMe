@@ -1,4 +1,4 @@
-// Wave 18 — publish dirty-state regression (per-set DOSE rewrite).
+// Wave 18 — publish dirty-state regression (per-set PLAN rewrite).
 //
 // The bug: any write path that called `LocalStorageService.saveExercise`
 // WITHOUT going through `StudioModeScreen._touchAndPush` left the parent
@@ -14,7 +14,7 @@
 // persisted user-content fields so conversion-pipeline churn
 // (status / path updates) stays a silent operation.
 //
-// Per-set DOSE wave: legacy `reps`/`sets`/`holdSeconds` fields are gone.
+// Per-set PLAN wave: legacy `reps`/`sets`/`holdSeconds` fields are gone.
 // User-edit signal now travels through the [ExerciseCapture.sets] list
 // (per-set reps / hold / weight / breather). The `_isUserContentDelta`
 // check inside saveExercise compares sets element-wise.

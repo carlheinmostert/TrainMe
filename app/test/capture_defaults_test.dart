@@ -1,4 +1,4 @@
-// Per-set DOSE wave — capture-save defaults rewritten for the per-set
+// Per-set PLAN wave — capture-save defaults rewritten for the per-set
 // relational model. Legacy uniform `(reps, sets, holdSeconds,
 // interSetRestSeconds)` columns were dropped server-side; the model now
 // carries `sets: List<ExerciseSet>` + `restHoldSeconds` (rest-only).

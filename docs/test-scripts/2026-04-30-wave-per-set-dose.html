@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Device QA — Per-set DOSE + tabbed editor sheet</title>
+<title>Device QA — Per-set PLAN + tabbed editor sheet</title>
 <style>
   :root {
     --bg: #0F1117; --raised: #171923; --border: rgba(255,255,255,0.08);
@@ -52,11 +52,11 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="kicker">Per-set DOSE wave &middot; tabbed editor sheet &middot; redesigned exercise card</div>
-  <h1>Per-set DOSE table + tabbed bottom-sheet editor</h1>
+  <div class="kicker">Per-set PLAN wave &middot; tabbed editor sheet &middot; redesigned exercise card</div>
+  <h1>Per-set PLAN table + tabbed bottom-sheet editor</h1>
 
   <p class="lede">
-    <strong>Architectural shift.</strong> The exercise card collapsed from an inline accordion to a compact row (thumbnail + Dose button + Notes button + gear). All editing now happens in a four-tab bottom sheet (<code>Dose</code> / <code>Notes</code> / <code>Preview</code> / <code>Settings</code>) with two detents and drag-to-dismiss. DOSE itself moved from uniform <code>reps&times;sets@hold</code> to a per-set table with a new <code>weight_kg</code> column and per-set <code>breather</code>. Schema migration ran, mobile data layer rewrote, web-player rep-stack now renders per-set with weight chips + change-load indicators + end-of-exercise marker. <strong>22 checks across 7 sections.</strong>
+    <strong>Architectural shift.</strong> The exercise card collapsed from an inline accordion to a compact row (thumbnail + Plan button + Notes button + gear). All editing now happens in a four-tab bottom sheet (<code>Plan</code> / <code>Notes</code> / <code>Preview</code> / <code>Settings</code>) with two detents and drag-to-dismiss. PLAN itself moved from uniform <code>reps&times;sets@hold</code> to a per-set table with a new <code>weight_kg</code> column and per-set <code>breather</code>. Schema migration ran, mobile data layer rewrote, web-player rep-stack now renders per-set with weight chips + change-load indicators + end-of-exercise marker. <strong>22 checks across 7 sections.</strong>
   </p>
 
   <div class="oos">
@@ -75,20 +75,20 @@
       <span class="text">Exercise card is compact (single row), not the old accordion.</span>
       <ol class="steps">
         <li data-sub="1.1">Open any client &rarr; existing session with at least one video / photo exercise.</li>
-        <li data-sub="1.2">Confirm each card shows: thumbnail (left, ~72&times;72) + title + a single trigger row beneath with <code>Dose &middot; {summary}</code>, <code>Notes &middot; ...</code>, and a gear icon at the right.</li>
-        <li data-sub="1.3">Card height is dramatically shorter than before. No inline DOSE / PACING / NOTES expansion.</li>
+        <li data-sub="1.2">Confirm each card shows: thumbnail (left, ~72&times;72) + title + a single trigger row beneath with <code>Plan &middot; {summary}</code>, <code>Notes &middot; ...</code>, and a gear icon at the right.</li>
+        <li data-sub="1.3">Card height is dramatically shorter than before. No inline PLAN / PACING / NOTES expansion.</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
     <li data-num="2" data-status="">
       <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&check;</button><button class="fail" type="button" aria-label="Fail 2">&times;</button></div>
       <span class="num">A2.</span>
-      <span class="text">Tap Dose button &rarr; sheet opens on Dose tab at medium detent.</span>
+      <span class="text">Tap Plan button &rarr; sheet opens on Plan tab at medium detent.</span>
       <ol class="steps">
-        <li data-sub="2.1">Tap the <code>Dose &middot; ...</code> button on a card.</li>
+        <li data-sub="2.1">Tap the <code>Plan &middot; ...</code> button on a card.</li>
         <li data-sub="2.2">Sheet slides up from the bottom and lands at ~50% screen height (medium detent).</li>
         <li data-sub="2.3">Drag-handle (sage-grey rounded bar) visible at the top of the sheet.</li>
-        <li data-sub="2.4">Tab strip below: <code>Dose</code> / <code>Notes</code> / <code>Preview</code> / <code>Settings</code>. Dose tab is active (coral underline).</li>
+        <li data-sub="2.4">Tab strip below: <code>Plan</code> / <code>Notes</code> / <code>Preview</code> / <code>Settings</code>. Plan tab is active (coral underline).</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
@@ -120,21 +120,21 @@
       <span class="text">Swipe horizontally between tabs.</span>
       <ol class="steps">
         <li data-sub="5.1">With the sheet open on any tab, swipe left/right within the tab content area.</li>
-        <li data-sub="5.2">Tabs cycle Dose &harr; Notes &harr; Preview &harr; Settings. Active-tab underline animates.</li>
+        <li data-sub="5.2">Tabs cycle Plan &harr; Notes &harr; Preview &harr; Settings. Active-tab underline animates.</li>
         <li data-sub="5.3">Tapping a tab in the strip jumps directly to it.</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
   </ul>
 
-  <h2>B &middot; DOSE table editing</h2>
+  <h2>B &middot; PLAN table editing</h2>
   <ul class="checklist">
     <li data-num="6" data-status="">
       <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&check;</button><button class="fail" type="button" aria-label="Fail 6">&times;</button></div>
       <span class="num">B1.</span>
       <span class="text">New exercise has 1 default set seeded (10 reps, no hold, bodyweight, 30 s breather).</span>
       <ol class="steps">
-        <li data-sub="6.1">Create a new session and capture a new video exercise. Open Dose tab.</li>
+        <li data-sub="6.1">Create a new session and capture a new video exercise. Open Plan tab.</li>
         <li data-sub="6.2">Confirm the table shows 1 row: <code>Set 1 &middot; 10 reps &middot; &mdash; hold &middot; &mdash; weight &middot; 30 s breather</code>.</li>
         <li data-sub="6.3">Existing exercises in pre-wave plans show their backfilled per-set rows (1 row per set count).</li>
       </ol>
@@ -237,7 +237,7 @@
       <span class="text">Edits persist across sheet dismiss + app relaunch.</span>
       <ol class="steps">
         <li data-sub="14.1">Edit Set 1 reps &rarr; 12, weight &rarr; 17.5 kg, breather &rarr; 90 s. Add Set 2.</li>
-        <li data-sub="14.2">Dismiss the sheet. The Dose button summary updates: <code>Dose &middot; 12 reps @ 17.5 kg, ...</code></li>
+        <li data-sub="14.2">Dismiss the sheet. The Plan button summary updates: <code>Plan &middot; 12 reps @ 17.5 kg, ...</code></li>
         <li data-sub="14.3">Force-quit the app. Relaunch. Open the same exercise. Values preserved.</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
@@ -249,7 +249,7 @@
       <ol class="steps">
         <li data-sub="15.1">On the exercise from D1, set Set 1 reps &rarr; 8.</li>
         <li data-sub="15.2">Add a NEW exercise to the same client&apos;s session.</li>
-        <li data-sub="15.3">Open Dose tab. Set 1&apos;s reps default to 8 (sticky), not the original 10.</li>
+        <li data-sub="15.3">Open Plan tab. Set 1&apos;s reps default to 8 (sticky), not the original 10.</li>
       </ol>
       <div class="note-row"><input type="text" class="note" placeholder=""></div>
     </li>
@@ -260,7 +260,7 @@
     <li data-num="16" data-status="">
       <div class="vote"><button class="pass" type="button" aria-label="Pass 16">&check;</button><button class="fail" type="button" aria-label="Fail 16">&times;</button></div>
       <span class="num">E1.</span>
-      <span class="text">Publish a plan with varied dose &rarr; success, no fallback SnackBar.</span>
+      <span class="text">Publish a plan with varied plan &rarr; success, no fallback SnackBar.</span>
       <ol class="steps">
         <li data-sub="16.1">Build a plan with at least 1 pyramid exercise (e.g. 3 sets at 10/8/6 reps and 12.5 / 15 / 17.5 kg).</li>
         <li data-sub="16.2">Tap Publish from the workflow pill.</li>

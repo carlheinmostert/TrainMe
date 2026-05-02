@@ -609,7 +609,7 @@ class ApiClient {
   /// server-side. This is the ONLY supported write path for exercise
   /// rows.
   ///
-  /// **Per-set DOSE wave** — payload shape is now: each row in [rows]
+  /// **Per-set PLAN wave** — payload shape is now: each row in [rows]
   /// mirrors the `exercises` columns (id, plan_id, position, name,
   /// media_url, thumbnail_url, media_type, notes, circuit_id,
   /// include_audio, preferred_treatment, prep_seconds, start_offset_ms,
@@ -770,7 +770,7 @@ class ApiClient {
         lineDrawingUrl: _stringOrNull(row['line_drawing_url']),
         grayscaleUrl: _stringOrNull(row['grayscale_url']),
         originalUrl: _stringOrNull(row['original_url']),
-        // Per-set DOSE rest-fix — schema_wave_per_set_dose_rest_fix.sql
+        // Per-set PLAN rest-fix — schema_wave_per_set_dose_rest_fix.sql
         // adds rest_seconds to the get_plan_full per-exercise object.
         // Null for video/photo; positive integer for media_type='rest'.
         // Surfaced on the transit object so future cloud→local sync /
@@ -1615,7 +1615,7 @@ int? _asNullableInt(dynamic v) {
   return null;
 }
 
-/// Outcome of a [ApiClient.replacePlanExercises] call (per-set DOSE
+/// Outcome of a [ApiClient.replacePlanExercises] call (per-set PLAN
 /// wave). The RPC now returns jsonb with two fields:
 ///
 ///   * `plan_version` — the plan's current version on Postgres after

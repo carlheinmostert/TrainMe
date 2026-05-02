@@ -140,7 +140,7 @@
     }
     /* Spacer between top and bottom */
     .spacer { flex: 1; }
-    /* Bottom block — title, dose summary, notes summary */
+    /* Bottom block — title, plan summary, notes summary */
     .bottom-block {
       display: flex;
       flex-direction: column;
@@ -361,7 +361,7 @@
       <li>Scrim: bottom-up gradient covering the lower 70% of the card. <code>rgba(0,0,0,0.85)</code> at the floor → <code>0.55</code> at 40% → fully transparent at the top. Guarantees title legibility over any frame.</li>
       <li>Title text + summary text use a soft <code>text-shadow: 0 1px 2px rgba(0,0,0,0.6)</code> as a second-line legibility layer for bright frames.</li>
       <li>Gear: top-right, <code>32 × 32</code> circle, <code>rgba(0,0,0,0.45)</code> backdrop with <code>blur(6px)</code>. Customised dot = <code>8pt</code> coral with a <code>1.5pt</code> black border so it doesn't bleed into bright frames.</li>
-      <li>Whole card tap → opens editor on Dose (preserves the recent change). Long-press → replace media. Inner taps for gear / dose-row / notes-row keep their own hit zones via Flutter's gesture arena.</li>
+      <li>Whole card tap → opens editor on Plan (preserves the recent change). Long-press → replace media. Inner taps for gear / plan-row / notes-row keep their own hit zones via Flutter's gesture arena.</li>
       <li>Rest variant: sage <code>linear-gradient</code> swap-in, big translucent glyph centred. Lighter scrim (no need for legibility layer over a quiet gradient). No video controller.</li>
       <li>Performance: same single-controller-per-card model. Pause when off-screen (via VisibilityDetector — punt to v2 if too heavy).</li>
     </ul>

@@ -199,19 +199,19 @@
       <li data-num="9" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
         <span class="num">9.</span>
-        <span class="text">Open a fresh (all-default) exercise card. <strong>PLAYBACK is expanded by default</strong> — treatment tiles + Muted toggle visible. DOSE / PACING / NOTES are ALL collapsed with chevron + label + em-dash summary on each row.</span>
+        <span class="text">Open a fresh (all-default) exercise card. <strong>PLAYBACK is expanded by default</strong> — treatment tiles + Muted toggle visible. PLAN / PACING / NOTES are ALL collapsed with chevron + label + em-dash summary on each row.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="10" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
         <span class="num">10.</span>
-        <span class="text">Tap <strong>DOSE</strong>. DOSE expands (reps + sets + hold chip rows). PACING + NOTES stay collapsed. PLAYBACK stays open (independent toggle).</span>
+        <span class="text">Tap <strong>PLAN</strong>. PLAN expands (reps + sets + hold chip rows). PACING + NOTES stay collapsed. PLAYBACK stays open (independent toggle).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="11" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
         <span class="num">11.</span>
-        <span class="text">Tap <strong>PACING</strong>. PACING expands; DOSE collapses (single-open accordion). PLAYBACK still open. Chevron rotates 180ms ease; haptic <code>selectionClick</code> on tap.</span>
+        <span class="text">Tap <strong>PACING</strong>. PACING expands; PLAN collapses (single-open accordion). PLAYBACK still open. Chevron rotates 180ms ease; haptic <code>selectionClick</code> on tap.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="12" data-status="">
@@ -223,7 +223,7 @@
       <li data-num="13" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
         <span class="num">13.</span>
-        <span class="text">Tap <strong>PLAYBACK</strong>. It collapses. Tap again — expands. DOSE/PACING/NOTES accordion state is unaffected. PLAYBACK is an independent toggle.</span>
+        <span class="text">Tap <strong>PLAYBACK</strong>. It collapses. Tap again — expands. PLAN/PACING/NOTES accordion state is unaffected. PLAYBACK is an independent toggle.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="14" data-status="">
@@ -247,7 +247,7 @@
       <li data-num="17" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
         <span class="num">17.</span>
-        <span class="text">Collapsed DOSE summary: <code>10 reps · 3 sets · 5s hold</code> (standalone) / <code>10 reps · 5s hold</code> (in circuit — sets hidden). <code>0s hold</code> → <code>Hold off</code>.</span>
+        <span class="text">Collapsed PLAN summary: <code>10 reps · 3 sets · 5s hold</code> (standalone) / <code>10 reps · 5s hold</code> (in circuit — sets hidden). <code>0s hold</code> → <code>Hold off</code>.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="18" data-status="">
@@ -269,7 +269,7 @@
       <li data-num="20" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 20">✓</button><button class="fail" type="button" aria-label="Fail 20">✗</button></div>
         <span class="num">20.</span>
-        <span class="text"><strong>Canonical tap selects.</strong> Expand DOSE. Reps row shows <code>[5][8][10][12][15]</code> + <code>[Custom]</code> tail. Tap <code>[12]</code>. Chip becomes selected (coral fill, white label). Stored value on the exercise becomes 12. Haptic <code>selectionClick</code>.</span>
+        <span class="text"><strong>Canonical tap selects.</strong> Expand PLAN. Reps row shows <code>[5][8][10][12][15]</code> + <code>[Custom]</code> tail. Tap <code>[12]</code>. Chip becomes selected (coral fill, white label). Stored value on the exercise becomes 12. Haptic <code>selectionClick</code>.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="21" data-status="">
@@ -381,7 +381,7 @@
       <li data-num="36" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 36">✓</button><button class="fail" type="button" aria-label="Fail 36">✗</button></div>
         <span class="num">36.</span>
-        <span class="text"><strong>Preset-memory migration.</strong> On a device that had Wave 18 installed with at least one custom preset (e.g. custom <code>13</code> reps under the old cap-3 model), install the Wave 18.1 build. Open any DOSE section. Reps row renders the unified list: canonical <code>[5][8][10][12][15]</code> seeds merged with the prior custom <code>[13]</code>, sorted numerically. Nothing lost.</span>
+        <span class="text"><strong>Preset-memory migration.</strong> On a device that had Wave 18 installed with at least one custom preset (e.g. custom <code>13</code> reps under the old cap-3 model), install the Wave 18.1 build. Open any PLAN section. Reps row renders the unified list: canonical <code>[5][8][10][12][15]</code> seeds merged with the prior custom <code>[13]</code>, sorted numerically. Nothing lost.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>

@@ -19,7 +19,7 @@ import 'api_client.dart';
 ///
 ///   set_client_exercise_default(p_client_id, p_field, p_value JSONB) -> void
 ///
-/// **Per-set DOSE wave** (Wave: per-set DOSE relational model) — the
+/// **Per-set PLAN wave** (Wave: per-set PLAN relational model) — the
 /// legacy field set (`reps`, `sets`, `hold_seconds`,
 /// `inter_set_rest_seconds`, `custom_duration_seconds`) was retired
 /// when the database moved to the per-set [exercise_sets] child table.
@@ -34,7 +34,7 @@ import 'api_client.dart';
 ///   * prep_seconds                 — int
 ///   * video_reps_per_loop          — int (Wave 24)
 ///
-/// **New per-set sticky keys** (the DOSE wave introduced these so the
+/// **New per-set sticky keys** (the PLAN wave introduced these so the
 /// most-recent first-set values still forward-propagate to the next
 /// new capture for the same client):
 ///
@@ -59,7 +59,7 @@ class ClientDefaultsApi {
   static const String fVideoRepsPerLoop = 'video_reps_per_loop';
 
   /// Per-set first-set sticky seeds. The next new capture's first set
-  /// inherits these values. Practitioner overrides on the DOSE table
+  /// inherits these values. Practitioner overrides on the PLAN table
   /// editor write back the new value here. Nullable values
   /// (`first_set_weight_kg`) round-trip through JSON as `null` when the
   /// practitioner explicitly cleared a previously-set weight.
