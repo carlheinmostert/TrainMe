@@ -27,6 +27,7 @@ import '../widgets/client_consent_sheet.dart';
 import '../widgets/download_original_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/inline_action_tray.dart';
+import '../widgets/inline_editable_text.dart';
 import '../widgets/preset_chip_row.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/shell_pull_tab.dart';
@@ -3053,15 +3054,17 @@ class _RestBarState extends State<_RestBar> {
                     ),
                   ),
                   const Spacer(),
-                  Text(
-                    _format(_duration),
-                    style: TextStyle(
-                      fontFamily: 'JetBrainsMono',
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: _expanded
-                          ? AppColors.primary
-                          : AppColors.rest,
+                  DashedUnderline(
+                    child: Text(
+                      _format(_duration),
+                      style: TextStyle(
+                        fontFamily: 'JetBrainsMono',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: _expanded
+                            ? AppColors.primary
+                            : AppColors.rest,
+                      ),
                     ),
                   ),
                 ],
