@@ -285,6 +285,31 @@ class ExerciseCapture {
   /// (schema_wave42_exercise_body_focus.sql, native BOOLEAN).
   final bool? bodyFocus;
 
+  /// Practitioner-picked Hero frame offset in milliseconds into the
+  /// source raw video (Wave Hero).
+  ///
+  /// The Hero frame is the representative still image extracted at
+  /// this offset — it drives every practitioner-facing thumbnail
+  /// surface (Studio card, Home, ClientSessions, Camera peek) AND the
+  /// client-facing video poster + prep-phase overlay on the web
+  /// player. Up to this wave the frame was always auto-picked at
+  /// conversion time via the motion-peak heuristic in
+  /// `VideoConverterChannel.pickMotionPeakTime` and practitioners had
+  /// no override.
+  ///
+  /// Semantics:
+  ///   * `null` → no record yet (legacy / pre-migration row).
+  ///     Consumers fall through to the motion-peak heuristic.
+  ///   * `>= 0` → fresh-conversion seed (motion-peak time persisted by
+  ///     the conversion service) OR practitioner override picked via
+  ///     the editor-sheet "Hero" tab. Clamped to the soft-trim window
+  ///     `[startOffsetMs, endOffsetMs]` when the practitioner picks.
+  ///
+  /// Persistence: local SQLite `exercises.focus_frame_offset_ms`
+  /// (schema v35) + Supabase `exercises.focus_frame_offset_ms`
+  /// (schema_wave_hero_focus_frame.sql).
+  final int? focusFrameOffsetMs;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -318,6 +343,7 @@ class ExerciseCapture {
     this.aspectRatio,
     this.rotationQuarters,
     this.bodyFocus,
+    this.focusFrameOffsetMs,
   });
 
   /// Create a new capture with a generated UUID.
@@ -430,6 +456,7 @@ class ExerciseCapture {
       bodyFocus: map['body_focus'] != null
           ? (map['body_focus'] as int) == 1
           : null,
+      focusFrameOffsetMs: map['focus_frame_offset_ms'] as int?,
     );
   }
 
@@ -465,6 +492,7 @@ class ExerciseCapture {
       'aspect_ratio': aspectRatio,
       'rotation_quarters': rotationQuarters,
       'body_focus': bodyFocus == null ? null : (bodyFocus! ? 1 : 0),
+      'focus_frame_offset_ms': focusFrameOffsetMs,
     };
   }
 
@@ -524,6 +552,8 @@ class ExerciseCapture {
     bool clearRotationQuarters = false,
     bool? bodyFocus,
     bool clearBodyFocus = false,
+    int? focusFrameOffsetMs,
+    bool clearFocusFrameOffsetMs = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -584,6 +614,9 @@ class ExerciseCapture {
           : (rotationQuarters ?? this.rotationQuarters),
       bodyFocus:
           clearBodyFocus ? null : (bodyFocus ?? this.bodyFocus),
+      focusFrameOffsetMs: clearFocusFrameOffsetMs
+          ? null
+          : (focusFrameOffsetMs ?? this.focusFrameOffsetMs),
     );
   }
 

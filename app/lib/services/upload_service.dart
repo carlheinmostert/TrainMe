@@ -1096,6 +1096,14 @@ class UploadService {
                 // layers per-exercise CLIENT overrides on top via
                 // localStorage homefit.overrides::{planId}.
                 'body_focus': e.bodyFocus,
+                // Wave Hero — practitioner-picked Hero frame offset (ms
+                // into the raw video). Drives every practitioner-facing
+                // thumbnail surface AND the web player's prep-phase
+                // overlay + video poster. NULL = legacy / pre-migration
+                // row (consumers fall through to motion-peak heuristic).
+                // Surfaces on the web player via get_plan_full (emitted
+                // by to_jsonb(e)).
+                'focus_frame_offset_ms': e.focusFrameOffsetMs,
               })
           .toList();
 

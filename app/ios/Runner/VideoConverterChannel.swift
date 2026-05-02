@@ -1565,6 +1565,16 @@ class VideoConverterChannel {
             }
             return Self.pickMotionPeakTime(asset: asset, generator: generator)
         }()
+        // Wave Hero — capture the resolved time so we can return it in
+        // the response payload. Dart callers persist this as the
+        // exercise's focus_frame_offset_ms (the practitioner-facing
+        // "Hero" frame offset). On autoPick:true this is the motion-peak
+        // sample; on autoPick:false it matches the verbatim caller arg.
+        let resolvedSecondsForResult = CMTimeGetSeconds(targetTime)
+        let pickedTimeMsForResult: Int = (resolvedSecondsForResult.isFinite
+            && resolvedSecondsForResult >= 0)
+            ? Int((resolvedSecondsForResult * 1000).rounded())
+            : timeMs
 
         let handleImage: (CGImage?, Error?) -> Void = { cgImage, error in
             if let error = error {
@@ -1639,6 +1649,11 @@ class VideoConverterChannel {
                     result([
                         "success": true,
                         "outputPath": outputPath,
+                        // Wave Hero — picked timeMs (motion-peak sample
+                        // on autoPick:true; caller's verbatim timeMs on
+                        // autoPick:false). Persisted by Dart callers as
+                        // the Hero offset.
+                        "timeMs": pickedTimeMsForResult,
                     ])
                 }
             } catch {

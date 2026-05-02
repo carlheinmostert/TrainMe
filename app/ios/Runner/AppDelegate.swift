@@ -98,6 +98,11 @@ import AVFoundation
           generator.dynamicRangePolicy = .forceSDR
         }
 
+        // Captured by the handleImage closure below — set after motion-peak
+        // sampling (autoPick:true) or to the caller's verbatim timeMs
+        // (autoPick:false). Returned alongside the output path so Dart
+        // callers can persist the Hero offset they actually got.
+        var pickedTimeMs: Int = timeMs
         let handleImage: (CGImage?, Error?) -> Void = { cgImage, error in
           if let error = error {
             DispatchQueue.main.async {
@@ -161,7 +166,14 @@ import AVFoundation
             )
             try jpegData.write(to: outURL)
             DispatchQueue.main.async {
-              result(outputPath)
+              // Wave Hero — return both the output path and the picked
+              // timeMs (motion-peak sample on autoPick:true; the caller's
+              // verbatim timeMs on autoPick:false). Dart callers cast to
+              // `Map` and read `result['path']` + `result['timeMs']`.
+              result([
+                "path": outputPath,
+                "timeMs": pickedTimeMs,
+              ])
             }
           } catch {
             DispatchQueue.main.async {
@@ -182,6 +194,13 @@ import AVFoundation
           let time: CMTime = autoPick
             ? VideoConverterChannel.pickMotionPeakTime(asset: asset, generator: generator)
             : CMTime(value: CMTimeValue(timeMs), timescale: 1000)
+          // Capture the resolved time for the response payload — when
+          // autoPick:true this is the motion-peak sample, otherwise it
+          // matches the caller's verbatim timeMs.
+          let resolvedSeconds = CMTimeGetSeconds(time)
+          if resolvedSeconds.isFinite && resolvedSeconds >= 0 {
+            pickedTimeMs = Int((resolvedSeconds * 1000).rounded())
+          }
 
           if #available(iOS 16.0, *) {
             generator.generateCGImageAsynchronously(for: time) { cgImage, _, error in

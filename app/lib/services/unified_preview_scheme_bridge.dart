@@ -294,6 +294,9 @@ class UnifiedPreviewSchemeBridge {
       // to [start, end] and loops within that window.
       'start_offset_ms': e.startOffsetMs,
       'end_offset_ms': e.endOffsetMs,
+      // Wave Hero — practitioner-picked Hero frame offset (ms). Drives
+      // the web-player prep-phase overlay + video poster.
+      'focus_frame_offset_ms': e.focusFrameOffsetMs,
       // Wave 28 — landscape orientation metadata.
       'aspect_ratio': e.aspectRatio,
       'rotation_quarters': e.rotationQuarters,

@@ -697,7 +697,8 @@ class ApiClient {
   /// media_url, thumbnail_url, media_type, notes, circuit_id,
   /// include_audio, preferred_treatment, prep_seconds, start_offset_ms,
   /// end_offset_ms, video_reps_per_loop, aspect_ratio,
-  /// rotation_quarters, body_focus) PLUS a nested `sets` array
+  /// rotation_quarters, body_focus, focus_frame_offset_ms) PLUS a
+  /// nested `sets` array
   /// `[{position, reps, hold_seconds, weight_kg, breather_seconds_after}, ...]`
   /// for video / photo exercises. Rest exercises omit `sets` (or pass
   /// an empty array). Unknown keys are ignored by the RPC.

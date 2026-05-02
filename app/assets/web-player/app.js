@@ -1007,7 +1007,7 @@ function buildCard(slide, index) {
       <div class="card-inner">
         <div class="card-media" data-media-index="${index}">
           ${mediaHTML}
-          ${buildPrepOverlay()}
+          ${buildPrepOverlay(slide)}
         </div>
       </div>
     </div>
@@ -1051,7 +1051,7 @@ function buildRestCard(slide, index) {
             <div class="rest-title">Rest</div>
             ${nextUpName ? `<div class="rest-next-up">Next up: ${escapeHTML(nextUpName)}</div>` : ''}
           </div>
-          ${buildPrepOverlay()}
+          ${buildPrepOverlay(slide)}
         </div>
       </div>
     </div>
@@ -1062,10 +1062,24 @@ function buildRestCard(slide, index) {
  * Item 15: prep countdown overlay — big coral number fades over the last
  * 200ms of each second. Lives inside card-media but above it. JS toggles
  * visibility + drives the digit text + fade timing.
+ *
+ * Wave Hero — when the slide carries a `thumbnail_url`, render the
+ * Hero still as a full-bleed `<img>` underneath the digit so the
+ * practitioner's chosen frame greets the client during the runway.
+ * The video element behind the overlay is paused/idle during prep, so
+ * showing the Hero gives the upcoming exercise a clean, intentional
+ * hero-shot instead of the freeze-frame at trim start. The image is
+ * crossfaded out via CSS when the overlay's [hidden] attribute lands
+ * (overlay→.prep-overlay-number transition handles the digit; the
+ * .hero-poster's own transition handles the image).
  */
-function buildPrepOverlay() {
+function buildPrepOverlay(slide) {
+  const heroSrc = slide && slide.thumbnail_url
+    ? `<img class="hero-poster" src="${escapeHTML(slide.thumbnail_url)}" alt="" aria-hidden="true">`
+    : '';
   return `
     <div class="prep-overlay" hidden>
+      ${heroSrc}
       <div class="prep-overlay-number">15</div>
     </div>
   `;

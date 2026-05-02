@@ -2014,8 +2014,26 @@ video.is-prep-paused {
   text-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
   opacity: 1;
   transition: opacity 200ms var(--ease-standard);
+  /* Stack above the Hero poster so the digit is always legible. */
+  position: relative;
+  z-index: 1;
 }
 .prep-overlay-number.is-fading { opacity: 0; }
+
+/* Wave Hero — practitioner-picked Hero still surfaced during prep.
+   Sits behind the countdown digit, full-bleed, object-fit:cover so it
+   matches the framed media area exactly. A subtle dim (rgba black)
+   above keeps the coral digit readable on bright frames. */
+.hero-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  /* Soft dim so the coral countdown reads against bright Hero frames. */
+  filter: brightness(0.62);
+}
 
 /* Smaller digit on narrow viewports. */
 @media (max-width: 420px) {
