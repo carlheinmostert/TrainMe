@@ -8,7 +8,11 @@ import 'package:uuid/uuid.dart';
 
 import '../models/cached_client.dart';
 import '../models/cached_practice.dart';
+import '../models/exercise_capture.dart';
+import '../models/exercise_set.dart';
 import '../models/pending_op.dart';
+import '../models/session.dart' as model;
+import '../models/treatment.dart';
 import 'api_client.dart';
 import 'client_defaults_api.dart';
 import 'local_storage_service.dart';
@@ -309,13 +313,14 @@ class SyncService {
     _lastPracticeId = practiceId;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
-    // Fire all four in parallel. Each catches its own errors so a
+    // Fire all five in parallel. Each catches its own errors so a
     // single failure doesn't poison the others.
     final results = await Future.wait<_BranchOutcome>([
       _pullPractices(),
       _pullClients(practiceId, nowMs),
       _pullCreditBalance(practiceId, nowMs),
       _backfillSessionClientIds(practiceId),
+      _pullSessions(practiceId),
     ]);
     return SyncPullOutcome(
       anySucceeded: results.any((r) => r == _BranchOutcome.ok),
@@ -444,6 +449,285 @@ class SyncService {
       debugPrint('SyncService._backfillSessionClientIds: $e');
       return _BranchOutcome.error;
     }
+  }
+
+  /// Cloud→local session pull. Hydrates SQLite with every plan in the
+  /// practice that the device doesn't already have.
+  ///
+  /// Without this, sessions that exist server-side but were never
+  /// captured on this device (fresh install, post-rebrand sandbox wipe,
+  /// secondary device sign-in) are invisible — the clients list renders
+  /// with zero session counts. This branch is the missing piece.
+  ///
+  /// Local-wins on collisions: when a plan id already exists in
+  /// `sessions`, the row is left untouched (the practitioner may have
+  /// pending unsynced edits that haven't flushed yet, and a queued
+  /// `rename_session` op against this id should not be clobbered by the
+  /// cloud value). [LocalStorageService.upsertCloudPlanIfMissing]
+  /// enforces the no-overwrite contract atomically inside one
+  /// transaction.
+  ///
+  /// Pipeline byproducts (raw_file_path, video_duration_ms,
+  /// archive_file_path, etc.) are owned by on-device capture and stay
+  /// NULL/empty for cloud-pulled rows. [PathResolver] tolerates missing
+  /// local files; the practitioner's preview surface plays remote URLs
+  /// only as a future re-download path (out of scope for this fix —
+  /// `feedback_mobile_preview_local_only.md`).
+  Future<_BranchOutcome> _pullSessions(String practiceId) async {
+    try {
+      final cloudPlans =
+          await ApiClient.instance.listPracticePlans(practiceId);
+      if (cloudPlans.isEmpty) {
+        dev.log(
+          'pullSessions practice=$practiceId — 0 cloud plans returned',
+          name: 'SyncService',
+        );
+        return _BranchOutcome.noop;
+      }
+      var inserted = 0;
+      var skipped = 0;
+      for (final raw in cloudPlans) {
+        try {
+          final session = _sessionFromCloudJson(raw);
+          if (session == null) continue;
+          final exercises = _exercisesFromCloudJson(
+            raw['exercises'],
+            sessionId: session.id,
+          );
+          final landed = await _storage.upsertCloudPlanIfMissing(
+            session: session,
+            exercises: exercises,
+          );
+          if (landed) {
+            inserted += 1;
+          } else {
+            skipped += 1;
+          }
+        } catch (e) {
+          dev.log(
+            'pullSessions decode/insert failed for plan_id=${raw['id']}: $e',
+            name: 'SyncService',
+          );
+          // Don't abort the whole branch on one bad row — keep going so
+          // a single malformed plan doesn't strand the rest.
+          continue;
+        }
+      }
+      dev.log(
+        'pullSessions practice=$practiceId — '
+            'cloud=${cloudPlans.length} inserted=$inserted skipped_existing=$skipped',
+        name: 'SyncService',
+      );
+      return inserted > 0 ? _BranchOutcome.ok : _BranchOutcome.noop;
+    } catch (e) {
+      debugPrint('SyncService._pullSessions: $e');
+      return _BranchOutcome.error;
+    }
+  }
+
+  /// Decode a [list_practice_plans] plan row into a [model.Session].
+  /// Returns null when the wire shape is unrecognisable (missing id,
+  /// etc.).
+  ///
+  /// Wire timestamps are ISO-8601 UTC strings; we parse them through
+  /// [DateTime.parse] and store millisecondsSinceEpoch in SQLite —
+  /// matching the on-device [model.Session.toMap] convention so a
+  /// freshly-pulled row reads back identically to a captured one.
+  model.Session? _sessionFromCloudJson(Map<String, dynamic> json) {
+    final id = json['id'];
+    if (id is! String) return null;
+    final practiceId =
+        json['practice_id'] is String ? json['practice_id'] as String : null;
+    final clientId =
+        json['client_id'] is String ? json['client_id'] as String : null;
+    final clientName =
+        (json['client_name'] is String ? json['client_name'] as String : null) ??
+            '';
+    final title = json['title'] is String ? json['title'] as String : null;
+
+    final createdAt =
+        _parseIso(json['created_at']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final sentAt = _parseIso(json['sent_at']);
+    final firstOpenedAt = _parseIso(json['first_opened_at']);
+    final lastOpenedAt = _parseIso(json['last_opened_at']);
+    final lastPublishedAt = _parseIso(json['last_published_at']);
+    final unlockCreditPrepaidAt = _parseIso(json['unlock_credit_prepaid_at']);
+
+    final version =
+        (json['version'] is num) ? (json['version'] as num).toInt() : 0;
+    final preferredRestIntervalSeconds =
+        (json['preferred_rest_interval_seconds'] is num)
+            ? (json['preferred_rest_interval_seconds'] as num).toInt()
+            : null;
+    final crossfadeLeadMs = (json['crossfade_lead_ms'] is num)
+        ? (json['crossfade_lead_ms'] as num).toInt()
+        : null;
+    final crossfadeFadeMs = (json['crossfade_fade_ms'] is num)
+        ? (json['crossfade_fade_ms'] as num).toInt()
+        : null;
+
+    Map<String, int> circuitCycles = const {};
+    final cycles = json['circuit_cycles'];
+    if (cycles is Map) {
+      circuitCycles = cycles.map((k, v) {
+        int n = 3;
+        if (v is num) {
+          n = v.toInt();
+        } else if (v is String) {
+          n = int.tryParse(v) ?? 3;
+        }
+        return MapEntry(k.toString(), n);
+      });
+    }
+
+    // Cloud-pulled sessions don't have a per-device authorship trail
+    // (`created_by_user_id` is a SQLite-only column for Home-screen
+    // scoping). Stamp with the currently-signed-in user so the pulled
+    // row shows up in the Home list straight away. If somehow nobody is
+    // signed in (unlikely — pullAll is gated by membership), the row
+    // lands with NULL and the Home query's NULL-or-current branch still
+    // surfaces it.
+    final createdByUserId = ApiClient.instance.currentUserId;
+
+    return model.Session(
+      id: id,
+      clientName: clientName,
+      title: title,
+      exercises: const [],
+      createdAt: createdAt,
+      sentAt: sentAt,
+      planUrl: 'https://session.homefit.studio/p/$id',
+      version: version,
+      lastPublishedAt: lastPublishedAt,
+      circuitCycles: circuitCycles,
+      preferredRestIntervalSeconds: preferredRestIntervalSeconds,
+      practiceId: practiceId,
+      firstOpenedAt: firstOpenedAt,
+      lastOpenedAt: lastOpenedAt,
+      createdByUserId: createdByUserId,
+      clientId: clientId,
+      crossfadeLeadMs: crossfadeLeadMs,
+      crossfadeFadeMs: crossfadeFadeMs,
+      unlockCreditPrepaidAt: unlockCreditPrepaidAt,
+    );
+  }
+
+  /// Decode the [list_practice_plans] `exercises` array into a list of
+  /// [ExerciseCapture]. Each carries its hydrated [ExerciseSet] children.
+  ///
+  /// Cloud-only fields (`media_url`, `thumbnail_url`) map to local
+  /// `raw_file_path` / `thumbnail_path`. The pull-side row treats
+  /// `raw_file_path` as the wire URL; on this device the file is missing
+  /// and downstream playback gracefully falls back via [PathResolver].
+  /// On-device pipeline byproducts (`converted_file_path`,
+  /// `archive_file_path`, etc.) stay NULL — they're populated only by
+  /// the local capture flow.
+  List<ExerciseCapture> _exercisesFromCloudJson(
+    Object? raw, {
+    required String sessionId,
+  }) {
+    if (raw is! List) return const [];
+    final out = <ExerciseCapture>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final json = Map<String, dynamic>.from(item);
+      final id = json['id'];
+      if (id is! String) continue;
+      final position =
+          (json['position'] is num) ? (json['position'] as num).toInt() : 0;
+      final mediaTypeRaw = json['media_type'];
+      MediaType mediaType;
+      switch (mediaTypeRaw) {
+        case 'video':
+          mediaType = MediaType.video;
+          break;
+        case 'rest':
+          mediaType = MediaType.rest;
+          break;
+        case 'photo':
+        default:
+          mediaType = MediaType.photo;
+          break;
+      }
+      final mediaUrl =
+          json['media_url'] is String ? json['media_url'] as String : '';
+      final thumbnailUrl = json['thumbnail_url'] is String
+          ? json['thumbnail_url'] as String?
+          : null;
+      final createdAt = _parseIso(json['created_at']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+
+      final sets = <ExerciseSet>[];
+      final setsRaw = json['sets'];
+      if (setsRaw is List) {
+        for (final s in setsRaw) {
+          if (s is Map) {
+            sets.add(ExerciseSet.fromRpcJson(Map<String, dynamic>.from(s)));
+          }
+        }
+      }
+
+      out.add(ExerciseCapture(
+        id: id,
+        position: position,
+        // Use the cloud media_url as the placeholder raw path — local
+        // playback won't find a file and will fall through to the
+        // remote URL columns when re-download is wired.
+        rawFilePath: mediaType == MediaType.rest ? '' : mediaUrl,
+        convertedFilePath: null,
+        thumbnailPath: thumbnailUrl,
+        mediaType: mediaType,
+        conversionStatus: ConversionStatus.done,
+        sets: sets,
+        restHoldSeconds: (json['rest_seconds'] is num)
+            ? (json['rest_seconds'] as num).toInt()
+            : null,
+        notes: json['notes'] is String ? json['notes'] as String : null,
+        name: json['name'] is String ? json['name'] as String : null,
+        createdAt: createdAt,
+        sessionId: sessionId,
+        circuitId:
+            json['circuit_id'] is String ? json['circuit_id'] as String : null,
+        includeAudio: json['include_audio'] == true,
+        prepSeconds: (json['prep_seconds'] is num)
+            ? (json['prep_seconds'] as num).toInt()
+            : null,
+        videoDurationMs: null,
+        archiveFilePath: null,
+        archivedAt: null,
+        rawArchiveUploadedAt: null,
+        segmentedRawFilePath: null,
+        maskFilePath: null,
+        preferredTreatment: treatmentFromWire(json['preferred_treatment']),
+        startOffsetMs: (json['start_offset_ms'] is num)
+            ? (json['start_offset_ms'] as num).toInt()
+            : null,
+        endOffsetMs: (json['end_offset_ms'] is num)
+            ? (json['end_offset_ms'] as num).toInt()
+            : null,
+        videoRepsPerLoop: (json['video_reps_per_loop'] is num)
+            ? (json['video_reps_per_loop'] as num).toInt()
+            : null,
+        aspectRatio: (json['aspect_ratio'] is num)
+            ? (json['aspect_ratio'] as num).toDouble()
+            : null,
+        rotationQuarters: (json['rotation_quarters'] is num)
+            ? (json['rotation_quarters'] as num).toInt()
+            : null,
+        bodyFocus: json['body_focus'] is bool ? json['body_focus'] as bool : null,
+      ));
+    }
+    return out;
+  }
+
+  /// Tolerant ISO-8601 parser that accepts either a string or a
+  /// pre-parsed DateTime. Returns null on miss so callers can leave the
+  /// destination column NULL.
+  static DateTime? _parseIso(Object? value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
   }
 
   // ---------------------------------------------------------------------------

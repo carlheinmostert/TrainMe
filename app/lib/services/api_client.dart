@@ -400,6 +400,67 @@ class ApiClient {
     }
   }
 
+  /// `list_practice_plans(p_practice_id)` — full cloud→mobile session
+  /// pull surface. Returns every non-deleted plan in the practice with
+  /// embedded exercises + per-set rows, scoped by membership.
+  ///
+  /// One round-trip; no anon access. The mobile [SyncService] hydrates
+  /// SQLite (sessions / exercises / exercise_sets) for any plan id it
+  /// doesn't yet have locally; existing local rows are NOT clobbered
+  /// (local-wins on collisions, per the offline-first contract).
+  ///
+  /// Returns `[]` on any error so callers render the shell without
+  /// crashing — the missing pull is purely additive (zero sessions
+  /// locally just means the previous behaviour persists). Throws are
+  /// swallowed; tests should assert on the post-pull SQLite state.
+  ///
+  /// Result rows have the wire shape emitted by the SECURITY DEFINER fn
+  /// (see `supabase/schema_pull_practice_plans.sql`):
+  ///
+  ///   {
+  ///     id, practice_id, client_id, client_name, title, version,
+  ///     created_at, sent_at, first_opened_at, last_opened_at,
+  ///     last_published_at, last_trainer_id, deleted_at,
+  ///     circuit_cycles, preferred_rest_interval_seconds,
+  ///     crossfade_lead_ms, crossfade_fade_ms,
+  ///     unlock_credit_prepaid_at,
+  ///     exercises: [{ id, position, name, media_url, thumbnail_url,
+  ///                   media_type, notes, circuit_id, include_audio,
+  ///                   created_at, preferred_treatment, prep_seconds,
+  ///                   start_offset_ms, end_offset_ms,
+  ///                   video_reps_per_loop, aspect_ratio,
+  ///                   rotation_quarters, body_focus, rest_seconds,
+  ///                   sets: [{ position, reps, hold_seconds,
+  ///                            weight_kg, breather_seconds_after }] }]
+  ///   }
+  Future<List<Map<String, dynamic>>> listPracticePlans(
+    String practiceId,
+  ) async {
+    try {
+      final result = await _guardAuth(() => raw.rpc(
+            'list_practice_plans',
+            params: {'p_practice_id': practiceId},
+          ));
+      // RPC returns jsonb { plans: [...] }. Tolerate the rare case where
+      // the wrapper isn't present (older fn variant) by also accepting a
+      // bare list.
+      List<dynamic>? plans;
+      if (result is Map && result['plans'] is List) {
+        plans = result['plans'] as List<dynamic>;
+      } else if (result is List) {
+        plans = result;
+      }
+      if (plans == null) return const [];
+      return plans
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList(growable: false);
+    } catch (e) {
+      debugPrint('ApiClient.listPracticePlans failed: $e');
+      return const [];
+    }
+  }
+
   /// `consume_credit(p_practice_id, p_plan_id, p_credits)` — atomic credit
   /// burn. Returns the RPC's jsonb response as a `Map<String, dynamic>`:
   ///
