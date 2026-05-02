@@ -1,4 +1,4 @@
-// Wave 41 — `_deleteExercise` rollback regression (ported onto DOSE Studio).
+// Wave 41 — `_deleteExercise` rollback regression (ported onto PLAN Studio).
 //
 // The bug: Studio's in-memory exercise list and the SQLite `exercises`
 // table could drift if the SQLite delete failed silently. The previous

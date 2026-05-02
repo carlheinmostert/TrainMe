@@ -45,12 +45,11 @@
   --c-success: #22C55E;
   --c-warning: #F59E0B;
   --c-error: #EF4444;
-  /* Rest periods use sage green (mirrors AppColors.rest on mobile — item 3 of
-     the mobile↔web parity port). 15% backdrop tint + 55% border for idle state. */
+  /* Rest periods use sage green (mirrors AppColors.rest on mobile). */
   --c-rest: #86EFAC;
   --c-rest-tint-bg: rgba(134, 239, 172, 0.15);
   --c-rest-tint-border: rgba(134, 239, 172, 0.55);
-  /* Legacy slate rest — kept for backward compatibility on .rest-card etc. */
+  /* Legacy slate rest — kept for backward compatibility. */
   --c-rest-slate: #64748B;
 
   /* ── Radii ── */
@@ -58,6 +57,9 @@
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 20px;
+
+  /* ── Wave 21 — vertical rep-block stack ── */
+  --rep-stack-rest-height: 14px;
 
   /* ── Focus ring (D-07: only surviving shadow token) ── */
   --c-focus-ring: 0 0 0 3px rgba(255, 107, 53, 0.30);
@@ -69,8 +71,6 @@
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-linear: linear;
-  /* Shared loading rhythm — matrix-mark spinner + skeleton sweep. 1.2.0. */
-  --motion-loop: 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 
   /* ── Typography families ── */
   --f-display: 'Montserrat', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -144,43 +144,24 @@ body {
 }
 
 .loading-mark {
-  /* Height matches the canonical 48×9.5 matrix aspect; width set to 48*(48/9.5) */
-  width: 243px;
-  height: 48px;
+  width: 72px;
+  height: 50px;
   margin: 0 auto 16px;
+  color: var(--c-brand);
   display: flex;
   align-items: center;
   justify-content: center;
+  animation: pulse 1.5s ease infinite;
 }
 
-.loading-mark .mark {
+.loading-mark .pulse-mark {
   width: 100%;
   height: 100%;
 }
 
-/* Matrix-mark spinner — 1.2.0. Outer ghost greys opacity-breathe with a
-   staggered 0 / 0.1s / 0.2s begin. Coral 4-cell + tint band: intentionally
-   static. Sage rest pill pulses opacity + scaleY. Geometry ref:
-   docs/design/project/logos/mark.svg. Baked SMIL: mark-session.svg. */
-.mark--loading .mark-grey-outer-1 { animation: mark-breathe-1 var(--motion-loop); }
-.mark--loading .mark-grey-outer-2 { animation: mark-breathe-2 var(--motion-loop) 0.1s; }
-.mark--loading .mark-grey-outer-3 { animation: mark-breathe-3 var(--motion-loop) 0.2s; }
-.mark--loading .mark-rest-pill {
-  animation: mark-pulse-sage var(--motion-loop);
-  transform-origin: center;
-  transform-box: fill-box;
-}
-
-@keyframes mark-breathe-1 { 0%, 100% { opacity: 1; } 50% { opacity: 0.40; } }
-@keyframes mark-breathe-2 { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
-@keyframes mark-breathe-3 { 0%, 100% { opacity: 1; } 50% { opacity: 0.70; } }
-@keyframes mark-pulse-sage {
-  0%, 100% { opacity: 1; transform: scaleY(1); }
-  50%      { opacity: 0.6; transform: scaleY(1.1); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mark--loading * { animation: none !important; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .loading-text {
@@ -234,7 +215,7 @@ body {
   line-height: 1.6;
 }
 
-/* === App Layout === */
+/* === App Layout ================================================== */
 #app {
   display: flex;
   flex-direction: column;
@@ -245,18 +226,13 @@ body {
   background: var(--c-surface-bg);
 }
 
-/* === Header removed — plan bar now sits at top === */
-
-.header-client {
-  font-size: 13px;
-  color: var(--c-ink-secondary);
-  font-weight: 500;
-}
-
-/* === Plan Bar === */
+/* === Plan bar (row 1) ============================================
+   Plan title + client subtitle. Stays horizontal with the
+   no-longer-rendered progress label; the label element is kept
+   around for legacy-markup safety but never displays. */
 .plan-bar {
   flex-shrink: 0;
-  padding: 16px 20px 12px;
+  padding: 14px 20px 6px;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -280,30 +256,88 @@ body {
   line-height: 1.2;
 }
 
-/* Progress label ("1 of 15") REMOVED per item 13 of mobile parity — the
-   progress-pill matrix now carries that information as a spatial, glanceable
-   row of pills. Rule retained so legacy markup doesn't leave a flash of
-   content before JS init. */
+.header-client {
+  font-size: 13px;
+  color: var(--c-ink-secondary);
+  font-weight: 500;
+}
+
+/* Progress label retired; the progress-pill matrix carries position. */
 .progress-label { display: none !important; }
 
-/* === Progress-pill matrix =================================================
-   Replaces the legacy single linear progress bar. Horizontal grid of pills,
-   one per exercise slide. Circuit cycles stack vertically under a coral tint
-   band. Active pill pulses + fills left-to-right with live timer. Canonical
-   source: docs/design/mockups/progress-pills.html. */
+/* === Workout timeline strip (row 3 — Wave 19.3 sits just above matrix)
+   Thin row with the start wall-clock left-aligned, the live remaining
+   total centred, and the projected finish wall-clock right-aligned, all
+   connected by hairline rules. Pre-start the edges show "--:--" and the
+   centre shows "0:00" so the row doesn't reflow on kickoff. */
+.workout-timeline-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 16px 4px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.1px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--c-ink-muted);
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+  background: var(--c-surface-bg);
+}
+
+.workout-timeline-start,
+.workout-timeline-end {
+  font-weight: 500;
+  color: var(--c-ink-secondary);
+  flex-shrink: 0;
+}
+
+/* Centred live remaining-total — the workout headline number. Coral +
+   slightly heavier weight so it outranks the two wall-clock bookends. */
+.workout-timeline-total {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--c-brand);
+  letter-spacing: 0.2px;
+}
+.workout-timeline-total.is-prep-flashing {
+  animation: prep-flash 1s steps(2, end) infinite;
+}
+
+.workout-timeline-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    var(--c-border-soft, rgba(255, 255, 255, 0.08)) 20%,
+    var(--c-border-soft, rgba(255, 255, 255, 0.08)) 80%,
+    transparent 100%
+  );
+}
+
+/* === Progress-pill matrix (row 3) ================================
+   Horizontally scrolling grid of pills (one per exercise slide). */
 
 .progress-matrix {
   position: relative;
   flex-shrink: 0;
-  margin: 4px 0 8px;
-  overflow: hidden;
-  /* Prevent iOS from treating vertical scrolls on the matrix as page scroll */
+  margin: 2px 0 6px;
+  /* Inner flex-distributes to fit viewport. Horizontal scroll is a fallback
+     for extreme cases (>50 pills × 6px min still overflows). */
+  overflow-x: auto;
+  overflow-y: hidden;
   touch-action: pan-y;
   -webkit-user-select: none;
   user-select: none;
 }
 
-/* Left-edge fade — completed pills flow under a 40px gradient to surface.bg */
+/* Left-edge fade */
 .progress-matrix::before {
   content: "";
   position: absolute;
@@ -321,10 +355,11 @@ body {
 }
 
 .progress-matrix-inner {
-  display: inline-grid;
-  grid-auto-flow: column;
+  display: flex;
+  flex-wrap: nowrap;
   gap: 8px;
   align-items: start;
+  justify-content: center;
   padding: 2px 16px;
   transition: transform 300ms var(--ease-emphasized);
   will-change: transform;
@@ -334,30 +369,73 @@ body {
   transition: none;
 }
 
-/* Column = one exercise vertical stack (1 row standalone, N rows per cycle) */
 .matrix-col {
   display: grid;
   gap: 8px;
   align-items: start;
   grid-auto-rows: min-content;
+  /* Fit-to-width: columns flex-distribute inside .progress-matrix-inner.
+     Pills shrink to 6px min on long plans, then the outer falls back to
+     scroll. Wave 19 bumped max-width 22 → 32 so singles render as proper
+     rectangles instead of near-round squares on short sessions. */
+  flex: 1 1 0;
+  min-width: 6px;
+  max-width: 32px;
 }
 
-/* Coral tint band behind circuit columns. Applied directly to the column so
-   adjacent circuit columns visually merge into one band via negative margins. */
-.matrix-col.is-circuit {
+/* ── Row-first circuit block (Wave 19) ─────────────────────────────────
+   A circuit renders as ONE block whose children are coral-tinted rows,
+   each row = one round (all exercises L→R). The block flex-distributes
+   alongside .matrix-col singles so the matrix still fits the viewport
+   width. Inside the block, rows stack; each row is a grid with
+   N_exercises equal columns. */
+.matrix-circuit {
+  /* Horizontal overhead = (N-1)×4px row-gap only (block + row paddings
+     retired in favour of a ::before coral tint). Put the overhead in
+     flex-basis so N growth shares match N singles exactly — circuit
+     pills and single pills end up pixel-identical widths.
+     Max-width mirrors .matrix-col's 32px ceiling. */
+  flex: var(--circuit-cols, 1) 1 calc(4px * (var(--circuit-cols, 1) - 1));
+  min-width: calc(6px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1));
+  max-width: calc(32px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1));
+  display: flex;
+  flex-direction: column;
+  /* Gap between round-rows matches the horizontal pill gap so the
+     circuit reads as a clean grid. */
+  gap: 4px;
+}
+
+.matrix-circuit-row {
+  /* Padding retired: pills sit at the row's natural edges, so the first
+     row of any circuit top-aligns with single-pill rows in the same
+     flex line. The coral tint band is rendered by ::before, which
+     extends 2px vertically + 4px horizontally so pills still feel
+     nested inside a capsule without offsetting them. */
+  position: relative;
+  display: grid;
+  /* Equal 1fr columns by default (non-fullscreen). Reads --circuit-cols
+     from the parent .matrix-circuit for the column count. Fullscreen
+     swaps in --row-template-fs below for duration-weighted widths. */
+  grid-template-columns: repeat(var(--circuit-cols, 1), 1fr);
+  gap: 4px;
+  align-items: center;
+  padding: 0;
+}
+.matrix-circuit-row::before {
+  content: "";
+  position: absolute;
+  inset: -2px -4px;
   background: var(--c-brand-tint-bg);
   border-radius: var(--radius-md);
-  padding: 6px;
-  margin: -6px 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.matrix-circuit-row > .pill {
+  position: relative;
+  z-index: 1;
 }
 
-/* Run of adjacent circuit columns that share a circuit id — seam them together
-   horizontally with tighter side insets. */
-.matrix-col.is-circuit + .matrix-col.is-circuit {
-  margin-left: -4px;
-}
-
-/* === Pill primitives ==================================================== */
+/* === Pill primitives ============================================= */
 
 .pill {
   position: relative;
@@ -372,20 +450,21 @@ body {
   color: var(--c-ink-secondary);
   font-family: var(--f-body);
   font-weight: 600;
-  flex-shrink: 0;
+  /* Standalone pills are direct flex children of .progress-matrix-inner via
+     their parent .matrix-col (flex: 1 1 0). Pills themselves fill the column
+     horizontally so width is entirely governed by the column's flex share. */
+  width: 100%;
   transition: transform 150ms var(--ease-standard),
               border-color 150ms var(--ease-standard);
   -webkit-tap-highlight-color: transparent;
   cursor: pointer;
 }
 
-/* Pill sizes — mirrors _specFor() in app/lib/widgets/progress_pill_matrix.dart.
-   Item 11 of mobile parity: aspectish 28×22 / 22×20 / 16×18. Pills are now
-   empty (item 1) so we size only the hull; font-size retained as 0 for dense
-   tiers and preserved for spacious in case item-12 grammar is re-enabled. */
-.pill.size-spacious { width: 28px; height: 22px; font-size: 10px; letter-spacing: 0.5px; }
-.pill.size-medium   { width: 22px; height: 20px; font-size: 0; }
-.pill.size-dense    { width: 16px; height: 18px; font-size: 0; }
+/* Tier classes control HEIGHT + font only — width is flex-driven via
+   .matrix-col (1 1 0, capped 22px, floor 6px). */
+.pill.size-spacious { height: 22px; font-size: 10px; letter-spacing: 0.5px; }
+.pill.size-medium   { height: 20px; font-size: 0; }
+.pill.size-dense    { height: 18px; font-size: 0; }
 
 .pill .pill-content {
   position: relative;
@@ -420,22 +499,17 @@ body {
   transition: width 120ms linear;
 }
 
-/* State: active — coral border + pulse glow + live fill */
 .pill.is-active {
   border-color: var(--c-brand);
   border-width: 2px;
-  /* Compensate the extra 1px of border so width/height match idle size. */
   margin: -1px 0;
   animation: pill-pulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 .pill.is-active .pill-content { opacity: 1; color: var(--c-ink-primary); }
 
-/* State: active + paused — freeze pulse + fill at current values */
 .pill.is-active.is-paused { animation-play-state: paused; }
 .pill.is-active.is-paused .pill-fill { transition: none; }
 
-/* State: completed — item 2: fills fully coral to create the macro fill-up
-   effect as the user works through the plan. Completed rests fill fully sage. */
 .pill.is-completed .pill-content { opacity: 0.4; color: var(--c-ink-muted); }
 .pill.is-completed .pill-fill {
   width: 100% !important;
@@ -443,8 +517,6 @@ body {
   opacity: 1;
 }
 
-/* Rest pills — item 3: sage idle styling (15% backdrop + 55% border).
-   Idle rest is visually distinct from idle exercise at a glance. */
 .pill.is-rest {
   color: var(--c-rest);
   background: var(--c-rest-tint-bg);
@@ -456,19 +528,57 @@ body {
   animation-name: pill-pulse-rest;
 }
 .pill.is-rest.is-active .pill-fill { background: rgba(134, 239, 172, 0.85); }
-/* Completed rest = fully sage fill (macro fill-up), matching item 2. */
 .pill.is-rest.is-completed .pill-fill {
   background: var(--c-rest);
   opacity: 1;
 }
 
-/* State: scrubbed — slight scale bump while finger hovers during long-press */
 .pill.is-scrubbed {
   transform: scale(1.06);
   border-color: var(--c-brand-light);
 }
 
-/* Pulse keyframes — mirror the mockup's box-shadow breathing. */
+/* Pill duration label — Wave 19.2.
+   Each pill carries its estimated duration as "NNs"; the active pill's
+   text is replaced by the live remaining-seconds countdown.
+   Colour inversion trick: the glyph is painted from a gradient that
+   mirrors the pill's own --fill-pct custom property, so text over the
+   empty (dark) portion reads white and text over the filled (coral)
+   portion reads black. Single element, no double-layer DOM. */
+.pill .pill-duration {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  font-family: var(--f-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    #000 0%,
+    #000 var(--fill-pct, 0%),
+    #FFF var(--fill-pct, 0%),
+    #FFF 100%
+  );
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+/* Smaller tier pills get a slightly smaller digit so the label doesn't
+   clip. Dense tier drops the digit entirely — the pill is too narrow
+   for legible text at that size. */
+.pill.size-medium .pill-duration { font-size: 9px; }
+.pill.size-dense .pill-duration { display: none; }
+/* Rest pills ride a sage fill — same black/white inversion works
+   because sage is light enough to read black on. */
+
 @keyframes pill-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 53, 0.40); }
   50%      { box-shadow: 0 0 0 8px rgba(255, 107, 53, 0); }
@@ -478,7 +588,18 @@ body {
   50%      { box-shadow: 0 0 0 8px rgba(134, 239, 172, 0); }
 }
 
-/* Stick-figure glyph inside the pill. */
+/* Scale the glow down at dense tier so it stays proportional on narrow pills. */
+@keyframes pill-pulse-dense {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 53, 0.40); }
+  50%      { box-shadow: 0 0 0 4px rgba(255, 107, 53, 0); }
+}
+@keyframes pill-pulse-rest-dense {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(134, 239, 172, 0.40); }
+  50%      { box-shadow: 0 0 0 4px rgba(134, 239, 172, 0); }
+}
+.pill.size-dense.is-active { animation-name: pill-pulse-dense; }
+.pill.size-dense.is-rest.is-active { animation-name: pill-pulse-rest-dense; }
+
 .glyph-body {
   stroke: currentColor;
   stroke-width: 1.5;
@@ -489,7 +610,6 @@ body {
 
 .glyph-body .glyph-head { fill: currentColor; stroke: none; }
 
-/* Manual-scrub chevron — pulses back toward the active pill. */
 .progress-matrix-chevron {
   position: absolute;
   top: 50%;
@@ -510,143 +630,43 @@ body {
 }
 .progress-matrix-chevron svg { width: 14px; height: 14px; }
 
-/* === Matrix ETA — 3-number row `1:36 · 7:42 · ~7:42 PM` ================
-   Item 4 of mobile parity. A single horizontal row of three numbers separated
-   by inter-punct dots. All three render in JetBrains Mono (with Menlo fallback)
-   at 13pt so the widths match and the reading eye isn't jittered by ticks.
-
-   • current = seconds left of the ACTIVE slide (bold coral) — what the user
-     needs to finish the current exercise
-   • total   = seconds left of the WHOLE plan (bold white)  — total time left
-   • finish  = wall-clock time the plan will end (medium muted) — prefixed with
-     "~" to signal it's an estimate; drifts forward while paused because the
-     clock keeps ticking but `total` holds
-   Sits as the last grid column inside .progress-matrix-inner so it scrolls
-   with the matrix. */
-
-.matrix-eta {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  min-width: 130px;
-  padding: 0 12px 0 4px;
-  /* Align vertically with the first-row pills (smallest = 18px in dense; in
-     practice the numeric row dictates our min height). */
-  height: 24px;
-  white-space: nowrap;
-  user-select: none;
-  -webkit-user-select: none;
-  font-family: var(--f-mono);
-  font-size: 13px;
-  letter-spacing: -0.2px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
-.matrix-eta-sep {
-  color: var(--c-ink-muted);
-  font-weight: 500;
-  padding: 0 2px;
-}
-
-.matrix-eta-current {
-  /* Active-slide remaining — bold coral (the "how long until this exercise
-     ends" number the user cares about most). */
-  color: var(--c-brand);
-  font-weight: 700;
-}
-
-.matrix-eta-total {
-  /* Whole-plan remaining — bold ink.primary. */
-  color: var(--c-ink-primary);
-  font-weight: 700;
-}
-
-.matrix-eta-finish {
-  /* Wall-clock finish — medium weight muted. */
-  color: var(--c-ink-secondary);
-  font-weight: 500;
-}
-
-.matrix-eta-done {
-  font-family: var(--f-body);
-  font-weight: 700;
-  font-size: 14px;
-  letter-spacing: -0.2px;
-  color: var(--c-ink-primary);
-}
-
-/* === Peek panel — centered scrub peek (item 9) ==========================
-   Mobile parity: the peek is centered on the viewport (not anchored to the
-   pill) so users with large fingers never cover it. Auto-shows on preview
-   start for 2s as a teaching peek (R-09), then fades. Reappears during
-   long-press scrubbing in the matrix and follows the finger's scrub index. */
-
-.peek-panel {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 260px;
-  max-width: calc(100vw - 32px);
-  background: var(--c-surface-raised);
-  border: 1px solid var(--c-surface-border);
-  border-radius: var(--radius-lg);
-  padding: 16px 18px;
-  z-index: 60;
-  pointer-events: none;
-  animation: peek-enter 220ms var(--ease-emphasized);
+/* === Active-slide header (row 4) =================================
+   Single-line row: "{exercise name} · {decoded grammar}". Name weight
+   is carried by the display-font treatment; grammar is part of the
+   same string separated by " · ". Truncates with ellipsis if the
+   string overflows the viewport width — never wraps. */
+.active-slide-header {
+  flex-shrink: 0;
+  padding: 6px 20px 10px;
+  background: var(--c-surface-bg);
   text-align: center;
 }
 
-.peek-panel.is-teaching {
-  animation: peek-enter 220ms var(--ease-emphasized),
-             peek-teach-fade 2000ms var(--ease-standard) forwards;
-}
-
-@keyframes peek-teach-fade {
-  0%, 70% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-/* Teaching peek (item 9) drops the thumbnail + "release to jump" hint — just
-   name + decoded grammar, centered. Scrub peek reuses the same visual so the
-   user learns the vocabulary once. */
-.peek-thumb { display: none; }
-.peek-name {
+.active-slide-title {
   font-family: var(--f-display);
   font-size: 18px;
   font-weight: 700;
-  letter-spacing: -0.3px;
+  letter-spacing: -0.02em;
   color: var(--c-ink-primary);
-  margin: 0 0 4px;
   line-height: 1.25;
-}
-.peek-meta {
-  font-family: var(--f-body);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--c-ink-secondary);
-  line-height: 1.3;
   margin: 0;
-}
-.peek-hint { display: none; }
-
-@keyframes peek-enter {
-  from { opacity: 0; transform: translateY(6px) scale(0.95); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* === Card Viewport === */
+.active-slide-title.is-rest {
+  color: var(--c-rest);
+}
+
+/* === Card Viewport — the hero region ============================= */
 .card-viewport {
   flex: 1;
   overflow: hidden;
   position: relative;
-  padding: 12px 0;
+  padding: 0;
   touch-action: pan-y;
-  background: var(--c-surface-bg);
+  background: #000;
 }
 
 .card-track {
@@ -660,28 +680,24 @@ body {
   transition: none;
 }
 
-/* === Exercise Card === */
+/* === Exercise Card =============================================== */
 .exercise-card {
   flex: 0 0 100%;
   width: 100%;
-  padding: 0 20px;
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
 .card-inner {
-  /* D-07: flat — separation via 1px border, no shadow. */
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--c-surface-base);
-  border: 1px solid var(--c-surface-border);
-  border-radius: var(--radius-xl);
+  background: #000;
   overflow: hidden;
 }
 
-/* === Media Area === */
+/* === Media Area ================================================== */
 .card-media {
   flex: 1;
   min-height: 0;
@@ -701,11 +717,62 @@ body {
   display: block;
 }
 
-/* Mute toggle — speaker-icon button in the top-right of each video
-   card. Only rendered for videos that ship with audio (see
-   buildMedia). Tap flips the runtime isMuted flag; play/pause is
-   not affected (Wave 3 test items 3 / 4 / 5). */
-.card-media .mute-toggle {
+/* === Photo rotation wrapper (Wave 28) ==============================
+   Photos use the same wrapper-anchored rotation pattern as videos —
+   transform sits on .media-rotation-wrap so the inner <img> keeps a
+   clean stacking context (matches the .video-loop-pair shape).
+   Defaults to a no-op on legacy plans (no inline transform → identical
+   layout to today). */
+.media-rotation-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.media-rotation-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* === Dual-video crossfade pair (Wave 19.7) =========================
+   Two stacked <video> elements share the same source. The "active"
+   one sits at opacity:1, the inactive at opacity:0; on a loop seam
+   we flip data-active and let the 200ms transition do the visible
+   crossfade. Both elements are absolutely positioned so they
+   overlap pixel-perfect. The wrapper inherits the parent
+   .card-media's flex sizing. */
+.video-loop-pair {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.video-loop-pair .video-loop-slot {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  opacity: 0;
+  transition: opacity var(--loop-crossfade-fade-ms, 200ms) ease;
+  will-change: opacity;
+}
+.video-loop-pair .video-loop-slot[data-active="true"] {
+  opacity: 1;
+  z-index: 2;
+}
+.video-loop-pair .video-loop-slot[data-active="false"] {
+  z-index: 1;
+}
+
+/* === Play/pause toggle (top-right of card-viewport) ==============
+   YouTube-style icon-swap button. Same visual chrome as fullscreen +
+   settings. Hidden outside workout mode (the tap-to-pause on the
+   media area still handles preview interactions). */
+.playpause-toggle {
   position: absolute;
   top: 12px;
   right: 12px;
@@ -714,34 +781,399 @@ body {
   border: none;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.55);
-  color: #FFFFFF;
+  color: var(--c-brand);
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  z-index: 20;
+  transition: background 150ms ease, transform 100ms ease, opacity 180ms ease;
   -webkit-tap-highlight-color: transparent;
-  transition: background 150ms ease, transform 100ms ease;
-  z-index: 6; /* above the video, below the prep / pause overlays */
 }
-.card-media .mute-toggle:hover {
+.playpause-toggle[hidden] {
+  display: none;
+}
+.playpause-toggle:hover {
   background: rgba(0, 0, 0, 0.75);
 }
-.card-media .mute-toggle:active {
+.playpause-toggle:active {
   transform: scale(0.92);
 }
-.card-media .mute-toggle svg {
+.playpause-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  stroke: none;
+}
+.playpause-toggle svg:not([hidden]) {
+  display: block;
+}
+.playpause-toggle .pp-icon-play {
+  /* Optical-balance the play triangle against the circular bg. */
+  margin-left: 3px;
+}
+.playpause-toggle:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+
+/* === Landscape pre-workout Maximise pill =========================
+   Hidden everywhere by default. The landscape media query below
+   shows it only when (orientation: landscape) AND (max-height: 540)
+   AND not in workout mode AND not already fullscreen. Tap reclaims
+   viewport from Safari's persistent landscape chrome (URL bar +
+   tab bar + bottom toolbar). */
+.landscape-maximise-pill {
+  display: none;
+}
+
+/* === Fullscreen toggle (top-right of card-viewport, BELOW playpause) === */
+.fullscreen-toggle {
+  position: absolute;
+  top: 60px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--c-brand);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: background 150ms ease, transform 100ms ease, opacity 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.fullscreen-toggle:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+.fullscreen-toggle:active {
+  transform: scale(0.92);
+}
+.fullscreen-toggle svg {
   width: 20px;
   height: 20px;
   display: block;
+  stroke: currentColor;
 }
-.card-media .mute-toggle[aria-pressed="true"] {
-  background: rgba(0, 0, 0, 0.75);
-  color: #F0F0F5;
-}
-.card-media .mute-toggle:focus-visible {
-  outline: 2px solid var(--c-coral, #FF6B35);
+.fullscreen-toggle:focus-visible {
+  outline: 2px solid var(--c-brand);
   outline-offset: 2px;
+}
+
+/* === Settings toggle (bottom of the right-edge chrome stack) ======
+   Per-device playback preferences (Milestone P + the Wave 19.5
+   "Show me" override). The right-edge column occupies a 40px
+   column so the video stays uncluttered when not maximised. */
+.settings-toggle {
+  position: absolute;
+  top: 108px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--c-brand);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: background 150ms ease, transform 100ms ease, opacity 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.settings-toggle:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+.settings-toggle:active {
+  transform: scale(0.92);
+}
+.settings-toggle svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  stroke: currentColor;
+}
+.settings-toggle[aria-expanded="true"] {
+  background: rgba(0, 0, 0, 0.85);
+}
+.settings-toggle:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+
+/* Right-edge chrome column: [playpause top:12], [fullscreen top:60],
+   [settings top:108]. Each rule pins its own coords above. The
+   standalone mute speaker was retired in Wave 42 — gear panel only. */
+
+/* === Settings popover ============================================= */
+.settings-popover {
+  position: absolute;
+  /* Anchored just below the gear button. The gear sits at top:108 (third
+     in the vertical chrome stack) — popover offsets by another
+     button-height + gap (40 + 8 = 48) so they don't overlap. */
+  top: 156px;
+  right: 12px;
+  z-index: 30;
+  min-width: 296px;
+  max-width: calc(100vw - 24px);
+  background: rgba(26, 29, 39, 0.96);
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-family: var(--f-body);
+  color: var(--c-ink-primary);
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity 160ms var(--ease-standard), transform 160ms var(--ease-standard);
+}
+.settings-popover[data-open="true"] {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.settings-popover-title {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-ink-secondary);
+  margin-bottom: 10px;
+}
+/* === Wave 42 — Consolidated gear panel ============================
+   Per-exercise client overrides for mute / treatment / body focus.
+   Each control gets a coral border/tint when its value differs from
+   the practitioner's per-exercise default. The Reset button is greyed
+   when no overrides exist, coral + tappable otherwise. */
+
+.settings-row-label {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--c-ink-primary);
+}
+
+.settings-panel-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-row-btn {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  min-height: 44px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid transparent;
+  border-radius: 8px;
+  color: var(--c-ink-primary);
+  font-family: var(--f-body);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms var(--ease-standard), border-color 140ms var(--ease-standard), color 140ms var(--ease-standard);
+}
+.settings-row-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+.settings-row-btn:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+.settings-row-btn .settings-row-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--c-ink-secondary);
+  flex: 0 0 auto;
+}
+.settings-row-btn .settings-row-state svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  stroke: currentColor;
+}
+
+/* Overridden state — coral border + coral icon/text tint. Use the
+   brand variable; #FF6B35 is the literal hex for reference. */
+.settings-row-btn.is-overridden {
+  border-color: var(--c-brand);
+  color: var(--c-brand);
+}
+.settings-row-btn.is-overridden .settings-row-label,
+.settings-row-btn.is-overridden .settings-row-state {
+  color: var(--c-brand);
+}
+
+.settings-row-btn:disabled,
+.settings-row-btn.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Treatment row — label + 3-pill segmented control. */
+.settings-row-segmented {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid transparent;
+  border-radius: 8px;
+  transition: border-color 140ms var(--ease-standard);
+}
+.settings-row-segmented.is-overridden {
+  border-color: var(--c-brand);
+}
+.settings-row-segmented.is-overridden .settings-row-label {
+  color: var(--c-brand);
+}
+
+.treatment-pills {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  padding: 3px;
+}
+.treatment-pills > button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 8px 4px;
+  min-height: 36px;
+  color: var(--c-ink-secondary);
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.15;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms var(--ease-standard), color 140ms var(--ease-standard);
+  text-align: center;
+}
+.treatment-pills > button:hover:not(.is-disabled):not(.is-active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--c-ink-primary);
+}
+.treatment-pills > button:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+.treatment-pills > button.is-active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--c-ink-primary);
+}
+.treatment-pills > button.is-active.is-overridden {
+  background: var(--c-brand); /* #FF6B35 */
+  color: #FFFFFF;
+}
+.treatment-pills > button.is-disabled {
+  cursor: not-allowed;
+  color: rgba(255, 255, 255, 0.32);
+}
+.treatment-pills > button.is-disabled:hover {
+  background: transparent;
+}
+
+/* Reset button. Greyed when no overrides; coral + tappable otherwise. */
+.settings-row-reset {
+  appearance: none;
+  margin-top: 6px;
+  padding: 10px 12px;
+  min-height: 40px;
+  background: transparent;
+  border: 1px solid var(--c-brand);
+  border-radius: 8px;
+  color: var(--c-brand);
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 140ms var(--ease-standard), opacity 140ms var(--ease-standard);
+}
+.settings-row-reset:hover:not(:disabled):not(.is-empty) {
+  background: rgba(255, 107, 53, 0.08);
+}
+.settings-row-reset:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+.settings-row-reset.is-empty,
+.settings-row-reset:disabled {
+  border-color: var(--c-surface-border);
+  color: var(--c-ink-secondary);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* === Edge chevron nav (overlaid on video) ========================= */
+.edge-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px;
+  height: 72px;
+  border: none;
+  background: transparent;
+  color: var(--c-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 15;
+  transition: opacity 180ms ease, transform 100ms ease, background 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+  border-radius: 12px;
+}
+.edge-nav:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+.edge-nav:active {
+  transform: translateY(-50%) scale(0.94);
+}
+.edge-nav svg {
+  stroke: currentColor;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+.edge-nav:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+.edge-nav:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+.edge-nav--prev { left: 6px; }
+.edge-nav--next { right: 6px; }
+
+/* Carl 2026-04-24: when the vertical rep stack is rendered on the left
+   edge, the prev chevron sat dead-centre over it. Shift the chevron
+   just past the stack column so both stay tappable. JS adds the
+   `has-rep-stack` class on `.card-viewport` whenever the stack is
+   visible (more reliable than :has() across iOS Safari versions). */
+.card-viewport.has-rep-stack .edge-nav--prev {
+  left: 64px;
 }
 
 /* Placeholder when no media */
@@ -776,7 +1208,8 @@ body {
   color: var(--c-ink-secondary);
 }
 
-/* Video play overlay */
+/* Video play overlay (kept for the rare case where video is shown
+   outside workout mode — not used in the current flow but harmless). */
 .video-play-overlay {
   position: absolute;
   inset: 0;
@@ -819,369 +1252,487 @@ body {
   pointer-events: none;
 }
 
-/* === Card Body === */
-.card-body {
-  flex-shrink: 0;
-  padding: 20px;
-  background: var(--c-surface-base);
-  /* Flex column so the treatment-seg can self-center while the other
-     children stay left-aligned. See align-self rules below. */
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-}
-
-.card-position {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--c-brand);
-  margin-bottom: 4px;
-}
-
-.card-exercise-name {
-  font-family: var(--f-display);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--c-ink-primary);
-  line-height: 1.25;
-  margin-bottom: 12px;
-}
-
-/* === Treatment Segmented Control (Line · B&W · Original) =================
-   Three-treatment playback picker. Sits centered directly below the
-   exercise name. Tapping a segment switches every <video>'s src and
-   toggles the grayscale filter on the active element. Disabled segments
-   show a lock glyph and a native-tooltip explaining who to ask.
-   Kept in strict parity with the Flutter mobile preview's segmented
-   control (R-10). */
-.treatment-seg {
-  display: inline-flex;
-  align-items: stretch;
-  gap: 2px;
-  padding: 3px;
-  margin: 0 auto 12px;
-  background: var(--c-surface-raised);
-  border: 1px solid var(--c-surface-border);
-  border-radius: 100px;
-  /* Center the pill group — exercise name above is left-aligned inside
-     card-body; the seg wants to feel centered under it. */
-  align-self: center;
-}
-
-.card-body > .card-position,
-.card-body > .card-exercise-name {
-  align-self: flex-start;
-}
-
-.card-body > .treatment-seg {
-  align-self: center;
-}
-
-.treatment-seg__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-width: 60px;
-  padding: 7px 14px;
-  border: none;
-  border-radius: 100px;
-  background: transparent;
-  color: var(--c-ink-secondary);
-  font-family: var(--f-body);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-standard),
-              color var(--dur-fast) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard);
-  -webkit-tap-highlight-color: transparent;
-  user-select: none;
-}
-
-.treatment-seg__btn:hover:not(.is-disabled):not(.is-selected) {
-  color: var(--c-ink-primary);
-}
-
-.treatment-seg__btn.is-selected {
-  background: var(--c-brand);
-  color: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
-}
-
-.treatment-seg__btn.is-selected:active {
-  transform: scale(0.97);
-}
-
-.treatment-seg__btn.is-disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  color: var(--c-ink-muted);
-}
-
-.treatment-seg__btn:focus-visible {
-  outline: none;
-  box-shadow: var(--c-focus-ring);
-}
-
-.treatment-seg__lock {
-  width: 11px;
-  height: 11px;
-  flex-shrink: 0;
-  color: currentColor;
-  opacity: 0.7;
-}
-
-.treatment-seg__label {
-  line-height: 1;
-}
-
-/* B&W treatment: the backend serves the ORIGINAL video at grayscale_url;
-   we apply a CSS grayscale filter + a small contrast bump so the result
-   reads like a film still on the dark surface. This runs client-side so
-   swapping between Line / B&W / Original doesn't re-download the video. */
-video.is-grayscale {
+/* === B&W treatment — CSS grayscale filter =========================
+   The practitioner may prefer the B&W treatment; backend serves the
+   original video / photo at grayscale_url and we filter client-side.
+   Wave 22 extended the rule to <img> so photos get the same
+   single-source three-treatment behaviour as videos (the raw colour
+   JPG is loaded once; B&W and Colour share the same src and only
+   the .is-grayscale class differs). */
+video.is-grayscale,
+img.is-grayscale {
   filter: grayscale(1) contrast(1.05);
 }
 
-/* Prescription pills */
-.card-prescription {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 14px;
+/* === Video poster state — shown during prep (no playback yet) ===
+   When the video is paused + currentTime=0 we still want it to read
+   as "standing by", not "broken frame". The video element shows its
+   poster naturally; this class is a marker for app.js to avoid
+   accidental plays. */
+video.is-prep-paused {
+  /* No visual; semantic marker only. */
 }
 
-.rx-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
-  background: var(--c-brand-tint-bg);
-  border: 1px solid var(--c-brand-tint-border);
-  border-radius: 100px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--c-brand-light);
-}
-
-.rx-pill-label {
-  font-weight: 400;
-  color: var(--c-brand-light);
-  opacity: 0.75;
-}
-
-/* Notes */
-.card-notes {
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--c-ink-primary);
-  padding: 12px 14px;
-  background: var(--c-surface-raised);
-  border-radius: var(--radius-md);
-  border-left: 3px solid var(--c-brand);
-}
-
-/* === Navigation === */
-.nav-bar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px 16px;
-  gap: 16px;
-  background: var(--c-surface-bg);
-}
-
-.nav-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
-  border: 1px solid var(--c-surface-border);
-  border-radius: var(--radius-md);
-  background: var(--c-surface-base);
-  color: var(--c-ink-primary);
+/* === Card notes overlay — centered soft-card (Wave 19 variant A) ====
+   Centered horizontally above the bottom edge, rendered as a dark
+   blurred pill with a subtle coral border. Off-white text for
+   readability; coral reserved for accent budget. 3-line clamp by
+   default; clicking expands to full. */
+.card-notes-overlay {
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%);
+  z-index: 12;
+  text-align: left;
+  background: rgba(15, 17, 23, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 107, 53, 0.35);
+  border-radius: 10px;
+  padding: 12px 16px;
+  max-width: 72%;
+  min-width: 180px;
+  color: #F5F5F7;
+  cursor: pointer;
+  font-family: var(--f-body);
   font-size: 14px;
   font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-standard);
+  line-height: 1.4;
+  letter-spacing: 0.1px;
   -webkit-tap-highlight-color: transparent;
-  user-select: none;
+  transition: opacity 180ms ease, border-color 180ms ease;
+}
+.card-notes-overlay .card-notes-text {
+  display: block;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.card-notes-overlay.is-expanded .card-notes-text {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+.card-notes-overlay:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
 }
 
-.nav-btn:active:not(:disabled) {
-  background: var(--c-surface-raised);
-  transform: scale(0.97);
-}
-
-.nav-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.nav-btn svg {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  stroke: var(--c-ink-primary);
-}
-
-.nav-btn-label {
-  font-size: 14px;
-}
-
-/* Dots */
-.nav-dots {
+/* === Rest countdown overlay ======================================
+   Big coral countdown number over the last visible frame during a
+   rest slide. Reuses the .prep-overlay sizing + style. */
+.rest-countdown-overlay {
+  position: absolute;
+  inset: 0;
   display: flex;
-  gap: 6px;
   align-items: center;
   justify-content: center;
-  flex: 1;
-  overflow: hidden;
+  pointer-events: none;
+  z-index: 11;
+  color: var(--c-brand);
+  background: rgba(0, 0, 0, 0.32);
+}
+.rest-countdown-overlay[hidden] { display: none; }
+.rest-countdown-number {
+  font-family: var(--f-display);
+  font-size: 180px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -8px;
+  text-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
 }
 
-.nav-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--c-surface-border);
-  transition: all var(--dur-normal) var(--ease-standard);
-  flex-shrink: 0;
-}
+/* === Wave 21 — Vertical rep-block stack ============================
+   Replaces the Wave 19.7 horizontal segmented bar. Pinned to the
+   LEFT edge of .card-viewport, vertically centered, ~80% video-
+   height tall. Bottom-up stacking metaphor:
+     Set 1 (bottom)
+       → reps fill upward
+       → trailing rest block
+     Set 2
+       → reps fill upward
+       → trailing rest block
+     …
+     Set N
+       → reps fill upward
+       → TRAILING rest block (the "you're done, breathe" cue before
+         the slide advances — owned by advanceSetPhase()).
 
-.nav-dot.is-active {
-  background: var(--c-brand);
-  width: 18px;
-  border-radius: 3px;
-}
+   Two flex children:
+     .rep-stack-labels — left gutter, section labels (S1, R, S2, …)
+                         vertically centered against each section.
+     .rep-stack-column — the block column itself; one micro-block
+                         per rep + one thinner block per rest.
 
-/* === Footer === */
-.footer {
-  flex-shrink: 0;
-  text-align: center;
-  padding: 8px 20px 10px;
-  background: var(--c-surface-bg);
-}
+   Rep blocks: empty = surface-raised + 1px coral-tint border,
+               filled = solid coral, 200ms ease-in fill. Active
+               (next-to-land) gets a 1Hz coral pulse on the outline.
+   Rest blocks: 70% the height of a rep block (eye reads "different
+                category" with no label). Empty = surface-raised +
+                sage-tint border. Filling = solid sage, time-based
+                bottom-up grow over the rest duration.
 
-.footer-brand {
+   Hidden when: rest slide, photo, single-set with no breather, or
+   slide.reps null/0 (legacy). */
+
+.rep-stack {
+  position: absolute;
+  left: 8px;
+  top: 10%;
+  bottom: 10%;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 4px;
+  width: 50px;
+  z-index: 12;
+  /* Carl 2026-04-24: blocks need to receive taps for navigable stack
+     (v52). The container itself stays pass-through so the gaps between
+     blocks don't intercept video pause/play taps; .rep-stack-block
+     re-enables pointer-events on the actual targets. */
+  pointer-events: none;
+}
+.rep-stack-block {
+  pointer-events: auto;
+}
+.rep-stack[hidden] { display: none; }
+
+.rep-stack-labels {
+  position: relative;
+  width: 18px;
+  flex: 0 0 18px;
+  display: flex;
+  flex-direction: column-reverse; /* section 1 sits at the bottom */
+}
+.rep-stack-labels-section {
+  position: relative;
+  display: flex;
   align-items: center;
-  gap: 2px;
+  justify-content: flex-end;
+  padding-right: 4px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+.rep-stack-labels-section--set { color: var(--c-brand); }
+.rep-stack-labels-section--rest { color: var(--c-rest); }
+.rep-stack-labels-section::after {
+  /* Hairline bracket connecting the label to its section's
+     vertical extent. Subtle — just a 1px right edge that runs
+     the full height of the section. */
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: currentColor;
+  opacity: 0.35;
 }
 
-.footer-preamble {
-  font-size: 10px;
-  color: var(--c-ink-secondary);
-  letter-spacing: 0.4px;
-  text-transform: lowercase;
-  opacity: 0.75;
+.rep-stack-column {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column-reverse; /* set 1 + first rep at the bottom */
+  gap: 1px;
 }
 
-.footer-logo {
-  display: inline-flex;
+/*
+ * Wave 41 — sections become a horizontal split: rep-blocks column on
+ * the LEFT, weight-chip / end-marker / hold-label column on the
+ * RIGHT. The blocks subcolumn keeps the original column-reverse so
+ * rep 1 sits at the bottom; the aside subcolumn is centered next to
+ * its set group.
+ */
+.rep-stack-section {
+  display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 6px;
+  flex: var(--rep-stack-section-grow, 1) 1 0;
+  min-height: 0;
+}
+.rep-stack-section--rest {
+  /* Rest sections render as a single thinner block — already a
+     single child below; the section just provides the slot. */
+}
+
+.rep-stack-section-blocks {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+}
+
+.rep-stack-section-aside {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  /* Stay out of the rep-block tap zone — the aside is non-interactive
+     visual annotation. */
+  pointer-events: none;
+}
+
+.rep-stack-set-hold {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--c-ink-muted);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Weight chips + End-of-exercise marker (Wave 41)                   */
+/* ------------------------------------------------------------------ */
+.weight-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--c-surface-raised);
+  border: 1px solid var(--c-surface-border);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--c-ink-primary);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+/* Urgent variant — used for the FIRST set's chip and any set whose
+   weight differs from the previous one. Brand-tint background +
+   coral text mirrors the mockup's "weight-up" treatment. */
+.weight-chip--up {
+  background: var(--c-brand-tint-bg);
+  border-color: var(--c-brand-tint-border);
   color: var(--c-brand);
 }
 
-.footer-logo .homefit-logo {
-  width: 56px;
-  height: auto;
-}
-
-.footer-wordmark {
-  font-family: var(--f-display);
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: -0.2px;
+/* Bodyweight variant — muted styling with no urgent treatment so it
+   reads as "no weight selected" rather than "change incoming". */
+.weight-chip--bodyweight {
+  background: transparent;
+  border-color: var(--c-ink-disabled);
   color: var(--c-ink-secondary);
+  font-weight: 500;
+  letter-spacing: 0.4px;
 }
 
-/* === Swipe Hint === */
-@keyframes swipe-hint {
-  0% { transform: translateX(0); opacity: 1; }
-  30% { transform: translateX(-20px); opacity: 1; }
-  60% { transform: translateX(0); opacity: 1; }
-  100% { opacity: 0; }
+.weight-chip-bolt {
+  display: inline-block;
+  margin-right: 1px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--c-brand);
+}
+.weight-chip--bodyweight .weight-chip-bolt {
+  color: var(--c-ink-muted);
 }
 
-.swipe-hint {
+/* End-of-exercise marker — sage chip with a checkmark glyph that
+   sits to the right of the FINAL rest divider. Replaces the
+   forward-look weight chip on the trailing breather. */
+.end-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(134, 239, 172, 0.10);
+  border: 1px solid var(--c-rest-tint-border);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--c-rest);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.end-marker svg {
+  width: 10px;
+  height: 10px;
+  stroke: var(--c-rest);
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rep-stack-block {
+  position: relative;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 2px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--c-surface-raised);
+  box-shadow: inset 0 0 0 1px var(--c-brand-tint-border);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.rep-stack-block:active {
+  transform: scale(0.96);
+  transition: transform 80ms ease-out;
+}
+.rep-stack-block--rest {
+  /* Carl 2026-04-24: rest block now matches rep-block sizing so the
+     column reads as a uniform stack — colour (sage vs coral) carries
+     the "different category" signal, not size. The rest section is
+     given the same flex grow as ONE rep block (see the inline style
+     in the JS structure builder), so a 10-rep set has 11 equally
+     sized blocks (10 coral reps + 1 sage rest). */
+  background: var(--c-surface-raised);
+  box-shadow: inset 0 0 0 1px var(--c-rest-tint-border);
+  margin-top: 2px;
+}
+
+/* Filled rep block — solid coral, animated via the fill child so the
+   200ms ease-in lands smoothly on each loop seam. */
+.rep-stack-block-fill {
   position: absolute;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0%;
+  background: var(--c-brand);
+  transition: height 200ms ease-in;
+  will-change: height;
+}
+.rep-stack-block--filled .rep-stack-block-fill {
+  height: 100%;
+}
+
+/* Carl 2026-04-24: active rep block doubles as a per-rep progress
+   bar. Linear 1.05s transition matches the 1Hz repaint cadence, with
+   a tiny tail so the fill never visually stalls between ticks. */
+.rep-stack-block--active .rep-stack-block-fill {
+  transition: height 1.05s linear;
+}
+
+/* Drain animation when the slide changes — every fill shrinks to 0
+   over 350ms before the column rebuilds for the new slide. Set via
+   the .is-draining class on the column root. */
+.rep-stack-column.is-draining .rep-stack-block-fill {
+  height: 0% !important;
+  transition: height 350ms ease-out;
+}
+.rep-stack-block--rest .rep-stack-block-fill {
+  background: var(--c-rest);
+  /* Rest fill is time-based (linear over the rest duration); the
+     200ms ease-in default is overridden inline via element style. */
+  transition: height 0.95s linear;
+}
+
+/* Active rep block — the next one to land. Subtle 1Hz coral pulse on
+   the outline so the eye tracks "you're about to fill here". */
+.rep-stack-block--active {
+  animation: rep-stack-active-pulse 1s ease-in-out infinite;
+}
+@keyframes rep-stack-active-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px var(--c-brand-tint-border);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1.5px var(--c-brand),
+                0 0 6px rgba(255, 107, 53, 0.45);
+  }
+}
+
+/* Active rest block — sage variant of the same pulse so the rest
+   countdown reads as "currently filling" without text. */
+.rep-stack-block--rest.rep-stack-block--active {
+  animation: rep-stack-active-rest-pulse 1s ease-in-out infinite;
+}
+@keyframes rep-stack-active-rest-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px var(--c-rest-tint-border);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1.5px var(--c-rest),
+                0 0 6px rgba(134, 239, 172, 0.45);
+  }
+}
+
+/* === Breather overlay =============================================== */
+.breather-overlay {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  background: var(--c-brand);
-  color: #ffffff;
-  border-radius: 100px;
-  font-size: 12px;
-  font-weight: 600;
+  justify-content: center;
   pointer-events: none;
-  animation: swipe-hint 2.5s ease forwards;
-  animation-delay: 1s;
-  opacity: 0;
-  z-index: 10;
+  z-index: 11;
+  color: var(--c-rest);
+  background: rgba(0, 0, 0, 0.42);
+  animation: breather-fade-in 220ms ease-out;
+}
+.breather-overlay[hidden] { display: none; }
+
+.breather-overlay-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
 }
 
-@keyframes swipe-hint-appear {
-  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+.breather-overlay-glyph {
+  width: 68px;
+  height: 68px;
+  color: var(--c-rest);
+  opacity: 0.9;
+  filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.5));
 }
 
-.swipe-hint {
-  animation: swipe-hint-appear 0.3s ease 1s forwards, swipe-hint 2.5s ease 1.5s forwards;
+.breather-overlay-number {
+  font-family: var(--f-display);
+  font-size: 160px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -7px;
+  color: var(--c-rest);
 }
 
-.swipe-hint svg {
-  width: 14px;
-  height: 14px;
+.breather-overlay-label {
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--c-rest);
+  opacity: 0.85;
 }
 
-/* === Responsive adjustments === */
-@media (min-width: 480px) {
-  .exercise-card {
-    padding: 0 32px;
-  }
-
-  .plan-bar {
-    padding-left: 32px;
-    padding-right: 32px;
-  }
-
-  .progress-track {
-    margin-left: 32px;
-    margin-right: 32px;
-  }
-
-  .header-inner {
-    padding-left: 32px;
-    padding-right: 32px;
-  }
-
-  .nav-bar {
-    padding-left: 32px;
-    padding-right: 32px;
-  }
+@keyframes breather-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
-/* === Rest Card === */
+@media (max-width: 420px) {
+  .breather-overlay-number { font-size: 120px; letter-spacing: -5px; }
+  .breather-overlay-glyph  { width: 54px; height: 54px; }
+}
+
+/* === Rest card — inherit the surface gradient so the rest slide
+     still has a calm sage pane behind the countdown. =============== */
 .rest-card {
   background: linear-gradient(160deg, var(--c-surface-base) 0%, var(--c-surface-raised) 100%);
   border-color: var(--c-surface-border);
 }
 
-/* Rest card's media pane inherits the surface gradient instead of the dark
-   video frame so the rest icon reads as a soft calm pane. */
 .card-media.rest-media {
   background: linear-gradient(160deg, var(--c-surface-base) 0%, var(--c-surface-raised) 100%);
 }
@@ -1224,55 +1775,86 @@ video.is-grayscale {
   margin-top: 8px;
 }
 
-/* === Circuit Bar — REMOVED per item 14 of mobile parity ================
-   The "Circuit · Round X of Y · Exercise M of N" strip is retired; circuit
-   rounds are expressed spatially by the progress-pill matrix (stacked rows
-   beneath the circuit tint band). Rule kept as a safety net so any residual
-   markup renders invisibly. */
-.circuit-bar { display: none !important; }
-
-/* === Active-slide detail (item 5: luxurious grammar) ====================
-   A single standalone line at the bottom of the media area, e.g.
-       "3 sets · 10 reps · 5s hold"  (standalone exercise)
-       "10 reps · 5s hold"           (inside a circuit — no sets; circuit
-                                      rounds are carried by the matrix)
-       "30s rest"                    (rest slide)
-   15pt Inter 500. The cycle suffix is explicitly dropped — avoid duplicating
-   info the matrix already shows. */
-.active-slide-detail {
-  font-family: var(--f-body);
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--c-ink-primary);
-  letter-spacing: 0.1px;
+/* === Footer ====================================================== */
+.footer {
+  flex-shrink: 0;
   text-align: center;
-  padding: 6px 16px 0;
+  padding: 6px 20px 10px;
+  background: var(--c-surface-bg);
 }
 
-/* === Workout Timer Mode === */
+.footer-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
 
-/* Start Workout floating button */
+.footer-preamble {
+  font-size: 10px;
+  color: var(--c-ink-secondary);
+  letter-spacing: 0.4px;
+  text-transform: lowercase;
+  opacity: 0.75;
+}
+
+.footer-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-brand);
+}
+
+.footer-logo .pulse-mark {
+  width: 20px;
+  height: 14px;
+}
+
+.footer-wordmark {
+  font-family: var(--f-display);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: -0.2px;
+  color: var(--c-ink-secondary);
+}
+
+/* Discreet build marker — visible but not loud. Mirrors the mobile
+   pattern (build SHA at 35% opacity in the HomefitLogo footer on Home).
+   Sits beneath the wordmark; mono font so QA can read it at a glance. */
+.footer-version {
+  margin-top: 2px;
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: 0.2px;
+  color: var(--c-ink-muted);
+  opacity: 0.55;
+  user-select: text;
+}
+
+/* === Workout Timer Mode ========================================== */
+
 .start-workout-btn {
   position: absolute;
-  bottom: 80px;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 14px 28px;
+  gap: 10px;
+  padding: 16px 32px;
   background: var(--c-brand);
   color: #ffffff;
   border: none;
   border-radius: 100px;
   font-family: var(--f-body);
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;
-  z-index: 20;
+  z-index: 25;
   transition: all var(--dur-fast) var(--ease-standard);
   -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 10px 32px rgba(255, 107, 53, 0.45);
 }
 
 .start-workout-btn:hover {
@@ -1280,98 +1862,20 @@ video.is-grayscale {
 }
 
 .start-workout-btn:active {
-  transform: translateX(-50%) scale(0.95);
+  transform: translate(-50%, -50%) scale(0.95);
 }
 
 .start-workout-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   stroke: #ffffff;
 }
 
-/* Timer chip — small ring anchored to the bottom-right of the card,
-   sitting next to the exercise name/badges instead of covering the media.
-   Tappable: cycles prep → running → paused → resume.
-   touch-action: pan-y lets horizontal swipes bubble to the card-track handler
-   so users can still navigate between slides while the chip is visible. */
-.timer-overlay {
-  position: absolute;
-  right: 20px;
-  bottom: 24px;
-  width: 64px;
-  height: 64px;
-  z-index: 25;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: auto;
-  touch-action: pan-y;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  user-select: none;
-}
+/* Timer chip — legacy stub kept hidden; the top-row ETA now shows
+   the same numbers the chip used to. */
+.timer-overlay { display: none !important; }
 
-.timer-overlay:active {
-  transform: scale(0.94);
-}
-
-.timer-overlay-bg {
-  position: absolute;
-  inset: -6px;
-  background: rgba(15, 17, 23, 0.55);
-  border-radius: 50%;
-  filter: blur(10px);
-}
-
-.timer-ring {
-  position: absolute;
-  width: 64px;
-  height: 64px;
-}
-
-.timer-ring-progress {
-  transition: stroke 0.3s ease, stroke-dashoffset 0.3s linear;
-}
-
-.timer-text {
-  position: relative;
-  font-family: var(--f-display);
-  font-size: 16px;
-  font-weight: 700;
-  color: #ffffff;
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
-  z-index: 1;
-  line-height: 1;
-  transform: translateY(-4px);
-}
-
-/* Tiny play/pause glyph below the timer number */
-.timer-mode-icon {
-  position: absolute;
-  left: 50%;
-  bottom: 14px;
-  width: 12px;
-  height: 12px;
-  transform: translateX(-50%);
-  color: #ffffff;
-  fill: #ffffff;
-  z-index: 2;
-  pointer-events: none;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6));
-}
-
-.timer-mode-icon--play {
-  width: 12px;
-  height: 12px;
-}
-
-.timer-mode-icon--pause {
-  width: 12px;
-  height: 12px;
-}
-
-/* Workout complete overlay */
+/* === Workout complete overlay ==================================== */
 .workout-complete {
   position: fixed;
   inset: 0;
@@ -1379,29 +1883,67 @@ video.is-grayscale {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  pointer-events: auto;
 }
 
 .workout-complete-inner {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 16px;
-  padding: 40px;
-  background: var(--c-surface-base);
-  border: 1px solid var(--c-surface-border);
-  border-radius: var(--radius-xl);
-  /* D-07: flat — separation via border, no shadow. */
+  padding: 40px 40px 32px;
+  background: transparent;
+  border: none;
   text-align: center;
-  max-width: 300px;
+  max-width: 320px;
+}
+
+.workout-complete-glow {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 107, 53, 0.22) 0%,
+    rgba(255, 107, 53, 0.06) 45%,
+    rgba(255, 107, 53, 0) 70%
+  );
+  pointer-events: none;
+  opacity: 0;
+}
+
+.workout-complete.is-live .workout-complete-glow {
+  animation: complete-glow 2s ease-out forwards;
+}
+
+@keyframes complete-glow {
+  0%   { opacity: 0; transform: translateX(-50%) scale(0.75); }
+  40%  { opacity: 1; }
+  100% { opacity: 0.75; transform: translateX(-50%) scale(1); }
 }
 
 .workout-complete-icon {
-  width: 64px;
-  height: 64px;
+  position: relative;
+  width: 72px;
+  height: 72px;
   color: var(--c-brand);
+}
+
+.workout-complete.is-live .workout-complete-icon {
+  animation: complete-check 200ms var(--ease-emphasized) both;
+}
+
+@keyframes complete-check {
+  0%   { transform: scale(0.6); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 .workout-complete-icon svg {
@@ -1410,14 +1952,16 @@ video.is-grayscale {
 }
 
 .workout-complete-title {
+  position: relative;
   font-family: var(--f-display);
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--c-ink-primary);
   letter-spacing: -0.02em;
 }
 
 .workout-complete-time {
+  position: relative;
   font-size: 16px;
   color: var(--c-ink-secondary);
   font-weight: 500;
@@ -1425,6 +1969,7 @@ video.is-grayscale {
 }
 
 .workout-close-btn {
+  position: relative;
   margin-top: 8px;
   padding: 12px 32px;
   background: var(--c-brand);
@@ -1447,53 +1992,7 @@ video.is-grayscale {
   transform: scale(0.97);
 }
 
-/* === Mode-aware pause layer (item 7 + 8) ================================
-   Replaces the old standalone timer chip. Tapping the video/rest media area
-   is the single pause/play gesture (prep → skip; running → pause; paused →
-   resume). When paused, a centered dark-circle overlay with a coral play
-   icon signals "tap to resume". Touch-transparent so swipes still flow to
-   the card-track swipe handler. */
-.media-pause-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;  /* transparent — parent captures tap */
-  z-index: 10;
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-standard);
-}
-.media-pause-overlay.is-visible {
-  opacity: 1;
-}
-.media-pause-overlay .pause-disc {
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.media-pause-overlay .pause-disc svg {
-  width: 42px;
-  height: 42px;
-  color: var(--c-brand);
-  fill: var(--c-brand);
-  stroke: none;
-}
-.media-pause-overlay .pause-disc .pause-icon-play {
-  margin-left: 4px;  /* optical centering for play triangle */
-}
-
-/* === Prep countdown overlay (item 15) ===================================
-   Big orange number (15..1) centered on the media area during the prep
-   phase. 180pt coral, touch-transparent so the tap-to-skip gesture falls
-   through to the media container. Fades out over the last 200ms of its
-   second as the digit changes, giving a heartbeat pulse. */
+/* === Prep countdown overlay ====================================== */
 .prep-overlay {
   position: absolute;
   inset: 0;
@@ -1503,6 +2002,7 @@ video.is-grayscale {
   pointer-events: none;
   z-index: 11;
   color: var(--c-brand);
+  background: rgba(0, 0, 0, 0.28);
 }
 .prep-overlay[hidden] { display: none; }
 .prep-overlay-number {
@@ -1512,7 +2012,6 @@ video.is-grayscale {
   line-height: 1;
   letter-spacing: -8px;
   text-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
-  /* fade-out animates the last ~200ms of each second via JS-applied class. */
   opacity: 1;
   transition: opacity 200ms var(--ease-standard);
   /* Stack above the Hero poster so the digit is always legible. */
@@ -1538,32 +2037,23 @@ video.is-grayscale {
 
 /* Smaller digit on narrow viewports. */
 @media (max-width: 420px) {
-  .prep-overlay-number { font-size: 140px; letter-spacing: -6px; }
+  .prep-overlay-number,
+  .rest-countdown-number { font-size: 140px; letter-spacing: -6px; }
 }
 
-/* === Flashing token (item 15) ===========================================
-   During prep, the ETA widget's current-slide number AND the active pill
-   in the matrix pulse in sync (opacity 1 → 0.4 → 1 over 600ms). Driven by
-   JS adding the .is-prep-flashing class to the relevant elements. */
+/* === Flashing token ==============================================
+   During prep, the ETA's current-slide number + the active pill
+   pulse in sync. */
 @keyframes prep-flash {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.4; }
 }
-.matrix-eta-current.is-prep-flashing,
 .pill.is-active.is-prep-flashing {
   animation: prep-flash 600ms ease-in-out infinite;
 }
-/* Pause keyframes so the flash isn't confused by the active-pill's own pulse. */
 .pill.is-active.is-prep-flashing { animation-name: prep-flash; }
 
-/* === Homefit logo (item 10) =============================================
-   Replaces the old Pulse Mark heartbeat in the footer. Renders:
-     • 2-exercise circuit × 2 rounds (2 cols × 2 rows of coral pills inside
-       a 15% coral tint band)
-     • 1 standalone exercise (single coral pill, top row of col 3)
-     • 1 sage rest (single sage pill, top row of col 4)
-   Plus a rail entry stub and exit stub terminus, so the glyph reads as a
-   mini-plan. Rendered proportionally via inline SVG. */
+/* === Homefit logo ================================================ */
 .homefit-logo {
   width: 64px;
   height: 28px;
@@ -1576,6 +2066,122 @@ video.is-grayscale {
   font-size: 13px;
   letter-spacing: -0.2px;
   color: var(--c-ink-secondary);
+}
+
+/* === Fullscreen / ambient mode ===================================
+   When the viewport enters fullscreen (document.fullscreenElement is
+   the root html element), JS adds `is-fullscreen` to <body>. In that
+   state:
+     • Only the plan-bar (session title + client name) and the footer
+       hide entirely. The scoreboard — workout-timeline-bar,
+       progress-matrix, and single-line active-slide-title — stays
+       visible so the client can glance at circuit position + remaining
+       time during the workout.
+     • Every coral overlay drops to ~30% alpha (mute, fullscreen,
+       chevrons, notes, pause disc) — ambient, not attention-hungry.
+     • Adding `chrome-visible` on a brief tap pops them to 100% alpha
+       for 3 seconds. See handleAmbientReveal() in app.js.
+     • The fullscreen toggle itself stays at 100% alpha throughout
+       (you need a way out).
+*/
+/* Defensive scroll lock for faux-fullscreen fallback on iPhone Safari
+   (where Element.requestFullscreen is undefined). app.js also toggles the
+   inline style on <html>/<body> for the faux path; this rule backs that
+   up in case a future refactor forgets, and kills rubber-band scroll. */
+body.is-fullscreen {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+body.is-fullscreen #app {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+body.is-fullscreen .plan-bar {
+  display: none !important;
+}
+
+/* Fullscreen: keep the "powered by homefit.studio" mark visible but
+   overlay it on the video bottom rather than reserving layout space. */
+body.is-fullscreen .footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  pointer-events: none;
+  /* Subtle gradient scrim so the wordmark is legible over bright video
+     content without leaning on a hard bar. Darkens only the bottom 80px. */
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.65) 0%, rgba(0, 0, 0, 0.35) 60%, transparent 100%);
+  opacity: 0.85;
+  transition: opacity 220ms var(--ease-standard);
+}
+body.is-fullscreen.chrome-visible .footer {
+  opacity: 1;
+}
+
+/* Fullscreen: drop the 32px max-width cap AND weight each pill by its
+   estimated duration so the matrix reads as a proportional Gantt strip —
+   a 60s exercise is twice as wide as a 30s rest. `--pill-weight` is set
+   inline on each .matrix-col by buildProgressMatrix(); circuit blocks
+   use `--circuit-weight` = Σ exercise durations of one round. Outside
+   fullscreen the existing `flex: 1 1 0` / `flex: var(--circuit-cols)`
+   rules win so short plans still render as equal-width pills. */
+body.is-fullscreen .matrix-col {
+  flex: var(--pill-weight, 1) 1 0;
+  min-width: 12px;
+  max-width: none;
+}
+body.is-fullscreen .matrix-circuit {
+  flex: var(--circuit-weight, var(--circuit-cols, 1)) 1 0;
+  min-width: calc(12px * var(--circuit-cols, 1) + 4px * (var(--circuit-cols, 1) - 1));
+  max-width: none;
+}
+/* Fullscreen also weights pills WITHIN a circuit row by duration. --row-
+   template-fs is an inline custom property set per-row by app.js (e.g.
+   "30fr 90fr 45fr"). Non-fullscreen keeps the default equal-fr template. */
+body.is-fullscreen .matrix-circuit-row {
+  grid-template-columns: var(--row-template-fs);
+}
+
+/* Ambient-fullscreen chrome dimming retired (Carl 2026-04-24).
+   The chrome buttons sit on a translucent dark background already —
+   fading them further to 30% made them feel like they were greyed-
+   out controls. They now stay at 100% opacity in all states; the
+   dark-pill background is enough to keep them subtle. */
+
+/* Popover stays 100% alpha while open — if the user opened it in
+   ambient fullscreen, we don't want to fade their UI out from under them. */
+body.is-fullscreen .settings-popover[data-open="true"] {
+  opacity: 1;
+}
+
+/* Disabled prev stays at ambient 15% in fullscreen even on reveal —
+   no sense lighting up something that does nothing. */
+body.is-fullscreen .edge-nav:disabled {
+  opacity: 0.15;
+}
+
+/* Fullscreen + playpause toggles are always 100% alpha so the user
+   can always exit fullscreen / pause the workout. */
+body.is-fullscreen .fullscreen-toggle,
+body.is-fullscreen .playpause-toggle {
+  opacity: 1;
+}
+
+/* === Responsive adjustments ====================================== */
+@media (min-width: 480px) {
+  .plan-bar {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+  .workout-timeline-bar {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+  .active-slide-header {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
 }
 
 /* Desktop: constrain to phone-like width */
@@ -1595,7 +2201,6 @@ video.is-grayscale {
     background: var(--c-surface-bg);
     border: 1px solid var(--c-surface-border);
     border-radius: var(--radius-xl);
-    /* D-07: flat phone-frame on desktop — hairline border, no shadow. */
     overflow: hidden;
     position: relative;
   }
@@ -1609,4 +2214,372 @@ video.is-grayscale {
   .workout-complete {
     position: absolute;
   }
+
+  /* Fullscreen on desktop: drop the phone frame + fill the viewport. */
+  body.is-fullscreen #app {
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    border: 0;
+  }
+}
+
+/* === Landscape orientation (Wave 28) ==============================
+   Slim every horizontal row that lives above the card viewport so the
+   hero region keeps its share of the canvas, and reflow the right-edge
+   chrome stack to suit the wider, shorter shape. The portrait branch
+   above stays untouched — every rule below only applies when the
+   visual viewport is wider than it is tall.
+
+   Keeps the desktop phone-frame (≥640px portrait) intact: the
+   `(max-aspect-ratio: 1/1)` + (orientation: landscape) intersection
+   below targets phones rotated landscape. Desktop landscape browsers
+   are wide-enough that the existing portrait styles still feel right
+   inside the 430×932 frame.
+*/
+@media (orientation: landscape) and (max-height: 540px) {
+  /* Slim plan-bar — ~28px tall vs the portrait 14+6 padding chunk. */
+  .plan-bar {
+    padding: 4px 16px 2px;
+  }
+  .plan-title {
+    font-size: 15px;
+    line-height: 1.15;
+  }
+  .header-client {
+    font-size: 11px;
+  }
+
+  /* Active-slide header: compact pill above the matrix. Same content,
+     tighter padding + smaller font so it shares vertical real estate. */
+  .active-slide-header {
+    padding: 2px 16px 4px;
+  }
+  .active-slide-title {
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  /* Workout timeline strip: keep horizontal, halve vertical padding. */
+  .workout-timeline-bar {
+    padding: 1px 12px 2px;
+    font-size: 10px;
+  }
+  .workout-timeline-total {
+    font-size: 11px;
+  }
+
+  /* Progress matrix: shrink the inner padding + drop the bottom margin
+     so the matrix hugs the timeline strip. The wider canvas means more
+     pills fit per row visually; we let the existing flex-distribute
+     logic do the layout, just give it a slimmer band. */
+  .progress-matrix {
+    margin: 1px 0 2px;
+  }
+  .progress-matrix-inner {
+    padding: 1px 12px;
+    gap: 6px;
+  }
+  /* Pills can be a touch shorter — visual cap mirrors the new tier. */
+  .matrix-col {
+    max-width: 40px;
+  }
+
+  /* Card viewport gets every spare pixel — no max-height, no padding. */
+  .card-viewport {
+    padding: 0;
+  }
+
+  /* Edge chevrons stay mid-vertical-edge; pull them in slightly so they
+     don't compete with the right-edge chrome stack on the slimmer band. */
+  .edge-nav {
+    width: 44px;
+    height: 60px;
+  }
+  .edge-nav--prev { left: 4px; }
+  .edge-nav--next { right: 4px; }
+  .card-viewport.has-rep-stack .edge-nav--prev {
+    left: 56px;
+  }
+
+  /* Right-edge chrome: tighten the stack so it doesn't letterbox into
+     the card area on the shorter canvas. Wave 42 retired the standalone
+     mute speaker — gear panel is the only mute entry point now. */
+  .playpause-toggle,
+  .fullscreen-toggle,
+  .settings-toggle {
+    width: 36px;
+    height: 36px;
+  }
+  .playpause-toggle {
+    top: 8px;
+    right: 8px;
+  }
+  .fullscreen-toggle {
+    top: 50px;
+    right: 8px;
+  }
+  .settings-toggle {
+    top: 92px;
+    right: 8px;
+  }
+
+  /* Settings popover: anchor as a popover (not a near-full-bottom-sheet).
+     The wider canvas would otherwise leave the popover marooned in the
+     lower-right corner. Keep its anchor under the gear button + cap the
+     width so it sits as a proper floating card. */
+  .settings-popover {
+    top: 134px;
+    right: 8px;
+    min-width: 280px;
+    max-width: 360px;
+    padding: 10px 14px;
+  }
+
+  /* Body focus pill (mobile inline preview chrome) — kept from
+     colliding with the mute pill on the slimmer canvas. The pill lives
+     above the mute button at bottom-left in the mobile preview path;
+     match the tighter mute coords. */
+  .body-focus-pill {
+    bottom: 56px;
+    left: 8px;
+  }
+
+  /* Footer: thin band so the card viewport keeps its share. */
+  .footer {
+    padding: 2px 16px 4px;
+  }
+  .footer-version {
+    font-size: 8px;
+  }
+
+  /* Maximise pill — landscape pre-workout only on the LIVE web surface.
+     The body-class guards hide it once the workout starts (Start Workout
+     already requests fullscreen), when fullscreen is already active, OR
+     when the bundle is loaded inside the mobile-preview WebView (the
+     pill is purely an iOS-Safari-chrome workaround for client viewers
+     and has no business in practitioner-side preview). */
+  body:not(.is-workout-mode):not(.is-fullscreen):not(.is-local-preview) .landscape-maximise-pill {
+    display: inline-flex;
+    position: fixed;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    z-index: 50;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border: 1px solid rgba(255, 107, 53, 0.55);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.78);
+    color: var(--c-brand);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+    transition: background 150ms ease, transform 100ms ease;
+  }
+  body:not(.is-workout-mode):not(.is-fullscreen):not(.is-local-preview) .landscape-maximise-pill:hover {
+    background: rgba(0, 0, 0, 0.92);
+  }
+  body:not(.is-workout-mode):not(.is-fullscreen):not(.is-local-preview) .landscape-maximise-pill:active {
+    transform: translateY(-50%) scale(0.96);
+  }
+  body:not(.is-workout-mode):not(.is-fullscreen):not(.is-local-preview) .landscape-maximise-pill svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+  }
+}
+
+/* Landscape exercise-card aspect-ratio handling (Wave 28).
+   The card-viewport itself is always full-bleed; the per-exercise
+   aspect ratio drives whether the source video fills the card or
+   letterboxes inside it.
+
+     • aspect-ratio > 1 (landscape source) — let object-fit: contain
+       letterbox top/bottom on a portrait viewport, but on a landscape
+       viewport the source already matches the canvas shape, so the
+       contain rule effectively fills.
+
+     • aspect-ratio < 1 (portrait source) — object-fit: contain
+       letterboxes left/right on a landscape viewport. The pillarbox
+       background is the same #0A0C12 that .card-media already paints.
+
+   No new layout rules required: the existing .card-media + video /
+   img object-fit: contain pair handles both cases correctly. The
+   `--exercise-aspect-ratio` custom property is set on each card for
+   future use (preload sizing, OG card generation) — readable via
+   getComputedStyle without round-tripping through the video metadata
+   event.
+*/
+
+/* ================================================================
+   Wave 17 — Analytics consent banner
+   ================================================================ */
+
+.analytics-consent-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  transform: translateY(-100%);
+  transition: transform var(--dur-slow) var(--ease-emphasized);
+  pointer-events: none;
+}
+
+.analytics-consent-banner.is-visible {
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.analytics-consent-inner {
+  background: var(--c-surface-raised);
+  border-bottom: 2px solid var(--c-brand);
+  padding: 20px 24px 16px;
+  text-align: center;
+  max-width: 480px;
+  margin: 0 auto;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.analytics-consent-title {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--c-ink-primary);
+  margin-bottom: 6px;
+}
+
+.analytics-consent-body {
+  font-family: var(--f-body);
+  font-size: 13px;
+  color: var(--c-ink-secondary);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.analytics-consent-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.analytics-consent-btn {
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-standard);
+}
+
+.analytics-consent-decline {
+  background: transparent;
+  color: var(--c-ink-secondary);
+  border: 1px solid var(--c-surface-border);
+}
+
+.analytics-consent-decline:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--c-ink-muted);
+}
+
+.analytics-consent-accept {
+  background: var(--c-brand);
+  color: #fff;
+}
+
+.analytics-consent-accept:hover {
+  background: var(--c-brand-dark);
+}
+
+.analytics-consent-link {
+  display: inline-block;
+  font-family: var(--f-body);
+  font-size: 12px;
+  color: var(--c-ink-muted);
+  text-decoration: none;
+  transition: color var(--dur-fast);
+}
+
+.analytics-consent-link:hover {
+  color: var(--c-brand);
+}
+
+/* Wave 17 — Completion CTA */
+
+.analytics-completion-cta {
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+.analytics-cta-link {
+  display: inline-block;
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-brand);
+  text-decoration: none;
+  padding: 8px 16px;
+  border: 1px solid var(--c-brand-tint-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-brand-tint-bg);
+  transition: all var(--dur-fast) var(--ease-standard);
+}
+
+.analytics-cta-link:hover {
+  background: rgba(255, 107, 53, 0.20);
+  border-color: var(--c-brand);
+}
+
+/* ── Reduced motion a11y ─────────────────────────────────────── */
+/* Disables all animations (pill pulse, prep flash, breather fade,
+   completion glow, rep-stack pulse) for motion-sensitive users
+   while preserving functional state changes. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Error retry button ──────────────────────────────────────── */
+.error-retry-btn {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 10px 28px;
+  font: var(--t-label-lg);
+  color: var(--c-ink-primary);
+  background: var(--c-brand);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.error-retry-btn:hover {
+  background: var(--c-brand-dark);
+}
+
+/* ── Video refresh indicator (URL expiry retry) ──────────────── */
+.video-refresh-indicator {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font: var(--t-label-sm);
+  color: var(--c-ink-secondary);
+  background: rgba(15, 17, 23, 0.75);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  z-index: 20;
 }

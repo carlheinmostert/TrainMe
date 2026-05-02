@@ -3,17 +3,18 @@ import 'package:flutter/services.dart';
 
 import '../models/exercise_set.dart';
 import '../theme.dart';
+import 'inline_editable_text.dart';
 import 'preset_chip_row.dart';
 import 'undo_snackbar.dart';
 import 'weight_slider.dart';
 
 /// The cell currently being edited (none = collapsed table).
-enum _DoseEditorTarget { reps, hold, weight, breather }
+enum _PlanEditorTarget { reps, hold, weight, breather }
 
-/// DOSE table — per-set editor for the Wave: per-set DOSE relational
+/// PLAN table — per-set editor for the Wave: per-set PLAN relational
 /// model. Renders [ExerciseSet] rows with `Set / Reps / Hold / Weight /
 /// Breather` columns; each cell drops an inline editor below its row
-/// when tapped. Mirrors `docs/design/mockups/exercise-card-dose-table.html`.
+/// when tapped. Mirrors `docs/design/mockups/exercise-card-plan-table.html`.
 ///
 /// Drag-to-reorder uses [ReorderableListView]; the row body lays out
 /// like a table via fixed column flex. Swipe-delete uses [Dismissible]
@@ -24,7 +25,7 @@ enum _DoseEditorTarget { reps, hold, weight, breather }
 /// non-shrink-wrapped — wrap me in a bounded-height container if you
 /// hit "unbounded constraints". The host `ExerciseEditorSheet` provides
 /// that container via the sheet body's `SingleChildScrollView`.
-class DoseTable extends StatefulWidget {
+class PlanTable extends StatefulWidget {
   /// Current set list. The widget renders rows in list order; [position]
   /// values are recomputed on every save (1-based).
   final List<ExerciseSet> sets;
@@ -39,7 +40,7 @@ class DoseTable extends StatefulWidget {
   /// as "won't play" ghost-skip.
   final int? circuitCycles;
 
-  const DoseTable({
+  const PlanTable({
     super.key,
     required this.sets,
     required this.onSetsChanged,
@@ -47,13 +48,13 @@ class DoseTable extends StatefulWidget {
   });
 
   @override
-  State<DoseTable> createState() => _DoseTableState();
+  State<PlanTable> createState() => _PlanTableState();
 }
 
-class _DoseTableState extends State<DoseTable> {
+class _PlanTableState extends State<PlanTable> {
   /// Index of the row currently expanded for editing, or null.
   int? _activeRowIndex;
-  _DoseEditorTarget? _activeTarget;
+  _PlanEditorTarget? _activeTarget;
 
   @override
   Widget build(BuildContext context) {
@@ -166,8 +167,12 @@ class _DoseTableState extends State<DoseTable> {
       color: AppColors.textSecondaryOnDark,
       letterSpacing: 0.6,
     );
+    // Horizontal padding 4 (not 8) to match the row's
+    // EdgeInsets.symmetric(horizontal: 4) below — keeps every header cell
+    // aligned with its value cell. With 8/4 they drifted by ~2pt per
+    // column and the BREATHER header wrapped on iOS Dynamic Type ≥ 1.1×.
     return Container(
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+      padding: const EdgeInsets.fromLTRB(4, 6, 4, 8),
       decoration: const BoxDecoration(
         border: Border(
           bottom: BorderSide(color: AppColors.surfaceBorder, width: 1),
@@ -178,27 +183,47 @@ class _DoseTableState extends State<DoseTable> {
           SizedBox(
             width: 36,
             child: Text('SET',
-                textAlign: TextAlign.center, style: headerStyle),
+                textAlign: TextAlign.center,
+                style: headerStyle,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade),
           ),
           Expanded(
             flex: 2,
             child: Text('REPS',
-                textAlign: TextAlign.center, style: headerStyle),
+                textAlign: TextAlign.center,
+                style: headerStyle,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade),
           ),
           Expanded(
             flex: 3,
             child: Text('HOLD',
-                textAlign: TextAlign.center, style: headerStyle),
+                textAlign: TextAlign.center,
+                style: headerStyle,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade),
           ),
           Expanded(
             flex: 3,
             child: Text('WEIGHT',
-                textAlign: TextAlign.center, style: headerStyle),
+                textAlign: TextAlign.center,
+                style: headerStyle,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade),
           ),
           Expanded(
             flex: 3,
             child: Text('BREATHER',
-                textAlign: TextAlign.center, style: headerStyle),
+                textAlign: TextAlign.center,
+                style: headerStyle,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.fade),
           ),
           SizedBox(width: 28),
         ],
@@ -213,12 +238,12 @@ class _DoseTableState extends State<DoseTable> {
   Widget _buildRow(int index, ExerciseSet set, {required bool isGhostSkip}) {
     final isActiveRow = _activeRowIndex == index;
     return Column(
-      key: ValueKey('dose-row-${set.id}'),
+      key: ValueKey('plan-row-${set.id}'),
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Dismissible(
-          key: ValueKey('dose-dismiss-${set.id}'),
+          key: ValueKey('plan-dismiss-${set.id}'),
           direction: DismissDirection.endToStart,
           background: Container(
             color: AppColors.error,
@@ -264,10 +289,10 @@ class _DoseTableState extends State<DoseTable> {
                       label: '${set.reps}',
                       unit: null,
                       isActive: isActiveRow &&
-                          _activeTarget == _DoseEditorTarget.reps,
+                          _activeTarget == _PlanEditorTarget.reps,
                       isGhost: isGhostSkip,
                       onTap: () =>
-                          _toggleEditor(index, _DoseEditorTarget.reps),
+                          _toggleEditor(index, _PlanEditorTarget.reps),
                     ),
                   ),
                   Expanded(
@@ -279,10 +304,10 @@ class _DoseTableState extends State<DoseTable> {
                       unit: set.holdSeconds == 0 ? null : 's',
                       isNa: set.holdSeconds == 0,
                       isActive: isActiveRow &&
-                          _activeTarget == _DoseEditorTarget.hold,
+                          _activeTarget == _PlanEditorTarget.hold,
                       isGhost: isGhostSkip,
                       onTap: () =>
-                          _toggleEditor(index, _DoseEditorTarget.hold),
+                          _toggleEditor(index, _PlanEditorTarget.hold),
                     ),
                   ),
                   Expanded(
@@ -294,10 +319,10 @@ class _DoseTableState extends State<DoseTable> {
                       unit: set.weightKg == null ? null : 'kg',
                       isNa: set.weightKg == null,
                       isActive: isActiveRow &&
-                          _activeTarget == _DoseEditorTarget.weight,
+                          _activeTarget == _PlanEditorTarget.weight,
                       isGhost: isGhostSkip,
                       onTap: () =>
-                          _toggleEditor(index, _DoseEditorTarget.weight),
+                          _toggleEditor(index, _PlanEditorTarget.weight),
                     ),
                   ),
                   Expanded(
@@ -306,10 +331,10 @@ class _DoseTableState extends State<DoseTable> {
                       label: '${set.breatherSecondsAfter}',
                       unit: 's',
                       isActive: isActiveRow &&
-                          _activeTarget == _DoseEditorTarget.breather,
+                          _activeTarget == _PlanEditorTarget.breather,
                       isGhost: isGhostSkip,
                       onTap: () =>
-                          _toggleEditor(index, _DoseEditorTarget.breather),
+                          _toggleEditor(index, _PlanEditorTarget.breather),
                     ),
                   ),
                   // Drag handle — long-press to reorder.
@@ -381,8 +406,13 @@ class _DoseTableState extends State<DoseTable> {
       onTap: isGhost ? null : onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+        // Margin removed (was horizontal: 4) and padding tightened (was
+        // horizontal: 6) to recover ~12pt of cell width — fractional
+        // weights "100.5" / "197.5" were ellipsizing inside the WEIGHT
+        // cell because margin + padding ate ~20pt before the value's
+        // 37pt glyph budget could land. Cells now sit edge-to-edge with
+        // a thin inner padding and the active border still stands out.
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
         decoration: BoxDecoration(
           color: isActive
               ? AppColors.brandTintBg
@@ -402,19 +432,35 @@ class _DoseTableState extends State<DoseTable> {
           textBaseline: TextBaseline.alphabetic,
           children: [
             Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'JetBrainsMono',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                  fontStyle: isGhost ? FontStyle.italic : FontStyle.normal,
-                ),
-              ),
+              child: isGhost
+                  ? Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: 'JetBrainsMono',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: color,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    )
+                  : DashedUnderline(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'JetBrainsMono',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: color,
+                          fontStyle: FontStyle.normal,
+                        ),
+                      ),
+                    ),
             ),
             if (unit != null && !isNa) ...[
               const SizedBox(width: 3),
@@ -464,96 +510,65 @@ class _DoseTableState extends State<DoseTable> {
         ),
       ),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildEditorEyebrow(target, set.position),
-          const SizedBox(height: 8),
-          if (target == _DoseEditorTarget.reps)
-            PresetChipRow(
-              controlKey: 'reps',
-              canonicalPresets: const <num>[5, 8, 10, 12, 15],
-              currentValue: set.reps,
-              accentColor: AppColors.primary,
-              undoLabel: 'reps',
-              scrollable: false,
-              onChanged: (v) => _commitReps(index, v.round()),
-            ),
-          if (target == _DoseEditorTarget.hold)
-            PresetChipRow(
-              controlKey: 'hold',
-              canonicalPresets: const <num>[0, 5, 10, 30, 60],
-              currentValue: set.holdSeconds,
-              accentColor: AppColors.primary,
-              displayFormat: (v) => v == 0 ? 'Off' : '${v.toInt()}s',
-              undoLabel: 'hold',
-              scrollable: false,
-              onChanged: (v) => _commitHold(index, v.round()),
-            ),
-          if (target == _DoseEditorTarget.weight)
-            WeightSlider(
-              valueKg: set.weightKg,
-              onChanged: (v) => _commitWeight(index, v),
-            ),
-          if (target == _DoseEditorTarget.breather)
-            PresetChipRow(
-              controlKey: 'breather',
-              canonicalPresets: const <num>[15, 30, 45, 60, 90, 120],
-              currentValue: set.breatherSecondsAfter,
-              accentColor: AppColors.rest,
-              displayFormat: (v) => '${v.toInt()}s',
-              undoLabel: 'breather',
-              scrollable: false,
-              onChanged: (v) => _commitBreather(index, v.round()),
-            ),
-        ],
-      ),
+      // Eyebrow label + hint removed — pills speak for themselves and the
+      // user dismisses by tapping a value (the chip-row callbacks now also
+      // collapse the editor) or tapping a different cell.
+      child: switch (target) {
+        _PlanEditorTarget.reps => PresetChipRow(
+            controlKey: 'reps',
+            canonicalPresets: const <num>[5, 8, 10, 12, 15],
+            currentValue: set.reps,
+            accentColor: AppColors.primary,
+            undoLabel: 'reps',
+            scrollable: false,
+            onChanged: (v) {
+              _commitReps(index, v.round());
+              _closeEditor();
+            },
+          ),
+        _PlanEditorTarget.hold => PresetChipRow(
+            controlKey: 'hold',
+            canonicalPresets: const <num>[0, 5, 10, 30, 60],
+            currentValue: set.holdSeconds,
+            accentColor: AppColors.primary,
+            displayFormat: (v) => v == 0 ? 'Off' : '${v.toInt()}s',
+            undoLabel: 'hold',
+            scrollable: false,
+            onChanged: (v) {
+              _commitHold(index, v.round());
+              _closeEditor();
+            },
+          ),
+        // Weight is a continuous slider. onCommit fires on drag-end or
+        // tap-to-position (Slider.onChangeEnd) so the editor block
+        // dismisses on commit, matching the chip-row pills above.
+        _PlanEditorTarget.weight => WeightSlider(
+            valueKg: set.weightKg,
+            onChanged: (v) => _commitWeight(index, v),
+            onCommit: _closeEditor,
+          ),
+        _PlanEditorTarget.breather => PresetChipRow(
+            controlKey: 'breather',
+            canonicalPresets: const <num>[15, 30, 45, 60, 90, 120],
+            currentValue: set.breatherSecondsAfter,
+            accentColor: AppColors.rest,
+            displayFormat: (v) => '${v.toInt()}s',
+            undoLabel: 'breather',
+            scrollable: false,
+            onChanged: (v) {
+              _commitBreather(index, v.round());
+              _closeEditor();
+            },
+          ),
+      },
     );
   }
 
-  Widget _buildEditorEyebrow(_DoseEditorTarget target, int position) {
-    final label = switch (target) {
-      _DoseEditorTarget.reps => 'Reps · set $position',
-      _DoseEditorTarget.hold => 'Hold · set $position',
-      _DoseEditorTarget.weight => 'Weight · set $position',
-      _DoseEditorTarget.breather => 'Breather · after set $position',
-    };
-    final hint = switch (target) {
-      _DoseEditorTarget.reps => 'tap a value, or re-tap to dismiss',
-      _DoseEditorTarget.hold => 'duration of the held position',
-      _DoseEditorTarget.weight => 'snaps to 2.5 kg steps · 0–200 kg',
-      _DoseEditorTarget.breather => 'rest before the next set',
-    };
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: AppColors.primary,
-            letterSpacing: 0.6,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Flexible(
-          child: Text(
-            hint,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textSecondaryOnDark,
-              letterSpacing: 0.3,
-            ),
-          ),
-        ),
-      ],
-    );
+  void _closeEditor() {
+    setState(() {
+      _activeRowIndex = null;
+      _activeTarget = null;
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -727,7 +742,7 @@ class _DoseTableState extends State<DoseTable> {
   // Mutations
   // ---------------------------------------------------------------------------
 
-  void _toggleEditor(int index, _DoseEditorTarget target) {
+  void _toggleEditor(int index, _PlanEditorTarget target) {
     HapticFeedback.selectionClick();
     setState(() {
       if (_activeRowIndex == index && _activeTarget == target) {

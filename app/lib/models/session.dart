@@ -408,7 +408,7 @@ class Session {
   /// sums one round of each circuit, multiplies by cycles, and adds
   /// inter-round rest.
   ///
-  /// Per-set DOSE wave: standalone exercises route through
+  /// Per-set PLAN wave: standalone exercises route through
   /// [ExerciseCapture.estimatedDurationSeconds] (which sums per-set
   /// internally). Inside a circuit, "one pass" uses the FIRST set only
   /// (cycles replace sets — running 3 cycles of a 1-set exercise feels
@@ -439,7 +439,7 @@ class Session {
             oneRoundSeconds +=
                 ex.restHoldSeconds ?? AppConfig.defaultRestDuration;
           } else if (ex.sets.isNotEmpty) {
-            // Per-set DOSE: inside a circuit pass we count the FIRST
+            // Per-set PLAN: inside a circuit pass we count the FIRST
             // set only (cycles replace per-exercise set count). Breather
             // after that set is the within-pass rest.
             final first = ex.sets.first;

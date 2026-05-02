@@ -122,7 +122,7 @@
     <div class="kicker">2026-04-22 · Wave 18 — Studio visual hygiene pass</div>
     <h1>Device QA — Studio visual hygiene pass (Wave 18)</h1>
     <p class="lede">
-      <strong>Purpose:</strong> verify 10 locked-spec UI refinements that together re-shape Studio into a calmer, single-source-of-truth surface. Biggest pieces: the new <code>StudioToolbar</code> that unifies Import/Preview/Publish/Share (with coral triangles echoing the state of the adjacent icon), exercise-card section groups <strong>PLAYBACK / DOSE / PACING / NOTES</strong>, preset chip rows replacing the three Reps/Sets/Hold sliders + the Rest sage slider, practitioner-wide custom-preset memory (SharedPreferences, MRU cap 3), and the storage-level <code>saveExercise</code> stamp that closes the long-running publish-dirty regression from Camera-mode captures.
+      <strong>Purpose:</strong> verify 10 locked-spec UI refinements that together re-shape Studio into a calmer, single-source-of-truth surface. Biggest pieces: the new <code>StudioToolbar</code> that unifies Import/Preview/Publish/Share (with coral triangles echoing the state of the adjacent icon), exercise-card section groups <strong>PLAYBACK / PLAN / PACING / NOTES</strong>, preset chip rows replacing the three Reps/Sets/Hold sliders + the Rest sage slider, practitioner-wide custom-preset memory (SharedPreferences, MRU cap 3), and the storage-level <code>saveExercise</code> stamp that closes the long-running publish-dirty regression from Camera-mode captures.
       <br><br>
       <strong>In scope:</strong> mobile-only. Client detail header loses the session count; SessionCard loses Publish + Share; Studio toolbar gains them; exercise card dividers replaced with labelled groups; chip rows; MediaViewer mute persists via <code>includeAudio</code>; MediaViewer dots coral; <code>_StatusDot</code> deleted.
       <br><br>
@@ -199,7 +199,7 @@
       <li data-num="9" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
         <span class="num">9.</span>
-        <span class="text">Tap an exercise card to expand it. The panel shows four labelled groups in 11pt coral uppercase: <strong>PLAYBACK</strong>, <strong>DOSE</strong>, <strong>PACING</strong>, <strong>NOTES</strong>. No more grey <code>Divider(height: 1)</code> rules between sections — whitespace + labels carry the separation.</span>
+        <span class="text">Tap an exercise card to expand it. The panel shows four labelled groups in 11pt coral uppercase: <strong>PLAYBACK</strong>, <strong>PLAN</strong>, <strong>PACING</strong>, <strong>NOTES</strong>. No more grey <code>Divider(height: 1)</code> rules between sections — whitespace + labels carry the separation.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="10" data-status="">
@@ -211,7 +211,7 @@
       <li data-num="11" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
         <span class="num">11.</span>
-        <span class="text">DOSE section: <strong>REPS</strong> shows a horizontal chip row <code>[5][8][10][12][15][Custom]</code>, coral-tinted. <strong>SETS</strong> shows <code>[1][2][3][4][5][Custom]</code> (hidden when the exercise is inside a circuit). <strong>HOLD</strong> shows <code>[Off][5s][10s][30s][60s][Custom]</code>. Each row has the current value on the right of its label.</span>
+        <span class="text">PLAN section: <strong>REPS</strong> shows a horizontal chip row <code>[5][8][10][12][15][Custom]</code>, coral-tinted. <strong>SETS</strong> shows <code>[1][2][3][4][5][Custom]</code> (hidden when the exercise is inside a circuit). <strong>HOLD</strong> shows <code>[Off][5s][10s][30s][60s][Custom]</code>. Each row has the current value on the right of its label.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="12" data-status="">

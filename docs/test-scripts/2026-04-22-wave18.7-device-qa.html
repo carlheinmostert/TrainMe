@@ -143,7 +143,7 @@
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
         <span class="num">1.</span>
-        <span class="text">Open any exercise card, expand DOSE. The <code>[+]</code> tail renders as a <strong>~42pt-wide pill with visible 12pt padding</strong> between the dashed border and the centred <code>+</code> icon. Compare against Wave 18.6: the old pill appeared to have <em>no</em> padding (icon pressed against the border) even though the width was correct. Now the icon floats in the middle with air around it.</span>
+        <span class="text">Open any exercise card, expand PLAN. The <code>[+]</code> tail renders as a <strong>~42pt-wide pill with visible 12pt padding</strong> between the dashed border and the centred <code>+</code> icon. Compare against Wave 18.6: the old pill appeared to have <em>no</em> padding (icon pressed against the border) even though the width was correct. Now the icon floats in the middle with air around it.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="2" data-status="">
@@ -159,13 +159,13 @@
       <li data-num="3" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
         <span class="num">3.</span>
-        <span class="text">Expand an exercise card. Section header <code>DOSE</code> (coral w700 uppercase) reads <strong>visibly at least the same size or slightly larger than</strong> the inner label <code>REPS</code> (grey w600 uppercase). No perceptual inversion. Wave 18.6 had both at 13pt and the coral looked smaller due to contrast penalty; the 1pt bump re-establishes the header as the primary read.</span>
+        <span class="text">Expand an exercise card. Section header <code>PLAN</code> (coral w700 uppercase) reads <strong>visibly at least the same size or slightly larger than</strong> the inner label <code>REPS</code> (grey w600 uppercase). No perceptual inversion. Wave 18.6 had both at 13pt and the coral looked smaller due to contrast penalty; the 1pt bump re-establishes the header as the primary read.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
         <span class="num">4.</span>
-        <span class="text">Section header <strong>summary</strong> (text after the <code>·</code> separator — e.g. "<code>DOSE · 10 reps · 3 sets · 5s hold</code>") stays at 13pt — visibly smaller than the 14pt label. The row reads as label-then-summary cleanly, with the label dominating.</span>
+        <span class="text">Section header <strong>summary</strong> (text after the <code>·</code> separator — e.g. "<code>PLAN · 10 reps · 3 sets · 5s hold</code>") stays at 13pt — visibly smaller than the 14pt label. The row reads as label-then-summary cleanly, with the label dominating.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="5" data-status="">
@@ -267,7 +267,7 @@
     </ul>
 
     <footer>
-      Wave 18.7 closes five items from Wave 18.6 live device QA. Wave 18.1 remains the canonical baseline (run if anything around DOSE / PACING / rest bar feels off). Storage semantics of <code>customDurationSeconds</code> (total = per-rep × reps) unchanged — legacy sessions read through cleanly. The only data-model addition is a new sticky-default key <code>custom_duration_per_rep</code> stored per-client in <code>client_exercise_defaults</code> jsonb; absent on prior captures, seeded on the next Manual commit.
+      Wave 18.7 closes five items from Wave 18.6 live device QA. Wave 18.1 remains the canonical baseline (run if anything around PLAN / PACING / rest bar feels off). Storage semantics of <code>customDurationSeconds</code> (total = per-rep × reps) unchanged — legacy sessions read through cleanly. The only data-model addition is a new sticky-default key <code>custom_duration_per_rep</code> stored per-client in <code>client_exercise_defaults</code> jsonb; absent on prior captures, seeded on the next Manual commit.
     </footer>
   </div>
   <script>

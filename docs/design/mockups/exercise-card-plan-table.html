@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>homefit.studio — exercise card · DOSE table mockup</title>
+  <title>homefit.studio — exercise card · PLAN table mockup</title>
   <style>
     /* ------------------------------------------------------------------ */
     /*  Tokens (mirrored from docs/design/project/tokens.json)            */
@@ -239,9 +239,9 @@
     }
 
     /* ------------------------------------------------------------------ */
-    /*  DOSE TABLE                                                        */
+    /*  PLAN TABLE                                                        */
     /* ------------------------------------------------------------------ */
-    .dose-table {
+    .plan-table {
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
@@ -249,7 +249,7 @@
       font-size: 13px;
     }
 
-    .dose-table thead th {
+    .plan-table thead th {
       font-family: var(--font-body);
       font-size: 10px;
       font-weight: 700;
@@ -262,25 +262,25 @@
       background: transparent;
     }
 
-    .dose-table thead th.col-set    { width: 44px; text-align: center; }
-    .dose-table thead th.col-reps   { width: 14%; text-align: center; }
-    .dose-table thead th.col-hold   { width: 16%; text-align: center; }
-    .dose-table thead th.col-weight { width: 22%; text-align: center; }
-    .dose-table thead th.col-rest   { width: auto; text-align: center; }
+    .plan-table thead th.col-set    { width: 44px; text-align: center; }
+    .plan-table thead th.col-reps   { width: 14%; text-align: center; }
+    .plan-table thead th.col-hold   { width: 16%; text-align: center; }
+    .plan-table thead th.col-weight { width: 22%; text-align: center; }
+    .plan-table thead th.col-rest   { width: auto; text-align: center; }
 
-    .dose-table tbody tr {
+    .plan-table tbody tr {
       transition: background 150ms var(--ease-standard);
     }
 
-    .dose-table tbody td {
+    .plan-table tbody td {
       padding: 10px 8px;
       border-bottom: 1px solid var(--surface-border);
       vertical-align: middle;
     }
 
-    .dose-table tbody tr:last-child td { border-bottom: none; }
+    .plan-table tbody tr:last-child td { border-bottom: none; }
 
-    .dose-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+    .plan-table tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     /* The set-# cell — coral mono pill */
     .set-num {
@@ -868,21 +868,21 @@
     }
 
     /* Ghost row for "last set repeats" rule when cycle count > row count */
-    .dose-table tr.ghost-repeat td {
+    .plan-table tr.ghost-repeat td {
       opacity: 0.45;
       font-style: italic;
       border-left: 2px dashed var(--brand-tint-border);
       pointer-events: none;
     }
 
-    .dose-table tr.ghost-repeat .set-num {
+    .plan-table tr.ghost-repeat .set-num {
       background: transparent;
       border: 1px dashed var(--ink-muted);
       color: var(--ink-muted);
       font-style: italic;
     }
 
-    .dose-table tr.ghost-repeat .cell-tap {
+    .plan-table tr.ghost-repeat .cell-tap {
       background: transparent;
       border-color: transparent;
       color: var(--ink-muted);
@@ -905,7 +905,7 @@
     }
 
     /* Ghost row for "won't play" rule when cycle count < row count */
-    .dose-table tr.ghost-skip td {
+    .plan-table tr.ghost-skip td {
       opacity: 0.4;
       border-left: 2px dashed rgba(255,107,53,0.25);
       pointer-events: none;
@@ -918,14 +918,14 @@
       );
     }
 
-    .dose-table tr.ghost-skip .set-num {
+    .plan-table tr.ghost-skip .set-num {
       background: transparent;
       border: 1px dashed rgba(255,107,53,0.35);
       color: rgba(255,107,53,0.5);
       text-decoration: line-through;
     }
 
-    .dose-table tr.ghost-skip .cell-tap {
+    .plan-table tr.ghost-skip .cell-tap {
       background: transparent;
       border-color: transparent;
       color: var(--ink-muted);
@@ -1256,9 +1256,9 @@
     <!-- ============================================================== -->
     <header class="page-header">
       <div class="eyebrow">homefit.studio · studio · design artifact</div>
-      <h1>Exercise card · DOSE table</h1>
+      <h1>Exercise card · PLAN table</h1>
       <p>
-        Replacement for the chip-row DOSE accordion. A per-set table with Reps / Hold / Weight / Breather
+        Replacement for the chip-row PLAN accordion. A per-set table with Reps / Hold / Weight / Breather
         columns, inline cell editors, weight slider, swipe-to-delete with undo, drag-to-reorder, and matching
         web-player weight grammar. Static mockup — for design development only.
       </p>
@@ -1279,7 +1279,7 @@
 
         <div class="group-header first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">3 × 10 @ 15 kg · 60 s rest</span></div>
+          <div class="label-line">Plan<span class="summary">3 × 10 @ 15 kg · 60 s rest</span></div>
           <div class="coral-dot"></div>
         </div>
       </div>
@@ -1300,7 +1300,7 @@
 
         <div class="group-header first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
+          <div class="label-line">Plan<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
           <div class="coral-dot"></div>
         </div>
       </div>
@@ -1321,7 +1321,7 @@
 
         <div class="group-header first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">3 × 10 · 30 s hold · 60 s rest</span></div>
+          <div class="label-line">Plan<span class="summary">3 × 10 · 30 s hold · 60 s rest</span></div>
           <div class="coral-dot"></div>
         </div>
       </div>
@@ -1342,12 +1342,12 @@
 
         <div class="group-header expanded first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">3 × 10 @ 15 kg · 60 s rest</span></div>
+          <div class="label-line">Plan<span class="summary">3 × 10 @ 15 kg · 60 s rest</span></div>
           <div class="coral-dot"></div>
         </div>
 
         <div class="expanded-body">
-          <table class="dose-table">
+          <table class="plan-table">
             <thead>
               <tr>
                 <th class="col-set">Set</th>
@@ -1406,12 +1406,12 @@
 
         <div class="group-header expanded first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
+          <div class="label-line">Plan<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
           <div class="coral-dot"></div>
         </div>
 
         <div class="expanded-body">
-          <table class="dose-table">
+          <table class="plan-table">
             <thead>
               <tr>
                 <th class="col-set">Set</th>
@@ -1470,12 +1470,12 @@
 
         <div class="group-header expanded first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">3 × 10 @ 15 kg · 60 s rest</span></div>
+          <div class="label-line">Plan<span class="summary">3 × 10 @ 15 kg · 60 s rest</span></div>
           <div class="coral-dot"></div>
         </div>
 
         <div class="expanded-body">
-          <table class="dose-table">
+          <table class="plan-table">
             <thead>
               <tr>
                 <th class="col-set">Set</th>
@@ -1553,12 +1553,12 @@
 
         <div class="group-header expanded first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">30/45/60 s hold · bodyweight</span></div>
+          <div class="label-line">Plan<span class="summary">30/45/60 s hold · bodyweight</span></div>
           <div class="coral-dot"></div>
         </div>
 
         <div class="expanded-body">
-          <table class="dose-table">
+          <table class="plan-table">
             <thead>
               <tr>
                 <th class="col-set">Set</th>
@@ -1636,12 +1636,12 @@
 
         <div class="group-header expanded first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
+          <div class="label-line">Plan<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
           <div class="coral-dot"></div>
         </div>
 
         <div class="expanded-body">
-          <table class="dose-table">
+          <table class="plan-table">
             <thead>
               <tr>
                 <th class="col-set">Set</th>
@@ -1738,12 +1738,12 @@
 
         <div class="group-header expanded first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">3 × 10 @ 15 kg · 45/60/60 s rest</span></div>
+          <div class="label-line">Plan<span class="summary">3 × 10 @ 15 kg · 45/60/60 s rest</span></div>
           <div class="coral-dot"></div>
         </div>
 
         <div class="expanded-body">
-          <table class="dose-table">
+          <table class="plan-table">
             <thead>
               <tr>
                 <th class="col-set">Set</th>
@@ -1822,12 +1822,12 @@
 
         <div class="group-header expanded first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">2 × 8 @ 20 kg · 90 s rest</span></div>
+          <div class="label-line">Plan<span class="summary">2 × 8 @ 20 kg · 90 s rest</span></div>
           <div class="coral-dot"></div>
         </div>
 
         <div class="expanded-body">
-          <table class="dose-table">
+          <table class="plan-table">
             <thead>
               <tr>
                 <th class="col-set">Set</th>
@@ -1880,12 +1880,12 @@
 
         <div class="group-header expanded first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
+          <div class="label-line">Plan<span class="summary">10/8/6 @ 12.5/15/17.5 kg</span></div>
           <div class="coral-dot"></div>
         </div>
 
         <div class="expanded-body">
-          <table class="dose-table">
+          <table class="plan-table">
             <thead>
               <tr>
                 <th class="col-set" style="text-align:left;">⋮</th>
@@ -1960,12 +1960,12 @@
 
         <div class="group-header expanded first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">2 × 10 @ 15 kg · 60 s rest</span></div>
+          <div class="label-line">Plan<span class="summary">2 × 10 @ 15 kg · 60 s rest</span></div>
           <div class="coral-dot"></div>
         </div>
 
         <div class="expanded-body" style="overflow: hidden;">
-          <table class="dose-table">
+          <table class="plan-table">
             <thead>
               <tr>
                 <th class="col-set">Set</th>
@@ -2042,7 +2042,7 @@
 
         <div class="group-header expanded first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">12/10 @ 10/12.5 kg · last set repeats round 3</span></div>
+          <div class="label-line">Plan<span class="summary">12/10 @ 10/12.5 kg · last set repeats round 3</span></div>
           <div class="coral-dot"></div>
         </div>
 
@@ -2055,7 +2055,7 @@
             </div>
           </div>
 
-          <table class="dose-table">
+          <table class="plan-table">
             <thead>
               <tr>
                 <th class="col-set">Set</th>
@@ -2117,7 +2117,7 @@
 
         <div class="group-header expanded first">
           <svg class="chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <div class="label-line">Dose<span class="summary">12/10 @ 10/12.5 kg · set 3 won't play</span></div>
+          <div class="label-line">Plan<span class="summary">12/10 @ 10/12.5 kg · set 3 won't play</span></div>
           <div class="coral-dot"></div>
         </div>
 
@@ -2130,7 +2130,7 @@
             </div>
           </div>
 
-          <table class="dose-table">
+          <table class="plan-table">
             <thead>
               <tr>
                 <th class="col-set">Set</th>
@@ -2312,7 +2312,7 @@
     <!--  Footer                                                        -->
     <!-- ============================================================== -->
     <footer>
-      homefit.studio · exercise-card · DOSE table · static design mockup · tokens mirrored from docs/design/project/tokens.json
+      homefit.studio · exercise-card · PLAN table · static design mockup · tokens mirrored from docs/design/project/tokens.json
     </footer>
   </div>
 

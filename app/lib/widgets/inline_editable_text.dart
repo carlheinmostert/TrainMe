@@ -111,6 +111,28 @@ class _InlineEditableTextState extends State<InlineEditableText> {
   }
 }
 
+/// Wraps [child] in the same dashed underline affordance used by
+/// [InlineEditableText]. Apply anywhere a value will trigger a popup or
+/// pill editor (Plan cells, Settings summaries, rest bar duration).
+class DashedUnderline extends StatelessWidget {
+  final Widget child;
+  final Color color;
+
+  const DashedUnderline({
+    super.key,
+    required this.child,
+    this.color = AppColors.grey500,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _DashedUnderlinePainter(color: color),
+      child: child,
+    );
+  }
+}
+
 /// Dashed underline painter — used for tappable editable names.
 class _DashedUnderlinePainter extends CustomPainter {
   final Color color;

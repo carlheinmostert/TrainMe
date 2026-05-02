@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — Studio card v3 · video flood-fill + translucent chrome</title>
+  <style>
+    :root {
+      --brand-default: #ff6b35;
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --rest: #86efac;
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 24px;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      min-height: 100vh;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 22px;
+      margin: 0 0 4px;
+    }
+    .subtitle {
+      color: var(--ink-secondary);
+      font-size: 13px;
+      margin-bottom: 24px;
+      max-width: 640px;
+      line-height: 1.5;
+    }
+    .panel { max-width: 380px; margin-bottom: 24px; }
+    .panel-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin-bottom: 8px;
+    }
+    /* ============================================================== */
+    /*  Studio card v3 — video flood-fills, content on bottom gradient */
+    /* ============================================================== */
+    .card {
+      position: relative;
+      width: 100%;
+      height: 152px;          /* taller than v1 — gives the video room */
+      border-radius: 16px;
+      overflow: hidden;       /* clips video to the rounded corners */
+      background: #000;       /* fallback while video loads */
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .card.focused {
+      box-shadow: 0 0 0 2px var(--brand-default);
+    }
+    /* Video element — flood-fills the card. No margin. */
+    .video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 380 152'><rect width='380' height='152' fill='%231a1a1a'/><g stroke='%23f0f0f5' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'><circle cx='190' cy='52' r='14'/><line x1='190' y1='66' x2='190' y2='100'/><line x1='190' y1='80' x2='168' y2='96'/><line x1='190' y1='80' x2='212' y2='96'/><line x1='190' y1='100' x2='174' y2='130'/><line x1='190' y1='100' x2='206' y2='130'/></g></svg>");
+      background-size: cover;
+      background-position: center;
+    }
+    /* Bottom-up dark gradient — covers the lower 60% so title +
+       trigger rows are always legible. Top 40% leaves the video clean. */
+    .scrim {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 70%;
+      pointer-events: none;
+      background: linear-gradient(
+        to top,
+        rgba(0, 0, 0, 0.85) 0%,
+        rgba(0, 0, 0, 0.55) 40%,
+        rgba(0, 0, 0, 0.0) 100%
+      );
+    }
+    /* Content overlay — sits on the gradient. Padding 12pt all round. */
+    .content {
+      position: absolute;
+      inset: 0;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+    }
+    /* Top row — gear icon (frosted glass behind it). No title here. */
+    .top-row {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+    }
+    .gear {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      color: var(--ink-primary);
+      cursor: pointer;
+    }
+    .gear svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      stroke-width: 1.7;
+      fill: none;
+    }
+    .gear .customised-dot {
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      border: 1.5px solid #000;
+    }
+    /* Spacer between top and bottom */
+    .spacer { flex: 1; }
+    /* Bottom block — title, plan summary, notes summary */
+    .bottom-block {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.1px;
+      color: var(--ink-primary);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .summary-icon {
+      width: 14px;
+      height: 14px;
+      flex: 0 0 auto;
+      color: var(--ink-secondary);
+    }
+    .summary-icon svg {
+      width: 100%;
+      height: 100%;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .summary-text {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      color: rgba(240, 240, 245, 0.85);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+    .summary-text .num { color: var(--ink-primary); font-weight: 700; }
+    .summary.notes .summary-text { font-family: var(--font-body); font-weight: 500; font-style: italic; }
+
+    /* Rest variant — sage gradient + glyph instead of video */
+    .card.rest .video {
+      background-image: none;
+      background: linear-gradient(135deg,
+        rgba(134, 239, 172, 0.22),
+        rgba(134, 239, 172, 0.06));
+    }
+    .card.rest .scrim {
+      background: linear-gradient(to top,
+        rgba(0, 0, 0, 0.55) 0%,
+        rgba(0, 0, 0, 0.0) 70%);
+    }
+    .card.rest .rest-glyph {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--rest);
+    }
+    .card.rest .rest-glyph svg {
+      width: 32px;
+      height: 32px;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      fill: none;
+      opacity: 0.65;
+    }
+    .card.rest .summary-text { color: var(--rest); }
+
+    /* Stack layout */
+    .stack { display: flex; flex-direction: column; gap: 10px; max-width: 380px; }
+
+    .specs {
+      max-width: 640px;
+      margin-top: 32px;
+      padding: 16px 18px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      font-size: 12px;
+      color: var(--ink-secondary);
+      line-height: 1.7;
+    }
+    .specs h3 {
+      margin: 0 0 8px;
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--ink-primary);
+    }
+    .specs code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: rgba(255, 107, 53, 0.10);
+      padding: 1px 6px;
+      border-radius: 4px;
+      color: var(--brand-default);
+    }
+    .specs ul { margin: 0; padding-left: 18px; }
+    .specs li { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Studio card v3 — flood-fill preview, translucent chrome</h1>
+  <p class="subtitle">
+    The video flood-fills the card (no margin), clipped to the 16pt radius. A bottom-up
+    dark gradient (transparent → 85%) covers the lower 70% so the title + summaries
+    stay legible over any frame. The gear sits top-right inside a frosted-glass circle.
+    No card border or focus uses an outer 2pt coral box-shadow.
+  </p>
+
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-label">Default</div>
+      <div class="card">
+        <div class="video"></div>
+        <div class="scrim"></div>
+        <div class="content">
+          <div class="top-row">
+            <div class="gear">
+              <div class="customised-dot"></div>
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </div>
+          </div>
+          <div class="spacer"></div>
+          <div class="bottom-block">
+            <div class="title">Bulgarian split squat</div>
+            <div class="summary">
+              <div class="summary-icon">
+                <svg viewBox="0 0 24 24"><path d="M6.5 6.5h11M6.5 12h11M6.5 17.5h11"/><circle cx="6.5" cy="6.5" r="1.5"/><circle cx="6.5" cy="12" r="1.5"/><circle cx="6.5" cy="17.5" r="1.5"/></svg>
+              </div>
+              <span class="summary-text">3 sets · <span class="num">10</span> reps · @ <span class="num">15</span>kg · <span class="num">5</span>s</span>
+            </div>
+            <div class="summary notes">
+              <div class="summary-icon">
+                <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </div>
+              <span class="summary-text">Watch for valgus collapse on the left knee…</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-label">Focused (selected)</div>
+      <div class="card focused">
+        <div class="video"></div>
+        <div class="scrim"></div>
+        <div class="content">
+          <div class="top-row">
+            <div class="gear">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+          </div>
+          <div class="spacer"></div>
+          <div class="bottom-block">
+            <div class="title">Goblet squat</div>
+            <div class="summary">
+              <div class="summary-icon">
+                <svg viewBox="0 0 24 24"><path d="M6.5 6.5h11M6.5 12h11M6.5 17.5h11"/><circle cx="6.5" cy="6.5" r="1.5"/><circle cx="6.5" cy="12" r="1.5"/><circle cx="6.5" cy="17.5" r="1.5"/></svg>
+              </div>
+              <span class="summary-text">4 sets · <span class="num">8</span> reps · @ <span class="num">22.5</span>kg</span>
+            </div>
+            <div class="summary notes">
+              <div class="summary-icon">
+                <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </div>
+              <span class="summary-text">Add note…</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-label">Rest period</div>
+      <div class="card rest">
+        <div class="video"></div>
+        <div class="rest-glyph">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 11h6M9 14h6"/></svg>
+        </div>
+        <div class="scrim"></div>
+        <div class="content">
+          <div class="spacer"></div>
+          <div class="bottom-block">
+            <div class="title">Rest</div>
+            <div class="summary">
+              <div class="summary-icon">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
+              </div>
+              <span class="summary-text"><span class="num">60</span>s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="specs">
+    <h3>Spec</h3>
+    <ul>
+      <li>Card: full width × <code>152pt</code> tall, <code>border-radius: 16pt</code>, no border. Focused state = <code>box-shadow: 0 0 0 2px coral</code> (outer ring, doesn't push the video).</li>
+      <li>Video: <code>position: absolute; inset: 0;</code> (= no margin from card outline), <code>object-fit: cover</code>. Same <code>line_drawing</code> source pulled from the converter.</li>
+      <li>Scrim: bottom-up gradient covering the lower 70% of the card. <code>rgba(0,0,0,0.85)</code> at the floor → <code>0.55</code> at 40% → fully transparent at the top. Guarantees title legibility over any frame.</li>
+      <li>Title text + summary text use a soft <code>text-shadow: 0 1px 2px rgba(0,0,0,0.6)</code> as a second-line legibility layer for bright frames.</li>
+      <li>Gear: top-right, <code>32 × 32</code> circle, <code>rgba(0,0,0,0.45)</code> backdrop with <code>blur(6px)</code>. Customised dot = <code>8pt</code> coral with a <code>1.5pt</code> black border so it doesn't bleed into bright frames.</li>
+      <li>Whole card tap → opens editor on Plan (preserves the recent change). Long-press → replace media. Inner taps for gear / plan-row / notes-row keep their own hit zones via Flutter's gesture arena.</li>
+      <li>Rest variant: sage <code>linear-gradient</code> swap-in, big translucent glyph centred. Lighter scrim (no need for legibility layer over a quiet gradient). No video controller.</li>
+      <li>Performance: same single-controller-per-card model. Pause when off-screen (via VisibilityDetector — punt to v2 if too heavy).</li>
+    </ul>
+  </div>
+
+  <div class="specs" style="background: rgba(255, 107, 53, 0.06); border-color: rgba(255, 107, 53, 0.30);">
+    <h3 style="color: var(--brand-default);">Open question</h3>
+    <ul>
+      <li>Card height: shown at <code>152pt</code>. Could go shorter (<code>120pt</code>) for a tighter list or taller (<code>180pt</code>) to give the video more breathing room. <strong>Vote?</strong></li>
+      <li>Title position: shown at the BOTTOM (above the summaries). Could move to the TOP-LEFT instead with the gear top-right. Bottom feels more "movie-poster"; top feels more "metadata-first". <strong>Preference?</strong></li>
+    </ul>
+  </div>
+</body>
+</html>

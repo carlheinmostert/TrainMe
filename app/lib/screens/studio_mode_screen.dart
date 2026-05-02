@@ -14,6 +14,7 @@ import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/conversion_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/media_prefetch_service.dart';
 import '../services/path_resolver.dart';
 import '../services/sticky_defaults.dart';
 import '../services/upload_service.dart';
@@ -27,6 +28,7 @@ import '../widgets/client_consent_sheet.dart';
 import '../widgets/download_original_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/inline_action_tray.dart';
+import '../widgets/inline_editable_text.dart';
 import '../widgets/preset_chip_row.dart';
 import '../widgets/session_expired_banner.dart';
 import '../widgets/shell_pull_tab.dart';
@@ -75,7 +77,10 @@ class StudioModeScreen extends StatefulWidget {
 }
 
 class _StudioModeScreenState extends State<StudioModeScreen>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
+    with
+        SingleTickerProviderStateMixin,
+        WidgetsBindingObserver,
+        AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
   late Session _session;
@@ -173,7 +178,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// phone is backgrounded.
   Timer? _analyticsPollTimer;
 
-
   @override
   void initState() {
     super.initState();
@@ -195,6 +199,23 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     _scrollController.addListener(_onReachabilityScroll);
     // Wave 17 — fetch plan analytics for published plans.
     unawaited(_fetchPlanAnalytics());
+    // Lazy line-drawing prefetch — pulls public media-bucket files for
+    // any exercise on this session that's cloud-only (fresh sandbox /
+    // app reinstall). Fire-and-forget; per-card spinner overlays
+    // surface progress via MediaPrefetchService.statusFor. On each
+    // successful download we re-read the session from SQLite so the
+    // MiniPreview picks up the freshly-stamped `convertedFilePath`
+    // and the missing-media banner clears.
+    unawaited(
+      MediaPrefetchService.instance.prefetchSession(
+        _session,
+        storage: widget.storage,
+        onExerciseDownloaded: (_) {
+          if (!mounted) return;
+          unawaited(_refreshSession());
+        },
+      ),
+    );
     // Poll plan analytics while the screen is mounted so the
     // practitioner sees fresh open / completion stats without leaving
     // the screen. `_fetchPlanAnalytics` is fire-and-forget and
@@ -210,8 +231,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// without the stats bar). Called once on init.
   Future<void> _fetchPlanAnalytics() async {
     if (!_session.isPublished) return;
-    final summary =
-        await ApiClient.instance.getPlanAnalyticsSummary(_session.id);
+    final summary = await ApiClient.instance.getPlanAnalyticsSummary(
+      _session.id,
+    );
     if (!context.mounted) return;
     if (summary != null) {
       setState(() => _planAnalytics = summary);
@@ -436,10 +458,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // row's timestamp lands.
     final stamped = next.copyWith(lastContentEditAt: DateTime.now());
     _pushSession(stamped);
-    unawaited(widget.storage.saveSession(stamped).catchError((e, st) {
-      debugPrint('saveSession (touchAndPush) failed: $e');
-      return Future<void>.value();
-    }));
+    unawaited(
+      widget.storage.saveSession(stamped).catchError((e, st) {
+        debugPrint('saveSession (touchAndPush) failed: $e');
+        return Future<void>.value();
+      }),
+    );
   }
 
   Future<void> _refreshSession() async {
@@ -457,8 +481,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   }
 
   void _listenToConversions() {
-    _conversionSub =
-        _conversionService.onConversionUpdate.listen((updated) {
+    _conversionSub = _conversionService.onConversionUpdate.listen((updated) {
       if (!mounted) return;
       // Wave 40.6 — authoritative conversion path. The conversion
       // listener is the SOLE writer of conversion-state changes.
@@ -528,7 +551,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     });
   }
 
-
   /// Wave 40.6 — read the canonical session from SQLite, then merge
   /// [authoritative] over the matching exercise row before pushing.
   /// Only applies when our [seqAtWrite] still matches `_conversionSeq`
@@ -542,7 +564,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// and only overlaying conversion-specific fields from `fresh` / the
   /// authoritative exercise.
   Future<void> _reconcileFromStorage(
-      ExerciseCapture authoritative, int seqAtWrite) async {
+    ExerciseCapture authoritative,
+    int seqAtWrite,
+  ) async {
     final fresh = await widget.storage.getSession(_session.id);
     if (fresh == null || !mounted) return;
     // If a newer conversion event arrived while we were reading SQLite,
@@ -653,14 +677,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   // ---------------------------------------------------------------------------
 
   static const _videoExtensions = {
-    '.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm', '.3gp', '.hevc'
+    '.mp4',
+    '.mov',
+    '.m4v',
+    '.avi',
+    '.mkv',
+    '.webm',
+    '.3gp',
+    '.hevc',
   };
 
   MediaType _detectMediaType(String path) {
     final ext = p.extension(path).toLowerCase();
-    return _videoExtensions.contains(ext)
-        ? MediaType.video
-        : MediaType.photo;
+    return _videoExtensions.contains(ext) ? MediaType.video : MediaType.photo;
   }
 
   Future<void> _importFromLibrary({int? insertAt}) async {
@@ -669,18 +698,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       if (picked.isEmpty) return;
       for (final xfile in picked) {
         final type = _detectMediaType(xfile.path);
-        await _addCaptureFromFile(
-          xfile.path,
-          type,
-          insertAt: insertAt,
-        );
+        await _addCaptureFromFile(xfile.path, type, insertAt: insertAt);
       }
     } catch (e) {
       debugPrint('Library import failed: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Import failed: $e')));
       }
     }
   }
@@ -718,8 +743,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // edit-then-capture sequences pick up the latest override.
     final clientId = _session.clientId;
     if (clientId != null && clientId.isNotEmpty) {
-      final cached =
-          await SyncService.instance.storage.getCachedClientById(clientId);
+      final cached = await SyncService.instance.storage.getCachedClientById(
+        clientId,
+      );
       StickyDefaults.primeFromSnapshot(
         clientId,
         cached?.clientExerciseDefaults ?? const <String, dynamic>{},
@@ -791,10 +817,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
   Future<void> _insertRestBetween(int insertIndex) async {
     final exercises = List<ExerciseCapture>.from(_session.exercises);
-    final hasRestBelow = insertIndex < exercises.length &&
-        exercises[insertIndex].isRest;
-    final hasRestAbove =
-        insertIndex > 0 && exercises[insertIndex - 1].isRest;
+    final hasRestBelow =
+        insertIndex < exercises.length && exercises[insertIndex].isRest;
+    final hasRestAbove = insertIndex > 0 && exercises[insertIndex - 1].isRest;
     if (hasRestBelow || hasRestAbove) return;
 
     // If the rest is being inserted BETWEEN two members of the same
@@ -846,8 +871,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       if (cumulativeSeconds >= threshold) {
         if (i < exercises.length - 1) {
           final nextIdx = i + 1;
-          final hasRestBelow = nextIdx < exercises.length &&
-              exercises[nextIdx].isRest;
+          final hasRestBelow =
+              nextIdx < exercises.length && exercises[nextIdx].isRest;
           if (!hasRestBelow) insertPositions.add(nextIdx);
         }
         cumulativeSeconds = 0;
@@ -891,9 +916,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       exercises[index] = updated;
       _touchAndPush(_session.copyWith(exercises: exercises));
     });
-    unawaited(widget.storage.saveExercise(updated).catchError((e, st) {
-      debugPrint('saveExercise failed: $e');
-    }));
+    unawaited(
+      widget.storage.saveExercise(updated).catchError((e, st) {
+        debugPrint('saveExercise failed: $e');
+      }),
+    );
     // Sticky per-client defaults (Milestone R / Wave 8): every time the
     // practitioner edits one of the seven sticky fields on an existing
     // card, the new value becomes the default for the NEXT new capture
@@ -901,7 +928,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // Rest periods skip (they don't carry the reps/sets/hold/etc.
     // vocabulary).
     if (!updated.isRest) {
-      // Per-set DOSE wave: deltas now flow through the per-set field
+      // Per-set PLAN wave: deltas now flow through the per-set field
       // set (first_set_*) plus the surviving scalars. The legacy
       // custom_duration_per_rep sticky write was retired alongside the
       // manual per-rep editor.
@@ -987,26 +1014,38 @@ class _StudioModeScreenState extends State<StudioModeScreen>
 
     try {
       newRawFilePath = await _copyExerciseFile(
-        original.rawFilePath, original.id, newId,
+        original.rawFilePath,
+        original.id,
+        newId,
       );
       newConvertedFilePath = await _copyExerciseFile(
-        original.convertedFilePath, original.id, newId,
+        original.convertedFilePath,
+        original.id,
+        newId,
       );
       newThumbnailPath = await _copyExerciseFile(
-        original.thumbnailPath, original.id, newId,
+        original.thumbnailPath,
+        original.id,
+        newId,
       );
       // Also copy color + line thumbnail variants if they exist.
       await _copyThumbnailVariant(original.id, newId, '_thumb_color.jpg');
       await _copyThumbnailVariant(original.id, newId, '_thumb_line.jpg');
 
       newArchiveFilePath = await _copyExerciseFile(
-        original.archiveFilePath, original.id, newId,
+        original.archiveFilePath,
+        original.id,
+        newId,
       );
       newSegmentedRawFilePath = await _copyExerciseFile(
-        original.segmentedRawFilePath, original.id, newId,
+        original.segmentedRawFilePath,
+        original.id,
+        newId,
       );
       newMaskFilePath = await _copyExerciseFile(
-        original.maskFilePath, original.id, newId,
+        original.maskFilePath,
+        original.id,
+        newId,
       );
     } catch (e) {
       debugPrint('duplicateExercise file copy failed: $e');
@@ -1014,7 +1053,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
 
     // Build the duplicate exercise with a fresh UUID and position + 1.
-    // Per-set DOSE wave: deep-copy each set with a fresh uuid so the
+    // Per-set PLAN wave: deep-copy each set with a fresh uuid so the
     // duplicate's child rows don't collide with the originals on the
     // UNIQUE (exercise_id, position) index.
     final duplicateSets = original.sets
@@ -1171,8 +1210,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           exercises[i] = exercises[i].copyWith(circuitId: target);
         }
       }
-      final updatedCycles =
-          Map<String, int>.from(_session.circuitCycles);
+      final updatedCycles = Map<String, int>.from(_session.circuitCycles);
       if (!updatedCycles.containsKey(target) &&
           updatedCycles.containsKey(source)) {
         updatedCycles[target] = updatedCycles[source]!;
@@ -1184,15 +1222,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       _touchAndPush(_session.copyWith(exercises: exercises));
     });
     _saveAllExercises(exercises);
-    unawaited(widget.storage.saveSession(_session).catchError((e, st) {
-      debugPrint('saveSession failed: $e');
-    }));
+    unawaited(
+      widget.storage.saveSession(_session).catchError((e, st) {
+        debugPrint('saveSession failed: $e');
+      }),
+    );
   }
 
   void _breakCircuit(String circuitId) {
     // Remove the circuit-id from every member. Restore via undo.
-    final originalExercises =
-        List<ExerciseCapture>.from(_session.exercises);
+    final originalExercises = List<ExerciseCapture>.from(_session.exercises);
     final originalCycles = Map<String, int>.from(_session.circuitCycles);
     final exercises = List<ExerciseCapture>.from(_session.exercises);
     for (var i = 0; i < exercises.length; i++) {
@@ -1203,15 +1242,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final updatedCycles = Map<String, int>.from(_session.circuitCycles);
     updatedCycles.remove(circuitId);
     setState(() {
-      _touchAndPush(_session.copyWith(
-        exercises: exercises,
-        circuitCycles: updatedCycles,
-      ));
+      _touchAndPush(
+        _session.copyWith(exercises: exercises, circuitCycles: updatedCycles),
+      );
     });
     _saveAllExercises(exercises);
-    unawaited(widget.storage.saveSession(_session).catchError((e, st) {
-      debugPrint('saveSession failed: $e');
-    }));
+    unawaited(
+      widget.storage.saveSession(_session).catchError((e, st) {
+        debugPrint('saveSession failed: $e');
+      }),
+    );
     showUndoSnackBar(
       context,
       label: 'Circuit broken',
@@ -1220,10 +1260,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           // Undoing is itself a content mutation — stamp so the dirty
           // indicator settles against the restored state, not the
           // pre-break state.
-          _touchAndPush(_session.copyWith(
-            exercises: originalExercises,
-            circuitCycles: originalCycles,
-          ));
+          _touchAndPush(
+            _session.copyWith(
+              exercises: originalExercises,
+              circuitCycles: originalCycles,
+            ),
+          );
         });
         await _saveAllExercises(originalExercises);
         await widget.storage.saveSession(_session);
@@ -1291,24 +1333,27 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
 
     setState(() {
-      _touchAndPush(_session.copyWith(
-        exercises: exercises,
-        circuitCycles: updatedCycles,
-      ));
+      _touchAndPush(
+        _session.copyWith(exercises: exercises, circuitCycles: updatedCycles),
+      );
     });
     _saveAllExercises(exercises);
-    unawaited(widget.storage.saveSession(_session).catchError((e, st) {
-      debugPrint('saveSession failed: $e');
-    }));
+    unawaited(
+      widget.storage.saveSession(_session).catchError((e, st) {
+        debugPrint('saveSession failed: $e');
+      }),
+    );
   }
 
   void _setCircuitCycles(String circuitId, int cycles) {
     setState(() {
       _touchAndPush(_session.setCircuitCycles(circuitId, cycles));
     });
-    unawaited(widget.storage.saveSession(_session).catchError((e, st) {
-      debugPrint('saveSession failed: $e');
-    }));
+    unawaited(
+      widget.storage.saveSession(_session).catchError((e, st) {
+        debugPrint('saveSession failed: $e');
+      }),
+    );
   }
 
   void _renameCircuit(String circuitId, String name) {
@@ -1411,8 +1456,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         if (exercises[i].circuitId == null) continue;
         final cid = exercises[i].circuitId;
         final prevSame = i > 0 && exercises[i - 1].circuitId == cid;
-        final nextSame = i < exercises.length - 1 &&
-            exercises[i + 1].circuitId == cid;
+        final nextSame =
+            i < exercises.length - 1 && exercises[i + 1].circuitId == cid;
         if (!prevSame && !nextSame) {
           exercises[i] = exercises[i].copyWith(clearCircuitId: true);
         }
@@ -1440,69 +1485,66 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     return OrientationLockGuard(
       allowed: const {DeviceOrientation.portraitUp},
       child: Scaffold(
-      backgroundColor: AppColors.surfaceBg,
-      body: Stack(
-        children: [
-          SafeArea(
-            // Wave 15 — the session-expired banner sits above the
-            // Studio content so a mid-session revocation surfaces
-            // without blocking ongoing edits. Reads continue from
-            // SQLite; writes queue locally via SyncService. Tapping
-            // Sign in routes through AuthService.signOut → AuthGate →
-            // SignInScreen.
-            //
-            // Wave 38 — bottom: false because the StudioBottomBar wraps
-            // its own SafeArea(top: false, bottom: true) so it sits
-            // above the home indicator without doubling the inset.
-            bottom: false,
-            child: Column(
-              children: [
-                SessionExpiredBanner(
-                  onSignIn: () => AuthService.instance.signOut(),
-                ),
-                Expanded(child: _buildBody()),
-                StudioBottomBar(
-                  session: _session,
-                  isPublishing: _isPublishing,
-                  canPublish: _canPublish,
-                  isPlanLocked: _isPlanLocked,
-                  publishError: _publishError,
-                  clientName: _session.clientName,
-                  onBack: () => Navigator.of(context).pop(),
-                  // Wave 40 (M1) — first toolbar slot is Camera. Tap =
-                  // same path as the right-edge swipe-left pull tab.
-                  onCameraTap: widget.onOpenCapture,
-                  onPreview: _openPreview,
-                  onPublish: _publishFromToolbar,
-                  onShare: _shareFromToolbar,
-                  onDownload: _downloadAllToPhotos,
-                  // Wave 30 — tapping Publish on a still-mid-grace plan
-                  // routes to the unlock sheet (two-tap UX so the
-                  // practitioner sees the unlocked state before the
-                  // republish).
-                  onPublishLockedTap: _openUnlockSheet,
-                  onUnlockTap: _openUnlockSheet,
-                  onShowPublishError: () {
-                    final err = _publishError;
-                    if (err != null) {
-                      _showPublishErrorSnackBar(
-                        err,
-                        clipboardDetail: null,
-                      );
-                    }
-                  },
-                ),
-              ],
+        backgroundColor: AppColors.surfaceBg,
+        body: Stack(
+          children: [
+            SafeArea(
+              // Wave 15 — the session-expired banner sits above the
+              // Studio content so a mid-session revocation surfaces
+              // without blocking ongoing edits. Reads continue from
+              // SQLite; writes queue locally via SyncService. Tapping
+              // Sign in routes through AuthService.signOut → AuthGate →
+              // SignInScreen.
+              //
+              // Wave 38 — bottom: false because the StudioBottomBar wraps
+              // its own SafeArea(top: false, bottom: true) so it sits
+              // above the home indicator without doubling the inset.
+              bottom: false,
+              child: Column(
+                children: [
+                  SessionExpiredBanner(
+                    onSignIn: () => AuthService.instance.signOut(),
+                  ),
+                  Expanded(child: _buildBody()),
+                  StudioBottomBar(
+                    session: _session,
+                    isPublishing: _isPublishing,
+                    canPublish: _canPublish,
+                    isPlanLocked: _isPlanLocked,
+                    publishError: _publishError,
+                    clientName: _session.clientName,
+                    onBack: () => Navigator.of(context).pop(),
+                    // Wave 40 (M1) — first toolbar slot is Camera. Tap =
+                    // same path as the right-edge swipe-left pull tab.
+                    onCameraTap: widget.onOpenCapture,
+                    onPreview: _openPreview,
+                    onPublish: _publishFromToolbar,
+                    onShare: _shareFromToolbar,
+                    onDownload: _downloadAllToPhotos,
+                    // Wave 30 — tapping Publish on a still-mid-grace plan
+                    // routes to the unlock sheet (two-tap UX so the
+                    // practitioner sees the unlocked state before the
+                    // republish).
+                    onPublishLockedTap: _openUnlockSheet,
+                    onUnlockTap: _openUnlockSheet,
+                    onShowPublishError: () {
+                      final err = _publishError;
+                      if (err != null) {
+                        _showPublishErrorSnackBar(err, clipboardDetail: null);
+                      }
+                    },
+                  ),
+                ],
+              ),
             ),
-          ),
-          Positioned.fill(
-            child: ShellPullTab(
-              side: ShellPullTabSide.right,
-              onActivate: widget.onOpenCapture,
+            Positioned.fill(
+              child: ShellPullTab(
+                side: ShellPullTabSide.right,
+                onActivate: widget.onOpenCapture,
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
@@ -1535,8 +1577,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         final viewportH = constraints.maxHeight;
         final halfDrop = viewportH * 0.5;
         final thumbZoneDrop = viewportH * 0.4;
-        final dropTarget =
-            halfDrop < thumbZoneDrop ? halfDrop : thumbZoneDrop;
+        final dropTarget = halfDrop < thumbZoneDrop ? halfDrop : thumbZoneDrop;
         final dy = _isReachabilityLatched ? dropTarget : 0.0;
 
         // Schedule a post-frame visibility recompute so the pill
@@ -1660,44 +1701,46 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       // screen in the first place; once the user takes over, the
       // first reported delta past 4px clears the marker.
       onNotification: (n) {
-        if (_focusedExerciseId != null && n.dragDetails != null &&
-            n.scrollDelta != null && n.scrollDelta!.abs() > 4) {
+        if (_focusedExerciseId != null &&
+            n.dragDetails != null &&
+            n.scrollDelta != null &&
+            n.scrollDelta!.abs() > 4) {
           _clearFocusOnInteraction();
         }
         return false;
       },
       child: GestureDetector(
-      // Tap outside the tray dismisses it.
-      onTap: () {
-        if (_activeInsertIndex != null) {
-          setState(() => _activeInsertIndex = null);
-        }
-      },
-      behavior: HitTestBehavior.translucent,
-      // Plain Material ReorderableListView.builder — handles mixed-height
-      // children reliably. Swapped in after two sliver-based attempts
-      // produced viewport-height rows on device. reverse:true keeps the
-      // bottom-anchored feel (newest at the bottom).
-      child: ReorderableListView.builder(
-        // Wave 39 (Item 5) — owned by `_StudioModeScreenState` so the
-        // reachability drop-pill can listen for upward scrolls and
-        // gate its visibility on `maxScrollExtent > 0`.
-        scrollController: _scrollController,
-        reverse: true,
-        padding: const EdgeInsets.only(bottom: 8),
-        itemCount: exercises.length,
-        onReorder: _onReorder,
-        // Custom drag via ReorderableDelayedDragStartListener inside
-        // _buildRowWithContext. Disable the default right-edge handles.
-        buildDefaultDragHandles: false,
-        itemBuilder: (context, visualIndex) {
-          final dataIndex = exercises.length - 1 - visualIndex;
-          return KeyedSubtree(
-            key: ValueKey('row_${exercises[dataIndex].id}'),
-            child: _buildRowWithContext(dataIndex, visualIndex),
-          );
+        // Tap outside the tray dismisses it.
+        onTap: () {
+          if (_activeInsertIndex != null) {
+            setState(() => _activeInsertIndex = null);
+          }
         },
-      ),
+        behavior: HitTestBehavior.translucent,
+        // Plain Material ReorderableListView.builder — handles mixed-height
+        // children reliably. Swapped in after two sliver-based attempts
+        // produced viewport-height rows on device. reverse:true keeps the
+        // bottom-anchored feel (newest at the bottom).
+        child: ReorderableListView.builder(
+          // Wave 39 (Item 5) — owned by `_StudioModeScreenState` so the
+          // reachability drop-pill can listen for upward scrolls and
+          // gate its visibility on `maxScrollExtent > 0`.
+          scrollController: _scrollController,
+          reverse: true,
+          padding: const EdgeInsets.only(bottom: 8),
+          itemCount: exercises.length,
+          onReorder: _onReorder,
+          // Custom drag via ReorderableDelayedDragStartListener inside
+          // _buildRowWithContext. Disable the default right-edge handles.
+          buildDefaultDragHandles: false,
+          itemBuilder: (context, visualIndex) {
+            final dataIndex = exercises.length - 1 - visualIndex;
+            return KeyedSubtree(
+              key: ValueKey('row_${exercises[dataIndex].id}'),
+              child: _buildRowWithContext(dataIndex, visualIndex),
+            );
+          },
+        ),
       ),
     );
   }
@@ -1726,10 +1769,12 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     final exercises = _session.exercises;
     final exercise = exercises[dataIndex];
     final isInCircuit = exercise.circuitId != null;
-    final isFirstInCircuit = isInCircuit &&
+    final isFirstInCircuit =
+        isInCircuit &&
         (dataIndex == 0 ||
             exercises[dataIndex - 1].circuitId != exercise.circuitId);
-    final isLastInCircuit = isInCircuit &&
+    final isLastInCircuit =
+        isInCircuit &&
         (dataIndex == exercises.length - 1 ||
             exercises[dataIndex + 1].circuitId != exercise.circuitId);
 
@@ -1776,6 +1821,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       final Widget cardBody = StudioExerciseCard(
         key: rowKey,
         exercise: exercise,
+        session: _session,
+        index: dataIndex,
         isExpanded: _expandedIndex == dataIndex,
         isFocused: isFocused,
         isInCircuit: isInCircuit,
@@ -1789,8 +1836,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           // while the list is dropped is the WHOLE POINT of dropping
           // it; resetting on tap defeated that affordance.
           setState(() {
-            _expandedIndex =
-                _expandedIndex == dataIndex ? null : dataIndex;
+            _expandedIndex = _expandedIndex == dataIndex ? null : dataIndex;
             _activeInsertIndex = null;
             // Wave 35 — any direct user interaction with the list
             // clears the Preview-handoff focus marker. We treat tap
@@ -1799,9 +1845,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             _focusedExerciseId = null;
           });
         },
-        onUpdate: (u) {
+        // The editor sheet may navigate away from `dataIndex` via its
+        // chevrons / dot row, so it reports the index it is currently
+        // editing. Pipe that straight to `_updateExercise` — the card's
+        // own `dataIndex` is just the entry point.
+        onUpdate: (sheetIndex, u) {
           _clearFocusOnInteraction();
-          _updateExercise(dataIndex, u);
+          _updateExercise(sheetIndex, u);
         },
         onThumbnailTap: () => _openMediaViewer(exercise),
         onReplaceMedia: () => _replaceMedia(dataIndex),
@@ -1811,11 +1861,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         // don't render this option (gated in ThumbnailPeek).
         onDownloadOriginal: exercise.mediaType == MediaType.video
             ? () => showDownloadOriginalSheet(
-                  context,
-                  exercise: exercise,
-                  practiceId: _session.practiceId,
-                  planId: _session.id,
-                )
+                context,
+                exercise: exercise,
+                practiceId: _session.practiceId,
+                planId: _session.id,
+              )
             : null,
       );
       cardContent = Dismissible(
@@ -1884,8 +1934,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Circuit header — sits above the first card of each circuit.
-          if (isFirstInCircuit)
-            _buildCircuitHeaderRow(exercise.circuitId!),
+          if (isFirstInCircuit) _buildCircuitHeaderRow(exercise.circuitId!),
           // The row: a Stack that the card's intrinsic height drives.
           ReorderableDelayedDragStartListener(
             index: visualIndex,
@@ -1895,9 +1944,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                 // margin of (kGutterVisibleWidth + 4) leaves the gutter
                 // strip free for the rail.
                 Padding(
-                  padding: const EdgeInsets.only(
-                    left: kGutterVisibleWidth + 4,
-                  ),
+                  padding: const EdgeInsets.only(left: kGutterVisibleWidth + 4),
                   child: cardContent,
                 ),
                 // Rail: Positioned on the LEFT gutter strip, stretches
@@ -1988,11 +2035,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
               ),
             ),
             SizedBox(width: 8),
-            Icon(
-              Icons.delete_outline,
-              color: Colors.white,
-              size: 22,
-            ),
+            Icon(Icons.delete_outline, color: Colors.white, size: 22),
           ],
         ),
       ),
@@ -2010,13 +2053,11 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           // Wave 18.6 — outer container flipped from surfaceRaised to
           // surfaceBase so the inner chips (which fill with surfaceRaised
           // in their unselected state) sit against a contrasting
-          // background instead of blending. Matches the way DOSE chips
+          // background instead of blending. Matches the way PLAN chips
           // render against the exercise card's surfaceBase body.
           color: AppColors.surfaceBase,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: AppColors.rest.withValues(alpha: 0.3),
-          ),
+          border: Border.all(color: AppColors.rest.withValues(alpha: 0.3)),
         ),
         child: _RestBar(
           exercise: exercise,
@@ -2049,69 +2090,68 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-      height: 32,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          const GutterCircuitHeaderCell(height: 32),
-          const SizedBox(width: 4),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => _openCircuitSheet(circuitId),
-              behavior: HitTestBehavior.opaque,
-              child: Container(
-                height: 32,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                // No bottom border — the 6px rail-carrying spacer below
-                // (added in _buildCircuitHeaderRow's Column) plus the
-                // header's own tinted background + coral text already
-                // read as a distinct bar. A 2px coral underline here was
-                // redundant and visually compressed the space between
-                // the header and the first card.
-                child: Row(
-                  children: [
-                    Text(
-                      'CIRCUIT $letter',
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const Spacer(),
-                    Container(
-                      height: 24,
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(
-                        color: AppColors.brandTintBg,
-                        borderRadius: BorderRadius.circular(9999),
-                        border: Border.all(
-                          color: AppColors.brandTintBorder,
+          height: 32,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const GutterCircuitHeaderCell(height: 32),
+              const SizedBox(width: 4),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => _openCircuitSheet(circuitId),
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    height: 32,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    // No bottom border — the 6px rail-carrying spacer below
+                    // (added in _buildCircuitHeaderRow's Column) plus the
+                    // header's own tinted background + coral text already
+                    // read as a distinct bar. A 2px coral underline here was
+                    // redundant and visually compressed the space between
+                    // the header and the first card.
+                    child: Row(
+                      children: [
+                        Text(
+                          'CIRCUIT $letter',
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.5,
+                            color: AppColors.primary,
+                          ),
                         ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        '×$cycles',
-                        style: const TextStyle(
-                          fontFamily: 'JetBrainsMono',
-                          fontFamilyFallback: ['Menlo', 'Courier'],
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primary,
+                        const Spacer(),
+                        Container(
+                          height: 24,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: AppColors.brandTintBg,
+                            borderRadius: BorderRadius.circular(9999),
+                            border: Border.all(
+                              color: AppColors.brandTintBorder,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '×$cycles',
+                            style: const TextStyle(
+                              fontFamily: 'JetBrainsMono',
+                              fontFamilyFallback: ['Menlo', 'Courier'],
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary,
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
-    ),
+        ),
         // 6px rail-carrying spacer between the header's bottom border and
         // the first circuit card. The rail continues through so the visual
         // link is unbroken.
@@ -2141,7 +2181,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // exercises.length is a unique sentinel vs. the inter-card gaps
     // (which use 1..exercises.length-1) so _activeInsertIndex stays
     // unambiguous.
-    final sameCircuit = lower != null &&
+    final sameCircuit =
+        lower != null &&
         upper.circuitId != null &&
         upper.circuitId == lower.circuitId;
 
@@ -2245,37 +2286,37 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                   _expandedIndex = null;
                 });
               },
-            child: RepaintBoundary(
-              // The shared pulse controller drives only the halo opacity.
-              // AnimatedBuilder rebuilds this small subtree 60Hz — everything
-              // outside it (the row above, the tray) is unaffected.
-              child: AnimatedBuilder(
-                animation: _pulseController,
-                builder: (context, _) {
-                  // Ease-in-out so the halo lingers at peak/valley rather
-                  // than sweeping linearly across. Reads as "breath".
-                  final eased = Curves.easeInOut.transform(
-                    _pulseController.value,
-                  );
-                  return CustomPaint(
-                    painter: GutterGapPainter(
-                      state: isActive
-                          ? GutterDotState.active
-                          : GutterDotState.idle,
-                      continuousRail: sameCircuit,
-                      dimmed: _isPublishLocked && !isActive,
-                      // Pulse ALWAYS when idle — triangles inside a
-                      // circuit are just as tappable as those between
-                      // standalone exercises, so their affordance must
-                      // read the same way. Killing the pulse there was
-                      // an inconsistency bug.
-                      pulsePhase: eased,
-                    ),
-                  );
-                },
+              child: RepaintBoundary(
+                // The shared pulse controller drives only the halo opacity.
+                // AnimatedBuilder rebuilds this small subtree 60Hz — everything
+                // outside it (the row above, the tray) is unaffected.
+                child: AnimatedBuilder(
+                  animation: _pulseController,
+                  builder: (context, _) {
+                    // Ease-in-out so the halo lingers at peak/valley rather
+                    // than sweeping linearly across. Reads as "breath".
+                    final eased = Curves.easeInOut.transform(
+                      _pulseController.value,
+                    );
+                    return CustomPaint(
+                      painter: GutterGapPainter(
+                        state: isActive
+                            ? GutterDotState.active
+                            : GutterDotState.idle,
+                        continuousRail: sameCircuit,
+                        dimmed: _isPublishLocked && !isActive,
+                        // Pulse ALWAYS when idle — triangles inside a
+                        // circuit are just as tappable as those between
+                        // standalone exercises, so their affordance must
+                        // read the same way. Killing the pulse there was
+                        // an inconsistency bug.
+                        pulsePhase: eased,
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
-          ),
           ),
         ),
       ],
@@ -2290,12 +2331,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// flight, not currently publishing. Lifted verbatim from the retired
   /// SessionCard rules.
   bool get _canPublish {
-    final hasConversionsRunning = _session.exercises.any((e) =>
-        !e.isRest &&
-        (e.conversionStatus == ConversionStatus.pending ||
-            e.conversionStatus == ConversionStatus.converting));
-    final hasExercises =
-        _session.exercises.where((e) => !e.isRest).isNotEmpty;
+    final hasConversionsRunning = _session.exercises.any(
+      (e) =>
+          !e.isRest &&
+          (e.conversionStatus == ConversionStatus.pending ||
+              e.conversionStatus == ConversionStatus.converting),
+    );
+    final hasExercises = _session.exercises.where((e) => !e.isRest).isNotEmpty;
     return hasExercises && !hasConversionsRunning && !_isPublishing;
   }
 
@@ -2304,22 +2346,28 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // conversion; publishing before the raw-archive lands would
     // silently skip B&W / Original playback. Match the client-sessions
     // check so the toolbar never regresses that fix.
-    final hasConversionsRunning = _session.exercises.any((e) =>
-        !e.isRest &&
-        (e.conversionStatus == ConversionStatus.pending ||
-            e.conversionStatus == ConversionStatus.converting));
-    final hasArchiveInFlight = _session.exercises.any((e) =>
-        !e.isRest &&
-        e.mediaType == MediaType.video &&
-        e.conversionStatus == ConversionStatus.done &&
-        (e.archiveFilePath == null || e.archiveFilePath!.isEmpty));
+    final hasConversionsRunning = _session.exercises.any(
+      (e) =>
+          !e.isRest &&
+          (e.conversionStatus == ConversionStatus.pending ||
+              e.conversionStatus == ConversionStatus.converting),
+    );
+    final hasArchiveInFlight = _session.exercises.any(
+      (e) =>
+          !e.isRest &&
+          e.mediaType == MediaType.video &&
+          e.conversionStatus == ConversionStatus.done &&
+          (e.archiveFilePath == null || e.archiveFilePath!.isEmpty),
+    );
     if (hasConversionsRunning || hasArchiveInFlight) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(hasArchiveInFlight
-                ? 'Still archiving videos — one moment…'
-                : 'Wait for conversions to finish before publishing'),
+            content: Text(
+              hasArchiveInFlight
+                  ? 'Still archiving videos — one moment…'
+                  : 'Wait for conversions to finish before publishing',
+            ),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -2340,8 +2388,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     } catch (e) {
       final practiceId =
           AuthService.instance.currentPracticeId.value ??
-              loadedSession?.practiceId ??
-              '';
+          loadedSession?.practiceId ??
+          '';
       final trainerId = ApiClient.instance.currentUserId ?? '';
       result = PublishResult.networkFailed(
         error: PublishFailurePayload.fromPublishCatch(
@@ -2378,7 +2426,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           ),
         ),
       );
-      // Per-set DOSE wave \u2014 surface a follow-up SnackBar when the
+      // Per-set PLAN wave \u2014 surface a follow-up SnackBar when the
       // server fell back to default sets for one or more exercises
       // (publish payload missing / empty `sets[]`). The practitioner
       // needs a nudge to open the editor and set real reps/weight.
@@ -2420,7 +2468,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           ),
         );
       }
-      if (optionalArtifactFailure != null && optionalArtifactFailure.isNotEmpty) {
+      if (optionalArtifactFailure != null &&
+          optionalArtifactFailure.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -2441,9 +2490,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     } else if (result.isUnconsentedTreatments) {
       await _handleUnconsentedTreatments(result.unconsented!);
     } else if (result.isNeedsConsentConfirmation) {
-      await _handleNeedsConsentConfirmation(
-        result.consentConfirmationClient!,
-      );
+      await _handleNeedsConsentConfirmation(result.consentConfirmationClient!);
     } else if (result.isPreflightFailure) {
       final errStr = result.toErrorString();
       setState(() => _publishError = errStr);
@@ -2633,7 +2680,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         'Not enough credits to unlock. Balance: ${balance ?? 0}.',
       );
     } else {
-      _showPublishErrorSnackBar('Unlock failed: ${response['reason'] ?? 'unknown'}');
+      _showPublishErrorSnackBar(
+        'Unlock failed: ${response['reason'] ?? 'unknown'}',
+      );
     }
   }
 
@@ -2663,10 +2712,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
   }
 
-  void _showPublishErrorSnackBar(
-    String error, {
-    String? clipboardDetail,
-  }) {
+  void _showPublishErrorSnackBar(String error, {String? clipboardDetail}) {
     final summary = 'Publish failed: $error';
     final clipboardText = clipboardDetail != null && clipboardDetail.isNotEmpty
         ? 'Publish failed:\n$clipboardDetail'
@@ -2687,11 +2733,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                 ),
               );
             },
-            child: Text(
-              summary,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
+            child: Text(summary, maxLines: 3, overflow: TextOverflow.ellipsis),
           ),
           duration: const Duration(seconds: 12),
           backgroundColor: AppColors.error,
@@ -2769,9 +2811,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Share failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Share failed: $e')));
       }
     }
   }
@@ -2861,11 +2903,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(
-        SnackBar(
-          content: Text(label),
-          duration: const Duration(seconds: 3),
-        ),
-      );
+          SnackBar(content: Text(label), duration: const Duration(seconds: 3)),
+        );
     }
   }
 
@@ -2873,10 +2912,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     HapticFeedback.selectionClick();
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => UnifiedPreviewScreen(
-          session: _session,
-          storage: widget.storage,
-        ),
+        builder: (_) =>
+            UnifiedPreviewScreen(session: _session, storage: widget.storage),
       ),
     );
   }
@@ -2886,10 +2923,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // Build a list of the non-rest exercises so the viewer can page
     // through them. Rests don't have media, so pulling them out keeps
     // every page a real media slide.
-    final mediaList =
-        _session.exercises.where((e) => !e.isRest).toList(growable: false);
-    final initialIndex =
-        mediaList.indexWhere((e) => e.id == exercise.id);
+    final mediaList = _session.exercises
+        .where((e) => !e.isRest)
+        .toList(growable: false);
+    final initialIndex = mediaList.indexWhere((e) => e.id == exercise.id);
     if (initialIndex < 0) return;
 
     if (!mounted) return;
@@ -2909,8 +2946,9 @@ class _StudioModeScreenState extends State<StudioModeScreen>
           // up here so the Studio card tiles + in-memory session stay in
           // sync without waiting for the route to pop.
           onExerciseUpdate: (updated) {
-            final dataIndex = _session.exercises
-                .indexWhere((e) => e.id == updated.id);
+            final dataIndex = _session.exercises.indexWhere(
+              (e) => e.id == updated.id,
+            );
             if (dataIndex >= 0) {
               _updateExercise(dataIndex, updated);
             }
@@ -3002,6 +3040,8 @@ class _RestBar extends StatefulWidget {
 }
 
 class _RestBarState extends State<_RestBar> {
+  bool _expanded = false;
+
   int get _duration => widget.exercise.restHoldSeconds ?? 30;
 
   static String _format(num v) {
@@ -3017,32 +3057,25 @@ class _RestBarState extends State<_RestBar> {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      child: Row(
-        // Wave 18.3.1 — top-align so the icon + "Rest" pair stay
-        // anchored at the top of the row when the chip row wraps to
-        // multiple lines. Center would drift them down as the chip row
-        // grows.
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Wave 30 — icon + label as ONE element. Earlier the two were
-          // padded independently (icon top:11, label top:12) and read as
-          // "icon centred + label nudged down". Shared 40pt SizedBox
-          // matches the chip row's vertical box, with center alignment
-          // giving icon + label a single visual centre line.
-          const SizedBox(
-            height: 40,
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: EdgeInsets.only(left: 4, right: 10),
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.self_improvement,
                     size: 18,
                     color: AppColors.rest,
                   ),
-                  SizedBox(width: 8),
-                  Text(
+                  const SizedBox(width: 8),
+                  const Text(
                     'Rest',
                     style: TextStyle(
                       fontFamily: 'Inter',
@@ -3051,34 +3084,45 @@ class _RestBarState extends State<_RestBar> {
                       color: AppColors.rest,
                     ),
                   ),
+                  const Spacer(),
+                  DashedUnderline(
+                    child: Text(
+                      _format(_duration),
+                      style: TextStyle(
+                        fontFamily: 'JetBrainsMono',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: _expanded ? AppColors.primary : AppColors.rest,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
           ),
-          Expanded(
-            child: PresetChipRow(
-              controlKey: 'rest',
-              canonicalPresets: const <num>[15, 30, 60, 90],
-              currentValue: _duration,
-              onChanged: (v) {
-                widget.onUpdate(
-                  widget.exercise.copyWith(restHoldSeconds: v.round()),
-                );
-              },
-              displayFormat: _format,
-              accentColor: AppColors.rest,
-              undoLabel: 'rest',
-              // Wave 18.1 — non-scrolling chip row. The rest bar's
-              // horizontal extent is the swipe-to-delete gesture path;
-              // a horizontally-scrolling ListView would eat that swipe
-              // before the outer Dismissible could see it.
-              scrollable: false,
+          if (_expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+              child: PresetChipRow(
+                controlKey: 'rest',
+                canonicalPresets: const <num>[15, 30, 60, 90],
+                currentValue: _duration,
+                onChanged: (v) {
+                  widget.onUpdate(
+                    widget.exercise.copyWith(restHoldSeconds: v.round()),
+                  );
+                  setState(() => _expanded = false);
+                },
+                displayFormat: _format,
+                accentColor: AppColors.rest,
+                undoLabel: 'rest',
+                // Wave 18.1 — non-scrolling chip row. The rest bar's
+                // horizontal extent is the swipe-to-delete gesture path;
+                // a horizontally-scrolling ListView would eat that swipe
+                // before the outer Dismissible could see it.
+                scrollable: false,
+              ),
             ),
-          ),
-          // Delete × removed — swipe-left on the whole rest row
-          // triggers onDelete via the rest-row Dismissible wired up in
-          // _buildRestRow. Consistent with exercise cards, which get
-          // their own Dismissible wrapper in _buildRowWithContext.
         ],
       ),
     );
@@ -3093,9 +3137,7 @@ bool _isStillImageConversion(ExerciseCapture exercise) {
   final converted = exercise.convertedFilePath;
   if (converted == null) return false;
   final ext = converted.toLowerCase();
-  return ext.endsWith('.jpg') ||
-      ext.endsWith('.jpeg') ||
-      ext.endsWith('.png');
+  return ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png');
 }
 
 /// Wave 35 — module-level inbox for the Preview → Studio focus handoff.
@@ -3316,6 +3358,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// then sees `position >= endMs` and would yank back to start; this
   /// flag breaks that loop without affecting normal playback wrap.
   bool _trimDragInProgress = false;
+
   /// Wave 20 — debounce for the trim-panel SQLite write. The drag
   /// callback fires every gesture tick; we coalesce to one write per
   /// 200 ms so the disk doesn't take a beating during a long drag.
@@ -3354,7 +3397,8 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     final raw = e.absoluteRawFilePath;
     if (raw.isEmpty) return false;
     final ext = raw.toLowerCase();
-    final rawIsImage = ext.endsWith('.jpg') ||
+    final rawIsImage =
+        ext.endsWith('.jpg') ||
         ext.endsWith('.jpeg') ||
         ext.endsWith('.png') ||
         ext.endsWith('.heic');
@@ -3398,7 +3442,8 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     // would re-emit our pending value after `saveSession` resolves and
     // would miss intermediate slider drags.
     final pending = _crossfadePersistTimer;
-    if (old.session != widget.session && (pending == null || !pending.isActive)) {
+    if (old.session != widget.session &&
+        (pending == null || !pending.isActive)) {
       _session = widget.session;
     }
   }
@@ -3535,42 +3580,44 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     final controllerB = VideoPlayerController.file(File(path));
     _videoControllerA = controllerA;
     _videoControllerB = controllerB;
-    Future.wait<void>([controllerA.initialize(), controllerB.initialize()]).then((_) {
-      // Bail when the user swiped away or cycled treatments before init
-      // resolved — adopting stale controllers would leak both.
-      if (!mounted || token != _initToken) {
-        controllerA.dispose();
-        controllerB.dispose();
-        return;
-      }
-      setState(() {
-        _videoInitialized = true;
-        _lastKnownIsPlaying = false;
-      });
-      // Native looping handles the short-clip / long-clip fallback
-      // (clips outside the [_kCrossfadeMin, _kCrossfadeMax] window
-      // skip the dual-video path entirely; the listener bails before
-      // touching the inactive slot).
-      controllerA.setLooping(true);
-      controllerB.setLooping(true);
-      controllerA.setVolume(_isMuted ? 0.0 : 1.0);
-      controllerB.setVolume(0.0); // inactive stays muted always.
-      _seekToTrimStart(controllerA);
-      _seekToTrimStart(controllerB);
-      // Listeners on BOTH controllers so trim enforcement runs whether
-      // A or B is currently visible. _maybeCrossfade only fires for the
-      // controller that is currently active (per-tick check).
-      void listenerA() => _onVideoStateChanged(controllerA, token);
-      void listenerB() => _onVideoStateChanged(controllerB, token);
-      controllerA.addListener(listenerA);
-      controllerB.addListener(listenerB);
-      _videoListenerA = listenerA;
-      _videoListenerB = listenerB;
-      controllerA.play();
-      _showControlsThenMaybeIdleFade();
-    }).catchError((e) {
-      debugPrint('MediaViewer: video init failed for $path — $e');
-    });
+    Future.wait<void>([controllerA.initialize(), controllerB.initialize()])
+        .then((_) {
+          // Bail when the user swiped away or cycled treatments before init
+          // resolved — adopting stale controllers would leak both.
+          if (!mounted || token != _initToken) {
+            controllerA.dispose();
+            controllerB.dispose();
+            return;
+          }
+          setState(() {
+            _videoInitialized = true;
+            _lastKnownIsPlaying = false;
+          });
+          // Native looping handles the short-clip / long-clip fallback
+          // (clips outside the [_kCrossfadeMin, _kCrossfadeMax] window
+          // skip the dual-video path entirely; the listener bails before
+          // touching the inactive slot).
+          controllerA.setLooping(true);
+          controllerB.setLooping(true);
+          controllerA.setVolume(_isMuted ? 0.0 : 1.0);
+          controllerB.setVolume(0.0); // inactive stays muted always.
+          _seekToTrimStart(controllerA);
+          _seekToTrimStart(controllerB);
+          // Listeners on BOTH controllers so trim enforcement runs whether
+          // A or B is currently visible. _maybeCrossfade only fires for the
+          // controller that is currently active (per-tick check).
+          void listenerA() => _onVideoStateChanged(controllerA, token);
+          void listenerB() => _onVideoStateChanged(controllerB, token);
+          controllerA.addListener(listenerA);
+          controllerB.addListener(listenerB);
+          _videoListenerA = listenerA;
+          _videoListenerB = listenerB;
+          controllerA.play();
+          _showControlsThenMaybeIdleFade();
+        })
+        .catchError((e) {
+          debugPrint('MediaViewer: video init failed for $path — $e');
+        });
   }
 
   /// Returns whichever controller is in the [_activeSlot] (visible +
@@ -3631,8 +3678,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     // first — crossfade never fires inside a trimmed clip.
     final trimStart = _current.startOffsetMs;
     final trimEnd = _current.endOffsetMs;
-    final hasTrim =
-        trimStart != null && trimEnd != null && trimEnd > trimStart;
+    final hasTrim = trimStart != null && trimEnd != null && trimEnd > trimStart;
     final effectiveStartMs = hasTrim ? trimStart : 0;
     final effectiveEndMs = hasTrim ? trimEnd : durationMs;
     final effectiveWindowMs = effectiveEndMs - effectiveStartMs;
@@ -3684,8 +3730,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     // window — saves cycles on older devices.
     final trimStart = _current.startOffsetMs;
     final trimEnd = _current.endOffsetMs;
-    final hasTrim =
-        trimStart != null && trimEnd != null && trimEnd > trimStart;
+    final hasTrim = trimStart != null && trimEnd != null && trimEnd > trimStart;
     final parkMs = hasTrim ? trimStart : 0;
     outgoingActive.pause();
     outgoingActive.setVolume(0.0);
@@ -3789,10 +3834,9 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// Single shared offset added to every bottom chrome element when the
   /// trim panel is present. Panel height + 8 px gap. Compact = landscape
   /// shorter panel.
-  double _bottomChromeTrimLiftFor({required bool compact}) =>
-      _trimPanelVisible
-          ? (_TrimPanel.effectiveHeight(compact: compact) + 8)
-          : 0;
+  double _bottomChromeTrimLiftFor({required bool compact}) => _trimPanelVisible
+      ? (_TrimPanel.effectiveHeight(compact: compact) + 8)
+      : 0;
 
   /// Optimistic update of the in-memory trim values + debounced disk
   /// write. Mirrors the pattern used for `_persistPreferredTreatment` /
@@ -3998,7 +4042,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     // AutomaticKeepAliveClientMixin contract — required so the State
     // is registered with the enclosing PageView's keep-alive scope.
     // Without this the Preview tab in `ExerciseEditorSheet` would be
-    // disposed when the practitioner swipes to Dose / Notes / Settings,
+    // disposed when the practitioner swipes to Plan / Notes / Settings,
     // killing the video controllers + treatment listeners mid-edit
     // (the same gotcha that caused the photo-spinner regression).
     super.build(context);
@@ -4031,74 +4075,117 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
         MediaViewerExitInbox.lastClosedExerciseId = id;
       },
       child: OrientationLockGuard(
-      allowed: const {
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      },
-      child: Scaffold(
-        backgroundColor: AppColors.surfaceBg,
-        body: OrientationBuilder(
-          builder: (context, orientation) {
-            final isLandscape = orientation == Orientation.landscape;
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                // Pager — one page per non-rest exercise. Vertical swipes
-                // tunnelled into the GestureDetector cycle the treatment;
-                // horizontal swipes pass through to the PageView.
-                PageView.builder(
-                  controller: _pageController,
-                  itemCount: _exercises.length,
-                  onPageChanged: _onPageChanged,
-                  itemBuilder: (context, index) {
-                    final ex = _exercises[index];
-                    final isCurrent = index == _currentIndex;
-                    final isVideo = _isVideo(ex);
-                    return GestureDetector(
-                      onVerticalDragEnd:
-                          isCurrent ? _handleVerticalDragEnd : null,
-                      onTap: isCurrent && isVideo ? _togglePlayPause : null,
-                      behavior: HitTestBehavior.opaque,
-                      child: Center(
-                        child: isVideo
-                            ? (isCurrent
-                                ? AnimatedSwitcher(
-                                    duration:
-                                        const Duration(milliseconds: 220),
-                                    switchInCurve: Curves.easeOut,
-                                    switchOutCurve: Curves.easeIn,
-                                    child: _buildVideoFrame(),
-                                  )
-                                : const _VideoPagePlaceholder())
-                            : _buildPhotoFrame(ex, isCurrent: isCurrent),
-                      ),
-                    );
-                  },
-                ),
+        allowed: const {
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        },
+        child: Scaffold(
+          backgroundColor: AppColors.surfaceBg,
+          body: OrientationBuilder(
+            builder: (context, orientation) {
+              final isLandscape = orientation == Orientation.landscape;
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Pager — one page per non-rest exercise. Vertical swipes
+                  // tunnelled into the GestureDetector cycle the treatment;
+                  // horizontal swipes pass through to the PageView.
+                  PageView.builder(
+                    controller: _pageController,
+                    itemCount: _exercises.length,
+                    onPageChanged: _onPageChanged,
+                    itemBuilder: (context, index) {
+                      final ex = _exercises[index];
+                      final isCurrent = index == _currentIndex;
+                      final isVideo = _isVideo(ex);
+                      return GestureDetector(
+                        onVerticalDragEnd: isCurrent
+                            ? _handleVerticalDragEnd
+                            : null,
+                        onTap: isCurrent && isVideo ? _togglePlayPause : null,
+                        behavior: HitTestBehavior.opaque,
+                        child: Center(
+                          child: isVideo
+                              ? (isCurrent
+                                    ? AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 220,
+                                        ),
+                                        switchInCurve: Curves.easeOut,
+                                        switchOutCurve: Curves.easeIn,
+                                        child: _buildVideoFrame(),
+                                      )
+                                    : const _VideoPagePlaceholder())
+                              : _buildPhotoFrame(ex, isCurrent: isCurrent),
+                        ),
+                      );
+                    },
+                  ),
 
-                // Treatment segmented pill — vertical book-spine in
-                // portrait (mirrors the vertical-swipe gesture); flat
-                // horizontal pill at top-center under the name pill in
-                // landscape (matches the wider canvas ergonomics).
-                //
-                // Wave 34 — also rendered for PHOTOS (was video-only
-                // through Wave 33). The cloud already shipped photos in
-                // three treatments via Wave 22; the mobile preview chrome
-                // was the missing piece.
-                if (!_current.isRest)
-                  isLandscape
-                      ? Positioned(
-                          top: MediaQuery.of(context).padding.top + 64,
-                          left: 0,
-                          right: 0,
-                          child: SafeArea(
-                            top: false,
-                            child: Center(
-                              child: SizedBox(
-                                width: 260,
+                  // Treatment segmented pill — vertical book-spine in
+                  // portrait (mirrors the vertical-swipe gesture); flat
+                  // horizontal pill at top-center under the name pill in
+                  // landscape (matches the wider canvas ergonomics).
+                  //
+                  // Wave 34 — also rendered for PHOTOS (was video-only
+                  // through Wave 33). The cloud already shipped photos in
+                  // three treatments via Wave 22; the mobile preview chrome
+                  // was the missing piece.
+                  if (!_current.isRest)
+                    isLandscape
+                        ? Positioned(
+                            top: MediaQuery.of(context).padding.top + 64,
+                            left: 0,
+                            right: 0,
+                            child: SafeArea(
+                              top: false,
+                              child: Center(
+                                child: SizedBox(
+                                  width: 260,
+                                  child: TreatmentSegmentedControl(
+                                    orientation: Axis.horizontal,
+                                    active: _treatment,
+                                    grayscaleAvailable: hasArchive,
+                                    originalAvailable: hasArchive,
+                                    onChanged: _onTreatmentChanged,
+                                    onLockTap: _onLockedSegmentTap,
+                                    lockedMessages: hasArchive
+                                        ? null
+                                        : const {
+                                            Treatment.grayscale:
+                                                'Older capture — re-record to enable.',
+                                            Treatment.original:
+                                                'Older capture — re-record to enable.',
+                                          },
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                        : Positioned(
+                            left: 12,
+                            // Round 3 — when embedded in the editor sheet
+                            // the canvas can shrink to the 0.55 detent
+                            // (~460pt). The previously-centered vertical
+                            // treatment pill (~220pt tall) collided with
+                            // the bottom-left Body Focus / Rotate cluster
+                            // at that height. Anchor near the top instead
+                            // of center; the route-pushed full-screen path
+                            // still uses centerLeft (taller canvas, no
+                            // collision).
+                            top: widget.embeddedInSheet
+                                ? MediaQuery.of(context).padding.top + 12
+                                : 0,
+                            bottom: widget.embeddedInSheet ? null : 0,
+                            child: SafeArea(
+                              top: !widget.embeddedInSheet,
+                              child: Align(
+                                alignment: widget.embeddedInSheet
+                                    ? Alignment.topLeft
+                                    : Alignment.centerLeft,
                                 child: TreatmentSegmentedControl(
-                                  orientation: Axis.horizontal,
+                                  orientation: Axis.vertical,
                                   active: _treatment,
                                   grayscaleAvailable: hasArchive,
                                   originalAvailable: hasArchive,
@@ -4116,270 +4203,261 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                               ),
                             ),
                           ),
-                        )
-                      : Positioned(
-                          left: 12,
-                          // Round 3 — when embedded in the editor sheet
-                          // the canvas can shrink to the 0.55 detent
-                          // (~460pt). The previously-centered vertical
-                          // treatment pill (~220pt tall) collided with
-                          // the bottom-left Body Focus / Rotate cluster
-                          // at that height. Anchor near the top instead
-                          // of center; the route-pushed full-screen path
-                          // still uses centerLeft (taller canvas, no
-                          // collision).
-                          top: widget.embeddedInSheet
-                              ? MediaQuery.of(context).padding.top + 12
-                              : 0,
-                          bottom: widget.embeddedInSheet ? null : 0,
-                          child: SafeArea(
-                            top: !widget.embeddedInSheet,
-                            child: Align(
-                              alignment: widget.embeddedInSheet
-                                  ? Alignment.topLeft
-                                  : Alignment.centerLeft,
-                              child: TreatmentSegmentedControl(
-                                orientation: Axis.vertical,
-                                active: _treatment,
-                                grayscaleAvailable: hasArchive,
-                                originalAvailable: hasArchive,
-                                onChanged: _onTreatmentChanged,
-                                onLockTap: _onLockedSegmentTap,
-                                lockedMessages: hasArchive
-                                    ? null
-                                    : const {
-                                        Treatment.grayscale:
-                                            'Older capture — re-record to enable.',
-                                        Treatment.original:
-                                            'Older capture — re-record to enable.',
-                                      },
-                              ),
-                            ),
-                          ),
-                        ),
 
-                // Exercise-name pill — top-centered in both orientations.
-                Positioned(
-                  top: MediaQuery.of(context).padding.top + 12,
-                  left: 0,
-                  right: 0,
-                  child: IgnorePointer(
-                    child: Center(
-                      child: Container(
-                        constraints: BoxConstraints(
-                          maxWidth:
-                              MediaQuery.of(context).size.width - 96,
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.6),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              _headerLabel(_current, _currentIndex),
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Exercise ${_currentIndex + 1} of ${widget.exercises.length}',
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 0.3,
-                                color: AppColors.textSecondaryOnDark,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Bottom-right play/pause overlay. Lifted by trim-panel
-                // height (compact in landscape).
-                if (_isVideo(_current) && _videoInitialized)
+                  // Exercise-name pill — top-centered in both orientations.
                   Positioned(
-                    right: 20,
-                    bottom: MediaQuery.of(context).padding.bottom +
-                        ((widget.exercises.length > 1 &&
-                                widget.exercises.length <= 10)
-                            ? 48
-                            : 20) +
-                        _bottomChromeTrimLiftFor(compact: isLandscape),
-                    child: _PlayPauseOverlayButton(
-                      isPlaying:
-                          _activeController?.value.isPlaying ?? false,
-                      visible: _controlsVisible,
-                      onTap: _togglePlayPause,
-                    ),
-                  ),
-
-                // Page dots — bottom-center in both orientations.
-                if (widget.exercises.length > 1 &&
-                    widget.exercises.length <= 10)
-                  Positioned(
+                    top: MediaQuery.of(context).padding.top + 12,
                     left: 0,
                     right: 0,
-                    bottom: MediaQuery.of(context).padding.bottom +
-                        16 +
-                        _bottomChromeTrimLiftFor(compact: isLandscape),
                     child: IgnorePointer(
-                      child: _MediaViewerBodyDotIndicator(
-                        total: widget.exercises.length,
-                        activeIndex: _currentIndex,
-                      ),
-                    ),
-                  ),
-
-                // Bottom-left chrome cluster: mute + body focus + rotate.
-                // Portrait stacks vertical (mute at base, body focus
-                // above); landscape stacks them in a single horizontal
-                // row to recover vertical canvas. Rotate-90 is the new
-                // pill — videos only.
-                //
-                // Wave 34 — photos render the cluster with ONLY the
-                // body-focus pill (mute + rotate stay video-only).
-                // Photos still get a visible Body Focus toggle so the
-                // practitioner can mark a per-plan preference that the
-                // web player honours via Wave 22's segmented URL.
-                if (!_current.isRest &&
-                    (_isVideo(_current) ? _videoInitialized : true))
-                  Positioned(
-                    left: 20,
-                    bottom: MediaQuery.of(context).padding.bottom +
-                        12 +
-                        _bottomChromeTrimLiftFor(compact: isLandscape),
-                    child: _buildBottomLeftChromeCluster(
-                      isLandscape: isLandscape,
-                    ),
-                  ),
-
-                // Soft-trim editor. Compact bar in landscape.
-                if (_trimPanelVisible)
-                  Positioned(
-                    left: 12,
-                    right: 12,
-                    bottom: MediaQuery.of(context).padding.bottom + 8,
-                    child: _TrimPanel(
-                      durationMs: _activeController!
-                          .value.duration.inMilliseconds,
-                      startOffsetMs: _current.startOffsetMs,
-                      endOffsetMs: _current.endOffsetMs,
-                      reps: _current.sets.isNotEmpty
-                          ? _current.sets.first.reps
-                          : null,
-                      compact: isLandscape,
-                      onTrimChanged: (s, e) => _persistTrim(s, e),
-                      onScrub: _onTrimScrub,
-                      onGuardHit: () => HapticFeedback.lightImpact(),
-                      onReset: _resetTrim,
-                      onDragStart: () {
-                        _trimDragInProgress = true;
-                        final active = _activeController;
-                        if (active == null) return;
-                        _trimDragWasPlaying = active.value.isPlaying;
-                        if (_trimDragWasPlaying) active.pause();
-                        _inactiveController?.pause();
-                      },
-                      onDragEnd: () {
-                        _trimDragInProgress = false;
-                        final active = _activeController;
-                        if (active == null) {
-                          _trimDragWasPlaying = false;
-                          return;
-                        }
-                        _prebuffered = false;
-                        if (_trimDragWasPlaying) active.play();
-                        _trimDragWasPlaying = false;
-                      },
-                      onHandleSeek: _onTrimScrub,
-                    ),
-                  ),
-
-                // Close X — top-right in both orientations. Wave 35:
-                // pops with the current exercise id so Studio can scroll-
-                // into-view + auto-expand the matching card on return.
-                // Returning the id (not the index) keeps the handoff
-                // robust against any reorders that may have happened
-                // inside the viewer.
-                //
-                // Round 3 — hidden when embedded in the editor sheet.
-                // The sheet's drag-down + tap-outside dismiss; an X
-                // button on the embedded viewer would pop the sheet
-                // (since it's the topmost route), creating two redundant
-                // dismiss affordances + Carl found the visual noise
-                // distracting.
-                if (!widget.embeddedInSheet)
-                  Positioned(
-                    top: MediaQuery.of(context).padding.top + 8,
-                    right: 8,
-                    child: IconButton(
-                      onPressed: () =>
-                          Navigator.of(context).pop(_focusIdForPop),
-                      icon: const Icon(
-                        Icons.close,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.black54,
-                      ),
-                      tooltip: 'Close',
-                    ),
-                  ),
-
-                // Tune gear — top-right column under the close X.
-                if (_crossfadeTunerVisible)
-                  Positioned(
-                    top: MediaQuery.of(context).padding.top + 8 + 48 + 4,
-                    right: 12,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => _openCrossfadeTuner(
-                          asPopover: isLandscape,
-                        ),
-                        customBorder: const CircleBorder(),
+                      child: Center(
                         child: Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.55),
-                            shape: BoxShape.circle,
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width - 96,
                           ),
-                          child: const Icon(
-                            Icons.tune_rounded,
-                            color: AppColors.primary,
-                            size: 18,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _headerLabel(_current, _currentIndex),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Exercise ${_currentIndex + 1} of ${widget.exercises.length}',
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  letterSpacing: 0.3,
+                                  color: AppColors.textSecondaryOnDark,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
                     ),
                   ),
-              ],
-            );
-          },
+
+                  // Bottom-right play/pause overlay. Lifted by trim-panel
+                  // height (compact in landscape).
+                  if (_isVideo(_current) && _videoInitialized)
+                    Positioned(
+                      right: 20,
+                      bottom:
+                          MediaQuery.of(context).padding.bottom +
+                          ((widget.exercises.length > 1 &&
+                                  widget.exercises.length <= 10)
+                              ? 48
+                              : 20) +
+                          _bottomChromeTrimLiftFor(compact: isLandscape),
+                      child: _PlayPauseOverlayButton(
+                        isPlaying: _activeController?.value.isPlaying ?? false,
+                        visible: _controlsVisible,
+                        onTap: _togglePlayPause,
+                      ),
+                    ),
+
+                  // Page dots — bottom-center in both orientations.
+                  if (widget.exercises.length > 1 &&
+                      widget.exercises.length <= 10)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom:
+                          MediaQuery.of(context).padding.bottom +
+                          16 +
+                          _bottomChromeTrimLiftFor(compact: isLandscape),
+                      child: IgnorePointer(
+                        child: _MediaViewerBodyDotIndicator(
+                          total: widget.exercises.length,
+                          activeIndex: _currentIndex,
+                        ),
+                      ),
+                    ),
+
+                  // Bottom-left chrome cluster: mute + body focus + rotate.
+                  // Portrait stacks vertical (mute at base, body focus
+                  // above); landscape stacks them in a single horizontal
+                  // row to recover vertical canvas. Rotate-90 is the new
+                  // pill — videos only.
+                  //
+                  // Wave 34 — photos render the cluster with ONLY the
+                  // body-focus pill (mute + rotate stay video-only).
+                  // Photos still get a visible Body Focus toggle so the
+                  // practitioner can mark a per-plan preference that the
+                  // web player honours via Wave 22's segmented URL.
+                  if (!_current.isRest &&
+                      (_isVideo(_current) ? _videoInitialized : true))
+                    Positioned(
+                      left: 20,
+                      bottom:
+                          MediaQuery.of(context).padding.bottom +
+                          12 +
+                          _bottomChromeTrimLiftFor(compact: isLandscape),
+                      child: _buildBottomLeftChromeCluster(
+                        isLandscape: isLandscape,
+                      ),
+                    ),
+
+                  // Raw-archive download chip — coral pill on the
+                  // active video tile while a B&W / Original fetch is
+                  // in flight (kicked off by tapping a locked segment
+                  // on a cloud-only session). Mirrors the line-drawing
+                  // _DownloadingChip pattern in StudioExerciseCard;
+                  // disappears when the prefetch settles to done /
+                  // failed (`_hasArchive` then unlocks the segment
+                  // organically on the next rebuild).
+                  if (_isVideo(_current))
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom:
+                          MediaQuery.of(context).padding.bottom +
+                          72 +
+                          _bottomChromeTrimLiftFor(compact: isLandscape),
+                      child: IgnorePointer(
+                        child: Center(
+                          child: ValueListenableBuilder<MediaPrefetchStatus>(
+                            valueListenable: MediaPrefetchService.instance
+                                .archiveStatusFor(_current.id),
+                            builder: (context, status, _) {
+                              if (status != MediaPrefetchStatus.downloading) {
+                                return const SizedBox.shrink();
+                              }
+                              return const _ArchiveDownloadingChip();
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // Soft-trim editor. Compact bar in landscape.
+                  if (_trimPanelVisible)
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      bottom: MediaQuery.of(context).padding.bottom + 8,
+                      child: _TrimPanel(
+                        durationMs:
+                            _activeController!.value.duration.inMilliseconds,
+                        startOffsetMs: _current.startOffsetMs,
+                        endOffsetMs: _current.endOffsetMs,
+                        reps: _current.sets.isNotEmpty
+                            ? _current.sets.first.reps
+                            : null,
+                        compact: isLandscape,
+                        onTrimChanged: (s, e) => _persistTrim(s, e),
+                        onScrub: _onTrimScrub,
+                        onGuardHit: () => HapticFeedback.lightImpact(),
+                        onReset: _resetTrim,
+                        onDragStart: () {
+                          _trimDragInProgress = true;
+                          final active = _activeController;
+                          if (active == null) return;
+                          _trimDragWasPlaying = active.value.isPlaying;
+                          if (_trimDragWasPlaying) active.pause();
+                          _inactiveController?.pause();
+                        },
+                        onDragEnd: () {
+                          _trimDragInProgress = false;
+                          final active = _activeController;
+                          if (active == null) {
+                            _trimDragWasPlaying = false;
+                            return;
+                          }
+                          _prebuffered = false;
+                          if (_trimDragWasPlaying) active.play();
+                          _trimDragWasPlaying = false;
+                        },
+                        onHandleSeek: _onTrimScrub,
+                      ),
+                    ),
+
+                  // Close X — top-right in both orientations. Wave 35:
+                  // pops with the current exercise id so Studio can scroll-
+                  // into-view + auto-expand the matching card on return.
+                  // Returning the id (not the index) keeps the handoff
+                  // robust against any reorders that may have happened
+                  // inside the viewer.
+                  //
+                  // Round 3 — hidden when embedded in the editor sheet.
+                  // The sheet's drag-down + tap-outside dismiss; an X
+                  // button on the embedded viewer would pop the sheet
+                  // (since it's the topmost route), creating two redundant
+                  // dismiss affordances + Carl found the visual noise
+                  // distracting.
+                  if (!widget.embeddedInSheet)
+                    Positioned(
+                      top: MediaQuery.of(context).padding.top + 8,
+                      right: 8,
+                      child: IconButton(
+                        onPressed: () =>
+                            Navigator.of(context).pop(_focusIdForPop),
+                        icon: const Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.black54,
+                        ),
+                        tooltip: 'Close',
+                      ),
+                    ),
+
+                  // Tune gear — top-right column under the close X.
+                  if (_crossfadeTunerVisible)
+                    Positioned(
+                      top: MediaQuery.of(context).padding.top + 8 + 48 + 4,
+                      right: 12,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () =>
+                              _openCrossfadeTuner(asPopover: isLandscape),
+                          customBorder: const CircleBorder(),
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.tune_rounded,
+                              color: AppColors.primary,
+                              size: 18,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
         ),
-      ),
       ),
     );
   }
@@ -4416,8 +4494,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
       tooltipWhenActive: 'Body focus ON — background dimmed for clarity.',
       tooltipWhenInactive:
           'Body focus OFF — playing the untouched colour file.',
-      tooltipWhenDisabled:
-          'Body focus applies to colour playback only.',
+      tooltipWhenDisabled: 'Body focus applies to colour playback only.',
     );
     final rotate = _RotatePill(
       onTap: _onRotateTap,
@@ -4528,21 +4605,129 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
 
   /// Tap handler for a locked segment in the segmented control.
   ///
-  /// Consent now lives at the client level (ClientSessionsScreen). The
-  /// inline toggle that used to sit below this pill is gone, so when a
-  /// segment is locked we gently point the practitioner at where to go
-  /// grant access. Haptic + short SnackBar; no modal (R-01).
-  void _onLockedSegmentTap() {
+  /// Two reasons a segment can be locked:
+  ///   1. The local raw-archive file isn't on disk yet (cloud-only
+  ///      session post-PR #190). We silently kick off a background
+  ///      download from the private `raw-archive` bucket via
+  ///      [MediaPrefetchService.prefetchRawArchive]. A coral
+  ///      "Downloading original…" chip overlays the active media
+  ///      tile while the pull is in flight; on completion the
+  ///      relevant local column is stamped (`archive_file_path` for
+  ///      videos, `raw_file_path` for photos), `_hasArchive` flips
+  ///      true on the next rebuild, and the active treatment switches
+  ///      to whichever segment the user tapped (B&W or Original) so
+  ///      they see the result without a second tap.
+  ///   2. Archive exists but the client hasn't granted that treatment.
+  ///      We surface a SnackBar pointing the practitioner at the client
+  ///      consent page, with the actual client name + treatment word
+  ///      interpolated so the next step is concrete.
+  ///
+  /// Haptic + chip overlay / SnackBar; no modal (R-01).
+  void _onLockedSegmentTap(Treatment t) {
     HapticFeedback.lightImpact();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Grant consent on the client page to enable this treatment.',
+
+    final exercise = _current;
+    final missingArchive = !_hasArchive(exercise);
+    final session = _session;
+    // session.practiceId is NULL on cloud-pulled rows because the local
+    // sessions table has no practice_id column (and toMap() doesn't emit
+    // one). Mirror the publish path's fallback: read the active practice
+    // from AuthService when the session itself doesn't carry it.
+    final practiceId =
+        session?.practiceId ?? AuthService.instance.currentPracticeId.value;
+    final planId = session?.id;
+
+    if (missingArchive && practiceId != null && planId != null) {
+      // Cloud-only session — the raw file (mp4 for videos, jpg for
+      // photos) hasn't been pulled yet. Fire a background download;
+      // the chip overlay on the active media tile is the only
+      // feedback. On completion we update the in-memory exercise so
+      // _hasArchive flips true, then switch the active treatment to
+      // the one the user tapped.
+      //
+      // Optimistic treatment switch is deferred to the onDownloaded
+      // callback because _initVideoForCurrent / the photo render path
+      // both read the local file directly — switching now (before the
+      // file lands) would briefly try to render a non-existent path.
+      unawaited(
+        MediaPrefetchService.instance.prefetchRawArchive(
+          exercise: exercise,
+          practiceId: practiceId,
+          planId: planId,
+          storage: SyncService.instance.storage,
+          onDownloaded: (downloadedId) {
+            if (!mounted) return;
+            // Re-read the freshly-stamped row from SQLite so the
+            // viewer's in-memory copy carries the new path.
+            unawaited(_refreshDownloadedExercise(downloadedId, t));
+          },
+          onFailed: (_) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Couldn't download original — try again."),
+                duration: Duration(seconds: 3),
+              ),
+            );
+          },
         ),
-        duration: Duration(seconds: 2),
+      );
+      return;
+    }
+
+    // Archive exists but consent is missing (the "real" lock case).
+    // Surface the SnackBar pointing the practitioner at the client
+    // consent page.
+    final rawClientName = session?.clientName ?? '';
+    final clientName = rawClientName.trim().isEmpty
+        ? 'this client'
+        : rawClientName;
+    final treatmentWord = t == Treatment.grayscale ? 'B&W' : 'Original';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Grant $clientName consent for $treatmentWord to unlock.',
+        ),
+        duration: const Duration(seconds: 2),
       ),
     );
+  }
+
+  /// Pull the freshly-stamped row from SQLite and merge into the
+  /// viewer's in-memory `_exercises` so `_hasArchive` flips true on
+  /// the next rebuild. Then switch the active treatment to [tapped]
+  /// (B&W or Original) so the user sees the file they were waiting
+  /// for without having to tap the segment a second time.
+  ///
+  /// If the prefetch fired for an exercise other than the currently-
+  /// shown one (rare — the user paged away mid-download), we still
+  /// update the in-memory copy but skip the treatment switch.
+  Future<void> _refreshDownloadedExercise(
+    String exerciseId,
+    Treatment tapped,
+  ) async {
+    final fresh = await SyncService.instance.storage.getExerciseById(
+      exerciseId,
+    );
+    if (fresh == null || !mounted) return;
+    final idx = _exercises.indexWhere((e) => e.id == exerciseId);
+    if (idx < 0) return;
+    setState(() {
+      _exercises[idx] = fresh;
+    });
+    final cb = widget.onExerciseUpdate;
+    if (cb != null) cb(fresh);
+    // Only switch treatment when the download landed for the page
+    // currently in view — otherwise we'd reach across PageView pages
+    // and surprise the user.
+    if (idx != _currentIndex) return;
+    if (!_hasArchive(_exercises[_currentIndex])) return;
+    if (tapped == _treatment) return;
+    if (tapped == Treatment.line) return;
+    setState(() => _treatment = tapped);
+    _persistPreferredTreatment(tapped);
+    _initVideoForCurrent();
   }
 
   /// Wave 27 — stacked dual-video crossfade. Both VideoPlayer widgets
@@ -4582,7 +4767,8 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
         final segAbs = ex.absoluteSegmentedRawFilePath;
         if (segAbs != null && segAbs.isNotEmpty) {
           final segExt = segAbs.toLowerCase();
-          final segIsImage = segExt.endsWith('.jpg') ||
+          final segIsImage =
+              segExt.endsWith('.jpg') ||
               segExt.endsWith('.jpeg') ||
               segExt.endsWith('.png');
           if (segIsImage && File(segAbs).existsSync()) {
@@ -4601,7 +4787,8 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
         // to Image.file that and we crash. In that case keep the line
         // drawing rendered for all treatments.
         final ext = raw.toLowerCase();
-        final rawIsImage = ext.endsWith('.jpg') ||
+        final rawIsImage =
+            ext.endsWith('.jpg') ||
             ext.endsWith('.jpeg') ||
             ext.endsWith('.png') ||
             ext.endsWith('.heic');
@@ -4621,10 +4808,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
       ),
     );
     if (isCurrent && _treatment == Treatment.grayscale) {
-      image = ColorFiltered(
-        colorFilter: grayscaleColorFilter,
-        child: image,
-      );
+      image = ColorFiltered(colorFilter: grayscaleColorFilter, child: image);
     }
     // Wave 36 — body-focus state is part of the key so toggling the
     // pill rebuilds the photo frame even when the treatment hasn't
@@ -4645,9 +4829,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     if (a == null || b == null || !_videoInitialized) {
       return const SizedBox.expand(
         key: ValueKey('media-viewer-loading'),
-        child: Center(
-          child: CircularProgressIndicator(color: Colors.white54),
-        ),
+        child: Center(child: CircularProgressIndicator(color: Colors.white54)),
       );
     }
     final fadeMs = _crossfadeFadeMs;
@@ -4668,24 +4850,19 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
         child: VideoPlayer(c),
       );
     }
+
     Widget stack = AspectRatio(
       aspectRatio: aspect,
       child: RotatedBox(
         quarterTurns: quarters,
         child: Stack(
           fit: StackFit.expand,
-          children: [
-            slot(a, _activeSlot == 'a'),
-            slot(b, _activeSlot == 'b'),
-          ],
+          children: [slot(a, _activeSlot == 'a'), slot(b, _activeSlot == 'b')],
         ),
       ),
     );
     if (_treatment == Treatment.grayscale) {
-      stack = ColorFiltered(
-        colorFilter: grayscaleColorFilter,
-        child: stack,
-      );
+      stack = ColorFiltered(colorFilter: grayscaleColorFilter, child: stack);
     }
     return KeyedSubtree(
       key: ValueKey('media-viewer-${_treatment.name}-q$quarters'),
@@ -4778,8 +4955,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                       decoration: BoxDecoration(
                         color: AppColors.surfaceBase,
                         borderRadius: BorderRadius.circular(16),
-                        border:
-                            Border.all(color: AppColors.surfaceBorder),
+                        border: Border.all(color: AppColors.surfaceBorder),
                         boxShadow: const [
                           BoxShadow(
                             color: Colors.black54,
@@ -4881,7 +5057,11 @@ class _TogglePill extends StatelessWidget {
         ? tooltipWhenDisabled
         : (active ? tooltipWhenActive : tooltipWhenInactive);
     final wrapped = msg != null
-        ? Tooltip(message: msg, triggerMode: TooltipTriggerMode.tap, child: pill)
+        ? Tooltip(
+            message: msg,
+            triggerMode: TooltipTriggerMode.tap,
+            child: pill,
+          )
         : pill;
     return enabled ? wrapped : Opacity(opacity: 0.4, child: wrapped);
   }
@@ -4895,10 +5075,7 @@ class _RotatePill extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
-  const _RotatePill({
-    required this.onTap,
-    required this.onLongPress,
-  });
+  const _RotatePill({required this.onTap, required this.onLongPress});
 
   @override
   Widget build(BuildContext context) {
@@ -4912,8 +5089,7 @@ class _RotatePill extends StatelessWidget {
           onLongPress: onLongPress,
           borderRadius: BorderRadius.circular(16),
           child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
               color: Colors.transparent,
               borderRadius: BorderRadius.circular(16),
@@ -4988,9 +5164,7 @@ class _PlayPauseOverlayButton extends StatelessWidget {
               width: 56,
               height: 56,
               child: Icon(
-                isPlaying
-                    ? Icons.pause_rounded
-                    : Icons.play_arrow_rounded,
+                isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
                 color: Colors.white,
                 size: 32,
               ),
@@ -5050,10 +5224,55 @@ class _VideoPagePlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Center(
-      child: Icon(
-        Icons.play_circle_outline,
-        size: 72,
-        color: Colors.white24,
+      child: Icon(Icons.play_circle_outline, size: 72, color: Colors.white24),
+    );
+  }
+}
+
+/// Coral chip — shown over the active video tile in `_MediaViewer`
+/// while the raw archive (B&W / Original source) is being pulled from
+/// the private `raw-archive` Supabase bucket. Only feedback for the
+/// locked-segment tap on a cloud-only session; vanishes once the file
+/// lands and `_hasArchive` flips true.
+///
+/// Mirrors the line-drawing `_DownloadingChip` in `studio_exercise_card.dart`
+/// (same fontFamily / weight / radius / spinner stroke). Sized for
+/// the larger viewer surface — slightly more padding so the chip
+/// reads at a glance from arm's length.
+class _ArchiveDownloadingChip extends StatelessWidget {
+  const _ArchiveDownloadingChip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(9999),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.6,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ),
+          SizedBox(width: 10),
+          Text(
+            'Downloading original…',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -5187,7 +5406,8 @@ class _TrimPanelState extends State<_TrimPanel> {
 
   int get _effectiveStartMs => widget.startOffsetMs ?? 0;
   int get _effectiveEndMs => widget.endOffsetMs ?? widget.durationMs;
-  bool get _hasTrim => widget.startOffsetMs != null || widget.endOffsetMs != null;
+  bool get _hasTrim =>
+      widget.startOffsetMs != null || widget.endOffsetMs != null;
 
   void _maybeFireGuard() {
     final now = DateTime.now();
@@ -5291,10 +5511,14 @@ class _TrimPanelState extends State<_TrimPanel> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 _barWidth = constraints.maxWidth;
-                final startFrac = (_effectiveStartMs / widget.durationMs)
-                    .clamp(0.0, 1.0);
-                final endFrac = (_effectiveEndMs / widget.durationMs)
-                    .clamp(0.0, 1.0);
+                final startFrac = (_effectiveStartMs / widget.durationMs).clamp(
+                  0.0,
+                  1.0,
+                );
+                final endFrac = (_effectiveEndMs / widget.durationMs).clamp(
+                  0.0,
+                  1.0,
+                );
                 final startX = startFrac * _barWidth;
                 final endX = endFrac * _barWidth;
                 return GestureDetector(
@@ -5351,10 +5575,8 @@ class _TrimPanelState extends State<_TrimPanel> {
                             HapticFeedback.selectionClick();
                             widget.onDragStart?.call();
                           },
-                          onHorizontalDragUpdate: (d) => _updateHandle(
-                            _TrimHandle.start,
-                            d.delta.dx,
-                          ),
+                          onHorizontalDragUpdate: (d) =>
+                              _updateHandle(_TrimHandle.start, d.delta.dx),
                           onHorizontalDragEnd: (_) =>
                               _onHandleReleased(_TrimHandle.start),
                           onHorizontalDragCancel: () =>
@@ -5372,10 +5594,8 @@ class _TrimPanelState extends State<_TrimPanel> {
                             HapticFeedback.selectionClick();
                             widget.onDragStart?.call();
                           },
-                          onHorizontalDragUpdate: (d) => _updateHandle(
-                            _TrimHandle.end,
-                            d.delta.dx,
-                          ),
+                          onHorizontalDragUpdate: (d) =>
+                              _updateHandle(_TrimHandle.end, d.delta.dx),
                           onHorizontalDragEnd: (_) =>
                               _onHandleReleased(_TrimHandle.end),
                           onHorizontalDragCancel: () =>
@@ -5500,9 +5720,7 @@ class _TrimHandlePill extends StatelessWidget {
         child: SizedBox(
           width: 2,
           height: 16,
-          child: DecoratedBox(
-            decoration: BoxDecoration(color: Colors.white),
-          ),
+          child: DecoratedBox(decoration: BoxDecoration(color: Colors.white)),
         ),
       ),
     );
@@ -5597,79 +5815,77 @@ class _CrossfadeTunerSheetState extends State<_CrossfadeTunerSheet> {
               ),
             ),
           const Text(
-              'Loop crossfade tuning',
-              style: TextStyle(
-                fontFamily: 'Montserrat',
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textOnDark,
-              ),
+            'Loop crossfade tuning',
+            style: TextStyle(
+              fontFamily: 'Montserrat',
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textOnDark,
             ),
-            const SizedBox(height: 6),
-            const Text(
-              'Tune how the seam between video loops blends. '
-              'Affects this plan only — saved on publish.',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
-                color: AppColors.textSecondaryOnDark,
-                height: 1.35,
-              ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Tune how the seam between video loops blends. '
+            'Affects this plan only — saved on publish.',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+              color: AppColors.textSecondaryOnDark,
+              height: 1.35,
             ),
-            const SizedBox(height: 18),
-            _TunerSliderRow(
-              label: 'Lead time',
-              valueLabel: '$_lead ms',
-              helper: 'How early to start the next loop before the seam.',
-              value: _lead.toDouble(),
-              min: _leadMin.toDouble(),
-              max: _leadMax.toDouble(),
-              divisions: (_leadMax - _leadMin) ~/ _step,
-              onChanged: (v) {
-                setState(() => _lead = (v / _step).round() * _step);
-                widget.onChanged(leadMs: _lead);
+          ),
+          const SizedBox(height: 18),
+          _TunerSliderRow(
+            label: 'Lead time',
+            valueLabel: '$_lead ms',
+            helper: 'How early to start the next loop before the seam.',
+            value: _lead.toDouble(),
+            min: _leadMin.toDouble(),
+            max: _leadMax.toDouble(),
+            divisions: (_leadMax - _leadMin) ~/ _step,
+            onChanged: (v) {
+              setState(() => _lead = (v / _step).round() * _step);
+              widget.onChanged(leadMs: _lead);
+            },
+          ),
+          const SizedBox(height: 14),
+          _TunerSliderRow(
+            label: 'Fade duration',
+            valueLabel: '$_fade ms',
+            helper: 'How long the crossfade itself takes.',
+            value: _fade.toDouble(),
+            min: _fadeMin.toDouble(),
+            max: _fadeMax.toDouble(),
+            divisions: (_fadeMax - _fadeMin) ~/ _step,
+            onChanged: (v) {
+              setState(() => _fade = (v / _step).round() * _step);
+              widget.onChanged(fadeMs: _fade);
+            },
+          ),
+          const SizedBox(height: 18),
+          Center(
+            child: TextButton(
+              onPressed: () {
+                setState(() {
+                  _lead = 250;
+                  _fade = 200;
+                });
+                widget.onReset();
               },
-            ),
-            const SizedBox(height: 14),
-            _TunerSliderRow(
-              label: 'Fade duration',
-              valueLabel: '$_fade ms',
-              helper: 'How long the crossfade itself takes.',
-              value: _fade.toDouble(),
-              min: _fadeMin.toDouble(),
-              max: _fadeMax.toDouble(),
-              divisions: (_fadeMax - _fadeMin) ~/ _step,
-              onChanged: (v) {
-                setState(() => _fade = (v / _step).round() * _step);
-                widget.onChanged(fadeMs: _fade);
-              },
-            ),
-            const SizedBox(height: 18),
-            Center(
-              child: TextButton(
-                onPressed: () {
-                  setState(() {
-                    _lead = 250;
-                    _fade = 200;
-                  });
-                  widget.onReset();
-                },
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                ),
-                child: const Text(
-                  'Reset to defaults',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: TextButton.styleFrom(foregroundColor: AppColors.primary),
+              child: const Text(
+                'Reset to defaults',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
     );
     if (widget.compact) {
       // Popover host already provides the surface chrome — return the
@@ -5786,10 +6002,7 @@ class _ReachabilityDropPill extends StatelessWidget {
   final bool latched;
   final VoidCallback onTap;
 
-  const _ReachabilityDropPill({
-    required this.latched,
-    required this.onTap,
-  });
+  const _ReachabilityDropPill({required this.latched, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -5813,9 +6026,7 @@ class _ReachabilityDropPill extends StatelessWidget {
             ],
           ),
           child: Icon(
-            latched
-                ? Icons.arrow_upward_rounded
-                : Icons.arrow_downward_rounded,
+            latched ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
             size: 20,
             color: Colors.white,
           ),

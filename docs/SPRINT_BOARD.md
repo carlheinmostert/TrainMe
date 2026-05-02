@@ -23,7 +23,7 @@ Cadence: update on every PR open/merge and daily wrap
 ## Done (merge lane)
 - `#157` merged (docs handoff/checkpoint).
 - `#158` merged (Wave 41 ghost-exercise port).
-- `#156`, `#155`, `#154`, `#153` merged tip-first (DOSE stack).
+- `#156`, `#155`, `#154`, `#153` merged tip-first (PLAN stack).
 - `#146` merged (body-focus mobile + schema).
 - `#147` merged (web-player overrides).
 - Superseded PRs closed: `#145`, `#149`, `#150`, `#151`, `#152`.

@@ -259,10 +259,10 @@ class UnifiedPreviewSchemeBridge {
         ? '/local/${e.id}/segmented'
         : null;
 
-    // Per-set DOSE wave — emit the nested `sets` array shape that the
+    // Per-set PLAN wave — emit the nested `sets` array shape that the
     // web-player bundle now consumes (matching `get_plan_full`'s
     // server-side response). Each set carries the per-row fields the
-    // bundle uses for the DOSE table + rep-stack timing.
+    // bundle uses for the PLAN table + rep-stack timing.
     final setsJson = e.sets
         .map((s) => <String, dynamic>{
               'position': s.position,
@@ -300,7 +300,7 @@ class UnifiedPreviewSchemeBridge {
       // Wave 28 — landscape orientation metadata.
       'aspect_ratio': e.aspectRatio,
       'rotation_quarters': e.rotationQuarters,
-      // Per-set DOSE rest-fix — round-trip parity with the cloud
+      // Per-set PLAN rest-fix — round-trip parity with the cloud
       // `get_plan_full` shape. Null for video/photo; positive integer
       // for media_type='rest'. The web-player bundle reads this when
       // deriving rest-card duration; mobile preview hits the same

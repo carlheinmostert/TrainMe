@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 import 'branded_slider_theme.dart';
 
-/// Stepped weight slider for the per-set DOSE table editor.
+/// Stepped weight slider for the per-set PLAN table editor.
 ///
 /// Round 3 — chrome retired per Carl: no leading N/A toggle, no readout
 /// bubble, no trailing subtitle. The slider's leftmost stop (0 kg) is the
@@ -30,11 +30,18 @@ class WeightSlider extends StatefulWidget {
   /// default since 0 = N/A.
   final double restoreDefaultKg;
 
+  /// Fired when the practitioner commits a value — drag-end OR
+  /// tap-to-position. Used by the parent (PlanTable) to dismiss the
+  /// inline editor block on commit, bringing the weight cell into
+  /// parity with reps / hold / breather (which auto-close on chip tap).
+  final VoidCallback? onCommit;
+
   const WeightSlider({
     super.key,
     required this.valueKg,
     required this.onChanged,
     this.restoreDefaultKg = 0.0,
+    this.onCommit,
   });
 
   @override
@@ -90,6 +97,11 @@ class _WeightSliderState extends State<WeightSlider> {
                 // Leftmost stop = bodyweight (null) by Round 3 spec.
                 widget.onChanged(snapped == 0 ? null : snapped);
               },
+              // Slider's onChangeEnd fires on drag release AND
+              // tap-to-position. One hook covers both commit paths,
+              // bringing weight into parity with the chip-row pills
+              // (reps / hold / breather) that auto-close on tap.
+              onChangeEnd: (_) => widget.onCommit?.call(),
             ),
           ),
         ),

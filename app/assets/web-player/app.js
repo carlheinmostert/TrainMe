@@ -1073,7 +1073,7 @@ function buildPrepOverlay() {
 
 /**
  * Wave 41 — decoded grammar for the active slide. Reads `slide.sets[]`
- * (post per-set DOSE refactor) and produces a per-set summary:
+ * (post per-set PLAN refactor) and produces a per-set summary:
  *   Uniform:           `3 × 10 @ 15 kg · 60 s rest`
  *   Pyramid (varied):  `10/8/6 @ 12.5/15/17.5 kg · 60 s rest`
  *   Bodyweight:        `3 × 10 · 30 s hold · 60 s rest`

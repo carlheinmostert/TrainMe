@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Device QA Wave 18.8 — polish round 5</title>
+<title>Device QA — Cloud-pull sessions on fresh install</title>
 <style>
   :root {
     --bg: #0F1117;
@@ -31,6 +31,10 @@
     font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
     font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
     padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
   }
   .kicker {
     color: var(--coral); font-size: 11px; font-weight: 700;
@@ -100,6 +104,13 @@
     font-family: "JetBrains Mono", ui-monospace, monospace;
     font-size: 12px; color: var(--coral);
   }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 9999px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+    background: var(--coral-bg); color: var(--coral);
+    border: 1px solid rgba(255,107,53,0.3);
+    margin-right: 6px;
+  }
   .oos {
     background: var(--raised); padding: 16px 20px; border-radius: 10px;
     border: 1px solid var(--border); margin: 28px 0;
@@ -119,124 +130,139 @@
 </head>
 <body>
   <div class="wrap">
-    <div class="kicker">2026-04-22 · Wave 18.8 — polish round 5</div>
-    <h1>Device QA — Wave 18.8</h1>
+    <div class="kicker">2026-05-02 · Pull-sessions fix — fresh-install hydration</div>
+    <h1>Device QA — Cloud-pull sessions on fresh install</h1>
     <p class="lede">
-      <strong>Purpose:</strong> five items from Wave 18.7 live QA. <strong>(1)</strong> <code>[+]</code> padding tightened 12pt → 10pt; pill now ~38pt wide (was ~42pt) — leaner match to the text chips. <strong>(2)</strong> Section header label AND summary both bumped to <strong>16pt</strong>. Even at 14pt the coral label perceptually read smaller than the 13pt grey inner labels; coral on dark loses the contrast battle. 16pt vs 13pt inner tier gives a real 3pt absolute gap so the section header finally dominates as designed. Label/summary differentiation now carried purely by weight + case + colour. <strong>(3)</strong> Expand gap between <code>_GroupHeader</code> and first inner content row tightened 8pt → 2pt — header + body feel like one connected unit. Intra-content spacing unchanged. <strong>(4)</strong> NOTES collapsed summary: replaces all whitespace (including newlines) with single spaces, forces single-line with ellipsis. PACING keeps its up-to-3-line wrap. <strong>(5)</strong> Inline numeric editor (PREP + DURATION PER REP) now uses <code>Expanded</code> on the text field and a call-site <code>Expanded</code> wrapper — the <code>&lt; Cancel [_N_] Done &gt;</code> row fits entirely inside the card's content area, no more overflow past the right edge.
+      <strong>Purpose:</strong> verify that signing in on a freshly-installed device populates the session list from cloud. Before this fix, <code>SyncService.pullAll</code> only pulled practices, clients, credit balance, and the legacy plan→client backfill — there was no cloud→local sessions branch. Sessions only entered SQLite via on-device capture, so a reinstall (or sign-in on a second device) showed every client with zero sessions and an empty <code>ClientSessionsScreen</code>.
       <br><br>
-      <strong>In scope:</strong> mobile-only. <code>preset_chip_row.dart</code> (<code>[+]</code> padding) + <code>studio_exercise_card.dart</code> (section header font bump, expand gap tightening, NOTES single-line collapse, inline editor width fix).
+      <strong>In scope:</strong> new SECURITY DEFINER RPC <code>list_practice_plans(p_practice_id)</code> returns each plan with its exercises + per-set rows in a single jsonb payload. <code>ApiClient.listPracticePlans</code> typed wrapper. <code>SyncService._pullSessions</code> branch added to <code>pullAll</code>'s parallel <code>Future.wait</code>. <code>LocalStorageService.upsertCloudPlanIfMissing</code> atomic transaction inserting plan + exercises + sets only when the local row is absent (local-wins on collision).
       <br><br>
-      <strong>Out of scope:</strong> anything already covered by Wave 18 / 18.1 / 18.2 / 18.3 / 18.4 / 18.5 / 18.6 / 18.7. Web player. Portal. Storage semantics of <code>customDurationSeconds</code> unchanged. Chip long-press remove/undo, <code>[+]</code> long-press no-op, inline (not modal) input, R-01 "no popups" — all unchanged.
+      <strong>Out of scope:</strong> remote re-download of media files (raw video / line drawing / archive). Practitioner preview plays from local files only — pulled sessions whose media doesn't exist locally render with empty thumbnails / failed playback, by design. Adding round-trip repair for missing media is a separate wave. Web-player consumption path is unaffected (it reads <code>get_plan_full</code>, not the new RPC).
     </p>
 
     <div class="oos">
       <h3>Prerequisites</h3>
       <ul>
-        <li>Wave 18.7 merged (SHA <code>1a97d15</code>). Wave 18.8 branch <code>fix/wave-18.8-polish</code> installed via <code>./install-device.sh</code>.</li>
-        <li>At least one session with: (a) a video exercise WITH probed duration; (b) a photo exercise. One exercise with notes containing newlines (multi-paragraph) for Item 9.</li>
-        <li>iPhone 17 Pro or similar 393pt-wide device.</li>
+        <li>Branch <code>claude/clever-euler-1d2a03</code> installed via <code>./install-device.sh</code>.</li>
+        <li>Carl's iPhone <code>00008150-001A31D40E88401C</code>.</li>
+        <li>Stream device logs alongside the test: <code>idevicesyslog --udid 00008150-001A31D40E88401C 2>&amp;1 | grep -E 'SyncService|listPracticePlans|pullSessions|getSessionsForUser'</code> in a terminal.</li>
       </ul>
     </div>
 
-    <h2>1 · <code>[+]</code> padding 12pt → 10pt</h2>
+    <h2>1 · Cloud→local hydration on cold launch</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The fundamental fix — sign-in fires <code>pullAll</code>, the new branch pulls plans from cloud, SQLite gets hydrated, the Home / clients list re-renders.
+    </p>
     <ul class="checklist">
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
         <span class="num">1.</span>
-        <span class="text">Open any exercise card, expand PLAN. The <code>[+]</code> tail renders as a <strong>~38pt-wide dashed pill</strong> (was ~42pt in Wave 18.7). Still visibly padded — there's room around the centred <code>+</code> icon — but leaner, with the visual weight more closely matching the text chips <code>[15]</code>, <code>[12]</code>, <code>[10]</code>. Long-press <code>[+]</code> → no-op. Tap <code>[+]</code> → inline Cancel / numeric field / Done opens (NOT a modal).</span>
+        <span class="text">Cold-launch the freshly-installed app. Sign in (password or magic link). Within ~3-5s of <code>onAuthStateChange(signedIn)</code> firing, os_log shows <code>SyncService: pullSessions practice=&lt;uuid&gt; — cloud=N inserted=N skipped_existing=0</code> with N matching the cloud plan count for your practice (run <code>supabase db query --linked "SELECT COUNT(*) FROM plans WHERE practice_id = '&lt;your-practice-id&gt;' AND deleted_at IS NULL;"</code> to confirm the expected count).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>2 · Section header hierarchy (16pt label + 16pt summary)</h2>
-    <ul class="checklist">
       <li data-num="2" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
         <span class="num">2.</span>
-        <span class="text">Expand an exercise card with PLAN values set (e.g. reps=10, sets=3, hold=5s). Section header <code>PLAN</code> (coral w700 uppercase) reads <strong>visibly LARGER than</strong> the 13pt inner labels <code>REPS</code> / <code>SETS</code> / <code>HOLD</code>. Hierarchy restored after Wave 18.7's 14pt label perceptually tied with grey inner labels. The coral header dominates the row.</span>
+        <span class="text">After the pull lands, the Home / clients list re-renders. Each client with at least one cloud session now shows a non-zero session count under their name. The "Big Boss Physio's" practice (or whichever practice you're using) renders with the same client→session distribution you had before the rebrand.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="3" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
         <span class="num">3.</span>
-        <span class="text">Section header <strong>summary</strong> text (after the <code>·</code> — e.g. <code>PLAN · 10 reps · 3 sets · 5s hold</code>) renders at the <strong>same 16pt size as the label</strong>. Differentiation is purely weight + case + colour: label = w700 uppercase coral; summary = w500 mixed-case grey. The row reads as one unified header.</span>
+        <span class="text">Tap into a client with multiple sessions → <code>ClientSessionsScreen</code> renders the full list, ordered newest first. Each card shows the session title (<code>Session for &lt;DD Mon YYYY HH:MM&gt;</code> format), version chip, last-published time, and the dirty / clean indicator that matches the cloud state.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
+    </ul>
+
+    <h2>2 · Pulled sessions are openable + playable (within local-files limits)</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Open a pulled session and verify the Studio shell hydrates. Media playback may be empty (cloud media wasn't pulled — out of scope). Per-set rows + exercise metadata MUST be intact.
+    </p>
+    <ul class="checklist">
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
         <span class="num">4.</span>
-        <span class="text">Inner labels <code>REPS</code>, <code>SETS</code>, <code>HOLD</code>, <code>PREP</code>, <code>DURATION PER REP</code> all still render at <strong>13pt Inter w600 uppercase grey</strong> (letter-spacing 0.5). No regression in inner-label size.</span>
+        <span class="text">Tap a pulled session card. <code>SessionShellScreen</code> opens. Studio mode renders every exercise card from the pulled list — exercise count matches the cloud plan's exercise count. Each card shows its name (or position number if unnamed), notes, and the per-set row count beneath the title. Rest periods render as compact rest bars between exercise cards.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="5" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
         <span class="num">5.</span>
-        <span class="text">Inner values (the <code>10</code>, <code>3</code>, <code>5s</code>, <code>45</code>, <code>30s</code>) all still render at <strong>13pt JetBrainsMono w700 white</strong>. No regression in value size. 3pt absolute gap between 16pt section header and 13pt inner tier reads clearly.</span>
+        <span class="text">Tap an exercise card to open the inline tray. Reps, hold seconds, breather, and (if set) weight match what was originally published. Per-set count matches what's in cloud (run <code>supabase db query --linked "SELECT exercise_id, position, reps, hold_seconds FROM exercise_sets WHERE exercise_id = '&lt;ex-id&gt;' ORDER BY position;"</code> against a sample exercise).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Open Preview on a pulled session. The plan-preview deck renders (one card per exercise + circuit unrolling). Media tiles either show local media (impossible on a fresh install — file's not there) or fall through to a placeholder without crashing. The progress-pill matrix at the top renders with the right pill count + grouping.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>3 · Tight expand gap (8pt → 2pt)</h2>
+    <h2>3 · Local-wins guard — no clobber on collision</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The new branch only INSERTS missing rows. A second pull on the same data should not re-insert; an in-flight local edit should not be overwritten.
+    </p>
     <ul class="checklist">
-      <li data-num="6" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
-        <span class="num">6.</span>
-        <span class="text">Expand PLAN. The gap between the <code>PLAN</code> header row and the first inner content (REPS row) is <strong>visually tight (~2pt)</strong>, not the previous 8pt. Header + body feel like one connected unit, not two separated blocks.</span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="7" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
         <span class="num">7.</span>
-        <span class="text">Same tight header → first-content gap when expanding <strong>PLAYBACK</strong> (first row: treatment tiles), <strong>PACING</strong> (first row: PREP), and <strong>NOTES</strong> (first row: the text field). All four expanded bodies feel attached to their header now.</span>
+        <span class="text">After the first sign-in pull lands (item 1), tap <code>Force sync now</code> in Settings → Diagnostics. os_log shows <code>SyncService: pullSessions practice=&lt;uuid&gt; — cloud=N inserted=0 skipped_existing=N</code>. Every cloud plan was already local; nothing was re-inserted. The clients list does NOT flicker or rerender.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="8" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
         <span class="num">8.</span>
-        <span class="text">INTRA-content spacing inside an expanded body is <strong>unchanged</strong>. Inside PLAN: still ~8pt breathing room between REPS → SETS → HOLD rows. Inside PACING: still breathing room between PREP row and DURATION PER REP row. Only the very first gap (header → first row) was tightened.</span>
+        <span class="text">Edit a pulled session offline (airplane mode ON, rename the title). Force-sync — the local rename is preserved (the queued <code>rename_session</code> op is in <code>pending_ops</code>); the cloud title hasn't changed yet. Re-enable network. Queue flushes; cloud and local now agree. No double-rename, no flicker back to old title.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>4 · NOTES collapsed summary — single-line with whitespace collapse</h2>
+    <h2>4 · Practice-switch hydrates the new practice</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      <code>pullAll</code> fires per-practice. Switching practices should pull THAT practice's sessions.
+    </p>
     <ul class="checklist">
       <li data-num="9" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
         <span class="num">9.</span>
-        <span class="text">Expand NOTES. Type a multi-line note with actual newlines: <code>Keep back straight</code> [return] <code>Breathe out on exertion</code> [return] <code>Cadence 2-1-2</code>. Collapse the NOTES group (tap the NOTES header). The collapsed summary row reads on <strong>ONE visual line</strong>, with newlines replaced by single spaces: something like <code>▸ NOTES · "Keep back straight Breathe ou…"</code> (truncated at ~28 chars + ellipsis). NO multi-line wrap in the collapsed summary, regardless of how many paragraphs the note has.</span>
+        <span class="text">From Home, tap the practice chip top-left → switch to a second practice you're a member of (e.g. CHM Physio Inc). os_log shows <code>SyncService: pullSessions practice=&lt;new-uuid&gt; — cloud=M inserted=M skipped_existing=0</code> for the second practice. Clients list re-renders with that practice's clients + non-zero session counts.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="10" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
         <span class="num">10.</span>
-        <span class="text">PACING collapsed summary with multiple non-defaults (e.g. <strong>PREP override + Manual duration</strong>, producing something like <code>PACING · 8s prep, 5s per rep</code>) still wraps to multiple lines if it runs long (up to 3 lines). Only NOTES forces single-line — PACING keeps its multi-line wrap when summary grows.</span>
+        <span class="text">Switch back to the first practice. <code>pullSessions</code> reports <code>inserted=0 skipped_existing=N</code> — every plan we pulled the first time is still local. Switching practices does NOT clobber the other practice's sessions out of the local DB.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>5 · Inline numeric editor fits within card bounds</h2>
+    <h2>5 · No regressions on the capture path</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      A sanity pass to make sure the new pull doesn't disturb the on-device capture flow.
+    </p>
     <ul class="checklist">
       <li data-num="11" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
         <span class="num">11.</span>
-        <span class="text">Expand PACING. Tap the <code>5s</code> value in the PREP row → inline editor opens. The <code>&lt; Cancel &nbsp; [_5_] &nbsp; Done &gt;</code> row stays <strong>entirely within the card's right edge</strong> — no overflow onto or off the screen edge. The text field fills the space between Cancel and Done, regardless of phone width. On iPhone 17 Pro (393pt wide, ~353pt card content), everything fits cleanly.</span>
+        <span class="text">From Home, create a new client → start a new session → capture one photo or short video → swipe to Studio → confirm exercise card renders. Conversion finishes within the usual window. Force-sync; no unexpected log entries about the new session being "skipped_existing" before publish (it wasn't on the cloud yet).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="12" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
         <span class="num">12.</span>
-        <span class="text">Same test on DURATION PER REP (PACING expanded on a video-with-probed-length exercise). Tap the value → inline editor opens, row stays within the card's right edge. Cancel + Done remain tappable. Commit a new value → row closes, value updates, toggle auto-flips to Manual as before.</span>
+        <span class="text">Publish the new session. After publish completes, run <code>Force sync now</code>. os_log <code>pullSessions</code> branch reports <code>skipped_existing=N+1</code> (the freshly-published plan is now both in cloud and local; pull respects local-wins and leaves it alone).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
     <footer>
-      Wave 18.8 closes five items from Wave 18.7 live device QA (see <a href="./2026-04-22-wave18.7-device-qa.html" style="color: var(--coral);">wave18.7</a>). Wave 18.1 remains the canonical baseline — run that if anything around PLAN / PACING / rest bar feels off. Storage semantics of <code>customDurationSeconds</code>, <code>prepSeconds</code>, <code>notes</code>, and all other model fields unchanged by Wave 18.8 — display-only adjustments.
+      Pass-notes feed the next wave's polish list. Failures will spawn a targeted follow-up. Out-of-scope items observed during this pass (missing media on pulled sessions, etc.) should be flagged in the <code>fail</code> note for triage rather than re-tested here.
     </footer>
   </div>
   <script>
     (function() {
-      var SLUG = '2026-04-22-wave18.8-device-qa.results.json';
+      var SLUG = '2026-05-02-pull-sessions-fix.results.json';
       var ENDPOINT = '/api/test-results/' + SLUG;
       var LS_KEY = 'homefit-test-state::' + location.pathname;
 
@@ -265,7 +291,7 @@
         fetch(ENDPOINT, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({wave: 'wave-18.8', updatedAt: new Date().toISOString(), items: state})
+          body: JSON.stringify({wave: 'pull-sessions-fix', updatedAt: new Date().toISOString(), items: state})
         }).catch(function() { /* offline — localStorage still holds */ });
       }
 
@@ -275,48 +301,25 @@
         var failBtn = li.querySelector('button.fail');
         var noteInput = li.querySelector('.note');
 
-        function setPlaceholder(status) {
-          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
-          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional — lands in next wave backlog)';
-          else noteInput.placeholder = '';
+        function setStatus(status) {
+          li.setAttribute('data-status', status);
+          if (!state[num]) state[num] = {};
+          state[num].status = status;
+          save();
         }
 
-        passBtn.addEventListener('click', function() {
-          var current = li.getAttribute('data-status') || '';
-          var next = current === 'pass' ? '' : 'pass';
-          li.setAttribute('data-status', next);
-          setPlaceholder(next);
-          if (!next) delete state[num];
-          else state[num] = {status: 'pass', note: noteInput.value || ''};
-          save();
-        });
+        passBtn.addEventListener('click', function() { setStatus('pass'); });
+        failBtn.addEventListener('click', function() { setStatus('fail'); });
 
-        failBtn.addEventListener('click', function() {
-          var current = li.getAttribute('data-status') || '';
-          var next = current === 'fail' ? '' : 'fail';
-          li.setAttribute('data-status', next);
-          setPlaceholder(next);
-          if (!next) {
-            delete state[num];
-          } else {
-            state[num] = {status: 'fail', note: noteInput.value || ''};
-            setTimeout(function() { noteInput.focus(); }, 10);
-          }
-          save();
-        });
-
-        var debounce;
-        noteInput.addEventListener('input', function() {
-          var status = li.getAttribute('data-status');
-          if (status !== 'pass' && status !== 'fail') return;
-          clearTimeout(debounce);
-          debounce = setTimeout(function() {
-            state[num] = {status: status, note: noteInput.value || ''};
-            save();
-          }, 350);
-        });
-
-        setPlaceholder(li.getAttribute('data-status'));
+        if (noteInput) {
+          var debounce;
+          noteInput.addEventListener('input', function() {
+            clearTimeout(debounce);
+            if (!state[num]) state[num] = {};
+            state[num].note = noteInput.value;
+            debounce = setTimeout(save, 400);
+          });
+        }
       });
     })();
   </script>

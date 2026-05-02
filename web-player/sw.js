@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v21-hero-prep-overlay';
+const CACHE_NAME = 'homefit-player-v23-hero-prep-overlay';
 
 // App shell files — always cached
 const APP_SHELL = [
