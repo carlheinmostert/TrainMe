@@ -221,37 +221,57 @@ class ConversionService extends ChangeNotifier {
             final thumbPath = p.join(thumbDir, '${exercise.id}_thumb.jpg');
             final sourcePath = await _pickThumbnailSource(done);
             if (sourcePath != null) {
+              // Wave Hero — preserve a previously-picked Hero offset
+              // (e.g. when the practitioner re-runs conversion after
+              // editing the Hero) by feeding it back into the B&W run.
+              // Otherwise we let native motion-peak pick the time and
+              // round-trip the picked timeMs back into the model so the
+              // editor's Hero scrubber opens on the current frame.
+              final priorOffset = done.focusFrameOffsetMs;
+              final useAutoPick = priorOffset == null;
+
               // B&W thumbnail (default — used for grayscale treatment).
-              await _thumbChannel.invokeMethod<String>('extractFrame', {
+              final bwResp = await _thumbChannel
+                  .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
                 'inputPath': sourcePath,
                 'outputPath': thumbPath,
-                'timeMs': 0,
-                'autoPick': true,
+                'timeMs': priorOffset ?? 0,
+                'autoPick': useAutoPick,
                 'grayscale': true,
               }).timeout(const Duration(seconds: 30));
-              done = done.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
+              final pickedMs =
+                  (bwResp?['timeMs'] as int?) ?? priorOffset ?? 0;
+              done = done.copyWith(
+                thumbnailPath: PathResolver.toRelative(thumbPath),
+                focusFrameOffsetMs: pickedMs,
+              );
 
               // Color thumbnail (used for original treatment).
               // autoPick: false, grayscale: false — plain color frame, no
-              // body-focus segmentation. The "original" treatment means the
-              // unprocessed source. timeMs=500 to skip any black lead-in.
+              // body-focus segmentation. Sampled at the SAME Hero offset
+              // as the B&W run so all treatments are visually consistent.
               final colorPath = p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
-              await _thumbChannel.invokeMethod<String>('extractFrame', {
+              await _thumbChannel
+                  .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
                 'inputPath': sourcePath,
                 'outputPath': colorPath,
-                'timeMs': 500,
+                'timeMs': pickedMs,
                 'autoPick': false,
                 'grayscale': false,
               }).timeout(const Duration(seconds: 30));
 
-              // Line-drawing thumbnail (used for line treatment).
+              // Line-drawing thumbnail (used for line treatment). Sampled
+              // from the converted line video at the same Hero offset
+              // (raw + line are produced in lock-step so the timeline
+              // matches).
               if (done.convertedFilePath != null) {
                 final convertedPath = PathResolver.resolve(done.convertedFilePath!);
                 final linePath = p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
-                await _thumbChannel.invokeMethod<String>('extractFrame', {
+                await _thumbChannel
+                    .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
                   'inputPath': convertedPath,
                   'outputPath': linePath,
-                  'timeMs': 0,
+                  'timeMs': pickedMs,
                   'autoPick': false,
                   'grayscale': false,
                 }).timeout(const Duration(seconds: 30));
@@ -380,6 +400,100 @@ class ConversionService extends ChangeNotifier {
     } finally {
       _processing = false;
     }
+  }
+
+  /// Wave Hero — re-extract the three treatment thumbnails (B&W, colour,
+  /// line) for [exercise] at [offsetMs] into the source raw video,
+  /// persist the new offset to `focus_frame_offset_ms`, save the
+  /// resulting [ExerciseCapture] to SQLite, and emit it on
+  /// [onConversionUpdate] so listeners (Studio screen, list cards) pick
+  /// up the fresh thumbnails immediately.
+  ///
+  /// Used by the editor-sheet "Hero" tab when the practitioner picks a
+  /// different frame. No-ops for non-video exercises (photos already
+  /// are the Hero frame; rest periods have no media).
+  ///
+  /// Best-effort — a native extraction failure is logged but the
+  /// in-memory [ExerciseCapture] still gets the new
+  /// `focus_frame_offset_ms` so the editor's slider remembers the
+  /// pick. The thumbnail file on disk is overwritten in place when the
+  /// extraction succeeds, so existing UI surfaces (Studio card, Home,
+  /// ClientSessions, Camera peek) auto-refresh on the next paint.
+  Future<ExerciseCapture> regenerateHeroThumbnails(
+    ExerciseCapture exercise,
+    int offsetMs,
+  ) async {
+    if (exercise.mediaType != MediaType.video) {
+      // Photos / rest never carry a Hero offset. Return verbatim.
+      return exercise;
+    }
+    final clampedMs = offsetMs < 0 ? 0 : offsetMs;
+    var next = exercise.copyWith(focusFrameOffsetMs: clampedMs);
+
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final thumbDir = p.join(dir.path, 'thumbnails');
+      await Directory(thumbDir).create(recursive: true);
+      final thumbPath = p.join(thumbDir, '${exercise.id}_thumb.jpg');
+      final sourcePath = await _pickThumbnailSource(exercise);
+      if (sourcePath == null) {
+        debugPrint(
+          'regenerateHeroThumbnails: no raw/archive source for ${exercise.id}',
+        );
+      } else {
+        // B&W (grayscale + body-focus crop) — the canonical practitioner-
+        // facing thumbnail. autoPick:false so the caller-supplied
+        // [offsetMs] is honoured verbatim.
+        await _thumbChannel
+            .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
+          'inputPath': sourcePath,
+          'outputPath': thumbPath,
+          'timeMs': clampedMs,
+          'autoPick': false,
+          'grayscale': true,
+        }).timeout(const Duration(seconds: 30));
+        next = next.copyWith(thumbnailPath: PathResolver.toRelative(thumbPath));
+
+        // Colour (no body-focus, no grayscale) — used by the Original
+        // treatment surface.
+        final colorPath = p.join(thumbDir, '${exercise.id}_thumb_color.jpg');
+        await _thumbChannel
+            .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
+          'inputPath': sourcePath,
+          'outputPath': colorPath,
+          'timeMs': clampedMs,
+          'autoPick': false,
+          'grayscale': false,
+        }).timeout(const Duration(seconds: 30));
+
+        // Line-drawing — sampled from the converted line video at the
+        // same offset (the converted video shares the raw timeline).
+        if (exercise.convertedFilePath != null) {
+          final convertedPath = PathResolver.resolve(exercise.convertedFilePath!);
+          final linePath = p.join(thumbDir, '${exercise.id}_thumb_line.jpg');
+          await _thumbChannel
+              .invokeMethod<Map<dynamic, dynamic>>('extractFrame', {
+            'inputPath': convertedPath,
+            'outputPath': linePath,
+            'timeMs': clampedMs,
+            'autoPick': false,
+            'grayscale': false,
+          }).timeout(const Duration(seconds: 30));
+        }
+      }
+    } catch (e) {
+      debugPrint('regenerateHeroThumbnails failed for ${exercise.id}: $e');
+      // Non-fatal — fall through to the persist below so the offset is
+      // remembered even if the JPEGs didn't refresh. Next conversion
+      // pass / retry will pick up the saved offset.
+    }
+
+    await _storage.saveExercise(next);
+    if (!_updateController.isClosed) {
+      _updateController.add(next);
+    }
+    notifyListeners();
+    return next;
   }
 
   /// Convert a single capture. Dispatches to photo or video handler.
@@ -680,7 +794,7 @@ class ConversionService extends ChangeNotifier {
     // the client is readable at small sizes. The line-drawing treatment
     // is preserved on the client-facing web player only.
     try {
-      final result = await _thumbChannel.invokeMethod<String>(
+      final result = await _thumbChannel.invokeMethod<Map<dynamic, dynamic>>(
         'extractFrame',
         {
           'inputPath': videoPath,
@@ -1038,7 +1152,7 @@ class ConversionService extends ChangeNotifier {
     final tempFramePath = p.join(tempDir.path, 'frame_extract_temp.jpg');
 
     try {
-      final result = await _thumbChannel.invokeMethod<String>(
+      final result = await _thumbChannel.invokeMethod<Map<dynamic, dynamic>>(
         'extractFrame',
         {
           'inputPath': inputPath,

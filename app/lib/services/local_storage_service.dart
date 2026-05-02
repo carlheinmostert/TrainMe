@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 34;
+  static const _dbVersion = 35;
 
   Database? _db;
 
@@ -128,6 +128,7 @@ class LocalStorageService {
         aspect_ratio REAL,
         rotation_quarters INTEGER,
         body_focus INTEGER,
+        focus_frame_offset_ms INTEGER,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -887,6 +888,22 @@ class LocalStorageService {
       // Supabase mirror: schema_wave42_exercise_body_focus.sql.
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN body_focus INTEGER',
+      );
+    }
+    if (oldVersion < 35) {
+      // Wave Hero — practitioner-picked Hero frame offset.
+      //
+      // Milliseconds into the raw video where the Hero frame was
+      // sampled. Populated on every new conversion (the motion-peak
+      // time is persisted by the conversion service so the editor's
+      // Hero scrubber opens on the current frame); overwritten by the
+      // practitioner via the editor-sheet Hero tab. NULL on legacy
+      // rows pre-migration; consumers fall through to the motion-peak
+      // heuristic.
+      //
+      // Supabase mirror: schema_wave_hero_focus_frame.sql.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN focus_frame_offset_ms INTEGER',
       );
     }
   }

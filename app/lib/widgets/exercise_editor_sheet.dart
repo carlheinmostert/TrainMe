@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:video_player/video_player.dart';
 
 import '../models/exercise_capture.dart';
 import '../models/exercise_set.dart';
 import '../models/session.dart';
+import '../services/conversion_service.dart';
 import '../theme.dart';
 import 'dose_table.dart';
 import 'inline_editable_text.dart';
@@ -13,15 +15,19 @@ import 'media_viewer_body.dart';
 import 'preset_chip_row.dart';
 
 /// Which tab the editor sheet should land on when first opened.
-enum ExerciseEditorTab { dose, notes, preview, settings }
+enum ExerciseEditorTab { dose, notes, preview, hero, settings }
 
 /// The tabbed bottom-sheet editor for an exercise.
 ///
-/// Mounts via [showExerciseEditorSheet]. Hosts four tabs:
+/// Mounts via [showExerciseEditorSheet]. Hosts five tabs:
 ///   * **Dose** — `DoseTable` editing per-set rows.
 ///   * **Notes** — multiline `TextField` for practitioner-only notes.
 ///   * **Preview** — embeds `MediaViewerBody` so the practitioner can
 ///     verify what the client will see, scoped to the active exercise.
+///   * **Hero** — scrub the raw video to pick the representative still
+///     image (the Hero frame). Drives every practitioner-facing
+///     thumbnail surface AND the web player's prep-phase overlay.
+///     Disabled for photos (the photo IS the Hero) and rest periods.
 ///   * **Settings** — preset chip rows for `prepSeconds` +
 ///     `videoRepsPerLoop` (rarely-changed metadata).
 ///
@@ -117,6 +123,9 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   static const double _kMinDetent = 0.55;
   static const double _kMaxDetent = 0.95;
   static const double _kPreviewDetent = 0.95;
+  // Wave Hero — the Hero tab embeds a video preview + scrubber, so it
+  // promotes to the larger detent for canvas (matching Preview).
+  static const double _kHeroDetent = 0.95;
 
   /// Velocity threshold (logical pt/sec) for fling-down dismissal. Slow
   /// drags below the floor snap back to 0.55 instead of dismissing.
@@ -140,13 +149,17 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     _notesFocusNode.addListener(_onNotesFocusChanged);
   }
 
-  /// Returns the canonical detent for the given tab index — Preview goes
-  /// large (0.95) so the embedded media viewer has canvas; every other
+  /// Returns the canonical detent for the given tab index — Preview +
+  /// Hero go large (0.95) so the embedded video has canvas; every other
   /// tab snaps to 0.55 so the underlying screen stays partially visible.
   double _detentForTab(int tabIndex) {
-    return tabIndex == _tabIndexFor(ExerciseEditorTab.preview)
-        ? _kPreviewDetent
-        : _kMinDetent;
+    if (tabIndex == _tabIndexFor(ExerciseEditorTab.preview)) {
+      return _kPreviewDetent;
+    }
+    if (tabIndex == _tabIndexFor(ExerciseEditorTab.hero)) {
+      return _kHeroDetent;
+    }
+    return _kMinDetent;
   }
 
   @override
@@ -167,8 +180,10 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         return 1;
       case ExerciseEditorTab.preview:
         return 2;
-      case ExerciseEditorTab.settings:
+      case ExerciseEditorTab.hero:
         return 3;
+      case ExerciseEditorTab.settings:
+        return 4;
     }
   }
 
@@ -294,6 +309,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                         _buildDoseTab(scrollController),
                         _buildNotesTab(scrollController),
                         _buildPreviewTab(),
+                        _buildHeroTab(),
                         _buildSettingsTab(scrollController),
                       ],
                     ),
@@ -467,7 +483,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 
   Widget _buildTabStrip() {
-    const tabs = ['Dose', 'Notes', 'Preview', 'Settings'];
+    const tabs = ['Dose', 'Notes', 'Preview', 'Hero', 'Settings'];
     // Round 2 — tab strip listens for vertical drag too so the Preview
     // tab (whose body owns gestures inside MediaViewerBody) still has a
     // reliable drag region between the chrome and the page content.
@@ -658,6 +674,24 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     );
   }
 
+  Widget _buildHeroTab() {
+    if (_exercise.isRest) {
+      return const _HeroTabPlaceholder(
+        message: 'Rest periods have no Hero frame.',
+      );
+    }
+    if (_exercise.mediaType == MediaType.photo) {
+      return const _HeroTabPlaceholder(
+        message:
+            'Photos are already the Hero frame — no scrubbing needed.',
+      );
+    }
+    return _HeroTab(
+      exercise: _exercise,
+      onChanged: _emit,
+    );
+  }
+
   Widget _buildSettingsTab(ScrollController scrollController) {
     final prepSeconds = _exercise.prepSeconds ?? 5;
     final videoReps = _exercise.videoRepsPerLoop ?? 3;
@@ -836,6 +870,328 @@ class _SettingsSection extends StatelessWidget {
         const SizedBox(height: 8),
         child,
       ],
+    );
+  }
+}
+
+// ============================================================================
+// Hero tab — scrub the raw video to pick the representative still frame.
+// ============================================================================
+
+/// Placeholder body for non-video exercises. The Hero tab is video-only
+/// because photos already are the Hero frame and rest periods carry no
+/// media.
+class _HeroTabPlaceholder extends StatelessWidget {
+  final String message;
+  const _HeroTabPlaceholder({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 13,
+            color: AppColors.textSecondaryOnDark,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Live video preview + horizontal scrubber for picking the Hero frame.
+///
+/// The scrubber is clamped to the soft-trim window
+/// `[startOffsetMs, endOffsetMs]` (Wave 20) so the Hero is always a frame
+/// the client will actually see. As the practitioner drags the slider,
+/// the video seeks to that time so the preview reflects the picked
+/// frame. The "Set as Hero" button commits the change: the offset is
+/// persisted to `focus_frame_offset_ms` AND all three treatment
+/// thumbnails (B&W, colour, line) are re-extracted at that offset, so
+/// every list-card surface refreshes on the next paint.
+class _HeroTab extends StatefulWidget {
+  final ExerciseCapture exercise;
+  final ValueChanged<ExerciseCapture> onChanged;
+
+  const _HeroTab({
+    required this.exercise,
+    required this.onChanged,
+  });
+
+  @override
+  State<_HeroTab> createState() => _HeroTabState();
+}
+
+class _HeroTabState extends State<_HeroTab> {
+  VideoPlayerController? _controller;
+  bool _initialised = false;
+  String? _initError;
+
+  /// Current scrubber position in ms. Mirrors slider state. Initialised
+  /// to the saved offset (or 0 if none) once the controller is ready.
+  int _scrubMs = 0;
+
+  /// True while a regen-on-save is in flight. Disables the button and
+  /// shows a spinner so the practitioner can't double-fire.
+  bool _saving = false;
+
+  /// True when the on-disk offset matches [_scrubMs] — i.e. nothing
+  /// to save. Initialised true (no pending change) and flipped on every
+  /// drag delta.
+  bool _committed = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initController();
+  }
+
+  Future<void> _initController() async {
+    final raw = widget.exercise.absoluteRawFilePath;
+    if (raw.isEmpty || !File(raw).existsSync()) {
+      setState(() {
+        _initError = 'Raw video file not found.';
+      });
+      return;
+    }
+    final controller = VideoPlayerController.file(File(raw));
+    try {
+      await controller.initialize();
+      // Mute — Hero scrubbing is a visual-only flow.
+      await controller.setVolume(0);
+      // Seed scrubber from saved offset; clamp to soft-trim window.
+      final start = widget.exercise.startOffsetMs ?? 0;
+      final end = widget.exercise.endOffsetMs ??
+          controller.value.duration.inMilliseconds;
+      final saved = widget.exercise.focusFrameOffsetMs ?? start;
+      _scrubMs = saved.clamp(start, end).toInt();
+      await controller.seekTo(Duration(milliseconds: _scrubMs));
+      if (mounted) {
+        setState(() {
+          _controller = controller;
+          _initialised = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('_HeroTab controller init failed: $e');
+      if (mounted) {
+        setState(() {
+          _initError = 'Could not load video.';
+        });
+      }
+      await controller.dispose();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  /// Soft-trim window for the slider. Falls back to full duration when
+  /// the practitioner hasn't trimmed.
+  ({int startMs, int endMs}) _window() {
+    final c = _controller;
+    final totalMs = c?.value.duration.inMilliseconds ?? 0;
+    final start = widget.exercise.startOffsetMs ?? 0;
+    final end = widget.exercise.endOffsetMs ?? totalMs;
+    final clampedEnd = end > start ? end : (totalMs > start ? totalMs : start + 1);
+    return (startMs: start, endMs: clampedEnd);
+  }
+
+  void _onSliderChanged(double valueMs) {
+    final w = _window();
+    final clamped = valueMs.clamp(w.startMs.toDouble(), w.endMs.toDouble());
+    final newMs = clamped.toInt();
+    setState(() {
+      _scrubMs = newMs;
+      _committed = newMs == widget.exercise.focusFrameOffsetMs;
+    });
+    _controller?.seekTo(Duration(milliseconds: newMs));
+  }
+
+  Future<void> _commitHero() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final updated = await ConversionService.instance
+          .regenerateHeroThumbnails(widget.exercise, _scrubMs);
+      widget.onChanged(updated);
+      if (mounted) {
+        setState(() => _committed = true);
+      }
+      HapticFeedback.lightImpact();
+    } catch (e) {
+      debugPrint('_HeroTab commit failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  String _formatMs(int ms) {
+    final totalSeconds = ms ~/ 1000;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    final tenths = (ms % 1000) ~/ 100;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}.$tenths';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_initError != null) {
+      return _HeroTabPlaceholder(message: _initError!);
+    }
+    final c = _controller;
+    if (!_initialised || c == null) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppColors.primary,
+            ),
+          ),
+        ),
+      );
+    }
+    final w = _window();
+    final saved = widget.exercise.focusFrameOffsetMs;
+    final canSave = !_saving && !_committed;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Live preview surface — square-ish letterbox honouring the
+          // video's natural aspect.
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                color: Colors.black,
+                child: AspectRatio(
+                  aspectRatio: c.value.aspectRatio,
+                  child: VideoPlayer(c),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Time row: current scrub position vs. window end.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                _formatMs(_scrubMs),
+                style: const TextStyle(
+                  fontFamily: 'JetBrainsMono',
+                  fontSize: 13,
+                  color: AppColors.textOnDark,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                _formatMs(w.endMs),
+                style: const TextStyle(
+                  fontFamily: 'JetBrainsMono',
+                  fontSize: 13,
+                  color: AppColors.textSecondaryOnDark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+
+          // Scrubber — clamped to [startMs, endMs] of the soft-trim
+          // window. Coral active track to match brand accent.
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: AppColors.primary,
+              inactiveTrackColor: AppColors.surfaceBorder,
+              thumbColor: AppColors.primary,
+              overlayColor: AppColors.primary.withValues(alpha: 0.18),
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+            ),
+            child: Slider(
+              min: w.startMs.toDouble(),
+              max: w.endMs.toDouble(),
+              value: _scrubMs.toDouble().clamp(
+                    w.startMs.toDouble(),
+                    w.endMs.toDouble(),
+                  ),
+              onChanged: _onSliderChanged,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Commit row — coral CTA + a tiny status line so the
+          // practitioner knows whether the current Hero matches the
+          // saved one.
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  saved == null
+                      ? 'No Hero set yet — slide to pick a frame.'
+                      : (_committed
+                          ? 'Hero set at ${_formatMs(saved)}'
+                          : 'Slide to ${_formatMs(_scrubMs)} · unsaved'),
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    color: AppColors.textSecondaryOnDark,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton(
+                onPressed: canSave ? _commitHero : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: AppColors.surfaceRaised,
+                  disabledForegroundColor: AppColors.textSecondaryOnDark,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 18, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  textStyle: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                child: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Set as Hero'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
