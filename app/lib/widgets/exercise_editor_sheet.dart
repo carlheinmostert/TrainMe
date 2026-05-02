@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,7 +8,10 @@ import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
 import '../models/exercise_set.dart';
 import '../models/session.dart';
+import '../services/auth_service.dart';
 import '../services/conversion_service.dart';
+import '../services/media_prefetch_service.dart';
+import '../services/sync_service.dart';
 import '../theme.dart';
 import 'plan_table.dart';
 import 'inline_editable_text.dart';
@@ -836,9 +840,17 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
             'Photos are already the Hero frame — no scrubbing needed.',
       );
     }
+    // session.practiceId is NULL on cloud-pulled rows because the local
+    // sessions table has no practice_id column (and toMap() doesn't emit
+    // one). Mirror the Studio locked-segment tap path: read the active
+    // practice from AuthService when the session itself doesn't carry it.
+    final practiceId = widget.session.practiceId ??
+        AuthService.instance.currentPracticeId.value;
     return _HeroTab(
       exercise: _exercise,
       onChanged: _emit,
+      practiceId: practiceId,
+      planId: widget.session.id,
     );
   }
 
@@ -1155,21 +1167,44 @@ class _CollapsibleSettingsRow extends StatelessWidget {
 /// media.
 class _HeroTabPlaceholder extends StatelessWidget {
   final String message;
-  const _HeroTabPlaceholder({required this.message});
+  /// When true, render a coral spinner above the message — used for the
+  /// "Downloading original…" state on cloud-only sessions where the raw
+  /// archive is being pulled in the background.
+  final bool showSpinner;
+  const _HeroTabPlaceholder({
+    required this.message,
+    this.showSpinner = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 13,
-            color: AppColors.textSecondaryOnDark,
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showSpinner) ...[
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1190,9 +1225,19 @@ class _HeroTab extends StatefulWidget {
   final ExerciseCapture exercise;
   final ValueChanged<ExerciseCapture> onChanged;
 
+  /// Practice + plan ids needed to sign + download the raw archive when
+  /// the local mp4 isn't on disk (cloud-only sessions, post-PR #190).
+  /// Both are nullable: a missing practice/plan context means we can't
+  /// kick off a prefetch and the tab falls back to the static
+  /// "Original video unavailable" copy.
+  final String? practiceId;
+  final String? planId;
+
   const _HeroTab({
     required this.exercise,
     required this.onChanged,
+    this.practiceId,
+    this.planId,
   });
 
   @override
@@ -1203,6 +1248,21 @@ class _HeroTabState extends State<_HeroTab> {
   VideoPlayerController? _controller;
   bool _initialised = false;
   String? _initError;
+
+  /// True while we're pulling the raw archive from the private
+  /// `raw-archive` Supabase bucket on a cloud-only session. Renders a
+  /// coral spinner + "Downloading original…" placeholder until the
+  /// download lands (or fails). Mirrors the Studio locked-segment tap
+  /// path in `studio_mode_screen.dart`.
+  bool _downloading = false;
+
+  /// Subscribed listener on
+  /// `MediaPrefetchService.instance.archiveStatusFor(exerciseId)` so we
+  /// flip out of the downloading state the moment the row gets stamped.
+  /// Cleared in [dispose] to avoid leaking the listener after the sheet
+  /// closes mid-download.
+  VoidCallback? _archiveStatusListener;
+  ValueNotifier<MediaPrefetchStatus>? _archiveStatusNotifier;
 
   /// Current scrubber position in ms. Mirrors slider state. Initialised
   /// to the saved offset (or 0 if none) once the controller is ready.
@@ -1223,30 +1283,63 @@ class _HeroTabState extends State<_HeroTab> {
     _initController();
   }
 
-  Future<void> _initController() async {
-    final raw = widget.exercise.absoluteRawFilePath;
-    if (raw.isEmpty || !File(raw).existsSync()) {
-      setState(() {
-        _initError = 'Raw video file not found.';
-      });
+  /// Returns the best available local path to the raw video — either
+  /// the original capture (`absoluteRawFilePath`) or the compressed
+  /// 720p archive (`absoluteArchiveFilePath`). The prefetch service
+  /// stamps `archive_file_path` on cloud-pulled rows, so we have to
+  /// check both. Mirrors `ConversionService._pickThumbnailSource`.
+  ///
+  /// Returns null when neither file is on disk.
+  String? _bestLocalRawPath(ExerciseCapture e) {
+    final raw = e.absoluteRawFilePath;
+    if (raw.isNotEmpty && File(raw).existsSync()) return raw;
+    final archive = e.absoluteArchiveFilePath;
+    if (archive != null && archive.isNotEmpty && File(archive).existsSync()) {
+      return archive;
+    }
+    return null;
+  }
+
+  Future<void> _initController({ExerciseCapture? exerciseOverride}) async {
+    final exercise = exerciseOverride ?? widget.exercise;
+    final localPath = _bestLocalRawPath(exercise);
+    if (localPath == null) {
+      // Cloud-only session — the raw mp4 isn't on disk yet. Try to pull
+      // from the private `raw-archive` bucket in the background. On
+      // success the prefetch service stamps `archive_file_path`; we
+      // re-read the row and retry [_initController] so the player
+      // initialises against the freshly-downloaded file.
+      //
+      // Without practice/plan context we can't sign a URL, so we fall
+      // back to the existing static-error placeholder.
+      final practiceId = widget.practiceId;
+      final planId = widget.planId;
+      if (practiceId == null || planId == null) {
+        setState(() {
+          _initError = 'Original video unavailable — recapture to use Hero.';
+        });
+        return;
+      }
+      _kickOffArchivePrefetch(practiceId: practiceId, planId: planId);
       return;
     }
-    final controller = VideoPlayerController.file(File(raw));
+    final controller = VideoPlayerController.file(File(localPath));
     try {
       await controller.initialize();
       // Mute — Hero scrubbing is a visual-only flow.
       await controller.setVolume(0);
       // Seed scrubber from saved offset; clamp to soft-trim window.
-      final start = widget.exercise.startOffsetMs ?? 0;
-      final end = widget.exercise.endOffsetMs ??
+      final start = exercise.startOffsetMs ?? 0;
+      final end = exercise.endOffsetMs ??
           controller.value.duration.inMilliseconds;
-      final saved = widget.exercise.focusFrameOffsetMs ?? start;
+      final saved = exercise.focusFrameOffsetMs ?? start;
       _scrubMs = saved.clamp(start, end).toInt();
       await controller.seekTo(Duration(milliseconds: _scrubMs));
       if (mounted) {
         setState(() {
           _controller = controller;
           _initialised = true;
+          _downloading = false;
         });
       }
     } catch (e) {
@@ -1254,14 +1347,98 @@ class _HeroTabState extends State<_HeroTab> {
       if (mounted) {
         setState(() {
           _initError = 'Could not load video.';
+          _downloading = false;
         });
       }
       await controller.dispose();
     }
   }
 
+  /// Kicks off `MediaPrefetchService.prefetchRawArchive`, subscribes to
+  /// the per-exercise archive status notifier, and flips
+  /// [_downloading] true so the placeholder surfaces. On the
+  /// `onDownloaded` callback we re-read the row from SQLite and retry
+  /// [_initController]; on `onFailed` we fall back to the static error
+  /// copy.
+  void _kickOffArchivePrefetch({
+    required String practiceId,
+    required String planId,
+  }) {
+    final exerciseId = widget.exercise.id;
+
+    // Wire a listener so we also react to status flips that happen
+    // outside of our own onDownloaded callback (e.g. the Studio
+    // locked-segment tap fired the same prefetch and stamped the row
+    // before our callback ran).
+    _archiveStatusNotifier =
+        MediaPrefetchService.instance.archiveStatusFor(exerciseId);
+    _archiveStatusListener = () {
+      final status = _archiveStatusNotifier?.value;
+      if (!mounted) return;
+      if (status == MediaPrefetchStatus.failed) {
+        setState(() {
+          _downloading = false;
+          _initError = 'Original video unavailable — recapture to use Hero.';
+        });
+      }
+    };
+    _archiveStatusNotifier!.addListener(_archiveStatusListener!);
+
+    setState(() {
+      _downloading = true;
+      _initError = null;
+    });
+
+    unawaited(
+      MediaPrefetchService.instance.prefetchRawArchive(
+        exercise: widget.exercise,
+        practiceId: practiceId,
+        planId: planId,
+        storage: SyncService.instance.storage,
+        onDownloaded: (downloadedId) async {
+          if (!mounted) return;
+          // Re-read the freshly-stamped row so absoluteArchiveFilePath
+          // resolves against the new local mp4. fetchExercise + retry
+          // _initController mirrors the Studio refresh path.
+          final fresh = await SyncService.instance.storage.getExerciseById(
+            downloadedId,
+          );
+          if (!mounted) return;
+          if (fresh != null) {
+            // Bubble the refreshed row up to the parent so the rest
+            // of the sheet (Plan / Settings tabs) sees the stamped
+            // archive_file_path on the next interaction.
+            widget.onChanged(fresh);
+            // Retry init against the freshly-fetched row directly.
+            // We can't wait for the parent rebuild to flow widget.exercise
+            // through (rebuilds are async), so pass the row in explicitly.
+            await _initController(exerciseOverride: fresh);
+          } else {
+            // No row found post-stamp — surface the static fallback.
+            if (!mounted) return;
+            setState(() {
+              _downloading = false;
+              _initError =
+                  'Original video unavailable — recapture to use Hero.';
+            });
+          }
+        },
+        onFailed: (_) {
+          if (!mounted) return;
+          setState(() {
+            _downloading = false;
+            _initError = 'Original video unavailable — recapture to use Hero.';
+          });
+        },
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    if (_archiveStatusListener != null && _archiveStatusNotifier != null) {
+      _archiveStatusNotifier!.removeListener(_archiveStatusListener!);
+    }
     _controller?.dispose();
     super.dispose();
   }
@@ -1320,6 +1497,12 @@ class _HeroTabState extends State<_HeroTab> {
   Widget build(BuildContext context) {
     if (_initError != null) {
       return _HeroTabPlaceholder(message: _initError!);
+    }
+    if (_downloading) {
+      return const _HeroTabPlaceholder(
+        message: 'Downloading original…',
+        showSpinner: true,
+      );
     }
     final c = _controller;
     if (!_initialised || c == null) {
