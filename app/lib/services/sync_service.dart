@@ -1218,8 +1218,9 @@ class SyncService {
         final avatar = op.payload['avatar_allowed'] as bool?;
         // Wave 17 — analytics consent. Optional; null preserves existing.
         final analytics = op.payload['analytics_allowed'] as bool?;
-        if (clientId == null || grayscale == null || colour == null)
+        if (clientId == null || grayscale == null || colour == null) {
           return true;
+        }
         final ok = await ApiClient.instance.setClientVideoConsent(
           clientId: clientId,
           lineAllowed: true,
