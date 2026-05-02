@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — editor sheet chrome · live preview + coral nav</title>
+  <style>
+    :root {
+      --brand-default: #ff6b35;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --rest: #86efac;
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 24px;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      min-height: 100vh;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 22px;
+      margin: 0 0 4px;
+    }
+    .subtitle {
+      color: var(--ink-secondary);
+      font-size: 13px;
+      margin-bottom: 24px;
+      max-width: 640px;
+      line-height: 1.5;
+    }
+    .panel { max-width: 420px; margin-bottom: 28px; }
+    .panel-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin-bottom: 8px;
+    }
+    /* ============================================================== */
+    /*  Editor sheet chrome — preview dominates left, chevrons coral   */
+    /* ============================================================== */
+    .sheet {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 24px 24px 0 0;
+      overflow: hidden;
+      width: 380px;
+    }
+    /* drag pill at the very top */
+    .pill {
+      width: 40px;
+      height: 4px;
+      background: var(--surface-border);
+      border-radius: 2px;
+      margin: 9px auto 9px;
+    }
+    /* chrome row — preview + title block */
+    .chrome {
+      display: grid;
+      grid-template-columns: 168px 1fr;
+      column-gap: 14px;
+      padding: 0 14px 12px;
+      align-items: start;
+    }
+    /* Preview area — dominates the top-left, edge-anchored to the
+       left of the chrome (no external margin). The chevrons overlay
+       its top-left and top-right corners in coral. */
+    .preview {
+      position: relative;
+      width: 168px;
+      height: 110px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #000;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 168 110'><rect width='168' height='110' fill='%231a1a1a'/><g stroke='%23f0f0f5' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'><circle cx='84' cy='35' r='12'/><line x1='84' y1='47' x2='84' y2='75'/><line x1='84' y1='58' x2='66' y2='70'/><line x1='84' y1='58' x2='102' y2='70'/><line x1='84' y1='75' x2='72' y2='98'/><line x1='84' y1='75' x2='96' y2='98'/></g></svg>");
+      background-size: cover;
+      background-position: center;
+    }
+    /* Coral chevrons — back (left) and forward (right). Both overlay
+       the preview, centred vertically, with a translucent dark backdrop
+       so the coral pops against any video frame. Disabled state ramps
+       the alpha on the coral icon and the backdrop. */
+    .chev {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--brand-default);
+      cursor: pointer;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+    }
+    .chev.left  { left: 4px; }
+    .chev.right { right: 4px; }
+    .chev.disabled {
+      color: rgba(255, 107, 53, 0.30);
+      cursor: default;
+    }
+    .chev svg {
+      width: 26px;
+      height: 26px;
+      stroke: currentColor;
+      stroke-width: 2.6;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    /* "Playing" hint — bottom-right, pulsing red dot */
+    .live-pill {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 7px;
+      background: rgba(15, 17, 23, 0.65);
+      border-radius: 999px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      color: var(--ink-secondary);
+      text-transform: uppercase;
+    }
+    .live-pill::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #ef4444;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    /* Title block — to the right of the preview. Stacks vertically:
+       title (inline-editable, dashed underline) + meta line. */
+    .titleblock {
+      padding-top: 4px;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.1px;
+      color: var(--ink-primary);
+      border-bottom: 1px dashed var(--ink-muted);
+      padding-bottom: 4px;
+      width: max-content;
+      max-width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .meta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+    /* Tab strip + body sketch (just to anchor the chrome visually) */
+    .tabstrip {
+      display: flex;
+      border-top: 1px solid var(--surface-border);
+      border-bottom: 1px solid var(--surface-border);
+    }
+    .tab {
+      flex: 1;
+      padding: 12px 0;
+      text-align: center;
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      border-bottom: 2px solid transparent;
+    }
+    .tab.active {
+      color: var(--ink-primary);
+      border-bottom-color: var(--brand-default);
+    }
+    .body {
+      padding: 16px;
+      min-height: 80px;
+      color: var(--ink-muted);
+      font-size: 12px;
+    }
+    /* rest variant */
+    .sheet.rest .preview {
+      background-image: none;
+      background: linear-gradient(135deg, rgba(134, 239, 172, 0.18), rgba(134, 239, 172, 0.04));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--rest);
+    }
+    .sheet.rest .preview svg.rest-glyph {
+      width: 38px;
+      height: 38px;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      fill: none;
+    }
+    .sheet.rest .live-pill { display: none; }
+    .sheet.rest .meta { color: var(--rest); }
+    .sheet.rest .tabstrip .tab { display: none; }
+    .sheet.rest .tabstrip .tab.rest { display: block; }
+
+    /* before/after side by side — current vs proposed */
+    .compare {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+      margin-bottom: 32px;
+    }
+
+    /* CURRENT (44pt static thumbnail) */
+    .sheet.current .chrome {
+      grid-template-columns: 44px 1fr;
+      column-gap: 14px;
+      align-items: center;
+    }
+    .sheet.current .preview {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+    }
+    .sheet.current .preview .chev,
+    .sheet.current .preview .live-pill { display: none; }
+    .sheet.current .titleblock {
+      padding-top: 0;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+    }
+    .sheet.current .title { font-size: 16px; }
+    .sheet.current .chev-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    .sheet.current .chev-row .chev {
+      position: static;
+      transform: none;
+      width: 32px;
+      height: 32px;
+      background: transparent;
+      border: none;
+      backdrop-filter: none;
+      color: var(--ink-secondary);
+    }
+    .sheet.current .chev-row .chev.disabled { color: var(--ink-disabled); }
+
+    .specs {
+      max-width: 640px;
+      margin-top: 32px;
+      padding: 16px 18px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      font-size: 12px;
+      color: var(--ink-secondary);
+      line-height: 1.7;
+    }
+    .specs h3 {
+      margin: 0 0 8px;
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--ink-primary);
+    }
+    .specs code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: rgba(255, 107, 53, 0.10);
+      padding: 1px 6px;
+      border-radius: 4px;
+      color: var(--brand-default);
+    }
+    .specs ul { margin: 0; padding-left: 18px; }
+    .specs li { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Editor sheet chrome — live preview + coral nav</h1>
+  <p class="subtitle">
+    The 44pt static thumbnail at the top-left of the editor sheet's chrome row becomes a
+    dominant 168×110pt live mini-preview. The existing prev / next chevrons (‹ ›) move
+    out of the chrome row and onto the preview as coral overlays. The drag pill, title +
+    meta line, tab strip, and body remain unchanged.
+  </p>
+
+  <div class="compare">
+    <div class="panel">
+      <div class="panel-label">Current (post-PR #182)</div>
+      <div class="sheet current">
+        <div class="pill"></div>
+        <div class="chev-row">
+          <div class="chev left">
+            <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+          </div>
+          <div class="chev right">
+            <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+        <div class="chrome">
+          <div class="preview"></div>
+          <div class="titleblock">
+            <div class="title">Bulgarian split squat</div>
+          </div>
+        </div>
+        <div class="tabstrip">
+          <div class="tab active">Dose</div>
+          <div class="tab">Notes</div>
+          <div class="tab">Preview</div>
+          <div class="tab">Settings</div>
+        </div>
+        <div class="body">…body…</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-label">Proposed</div>
+      <div class="sheet">
+        <div class="pill"></div>
+        <div class="chrome">
+          <div class="preview">
+            <div class="chev left" title="Previous exercise">
+              <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+            </div>
+            <div class="chev right" title="Next exercise">
+              <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+            <span class="live-pill">Playing</span>
+          </div>
+          <div class="titleblock">
+            <div class="title">Bulgarian split squat</div>
+            <div class="meta">Video · 8s · 3 reps captured</div>
+          </div>
+        </div>
+        <div class="tabstrip">
+          <div class="tab active">Dose</div>
+          <div class="tab">Notes</div>
+          <div class="tab">Preview</div>
+          <div class="tab">Settings</div>
+        </div>
+        <div class="body">…body…</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-label">Proposed — at first exercise (back disabled)</div>
+      <div class="sheet">
+        <div class="pill"></div>
+        <div class="chrome">
+          <div class="preview">
+            <div class="chev left disabled" title="Previous exercise (none)">
+              <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+            </div>
+            <div class="chev right" title="Next exercise">
+              <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+            <span class="live-pill">Playing</span>
+          </div>
+          <div class="titleblock">
+            <div class="title">Goblet squat</div>
+            <div class="meta">Video · 6s · 3 reps captured</div>
+          </div>
+        </div>
+        <div class="tabstrip">
+          <div class="tab active">Dose</div>
+          <div class="tab">Notes</div>
+          <div class="tab">Preview</div>
+          <div class="tab">Settings</div>
+        </div>
+        <div class="body">…body…</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-label">Proposed — rest period (single tab, no preview/chevrons-on-preview)</div>
+      <div class="sheet rest">
+        <div class="pill"></div>
+        <div class="chrome">
+          <div class="preview">
+            <svg class="rest-glyph" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 11h6M9 14h6"/></svg>
+          </div>
+          <div class="titleblock">
+            <div class="title" style="border-bottom: none;">Rest</div>
+            <div class="meta">REST · 60s</div>
+          </div>
+        </div>
+        <div class="tabstrip">
+          <div class="tab rest active">Rest</div>
+        </div>
+        <div class="body">…rest editor…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="specs">
+    <h3>Spec</h3>
+    <ul>
+      <li>Preview: <code>168 × 110pt</code> rectangle (slightly less than half the chrome's width on iPhone 14), <code>border-radius: 12pt</code>. Edge-anchored to the chrome's left padding (14pt). Object-fit cover.</li>
+      <li>Source: same line-drawing H.264 the web player serves (<code>line_drawing_url</code>). Muted, autoplay, loop. Already on disk via the converter.</li>
+      <li>Chevrons: <code>32 × 32pt</code> circles centred vertically on the preview. Left chevron at <code>left: 6pt</code>, right chevron at <code>right: 6pt</code>. Coral icon stroke (<code>--brand-default</code>, 18pt, 2.4 stroke), translucent dark backdrop (<code>rgba(15,17,23,0.55)</code>) with a thin coral border. Disabled state: 35% alpha on coral, 18% on border.</li>
+      <li>The chevrons replace the existing in-chrome <code>‹ ›</code> IconButtons. Only ONE prev/next pair anywhere on the sheet — no duplication.</li>
+      <li>"Playing" pill bottom-right of preview — pulsing red dot + tiny label so the practitioner knows it's a live tile vs a still.</li>
+      <li>Title block (right of preview): inline-editable title with the existing dashed underline; meta line beneath (<code>VIDEO · 8s · 3 reps captured</code> or <code>REST · 60s</code>).</li>
+      <li>The preview itself is NOT a hit target — taps pass through to the title's existing interactions (rename) and the chevrons own their own hit zones. Per Carl: "I don't want the preview to be a hit target. It does not need it."</li>
+      <li>Rest variant: keep the sage glyph as before (no video). Tab strip shows ONLY the "Rest" tab. Chevrons still appear (still coral) so the practitioner can step out of the rest period to the next exercise.</li>
+      <li>Performance: pause the preview when the editor sheet's body shows the Preview tab (the tab embeds <code>MediaViewerBody</code> which would otherwise re-decode the same file). Pause off-screen previews when the chrome is scrolled out of view.</li>
+    </ul>
+  </div>
+</body>
+</html>

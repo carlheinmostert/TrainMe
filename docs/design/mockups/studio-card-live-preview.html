@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — studio card · live mini preview + back nav</title>
+  <style>
+    :root {
+      --brand-default: #ff6b35;
+      --brand-tint-bg: rgba(255, 107, 53, 0.12);
+      --brand-tint-border: rgba(255, 107, 53, 0.30);
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --rest: #86efac;
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 24px;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      min-height: 100vh;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 22px;
+      margin: 0 0 4px;
+    }
+    .subtitle {
+      color: var(--ink-secondary);
+      font-size: 13px;
+      margin-bottom: 24px;
+      max-width: 540px;
+      line-height: 1.5;
+    }
+    .panel {
+      max-width: 420px;
+      margin-bottom: 28px;
+    }
+    .panel-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin-bottom: 8px;
+    }
+    /* ============================================================== */
+    /*  Card v3 — live preview dominates left, back nav coral overlay  */
+    /* ============================================================== */
+    .card {
+      position: relative;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 16px;
+      padding: 0;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      column-gap: 14px;
+      min-height: 132px;
+    }
+    .card.focused {
+      border-color: var(--brand-default);
+      border-width: 2px;
+    }
+    /* Preview occupies the entire left column edge-to-edge */
+    .preview {
+      position: relative;
+      width: 200px;
+      min-height: 132px;
+      background: #000;
+      overflow: hidden;
+      /* simulated line-drawing animation (the real one is the on-device
+         h.264 line-drawing video the converter emits) */
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 132'><rect width='200' height='132' fill='%231a1a1a'/><g stroke='%23f0f0f5' stroke-width='1.4' fill='none' stroke-linecap='round' stroke-linejoin='round'><circle cx='100' cy='42' r='12'/><line x1='100' y1='54' x2='100' y2='86'/><line x1='100' y1='66' x2='80' y2='80'/><line x1='100' y1='66' x2='120' y2='80'/><line x1='100' y1='86' x2='86' y2='112'/><line x1='100' y1='86' x2='114' y2='112'/></g></svg>");
+      background-size: cover;
+      background-position: center;
+    }
+    /* Subtle "live" hint — red dot + "PLAYING" pill so the practitioner
+       knows this is the autoplay preview rather than a still */
+    .live-pill {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 7px;
+      background: rgba(15, 17, 23, 0.65);
+      border-radius: 999px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      color: var(--ink-secondary);
+      text-transform: uppercase;
+    }
+    .live-pill::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #ef4444;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    /* The back-navigator chevron sits on top of the preview, top-left.
+       Coral as Carl specified. Translucent dark backdrop keeps the
+       glyph readable over any video frame. */
+    .back-nav {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: rgba(15, 17, 23, 0.55);
+      border: 1px solid rgba(255, 107, 53, 0.4);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--brand-default);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .back-nav:hover {
+      background: rgba(15, 17, 23, 0.75);
+      border-color: rgba(255, 107, 53, 0.7);
+    }
+    .back-nav svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      stroke-width: 2.4;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    /* Right column — title + dose summary + notes summary */
+    .right {
+      display: flex;
+      flex-direction: column;
+      padding: 12px 14px 12px 0;
+      gap: 8px;
+      min-width: 0; /* allow flex children to shrink */
+    }
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--ink-primary);
+      letter-spacing: -0.1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+      flex: 1;
+    }
+    .customised-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--brand-default);
+      flex: 0 0 auto;
+    }
+    .gear {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ink-secondary);
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    .gear svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      stroke-width: 1.7;
+      fill: none;
+    }
+    .summary-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      cursor: pointer;
+    }
+    .summary-icon {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+      color: var(--ink-secondary);
+    }
+    .summary-icon svg {
+      width: 100%;
+      height: 100%;
+      stroke: currentColor;
+      stroke-width: 1.7;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .summary-text {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--ink-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+    .summary-text .num {
+      color: var(--ink-primary);
+      font-weight: 600;
+    }
+    .annotations {
+      margin-top: 12px;
+      font-size: 11px;
+      color: var(--ink-muted);
+      line-height: 1.6;
+    }
+    .annotations strong {
+      color: var(--ink-secondary);
+      font-weight: 600;
+    }
+    /* second card — rest period variant for completeness */
+    .card.rest {
+      background: var(--surface-base);
+    }
+    .card.rest .preview {
+      background-image: none;
+      background: linear-gradient(135deg, rgba(134, 239, 172, 0.18), rgba(134, 239, 172, 0.04));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--rest);
+    }
+    .card.rest .preview svg {
+      width: 38px;
+      height: 38px;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      fill: none;
+    }
+    .card.rest .live-pill { display: none; }
+    .card.rest .summary-text { color: var(--rest); }
+
+    /* width comparison block */
+    .compare {
+      display: flex;
+      gap: 16px;
+      margin-top: 28px;
+      flex-wrap: wrap;
+    }
+    .compare .panel { margin-bottom: 0; }
+
+    .specs {
+      max-width: 600px;
+      margin-top: 32px;
+      padding: 16px 18px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      font-size: 12px;
+      color: var(--ink-secondary);
+      line-height: 1.7;
+    }
+    .specs h3 {
+      margin: 0 0 8px;
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--ink-primary);
+    }
+    .specs code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: rgba(255, 107, 53, 0.10);
+      padding: 1px 6px;
+      border-radius: 4px;
+      color: var(--brand-default);
+    }
+    .specs ul { margin: 0; padding-left: 18px; }
+    .specs li { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Studio card — live mini preview</h1>
+  <p class="subtitle">
+    The static glyph thumbnail (72×72) is replaced by a live mini-preview that dominates
+    the top-left corner of the card. The line-drawing video autoplays muted on loop.
+    A coral back-navigator overlays the top-left of the preview.
+  </p>
+
+  <div class="panel">
+    <div class="panel-label">Video exercise</div>
+    <div class="card">
+      <div class="preview">
+        <div class="back-nav" title="Back">
+          <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        </div>
+        <span class="live-pill">Playing</span>
+      </div>
+      <div class="right">
+        <div class="title-row">
+          <div class="title">Bulgarian split squat</div>
+          <div class="customised-dot" title="Customised"></div>
+          <div class="gear" title="Settings">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+        </div>
+        <div class="summary-row">
+          <div class="summary-icon">
+            <svg viewBox="0 0 24 24"><path d="M6.5 6.5h11M6.5 12h11M6.5 17.5h11"/><circle cx="6.5" cy="6.5" r="1.5"/><circle cx="6.5" cy="12" r="1.5"/><circle cx="6.5" cy="17.5" r="1.5"/></svg>
+          </div>
+          <span class="summary-text">3 sets · <span class="num">10</span> reps · @ <span class="num">15</span>kg · <span class="num">5</span>s</span>
+        </div>
+        <div class="summary-row">
+          <div class="summary-icon">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <span class="summary-text">Watch for valgus collapse on the left knee…</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-label">Focused (selected)</div>
+    <div class="card focused">
+      <div class="preview">
+        <div class="back-nav" title="Back">
+          <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        </div>
+        <span class="live-pill">Playing</span>
+      </div>
+      <div class="right">
+        <div class="title-row">
+          <div class="title">Goblet squat</div>
+          <div class="gear" title="Settings">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+        </div>
+        <div class="summary-row">
+          <div class="summary-icon">
+            <svg viewBox="0 0 24 24"><path d="M6.5 6.5h11M6.5 12h11M6.5 17.5h11"/><circle cx="6.5" cy="6.5" r="1.5"/><circle cx="6.5" cy="12" r="1.5"/><circle cx="6.5" cy="17.5" r="1.5"/></svg>
+          </div>
+          <span class="summary-text">4 sets · <span class="num">8</span> reps · @ <span class="num">22.5</span>kg</span>
+        </div>
+        <div class="summary-row">
+          <div class="summary-icon">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <span class="summary-text">Add note…</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-label">Rest period (no video — sage glyph)</div>
+    <div class="card rest">
+      <div class="preview">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 11h6M9 14h6"/></svg>
+      </div>
+      <div class="right">
+        <div class="title-row">
+          <div class="title">Rest</div>
+        </div>
+        <div class="summary-row">
+          <div class="summary-icon" style="color: var(--rest);">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
+          </div>
+          <span class="summary-text"><span class="num">60</span>s</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="specs">
+    <h3>Spec</h3>
+    <ul>
+      <li>Preview: <code>200 × card-height</code> (currently <code>132pt</code> min). Edge-to-edge with the card's left + top + bottom borders. Object-fit cover, centred.</li>
+      <li>Source: same line-drawing H.264 the web player serves (<code>line_drawing_url</code>). Muted, autoplay, loop. Already on disk via the converter — no extra fetch.</li>
+      <li>Back nav: <code>32 × 32</code> circle, top-left at <code>(8, 8)</code>. Coral icon stroke (<code>--brand-default</code>) on a translucent dark backdrop with a subtle coral border. Tappable.</li>
+      <li>"Playing" pill bottom-right of preview — pulsing red dot + tiny label so the practitioner knows it's a live tile vs a still.</li>
+      <li>Right column shrinks to <code>card-width − 200</code> with normal padding. Title + customised-dot + gear sit on row 1; dose summary row 2; notes summary row 3.</li>
+      <li>Rest variant: keep the sage glyph (no video to play); same rectangle, no live pill, no back nav (rest periods don't have a preview to nav into).</li>
+      <li>Performance: pause off-screen previews; pause when the editor sheet is open over the Studio screen. Limit concurrent decoders if &gt; 4 cards visible.</li>
+    </ul>
+  </div>
+
+  <div class="specs" style="background: rgba(255, 107, 53, 0.06); border-color: rgba(255, 107, 53, 0.30);">
+    <h3 style="color: var(--brand-default);">Question</h3>
+    <ul>
+      <li><strong>Back navigator destination?</strong> The mockup shows a left-chevron in coral overlaying the top-left of the preview. Where does it route?
+        <br>(a) Back to the client's session list (i.e., it duplicates the AppBar back arrow — useful if the AppBar gets crowded), or
+        <br>(b) A different destination (e.g. exit Studio, return to Home)?
+      </li>
+      <li><strong>One-tap-on-card-opens-editor</strong> behaviour just shipped (SHA <code>756116b</code>). Does the back nav need to live OUTSIDE that card-tap zone (i.e., be its own clickable region that doesn't trigger the editor)? Yes is the safe assumption — the mockup treats it as a separate hit target.</li>
+    </ul>
+  </div>
+</body>
+</html>

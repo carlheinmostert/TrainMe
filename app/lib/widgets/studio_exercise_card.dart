@@ -10,6 +10,7 @@ import '../models/session.dart';
 import '../services/api_client.dart';
 import '../theme.dart';
 import 'exercise_editor_sheet.dart';
+import 'mini_preview.dart';
 
 /// Matches [UploadService] file pre-flight: converted path first, then raw.
 bool exerciseHasMissingMedia(ExerciseCapture exercise) {
@@ -70,36 +71,39 @@ bool exerciseIsCustomised(ExerciseCapture exercise) {
   return false;
 }
 
-/// Compact Studio Exercise Card — one row per non-rest exercise.
+/// Studio Exercise Card — flood-fill video layout.
 ///
-/// Layout (Round 4 — vertical stack to the right of the thumbnail):
+/// Layout (Card UI Polish — flood-fill):
 ///
-///   [thumb 72×72] [title]                              [gear]
-///                 [🏋️  3 sets · 10 reps · @ 15kg · 5s]
-///                 [📝  First line of practitioner notes…]
+///   ┌──────────────────────────────────┐
+///   │ [video flood-fills entire card]  │
+///   │                            [⚙]  │
+///   │                                  │
+///   │ Exercise Title                   │
+///   │ 🏋  3 sets · 10 reps · @ 15kg   │
+///   │ 📝  First line of notes…         │
+///   └──────────────────────────────────┘
 ///
-/// Tapping the thumbnail opens the editor sheet on the Preview tab.
-/// Tapping the Dose button opens it on the Dose tab. Tapping the Notes
-/// button opens it on the Notes tab. Tapping the gear opens it on the
-/// Settings tab.
+/// The mini preview covers the entire card. A bottom-up gradient scrim
+/// (lower 70%, black 0.85 → transparent) ensures the title + summaries
+/// stay legible against bright frames. The frosted-glass gear sits
+/// top-right.
+///
+/// Tap zones:
+///   * Whole card (default)        → editor sheet on Dose tab.
+///   * Gear (⚙)                    → editor sheet on Settings tab.
+///   * Dose row (🏋)               → editor sheet on Dose tab.
+///   * Notes row (📝)              → editor sheet on Notes tab.
+///   * Long-press anywhere         → replace media (image-picker).
 ///
 /// The parent contract is unchanged from the previous stub:
-///   * [onTap] fires on the title-area tap (the Studio screen treats it
-///     as the focus / collapse signal — though the card no longer has
-///     an inline expanded body, the callback stays wired so the parent
-///     can keep its `_expandedIndex`/`_focusedExerciseId` state coherent).
+///   * [onTap] fires on the whole-card tap (Studio screen treats it as
+///     the focus / collapse signal).
 ///   * [onUpdate] fires on every meaningful edit inside the editor sheet.
-///   * [onThumbnailTap] fires on the thumbnail tap. The Studio screen
-///     historically pushed `MediaViewerBody` here; in the new flow we
-///     ALSO open the editor sheet on the Preview tab so embedded preview
-///     stays consistent. The legacy callback is still surfaced so
-///     callers can opt-in to a full-screen route via long-press if
-///     desired (not currently wired).
-///   * [onReplaceMedia] fires on a long-press of the thumbnail (replace
-///     media via image-picker — same pattern as before).
-///   * [onDelete], [onDownloadOriginal] retained for parent compatibility
-///     even though the swipe-delete primary path is on the parent
-///     `Dismissible` (deletion is owned by the parent, not the card).
+///   * [onThumbnailTap] is retained for backwards-compat but no longer
+///     wired (the whole card opens the editor on Dose now).
+///   * [onReplaceMedia] fires on a long-press (image-picker swap).
+///   * [onDelete], [onDownloadOriginal] retained for parent compatibility.
 class StudioExerciseCard extends StatelessWidget {
   final ExerciseCapture exercise;
 
@@ -127,12 +131,19 @@ class StudioExerciseCard extends StatelessWidget {
   /// [index] once the practitioner has paged through siblings via
   /// chevrons / dot row).
   final void Function(int index, ExerciseCapture updated) onUpdate;
+
+  /// Retained for backwards compatibility. The flood-fill layout no
+  /// longer wires this — the whole card opens the editor on Dose.
   final VoidCallback onThumbnailTap;
   final VoidCallback onReplaceMedia;
   final VoidCallback onDelete;
   final VoidCallback? onDownloadOriginal;
 
   final ExerciseAnalyticsStats? analyticsStats;
+
+  /// Card height — Carl's spec is 152pt. Exposed as a constant so the
+  /// gradient scrim stays in lockstep.
+  static const double cardHeight = 152;
 
   const StudioExerciseCard({
     super.key,
@@ -157,66 +168,117 @@ class StudioExerciseCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: () {
+          onTap();
+          _openSheet(context, ExerciseEditorTab.dose);
+        },
+        onLongPress: onReplaceMedia,
         borderRadius: BorderRadius.circular(16),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.all(10),
+          height: cardHeight,
           decoration: BoxDecoration(
             color: AppColors.surfaceBase,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: showFocusedBorder
-                  ? AppColors.primary
-                  : AppColors.surfaceBorder,
-              width: showFocusedBorder ? 2 : 1,
-            ),
+            // Focused state = outer coral ring (boxShadow). Avoids the
+            // 2px Border that would push the video inward and break the
+            // flush flood-fill.
+            boxShadow: showFocusedBorder
+                ? const [
+                    BoxShadow(
+                      color: AppColors.primary,
+                      blurRadius: 0,
+                      spreadRadius: 2,
+                    ),
+                  ]
+                : null,
           ),
-          // IntrinsicHeight + CrossAxisAlignment.stretch makes the
-          // thumbnail fill the column's height (title row + trigger row +
-          // spacing). Without this the column was taller than the 72pt
-          // thumbnail, leaving a visual gap below the thumbnail aligned
-          // with the trigger buttons. Round 2 fix for Issue 8 (T4.1).
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _Thumbnail(
-                  exercise: exercise,
-                  onTap: () => _openSheet(context, ExerciseEditorTab.preview),
-                  onLongPress: onReplaceMedia,
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (exerciseHasMissingMedia(exercise)) ...[
-                        const _MissingMediaBanner(),
-                        const SizedBox(height: 8),
-                      ],
-                      _TitleRow(
-                        title: _resolvedTitle(),
-                        isCustomised: exerciseIsCustomised(exercise),
-                        onGearTap: () =>
-                            _openSheet(context, ExerciseEditorTab.settings),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // Layer 1 — video flood-fill. MiniPreview already handles
+              // rest/photo/video branches, treatment + body-focus
+              // mirroring, and manual loop. width: infinity + height: null
+              // → MiniPreview falls into SizedBox.expand and fills the
+              // 152pt Stack.
+              MiniPreview(
+                exercise: exercise,
+                width: double.infinity,
+                borderRadius: BorderRadius.circular(16),
+                // Pause this video while the editor sheet is open so
+                // the practitioner isn't distracted by background motion.
+                respectGlobalPause: true,
+              ),
+              // Layer 2 — bottom-up gradient scrim. Lower 70% of card,
+              // black 0.85 at the bottom transitioning through 0.55 to
+              // transparent at the top of the scrim. IgnorePointer keeps
+              // taps falling through to the outer InkWell.
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: cardHeight * 0.70,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.85),
+                          Colors.black.withValues(alpha: 0.55),
+                          Colors.transparent,
+                        ],
+                        stops: const [0.0, 0.4, 1.0],
                       ),
-                      const SizedBox(height: 10),
-                      _TriggerRow(
-                        doseSummary: _doseSummary(exercise),
-                        notesSummary: _notesSummary(exercise),
-                        onDoseTap: () =>
-                            _openSheet(context, ExerciseEditorTab.dose),
-                        onNotesTap: () =>
-                            _openSheet(context, ExerciseEditorTab.notes),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ],
-            ),
+              ),
+              // Layer 3 — content overlay. Title + dose summary at bottom.
+              // Settings (gear) and Notes have been removed from the card
+              // surface — both are still reachable from inside the editor
+              // sheet via the tab strip. Whole-card tap → editor on Dose;
+              // long-press → replace media; that's the entire affordance.
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (exerciseHasMissingMedia(exercise))
+                      const _MissingMediaBanner(),
+                    const Spacer(),
+                    Text(
+                      _resolvedTitle(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'Montserrat',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 18,
+                        letterSpacing: -0.2,
+                        color: AppColors.textOnDark,
+                        shadows: [
+                          Shadow(
+                            color: Color(0x99000000),
+                            offset: Offset(0, 1),
+                            blurRadius: 2,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    _SummaryRow(
+                      icon: Icons.fitness_center,
+                      text: _doseSummary(exercise),
+                      monospace: true,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -248,323 +310,66 @@ class StudioExerciseCard extends StatelessWidget {
 // Helpers
 // =============================================================================
 
-class _Thumbnail extends StatelessWidget {
-  final ExerciseCapture exercise;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
+/// Frosted-glass gear button — 32×32 circle with a backdrop blur and a
+/// translucent black fill so it stays legible against any frame. The
+/// "customised" state floats an 8pt coral dot at the gear's top-right
+/// (1.5pt black border so it pops against bright backgrounds).
+/// Summary row — 14pt icon + 12pt text on the gradient scrim. Mono-
+/// spaced when [monospace] is true (dose grammar lines up).
+class _SummaryRow extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final bool monospace;
 
-  const _Thumbnail({
-    required this.exercise,
-    required this.onTap,
-    required this.onLongPress,
+  const _SummaryRow({
+    required this.icon,
+    required this.text,
+    required this.monospace,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Round 5 photo fallback chain — extends Round 4. Older photo rows
-    // never had a thumbnailPath set (only the video branch of the
-    // conversion service wrote one). The Round 4 fix fell back to the
-    // raw path, which works for new captures but not for older photos
-    // where the raw file was cleaned up at some point. The converted
-    // line-drawing JPG IS still on disk for these (it's what the web
-    // player serves as line_drawing_url), so it's a perfectly fine
-    // practitioner-side display fallback. Order: thumbnail → raw →
-    // converted → placeholder.
-    String? thumbPath = exercise.absoluteThumbnailPath;
-    if ((thumbPath == null || !File(thumbPath).existsSync()) &&
-        exercise.mediaType == MediaType.photo) {
-      // Try raw first (matches "B&W from raw" treatment used elsewhere
-      // on practitioner surfaces).
-      if (exercise.rawFilePath.isNotEmpty) {
-        final rawPath = exercise.absoluteRawFilePath;
-        if (File(rawPath).existsSync()) {
-          thumbPath = rawPath;
-        }
-      }
-      // Last resort: the converted line-drawing JPG. Still de-identified,
-      // still recognisable. Better than the placeholder for old captures
-      // where the raw was cleaned up.
-      if (thumbPath == null || !File(thumbPath).existsSync()) {
-        final convPath = exercise.absoluteConvertedFilePath;
-        if (convPath != null && File(convPath).existsSync()) {
-          thumbPath = convPath;
-        }
-      }
-    }
-    final hasThumb = thumbPath != null && File(thumbPath).existsSync();
-    // Width fixed at 72pt; height: double.infinity so an IntrinsicHeight
-    // Row + CrossAxisAlignment.stretch stretches the thumbnail to match
-    // the column's height (title row + 10pt + trigger row). When there's
-    // no IntrinsicHeight context (e.g. legacy callers), Flutter falls
-    // back to the child's intrinsic height — which we don't have for
-    // this Container, so we provide a minHeight of 72 via ConstrainedBox.
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      behavior: HitTestBehavior.opaque,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          minWidth: 72,
-          minHeight: 72,
-        ),
-        child: Container(
-        width: 72,
-        height: double.infinity,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceRaised,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.surfaceBorder, width: 1),
-          gradient: hasThumb
-              ? null
-              : const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF2A2D3A),
-                    Color(0xFF1A1D27),
-                  ],
-                ),
-          image: hasThumb
-              ? DecorationImage(
-                  image: FileImage(File(thumbPath)),
-                  fit: BoxFit.cover,
-                )
-              : null,
-        ),
-        child: Stack(
-          children: [
-            if (exercise.mediaType == MediaType.video)
-              const Center(
-                child: _PlayGlyph(),
+    final visible = text.isEmpty ? '—' : text;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(
+            icon,
+            size: 14,
+            color: AppColors.textSecondaryOnDark,
+            shadows: const [
+              Shadow(
+                color: Color(0x99000000),
+                offset: Offset(0, 1),
+                blurRadius: 2,
               ),
-            if (exercise.mediaType == MediaType.photo && !hasThumb)
-              const Center(
-                child: Icon(
-                  Icons.photo_outlined,
-                  size: 24,
-                  color: AppColors.textSecondaryOnDark,
-                ),
+            ],
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              visible,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: monospace ? 'JetBrainsMono' : 'Inter',
+                fontSize: 12,
+                fontWeight:
+                    monospace ? FontWeight.w700 : FontWeight.w500,
+                color: AppColors.textOnDark,
+                shadows: const [
+                  Shadow(
+                    color: Color(0x99000000),
+                    offset: Offset(0, 1),
+                    blurRadius: 2,
+                  ),
+                ],
               ),
-          ],
-        ),
-      ),
-      ),
-    );
-  }
-}
-
-class _PlayGlyph extends StatelessWidget {
-  const _PlayGlyph();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 26,
-      height: 26,
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.72),
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: const Padding(
-        padding: EdgeInsets.only(left: 2),
-        child: Icon(
-          Icons.play_arrow_rounded,
-          size: 16,
-          color: AppColors.textOnDark,
-        ),
-      ),
-    );
-  }
-}
-
-class _TitleRow extends StatelessWidget {
-  final String title;
-  final bool isCustomised;
-  final VoidCallback onGearTap;
-
-  const _TitleRow({
-    required this.title,
-    required this.isCustomised,
-    required this.onGearTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        // Round 3 — title is read-only on the card. Inline-edit moved to
-        // the editor sheet's header so the card doesn't carry any edit
-        // affordance. The card is now a pure trigger surface; all edits
-        // happen inside the popup.
-        Expanded(
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontFamily: 'Montserrat',
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.2,
-              color: AppColors.textOnDark,
             ),
           ),
-        ),
-        const SizedBox(width: 8),
-        InkWell(
-          onTap: onGearTap,
-          borderRadius: BorderRadius.circular(14),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                width: 28,
-                height: 28,
-                alignment: Alignment.center,
-                child: Icon(
-                  Icons.settings_rounded,
-                  size: 22,
-                  color: isCustomised
-                      ? AppColors.primary
-                      : AppColors.textSecondaryOnDark,
-                ),
-              ),
-              if (isCustomised)
-                const Positioned(
-                  top: 4,
-                  right: 4,
-                  child: _CoralDot(),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CoralDot extends StatelessWidget {
-  const _CoralDot();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 6,
-      height: 6,
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        shape: BoxShape.circle,
-        border: Border.all(color: AppColors.surfaceBase, width: 1.5),
-      ),
-    );
-  }
-}
-
-class _TriggerRow extends StatelessWidget {
-  final String doseSummary;
-  final String? notesSummary;
-  final VoidCallback onDoseTap;
-  final VoidCallback onNotesTap;
-
-  const _TriggerRow({
-    required this.doseSummary,
-    required this.notesSummary,
-    required this.onDoseTap,
-    required this.onNotesTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // Round 4 — vertically stacked, full-width buttons. With ~285pt of
-    // bounded width on iPhone 14 base, the dose summary easily fits one
-    // line; pyramid sets across 4+ values may wrap to 2.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _TriggerButton(
-          // 18pt is deliberately lighter than the gear's 20pt — the gear
-          // is the only "action" affordance on the card; these icons play
-          // the role of a label, not a button.
-          icon: Icons.fitness_center,
-          iconColor: AppColors.primary,
-          summary: doseSummary,
-          summaryStyle: const TextStyle(
-            fontFamily: 'JetBrainsMono',
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textSecondaryOnDark,
-          ),
-          onTap: onDoseTap,
-        ),
-        const SizedBox(height: 6),
-        _TriggerButton(
-          icon: Icons.note_alt_outlined,
-          iconColor: AppColors.primary,
-          summary: notesSummary ?? 'Add notes…',
-          summaryStyle: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textSecondaryOnDark,
-          ),
-          onTap: onNotesTap,
-        ),
-      ],
-    );
-  }
-}
-
-class _TriggerButton extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final String summary;
-  final TextStyle summaryStyle;
-  final VoidCallback onTap;
-
-  const _TriggerButton({
-    required this.icon,
-    required this.iconColor,
-    required this.summary,
-    required this.summaryStyle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // Round 3 defensive fallback retained — `_doseSummary` should never
-    // return empty, but device QA contradicted code analysis once already.
-    final visibleSummary = summary.isEmpty ? '—' : summary;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceRaised,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.surfaceBorder, width: 1),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Icon(icon, size: 18, color: iconColor),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  visibleSummary,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: summaryStyle,
-                ),
-              ),
-            ],
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -577,32 +382,28 @@ class _MissingMediaBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.12),
+        color: AppColors.error.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: AppColors.error.withValues(alpha: 0.45),
-          width: 1,
-        ),
       ),
       child: const Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             Icons.warning_amber_rounded,
             size: 14,
-            color: AppColors.error,
+            color: Colors.white,
           ),
           SizedBox(width: 6),
-          Expanded(
+          Flexible(
             child: Text(
-              'Media missing — long-press to delete and recapture',
+              'Media missing — long-press to recapture',
               style: TextStyle(
                 fontFamily: 'Inter',
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: AppColors.error,
+                color: Colors.white,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -680,14 +481,3 @@ String _formatKg(double kg) {
   return kg.toStringAsFixed(1);
 }
 
-/// Returns the full note content with all whitespace runs (newlines, tabs,
-/// repeated spaces) collapsed into single spaces, or null when notes are
-/// empty. Width-based truncation lives in the trigger button's Text widget
-/// (maxLines: 2 + TextOverflow.ellipsis) so the surface shows as much of
-/// the note as fits in two lines.
-String? _notesSummary(ExerciseCapture exercise) {
-  final notes = exercise.notes?.trim();
-  if (notes == null || notes.isEmpty) return null;
-  final flattened = notes.replaceAll(RegExp(r'\s+'), ' ').trim();
-  return flattened.isEmpty ? null : flattened;
-}

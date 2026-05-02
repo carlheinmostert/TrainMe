@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../models/exercise_set.dart';
 import '../theme.dart';
+import 'inline_editable_text.dart';
 import 'preset_chip_row.dart';
 import 'undo_snackbar.dart';
 import 'weight_slider.dart';
@@ -405,8 +406,13 @@ class _DoseTableState extends State<DoseTable> {
       onTap: isGhost ? null : onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+        // Margin removed (was horizontal: 4) and padding tightened (was
+        // horizontal: 6) to recover ~12pt of cell width — fractional
+        // weights "100.5" / "197.5" were ellipsizing inside the WEIGHT
+        // cell because margin + padding ate ~20pt before the value's
+        // 37pt glyph budget could land. Cells now sit edge-to-edge with
+        // a thin inner padding and the active border still stands out.
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
         decoration: BoxDecoration(
           color: isActive
               ? AppColors.brandTintBg
@@ -426,19 +432,35 @@ class _DoseTableState extends State<DoseTable> {
           textBaseline: TextBaseline.alphabetic,
           children: [
             Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'JetBrainsMono',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                  fontStyle: isGhost ? FontStyle.italic : FontStyle.normal,
-                ),
-              ),
+              child: isGhost
+                  ? Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: 'JetBrainsMono',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: color,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    )
+                  : DashedUnderline(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'JetBrainsMono',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: color,
+                          fontStyle: FontStyle.normal,
+                        ),
+                      ),
+                    ),
             ),
             if (unit != null && !isNa) ...[
               const SizedBox(width: 3),
@@ -517,12 +539,13 @@ class _DoseTableState extends State<DoseTable> {
               _closeEditor();
             },
           ),
-        // Weight is a continuous slider — leaving the editor open while
-        // the user nudges the value. They dismiss by tapping the cell
-        // again or a different cell.
+        // Weight is a continuous slider. onCommit fires on drag-end or
+        // tap-to-position (Slider.onChangeEnd) so the editor block
+        // dismisses on commit, matching the chip-row pills above.
         _DoseEditorTarget.weight => WeightSlider(
             valueKg: set.weightKg,
             onChanged: (v) => _commitWeight(index, v),
+            onCommit: _closeEditor,
           ),
         _DoseEditorTarget.breather => PresetChipRow(
             controlKey: 'breather',
