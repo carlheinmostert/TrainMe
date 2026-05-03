@@ -927,12 +927,24 @@ async function fetchPlan(planId) {
 function unrollExercises(plan) {
   const exercises = plan.exercises;
   const cycles = plan.circuit_cycles || {};
+  // Wave Circuit-Names — practitioner-set custom labels per circuit_id
+  // (mirrors plans.circuit_names jsonb on the cloud / mobile
+  // SQLite sessions.circuit_names). Missing key or empty string =
+  // "no custom name; the active-slide header omits the circuit prefix".
+  const names = plan.circuit_names || {};
   const result = [];
   let i = 0;
   while (i < exercises.length) {
     const ex = exercises[i];
     if (!ex.circuit_id) {
-      result.push({ ...ex, circuitRound: null, circuitTotalRounds: null, positionInCircuit: null, circuitSize: null });
+      result.push({
+        ...ex,
+        circuitRound: null,
+        circuitTotalRounds: null,
+        positionInCircuit: null,
+        circuitSize: null,
+        circuitName: null,
+      });
       i++;
     } else {
       const circuitId = ex.circuit_id;
@@ -942,6 +954,10 @@ function unrollExercises(plan) {
         i++;
       }
       const totalRounds = Number.parseInt(cycles[circuitId], 10) || 3;
+      const rawName = names[circuitId];
+      const circuitName = (typeof rawName === 'string' && rawName.trim())
+        ? rawName.trim()
+        : null;
       for (let round = 1; round <= totalRounds; round++) {
         group.forEach((gex, idx) => {
           result.push({
@@ -950,6 +966,7 @@ function unrollExercises(plan) {
             circuitTotalRounds: totalRounds,
             positionInCircuit: idx + 1,
             circuitSize: group.length,
+            circuitName,
           });
         });
       }
@@ -1216,7 +1233,20 @@ function updateActiveSlideHeader() {
   // Wave 19.3: trailing "(MM:SS)" removed from the title — the remaining
   // total now lives in the centre of the timeline strip directly above
   // the matrix. Per-pill durations carry the per-slide number.
-  $activeSlideTitle.textContent = grammar ? `${name} · ${grammar}` : name;
+  //
+  // Wave Circuit-Names: when the slide is part of a circuit AND the
+  // practitioner has set a custom label, prefix the title with
+  // "{circuitName}: ". The matrix already shows circuit position
+  // visually (so we still skip Round X of Y), but a named circuit
+  // ("Push Day") is information the matrix doesn't carry. Auto-labels
+  // ("Circuit A") never reach the player — they live only in the
+  // practitioner-facing Studio gutter — so showing them on the player
+  // would just add noise.
+  const baseTitle = grammar ? `${name} · ${grammar}` : name;
+  const circuitName = !isRest && slide.circuitName ? slide.circuitName : null;
+  $activeSlideTitle.textContent = circuitName
+    ? `${circuitName}: ${baseTitle}`
+    : baseTitle;
   $activeSlideTitle.classList.toggle('is-rest', isRest);
 }
 

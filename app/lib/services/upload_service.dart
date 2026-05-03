@@ -871,6 +871,7 @@ class UploadService {
         'title': session.displayTitle,
         // Supabase PostgREST accepts jsonb as a Dart Map — do NOT json.encode.
         'circuit_cycles': session.circuitCycles,
+        'circuit_names': session.circuitNames,
         'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
         'exercise_count': nonRestCount,
         // IMPORTANT: do NOT bump version here — only after consume_credit.
@@ -944,6 +945,7 @@ class UploadService {
         'client_id': clientId,
         'title': session.displayTitle,
         'circuit_cycles': session.circuitCycles,
+        'circuit_names': session.circuitNames,
         'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
         'exercise_count': nonRestCount,
         'version': newVersion,

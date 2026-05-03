@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 35;
+  static const _dbVersion = 36;
 
   Database? _db;
 
@@ -82,6 +82,7 @@ class LocalStorageService {
         plan_url TEXT,
         deleted_at INTEGER,
         circuit_cycles TEXT,
+        circuit_names TEXT,
         preferred_rest_interval INTEGER,
         version INTEGER NOT NULL DEFAULT 0,
         last_published_at INTEGER,
@@ -904,6 +905,18 @@ class LocalStorageService {
       // Supabase mirror: schema_wave_hero_focus_frame.sql.
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN focus_frame_offset_ms INTEGER',
+      );
+    }
+    if (oldVersion < 36) {
+      // Wave Circuit-Names — practitioner-editable circuit labels.
+      //
+      // Stored as a JSON-encoded `{circuitId: name}` map (same idiom as
+      // circuit_cycles). NULL / empty = no custom names yet; surfaces
+      // fall back to the auto-assigned letter ("Circuit A" etc.).
+      //
+      // Supabase mirror: schema_wave_circuit_names.sql.
+      await db.execute(
+        'ALTER TABLE sessions ADD COLUMN circuit_names TEXT',
       );
     }
   }
