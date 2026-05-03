@@ -3364,6 +3364,19 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// 200 ms so the disk doesn't take a beating during a long drag.
   Timer? _trimSaveTimer;
 
+  /// 2026-05-03 — debounce for the Hero-frame SQLite + thumbnail-regen
+  /// pass. Mirrors `_trimSaveTimer` but routes through
+  /// `ConversionService.regenerateHeroThumbnails` (which itself writes
+  /// the row + emits an update on the conversion stream). 250 ms keeps
+  /// the regen idle until the practitioner stops scrubbing.
+  Timer? _heroSaveTimer;
+
+  /// 2026-05-03 — currently-selected trim-panel handle. Drives the
+  /// white→coral fill swap + tooltip on the chosen handle. Cleared
+  /// on tap-on-video and on play/resume so the panel reverts to the
+  /// "all white during play" rule.
+  _TrimHandle? _selectedTrimHandle;
+
   /// Wave 27 — debounce for the crossfade-tuner SQLite write. Slider
   /// drags emit one event per pixel; coalesce to one save per 250 ms.
   Timer? _crossfadePersistTimer;
@@ -3802,6 +3815,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   void dispose() {
     _controlsIdleTimer?.cancel();
     _trimSaveTimer?.cancel();
+    _heroSaveTimer?.cancel();
     _crossfadePersistTimer?.cancel();
     _rotationPersistTimer?.cancel();
     final listenerA = _videoListenerA;
@@ -3872,7 +3886,68 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   void _onTrimScrub(int positionMs) {
     final c = _activeController;
     if (c == null || !_videoInitialized) return;
+    // Selecting / scrubbing always pauses the active video so the chosen
+    // frame holds steady — mockup spec is explicit: tap-handle pauses,
+    // tap-video-anywhere-else resumes.
+    if (c.value.isPlaying) c.pause();
+    _inactiveController?.pause();
     c.seekTo(Duration(milliseconds: positionMs));
+  }
+
+  /// 2026-05-03 — host-side wiring for the Hero handle on the trim
+  /// panel. Optimistic update of the in-memory `focusFrameOffsetMs` +
+  /// debounced thumbnail regen. Mirrors `_persistTrim`: bubble to parent
+  /// for UI coherence, then schedule the heavy regen so a long drag
+  /// doesn't kick off a regen on every gesture tick.
+  ///
+  /// `regenerateHeroThumbnails` writes the row, re-extracts the three
+  /// treatment thumbnails, AND emits the updated exercise on the
+  /// conversion stream — Studio cards refresh on the next paint.
+  void _persistHero(int heroMs) {
+    final exercise = _current;
+    if (exercise.mediaType != MediaType.video) return;
+    if (exercise.focusFrameOffsetMs == heroMs) return;
+    final updated = exercise.copyWith(focusFrameOffsetMs: heroMs);
+    setState(() {
+      _exercises[_currentIndex] = updated;
+    });
+    final cb = widget.onExerciseUpdate;
+    if (cb != null) cb(updated);
+    _heroSaveTimer?.cancel();
+    _heroSaveTimer = Timer(const Duration(milliseconds: 250), () {
+      // Read by id off the live list so a navigate-next mid-debounce
+      // doesn't regen against a stale exercise.
+      final idx = _exercises.indexWhere((e) => e.id == exercise.id);
+      if (idx < 0) return;
+      final fresh = _exercises[idx];
+      unawaited(
+        ConversionService.instance
+            .regenerateHeroThumbnails(fresh, heroMs)
+            .then((next) {
+          if (!mounted) return;
+          // Bubble the regen-result (it has the freshly-written
+          // thumbnailPath) so list-card surfaces pick up the new
+          // poster without waiting for a full session reload.
+          final freshIdx = _exercises.indexWhere((e) => e.id == next.id);
+          if (freshIdx < 0) return;
+          setState(() {
+            _exercises[freshIdx] = next;
+          });
+          final cb2 = widget.onExerciseUpdate;
+          if (cb2 != null) cb2(next);
+        }).catchError((e, _) {
+          debugPrint('MediaViewer: regenerateHeroThumbnails failed: $e');
+        }),
+      );
+    });
+  }
+
+  /// Selection swap on the trim panel. Stored in host state so a
+  /// rebuild (treatment cycle, etc.) preserves which handle is "holding"
+  /// the playhead.
+  void _onTrimSelectionChanged(_TrimHandle? handle) {
+    if (_selectedTrimHandle == handle) return;
+    setState(() => _selectedTrimHandle = handle);
   }
 
   void _onPageChanged(int index) {
@@ -3969,6 +4044,11 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
         _prebuffered = false;
       } else {
         active.play();
+        // Mockup spec: tap-the-video → resume playback AND clear any
+        // current trim-handle selection. During play all handles stay
+        // white; the playback flash is the only "you just passed it"
+        // cue.
+        _selectedTrimHandle = null;
       }
     });
     // Any tap — on the video body or the overlay button — resets the
@@ -4363,11 +4443,16 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                             _activeController!.value.duration.inMilliseconds,
                         startOffsetMs: _current.startOffsetMs,
                         endOffsetMs: _current.endOffsetMs,
+                        heroOffsetMs: _current.focusFrameOffsetMs,
                         reps: _current.sets.isNotEmpty
                             ? _current.sets.first.reps
                             : null,
+                        selectedHandle: _selectedTrimHandle,
+                        activeController: _activeController,
                         compact: isLandscape,
                         onTrimChanged: (s, e) => _persistTrim(s, e),
+                        onHeroChanged: _persistHero,
+                        onSelectionChanged: _onTrimSelectionChanged,
                         onScrub: _onTrimScrub,
                         onGuardHit: () => HapticFeedback.lightImpact(),
                         onReset: _resetTrim,
@@ -5280,30 +5365,47 @@ class _ArchiveDownloadingChip extends StatelessWidget {
 
 // ============================================================================
 // Wave 20 — Soft-trim editor for the [MediaViewerBody].
+// 2026-05-03 — extended to host the Hero-frame pick. The trim panel now
+// shows THREE handles on a single shared track:
+//   * begin clip (left bracket)
+//   * Hero (★ star, slightly larger so it reads above the brackets at
+//     collisions)
+//   * end clip (right bracket)
+// All three handles are white when idle; selected handle goes coral
+// (single colour swap, no glow ring, no scale). Tap a handle → the host
+// pauses + seeks via [onScrub] and the handle becomes selected. Tap the
+// video (outside the panel) → host calls [setSelection] back to null.
+// During playback all handles stay white; when the playhead crosses an
+// offset within ±100ms, the corresponding handle pulses coral for ~600ms
+// then fades. No tooltip during play. The flash is the only "you just
+// passed it" cue.
 // ============================================================================
 
 /// Bottom-anchored trim panel shown beneath the video on the [MediaViewerBody]
-/// when the active exercise is a video at least 1 second long. Two coral
-/// drag-handles set the in/out window; coral fill between them shows the
-/// trimmed slice; greyed bookends show the discarded frames. Live readout
-/// underneath. "Reset to full video" link reveals when either offset is
-/// non-null.
+/// when the active exercise is a video at least 1 second long. Three
+/// handles (begin clip, Hero ★, end clip) share the timeline; coral fill
+/// between begin/end shows the trimmed slice; greyed bookends show the
+/// discarded frames. Live readout underneath. "Reset to full video" link
+/// reveals when either offset is non-null.
 ///
-/// Pure widget — owns NO state. The host (`_MediaViewerBodyState`) holds the
-/// canonical trim values and rebuilds this widget whenever they change.
-/// Drag callbacks fire continuously; the host is expected to debounce its
-/// SQLite write, not us.
+/// State ownership: trim/hero values + selected handle are HOST-owned (the
+/// `_MediaViewerBodyState` debounces SQLite writes). The flash animations
+/// are panel-owned (per-handle [AnimationController]s, fed by the active
+/// video controller's position ticks via [activeController]).
 ///
 /// Drag rules enforced HERE (kept tight so the host doesn't have to
 /// duplicate the math):
-///   * minimum 0.3s window between handles — bumping the guard fires a
-///     light-haptic via the [onGuardHit] callback.
-///   * handles cannot cross.
+///   * minimum 0.3s window between begin/end handles — bumping the guard
+///     fires a light-haptic via the [onGuardHit] callback.
+///   * begin/end handles cannot cross.
+///   * Hero offset is clamped to `[startOffsetMs, endOffsetMs]`. Dragging
+///     begin past Hero or end past Hero → Hero stays at the new bound
+///     (doesn't slide).
 ///   * tap inside the coral range emits a [onScrub] with the resolved
 ///     ms position; tap inside the greyed bookends is a no-op.
-///
-/// Long-press 4× zoom is NOT shipped in v1 — punted to a follow-up. The
-/// drag affordance alone is acceptable per the brief.
+///   * tap a handle → fires [onSelectionChanged] with the matching enum
+///     value AND [onScrub] with the handle's ms position so the host
+///     pauses + seeks.
 class _TrimPanel extends StatefulWidget {
   /// Total length of the underlying media in ms. Comes straight off the
   /// `VideoPlayerController.value.duration`. Caller must guarantee >= 1000.
@@ -5316,13 +5418,43 @@ class _TrimPanel extends StatefulWidget {
   /// Active out-point in ms. Null = "no trim — end at duration".
   final int? endOffsetMs;
 
+  /// Active Hero offset in ms (the practitioner-picked representative
+  /// frame). Null when no Hero has been picked — in that case the star
+  /// renders at the midpoint of the trim window, but tapping / dragging
+  /// it commits the picked offset via [onHeroChanged].
+  final int? heroOffsetMs;
+
   /// Reps count for the live readout's loop math. Null / 0 collapses
   /// the math to "—".
   final int? reps;
 
-  /// Fired continuously while the user drags either handle. Caller is
-  /// responsible for persisting (debounced).
+  /// Currently-selected handle, or null when nothing is selected (during
+  /// playback or after a tap-on-video). Drives the white→coral fill swap
+  /// + the time tooltip rendered above the selected handle. Selection is
+  /// EXCLUSIVE — at most one handle is "holding" the playhead.
+  final _TrimHandle? selectedHandle;
+
+  /// Active video controller — panel listens for position ticks to drive
+  /// the playback flash. Null when no controller is ready (the panel
+  /// degrades gracefully — flash simply won't fire). The panel never
+  /// mutates the controller; seeks go through [onScrub] / [onHandleSeek].
+  final VideoPlayerController? activeController;
+
+  /// Fired continuously while the user drags either trim handle. Caller
+  /// is responsible for persisting (debounced).
   final void Function(int startMs, int endMs) onTrimChanged;
+
+  /// Fired when the user commits a Hero offset — drag-end on the star,
+  /// or a tap on the star (which seeks to the saved offset). Caller
+  /// should debounce a SQLite write + trigger
+  /// [ConversionService.regenerateHeroThumbnails].
+  final void Function(int heroMs) onHeroChanged;
+
+  /// Fired when the user taps a handle (or null when selection should
+  /// clear, e.g. after a tap-on-video). The host stores this so a
+  /// subsequent rebuild renders the coral fill + tooltip on the right
+  /// handle.
+  final void Function(_TrimHandle? handle) onSelectionChanged;
 
   /// Fired on a tap inside the coral range. Caller seeks the active
   /// video controller. No-op for taps in the greyed bookends.
@@ -5337,9 +5469,9 @@ class _TrimPanel extends StatefulWidget {
   /// clearEndOffsetMs: true).
   final VoidCallback onReset;
 
-  /// Fired the moment a drag begins on either handle. Caller pauses
-  /// the active video so the practitioner can scrub freely without
-  /// the loop confusing the visual. Carl 2026-04-24: was: video kept
+  /// Fired the moment a drag begins on any handle. Caller pauses the
+  /// active video so the practitioner can scrub freely without the
+  /// loop confusing the visual. Carl 2026-04-24: was: video kept
   /// playing under the drag, which felt fighty.
   final VoidCallback? onDragStart;
 
@@ -5364,8 +5496,13 @@ class _TrimPanel extends StatefulWidget {
     required this.durationMs,
     required this.startOffsetMs,
     required this.endOffsetMs,
+    required this.heroOffsetMs,
     required this.reps,
+    required this.selectedHandle,
+    required this.activeController,
     required this.onTrimChanged,
+    required this.onHeroChanged,
+    required this.onSelectionChanged,
     required this.onScrub,
     required this.onGuardHit,
     required this.onReset,
@@ -5390,24 +5527,167 @@ class _TrimPanel extends StatefulWidget {
   State<_TrimPanel> createState() => _TrimPanelState();
 }
 
-class _TrimPanelState extends State<_TrimPanel> {
+class _TrimPanelState extends State<_TrimPanel>
+    with TickerProviderStateMixin {
   // Cache the bar width on each layout pass so onPan* can convert
   // pixels → ms without touching the BuildContext.
   double _barWidth = 0;
 
   // Throttle haptic guard hits + live-frame seek calls — at 60Hz drag
-  // we'd fire dozens per second otherwise. Seeks at &gt;30Hz on iOS
-  // Safari can stutter; haptics at &gt;4Hz feel mushy.
+  // we'd fire dozens per second otherwise. Seeks at >30Hz on iOS
+  // Safari can stutter; haptics at >4Hz feel mushy.
   DateTime _lastGuardHapticAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastHandleSeekAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   static const int _minWindowMs = 300; // 0.3s minimum window per the brief.
   static const int _seekThrottleMs = 33; // ~30Hz cap on live seek.
+  // Playback-flash window. The mockup spec calls for ±100ms tolerance
+  // around each handle's offset; once the playhead crosses the offset
+  // (i.e. moves from <offset to >=offset within the same tick), we fire
+  // the flash. Re-entrancy guarded via [_flashedThisLoop].
+  static const int _flashCrossingToleranceMs = 100;
+
+  // Per-handle flash animation controllers. Started independently when
+  // the playhead crosses each handle's offset; status listener drops
+  // the corresponding entry from [_flashedThisLoop] on completion so
+  // the next loop fires again. 600ms duration matches the CSS keyframe
+  // in the signed-off mockup.
+  late final AnimationController _flashBegin;
+  late final AnimationController _flashHero;
+  late final AnimationController _flashEnd;
+
+  /// Per-handle once-per-loop guard. The pos listener can fire several
+  /// times within the ±100ms window before the playhead clears it —
+  /// this keeps the flash from re-triggering until the playhead leaves
+  /// the window. Cleared on play→pause / detach so a fresh play doesn't
+  /// silently swallow the very first crossing.
+  final Set<_TrimHandle> _withinWindow = <_TrimHandle>{};
+
+  /// The controller we're currently subscribed to. Compared in
+  /// [didUpdateWidget] so we can detach + re-attach when the host swaps
+  /// in a fresh `VideoPlayerController` (treatment cycle, page change).
+  VideoPlayerController? _subscribedController;
+  VoidCallback? _positionListener;
 
   int get _effectiveStartMs => widget.startOffsetMs ?? 0;
   int get _effectiveEndMs => widget.endOffsetMs ?? widget.durationMs;
+  /// Hero offset, clamped to the trim window. Falls back to the trim-
+  /// window midpoint when null so the star always has a render position
+  /// even before the practitioner picks one.
+  int get _effectiveHeroMs {
+    final raw = widget.heroOffsetMs ??
+        ((_effectiveStartMs + _effectiveEndMs) ~/ 2);
+    if (raw < _effectiveStartMs) return _effectiveStartMs;
+    if (raw > _effectiveEndMs) return _effectiveEndMs;
+    return raw;
+  }
   bool get _hasTrim =>
       widget.startOffsetMs != null || widget.endOffsetMs != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _flashBegin = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _flashHero = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _flashEnd = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _attachToController(widget.activeController);
+  }
+
+  @override
+  void didUpdateWidget(covariant _TrimPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.activeController, widget.activeController)) {
+      _detachFromController();
+      _attachToController(widget.activeController);
+    }
+  }
+
+  @override
+  void dispose() {
+    _detachFromController();
+    _flashBegin.dispose();
+    _flashHero.dispose();
+    _flashEnd.dispose();
+    super.dispose();
+  }
+
+  void _attachToController(VideoPlayerController? c) {
+    if (c == null) return;
+    _subscribedController = c;
+    _withinWindow.clear();
+    final listener = _onControllerTick;
+    c.addListener(listener);
+    _positionListener = listener;
+  }
+
+  void _detachFromController() {
+    final c = _subscribedController;
+    final listener = _positionListener;
+    if (c != null && listener != null) {
+      c.removeListener(listener);
+    }
+    _subscribedController = null;
+    _positionListener = null;
+  }
+
+  /// Called on every controller value-change. Drives the playback-flash
+  /// detection: when the active video is playing AND the playhead is
+  /// within ±[_flashCrossingToleranceMs] of a handle offset (and we
+  /// haven't already flashed for this loop), kick off the corresponding
+  /// AnimationController. Selection state is irrelevant — the flash
+  /// fires whether or not a handle is selected. The mockup spec is
+  /// explicit: during play the handles all stay white and the flash is
+  /// the only cue.
+  void _onControllerTick() {
+    final c = _subscribedController;
+    if (c == null) return;
+    final v = c.value;
+    if (!v.isInitialized) return;
+    if (!v.isPlaying) {
+      // Reset baseline so a fresh play doesn't immediately fire on
+      // whatever position the controller paused at.
+      _withinWindow.clear();
+      return;
+    }
+    final pos = v.position.inMilliseconds;
+    _checkCrossing(_TrimHandle.start, _effectiveStartMs, pos);
+    _checkCrossing(_TrimHandle.hero, _effectiveHeroMs, pos);
+    _checkCrossing(_TrimHandle.end, _effectiveEndMs, pos);
+  }
+
+  void _checkCrossing(_TrimHandle handle, int offsetMs, int posMs) {
+    final delta = (posMs - offsetMs).abs();
+    final within = delta <= _flashCrossingToleranceMs;
+    if (within) {
+      if (!_withinWindow.contains(handle)) {
+        _withinWindow.add(handle);
+        _fireFlash(handle);
+      }
+    } else {
+      _withinWindow.remove(handle);
+    }
+  }
+
+  void _fireFlash(_TrimHandle handle) {
+    final ctrl = switch (handle) {
+      _TrimHandle.start => _flashBegin,
+      _TrimHandle.hero => _flashHero,
+      _TrimHandle.end => _flashEnd,
+    };
+    // Restart from 0 every time so an overlapping crossing doesn't
+    // visually stutter the fade. forward() with reset is cheap.
+    ctrl.stop();
+    ctrl.forward(from: 0);
+  }
 
   void _maybeFireGuard() {
     final now = DateTime.now();
@@ -5419,11 +5699,19 @@ class _TrimPanelState extends State<_TrimPanel> {
   /// Trailing-edge seek + drag-end. The throttle in `_updateHandle`
   /// can skip the very last gesture tick; firing one final seek here
   /// guarantees the video lands on the position the user actually
-  /// released at (zero drift on resume).
+  /// released at (zero drift on resume). The Hero handle case ALSO
+  /// commits the new offset via [onHeroChanged] so the host can fire
+  /// the debounced thumbnail regen.
   void _onHandleReleased(_TrimHandle handle) {
-    widget.onHandleSeek?.call(
-      handle == _TrimHandle.start ? _effectiveStartMs : _effectiveEndMs,
-    );
+    final commitMs = switch (handle) {
+      _TrimHandle.start => _effectiveStartMs,
+      _TrimHandle.end => _effectiveEndMs,
+      _TrimHandle.hero => _effectiveHeroMs,
+    };
+    widget.onHandleSeek?.call(commitMs);
+    if (handle == _TrimHandle.hero) {
+      widget.onHeroChanged(commitMs);
+    }
     widget.onDragEnd?.call();
   }
 
@@ -5432,6 +5720,7 @@ class _TrimPanelState extends State<_TrimPanel> {
     final dMs = (dx / _barWidth * widget.durationMs).round();
     var startMs = _effectiveStartMs;
     var endMs = _effectiveEndMs;
+    var heroMs = _effectiveHeroMs;
     if (handle == _TrimHandle.start) {
       startMs = (startMs + dMs).clamp(0, widget.durationMs - _minWindowMs);
       // Don't cross the end handle.
@@ -5439,15 +5728,29 @@ class _TrimPanelState extends State<_TrimPanel> {
         startMs = endMs - _minWindowMs;
         _maybeFireGuard();
       }
-    } else {
+      // Hero stays clamped to the new window — if we just dragged begin
+      // past Hero, Hero parks at the new begin (doesn't slide further).
+      if (heroMs < startMs) heroMs = startMs;
+    } else if (handle == _TrimHandle.end) {
       endMs = (endMs + dMs).clamp(_minWindowMs, widget.durationMs);
       if (endMs < startMs + _minWindowMs) {
         endMs = startMs + _minWindowMs;
         _maybeFireGuard();
       }
+      if (heroMs > endMs) heroMs = endMs;
+    } else {
+      // Hero handle drag — clamp tightly inside [startMs, endMs].
+      heroMs = (heroMs + dMs).clamp(startMs, endMs);
     }
-    if (startMs == _effectiveStartMs && endMs == _effectiveEndMs) return;
-    widget.onTrimChanged(startMs, endMs);
+    final trimChanged =
+        startMs != _effectiveStartMs || endMs != _effectiveEndMs;
+    final heroChanged = heroMs != _effectiveHeroMs;
+    if (!trimChanged && !heroChanged) return;
+    if (trimChanged) widget.onTrimChanged(startMs, endMs);
+    // Hero clamp on a begin/end drag also writes via onHeroChanged so
+    // the host can persist the clamped offset (otherwise the saved
+    // value drifts outside the trim window).
+    if (heroChanged) widget.onHeroChanged(heroMs);
     // Live-frame scrub — show the frame the user is dragging TO.
     // Throttled because iOS Safari seekTo on H.264 can stutter
     // when called every gesture tick.
@@ -5456,9 +5759,25 @@ class _TrimPanelState extends State<_TrimPanel> {
       final now = DateTime.now();
       if (now.difference(_lastHandleSeekAt).inMilliseconds >= _seekThrottleMs) {
         _lastHandleSeekAt = now;
-        cb(handle == _TrimHandle.start ? startMs : endMs);
+        final seekMs = switch (handle) {
+          _TrimHandle.start => startMs,
+          _TrimHandle.end => endMs,
+          _TrimHandle.hero => heroMs,
+        };
+        cb(seekMs);
       }
     }
+  }
+
+  void _onTapHandle(_TrimHandle handle) {
+    HapticFeedback.selectionClick();
+    final commitMs = switch (handle) {
+      _TrimHandle.start => _effectiveStartMs,
+      _TrimHandle.end => _effectiveEndMs,
+      _TrimHandle.hero => _effectiveHeroMs,
+    };
+    widget.onSelectionChanged(handle);
+    widget.onScrub(commitMs);
   }
 
   void _onTapBar(TapUpDetails details) {
@@ -5468,6 +5787,10 @@ class _TrimPanelState extends State<_TrimPanel> {
     // Only seek into the coral window — taps in the greyed bookends are
     // a no-op (those frames don't exist in the trimmed slice).
     if (tapMs < _effectiveStartMs || tapMs > _effectiveEndMs) return;
+    // A tap on the bar between handles also clears any current handle
+    // selection — the practitioner is jumping to an arbitrary frame,
+    // not "holding" any of the three offsets.
+    widget.onSelectionChanged(null);
     widget.onScrub(tapMs);
   }
 
@@ -5476,6 +5799,17 @@ class _TrimPanelState extends State<_TrimPanel> {
     final m = totalSec ~/ 60;
     final s = totalSec % 60;
     return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  /// Hi-res tooltip-style format (mockup uses `0:08.4`). Tenths of a
+  /// second so Hero scrubbing reads precisely.
+  String _fmtHiRes(int ms) {
+    if (ms < 0) ms = 0;
+    final totalSeconds = ms ~/ 1000;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    final tenths = (ms % 1000) ~/ 100;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}.$tenths';
   }
 
   String _trimmedReadout() {
@@ -5506,8 +5840,10 @@ class _TrimPanelState extends State<_TrimPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Scrubber bar — fixed height to keep the layout deterministic.
+          // Bumped from 40 → 44 so the Hero star (26px tall) has clearance
+          // when the tooltip layers above it.
           SizedBox(
-            height: 40,
+            height: 44,
             child: LayoutBuilder(
               builder: (context, constraints) {
                 _barWidth = constraints.maxWidth;
@@ -5519,8 +5855,13 @@ class _TrimPanelState extends State<_TrimPanel> {
                   0.0,
                   1.0,
                 );
+                final heroFrac = (_effectiveHeroMs / widget.durationMs).clamp(
+                  0.0,
+                  1.0,
+                );
                 final startX = startFrac * _barWidth;
                 final endX = endFrac * _barWidth;
+                final heroX = heroFrac * _barWidth;
                 return GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTapUp: _onTapBar,
@@ -5531,7 +5872,7 @@ class _TrimPanelState extends State<_TrimPanel> {
                       Positioned(
                         left: 0,
                         right: 0,
-                        top: 16,
+                        top: 18,
                         height: 8,
                         child: Container(
                           decoration: BoxDecoration(
@@ -5540,11 +5881,11 @@ class _TrimPanelState extends State<_TrimPanel> {
                           ),
                         ),
                       ),
-                      // Coral fill between handles.
+                      // Coral fill between begin/end.
                       Positioned(
                         left: startX,
                         width: (endX - startX).clamp(0.0, _barWidth),
-                        top: 16,
+                        top: 18,
                         height: 8,
                         child: Container(
                           decoration: BoxDecoration(
@@ -5557,51 +5898,25 @@ class _TrimPanelState extends State<_TrimPanel> {
                           ),
                         ),
                       ),
-                      // Start handle.
-                      //
-                      // Round 2 — switched onPan* → onHorizontalDrag* so
-                      // the trim handle wins the gesture arena against
-                      // the host bottom sheet's vertical-drag chrome.
-                      // Pan recognizes both axes and lost to nested
-                      // vertical-drag recognizers in the editor sheet
-                      // embed; horizontal-only is a stronger claim and
-                      // matches the user's actual drag axis.
-                      Positioned(
-                        left: startX - 14,
-                        top: 0,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onHorizontalDragStart: (_) {
-                            HapticFeedback.selectionClick();
-                            widget.onDragStart?.call();
-                          },
-                          onHorizontalDragUpdate: (d) =>
-                              _updateHandle(_TrimHandle.start, d.delta.dx),
-                          onHorizontalDragEnd: (_) =>
-                              _onHandleReleased(_TrimHandle.start),
-                          onHorizontalDragCancel: () =>
-                              _onHandleReleased(_TrimHandle.start),
-                          child: const _TrimHandlePill(),
-                        ),
+                      // Begin handle — left bracket. Z-order: brackets
+                      // first so the larger star can layer above them
+                      // when collisions occur (per mockup state C).
+                      _buildBracketHandle(
+                        handle: _TrimHandle.start,
+                        x: startX,
+                        flash: _flashBegin,
                       ),
-                      // End handle.
-                      Positioned(
-                        left: endX - 14,
-                        top: 0,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onHorizontalDragStart: (_) {
-                            HapticFeedback.selectionClick();
-                            widget.onDragStart?.call();
-                          },
-                          onHorizontalDragUpdate: (d) =>
-                              _updateHandle(_TrimHandle.end, d.delta.dx),
-                          onHorizontalDragEnd: (_) =>
-                              _onHandleReleased(_TrimHandle.end),
-                          onHorizontalDragCancel: () =>
-                              _onHandleReleased(_TrimHandle.end),
-                          child: const _TrimHandlePill(),
-                        ),
+                      // End handle — right bracket.
+                      _buildBracketHandle(
+                        handle: _TrimHandle.end,
+                        x: endX,
+                        flash: _flashEnd,
+                      ),
+                      // Hero handle — star, slightly larger so it reads
+                      // above the brackets at collisions.
+                      _buildHeroHandle(
+                        x: heroX,
+                        flash: _flashHero,
                       ),
                     ],
                   ),
@@ -5685,46 +6000,296 @@ class _TrimPanelState extends State<_TrimPanel> {
       ),
     );
   }
-}
 
-enum _TrimHandle { start, end }
-
-/// Coral pill drag-handle for the trim panel. 28×40 keeps the touch
-/// target generous (Apple HIG minimum is 44×44 but the panel is dense;
-/// the panel-level GestureDetector hit area is closer to 40×40 with the
-/// surrounding margin, plus the bar's own onTapUp gives a fallback).
-class _TrimHandlePill extends StatelessWidget {
-  const _TrimHandlePill();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 28,
-      height: 40,
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.85),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: const Center(
+  /// Bracket handle (begin / end) — 14×22 white/coral glyph centered on
+  /// the offset's x position. Tap → select + seek; horizontal drag →
+  /// re-position. Surrounded by a transparent 36×40 hit zone so the
+  /// touch target lands the Apple HIG side of comfortable.
+  Widget _buildBracketHandle({
+    required _TrimHandle handle,
+    required double x,
+    required AnimationController flash,
+  }) {
+    final selected = widget.selectedHandle == handle;
+    final tooltipMs = handle == _TrimHandle.start
+        ? _effectiveStartMs
+        : _effectiveEndMs;
+    return Positioned(
+      left: x - 18, // 36/2 hit-zone half
+      top: 0,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _onTapHandle(handle),
+        onHorizontalDragStart: (_) {
+          HapticFeedback.selectionClick();
+          widget.onSelectionChanged(handle);
+          widget.onDragStart?.call();
+        },
+        onHorizontalDragUpdate: (d) => _updateHandle(handle, d.delta.dx),
+        onHorizontalDragEnd: (_) => _onHandleReleased(handle),
+        onHorizontalDragCancel: () => _onHandleReleased(handle),
         child: SizedBox(
-          width: 2,
-          height: 16,
-          child: DecoratedBox(decoration: BoxDecoration(color: Colors.white)),
+          width: 36,
+          height: 44,
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              // Tooltip — only when this handle is the selected one.
+              // Sits above the glyph; positioned outside the bar via
+              // negative top so it doesn't collide with the track.
+              if (selected)
+                Positioned(
+                  top: -6,
+                  child: _HandleTooltip(label: _fmtHiRes(tooltipMs)),
+                ),
+              // The glyph itself — flash AnimationController drives the
+              // white→coral fill colour during playback crossings.
+              AnimatedBuilder(
+                animation: flash,
+                builder: (context, _) {
+                  final color = _resolveHandleColor(
+                    selected: selected,
+                    flashValue: flash.value,
+                  );
+                  return CustomPaint(
+                    size: const Size(14, 22),
+                    painter: _BracketPainter(
+                      color: color,
+                      isLeft: handle == _TrimHandle.start,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+
+  /// Hero handle — 26×26 white/coral filled star. Slightly larger than
+  /// the brackets so it reads above them at collisions (per mockup
+  /// state C). Same tap + drag wiring; the drag path also clamps tightly
+  /// inside the trim window.
+  Widget _buildHeroHandle({
+    required double x,
+    required AnimationController flash,
+  }) {
+    final selected = widget.selectedHandle == _TrimHandle.hero;
+    final tooltipMs = _effectiveHeroMs;
+    return Positioned(
+      left: x - 22, // 44/2 hit-zone half
+      top: -2, // Star is taller than the bracket — nudge up so its
+      //          centre still lands on the track midline.
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _onTapHandle(_TrimHandle.hero),
+        onHorizontalDragStart: (_) {
+          HapticFeedback.selectionClick();
+          widget.onSelectionChanged(_TrimHandle.hero);
+          widget.onDragStart?.call();
+        },
+        onHorizontalDragUpdate: (d) =>
+            _updateHandle(_TrimHandle.hero, d.delta.dx),
+        onHorizontalDragEnd: (_) => _onHandleReleased(_TrimHandle.hero),
+        onHorizontalDragCancel: () => _onHandleReleased(_TrimHandle.hero),
+        child: SizedBox(
+          width: 44,
+          height: 48,
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              if (selected)
+                Positioned(
+                  top: -6,
+                  child: _HandleTooltip(label: '★ ${_fmtHiRes(tooltipMs)}'),
+                ),
+              AnimatedBuilder(
+                animation: flash,
+                builder: (context, _) {
+                  final color = _resolveHandleColor(
+                    selected: selected,
+                    flashValue: flash.value,
+                  );
+                  return CustomPaint(
+                    size: const Size(26, 26),
+                    painter: _StarPainter(color: color),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Idle = white. Selected = coral (single colour swap, no glow ring,
+  /// no scale — mockup spec). Flashing during play interpolates white
+  /// ↔ coral following the keyframe in the mockup CSS.
+  Color _resolveHandleColor({
+    required bool selected,
+    required double flashValue,
+  }) {
+    if (selected) return AppColors.primary;
+    if (flashValue == 0) return Colors.white;
+    // Mockup keyframe: 0%→white, 15%→coral, 55%→coral, 100%→white. Map
+    // that piecewise so the pulse holds at coral for the middle 40%.
+    final Color resolved;
+    if (flashValue < 0.15) {
+      resolved =
+          Color.lerp(Colors.white, AppColors.primary, flashValue / 0.15)!;
+    } else if (flashValue < 0.55) {
+      resolved = AppColors.primary;
+    } else {
+      resolved = Color.lerp(
+        AppColors.primary,
+        Colors.white,
+        (flashValue - 0.55) / 0.45,
+      )!;
+    }
+    return resolved;
+  }
+}
+
+/// Three handle slots on the trim panel timeline.
+enum _TrimHandle { start, hero, end }
+
+/// Hi-res time tooltip — the small coral pill that floats above the
+/// selected handle. Mirrors the mockup's `.tooltip` style: dark surface,
+/// coral border + text, JetBrainsMono 9.5px.
+class _HandleTooltip extends StatelessWidget {
+  final String label;
+  const _HandleTooltip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: const Color(0xF20F1117),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: AppColors.primary.withValues(alpha: 0.55),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'JetBrainsMono',
+            fontSize: 9.5,
+            fontWeight: FontWeight.w700,
+            color: AppColors.primary,
+            height: 1.1,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Custom painter for the begin/end bracket glyphs. Mirrors the mockup
+/// CSS clip-path:
+///   begin = polygon(0 0, 100% 0, 100% 4px, 5px 4px, 5px (100%-4px),
+///                   100% (100%-4px), 100% 100%, 0 100%);
+///   end   = mirror of begin.
+class _BracketPainter extends CustomPainter {
+  final Color color;
+  final bool isLeft;
+
+  const _BracketPainter({required this.color, required this.isLeft});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    final w = size.width;
+    final h = size.height;
+    const stem = 5.0;
+    const cap = 4.0;
+    final path = Path();
+    if (isLeft) {
+      path.moveTo(0, 0);
+      path.lineTo(w, 0);
+      path.lineTo(w, cap);
+      path.lineTo(stem, cap);
+      path.lineTo(stem, h - cap);
+      path.lineTo(w, h - cap);
+      path.lineTo(w, h);
+      path.lineTo(0, h);
+      path.close();
+    } else {
+      path.moveTo(0, 0);
+      path.lineTo(w, 0);
+      path.lineTo(w, h);
+      path.lineTo(0, h);
+      path.lineTo(0, h - cap);
+      path.lineTo(w - stem, h - cap);
+      path.lineTo(w - stem, cap);
+      path.lineTo(0, cap);
+      path.close();
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BracketPainter old) =>
+      old.color != color || old.isLeft != isLeft;
+}
+
+/// Five-point star painter for the Hero handle. Mirrors the mockup
+/// clip-path:
+///   polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%,
+///           21% 91%, 32% 57%, 2% 35%, 39% 35%);
+class _StarPainter extends CustomPainter {
+  final Color color;
+
+  const _StarPainter({required this.color});
+
+  static const List<Offset> _starPoints = [
+    Offset(0.50, 0.00),
+    Offset(0.61, 0.35),
+    Offset(0.98, 0.35),
+    Offset(0.68, 0.57),
+    Offset(0.79, 0.91),
+    Offset(0.50, 0.70),
+    Offset(0.21, 0.91),
+    Offset(0.32, 0.57),
+    Offset(0.02, 0.35),
+    Offset(0.39, 0.35),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.45)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
+    final path = Path();
+    for (var i = 0; i < _starPoints.length; i++) {
+      final p = _starPoints[i];
+      final dx = p.dx * size.width;
+      final dy = p.dy * size.height;
+      if (i == 0) {
+        path.moveTo(dx, dy);
+      } else {
+        path.lineTo(dx, dy);
+      }
+    }
+    path.close();
+    // Soft shadow first so the star reads above the bracket on collisions.
+    canvas.save();
+    canvas.translate(0, 1);
+    canvas.drawPath(path, shadowPaint);
+    canvas.restore();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _StarPainter old) => old.color != color;
 }
 
 // -----------------------------------------------------------------------------
