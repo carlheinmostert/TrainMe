@@ -115,6 +115,7 @@ class UnifiedPreviewSchemeBridge {
       'client_name': session.clientName,
       'title': session.title,
       'circuit_cycles': session.circuitCycles.map((k, v) => MapEntry(k, v)),
+      'circuit_names': session.circuitNames.map((k, v) => MapEntry(k, v)),
       'preferred_rest_interval_seconds': session.preferredRestIntervalSeconds,
       'exercise_count': session.exercises.length,
       'version': session.version,

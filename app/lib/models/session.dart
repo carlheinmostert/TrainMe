@@ -55,6 +55,13 @@ class Session {
   /// Maps circuitId to number of cycles for that circuit. Persisted as JSON.
   final Map<String, int> circuitCycles;
 
+  /// Maps circuitId to a practitioner-supplied display label. Missing key
+  /// (or empty value) means "use the auto-assigned letter" — surfaces show
+  /// "Circuit A" / "Circuit B" / … from [_circuitLetter] in that case.
+  /// Persisted as JSON locally; round-trips through `plans.circuit_names`
+  /// jsonb on the cloud.
+  final Map<String, String> circuitNames;
+
   /// Trainer-preferred rest interval in seconds. When null, falls back to
   /// [AppConfig.restInsertIntervalMinutes] * 60. Updated when the bio drags
   /// a rest period to a new position — the cumulative exercise time before
@@ -138,6 +145,7 @@ class Session {
     this.lastPublishError,
     this.publishAttemptCount = 0,
     this.circuitCycles = const {},
+    this.circuitNames = const {},
     this.preferredRestIntervalSeconds,
     this.practiceId,
     this.firstOpenedAt,
@@ -201,6 +209,20 @@ class Session {
         cycles = {};
       }
     }
+    Map<String, String> names = {};
+    final namesJson = map['circuit_names'] as String?;
+    if (namesJson != null && namesJson.isNotEmpty) {
+      try {
+        final decoded = json.decode(namesJson);
+        if (decoded is Map) {
+          names = decoded.map(
+            (k, v) => MapEntry(k.toString(), v?.toString() ?? ''),
+          );
+        }
+      } catch (_) {
+        names = {};
+      }
+    }
     return Session(
       id: map['id'] as String,
       clientName: map['client_name'] as String,
@@ -222,6 +244,7 @@ class Session {
       lastPublishError: map['last_publish_error'] as String?,
       publishAttemptCount: (map['publish_attempt_count'] as int?) ?? 0,
       circuitCycles: cycles,
+      circuitNames: names,
       preferredRestIntervalSeconds: map['preferred_rest_interval'] as int?,
       // `practice_id` and `first_opened_at` only exist on remote Supabase rows
       // today — no local SQLite mirror yet. If present (remote hydration path),
@@ -270,6 +293,8 @@ class Session {
       'circuit_cycles': circuitCycles.isEmpty
           ? null
           : json.encode(circuitCycles),
+      'circuit_names':
+          circuitNames.isEmpty ? null : json.encode(circuitNames),
       'preferred_rest_interval': preferredRestIntervalSeconds,
       'created_by_user_id': createdByUserId,
       'client_id': clientId,
@@ -296,6 +321,7 @@ class Session {
     bool clearLastPublishError = false,
     int? publishAttemptCount,
     Map<String, int>? circuitCycles,
+    Map<String, String>? circuitNames,
     int? preferredRestIntervalSeconds,
     bool clearPreferredRestInterval = false,
     String? practiceId,
@@ -328,6 +354,7 @@ class Session {
           : (lastPublishError ?? this.lastPublishError),
       publishAttemptCount: publishAttemptCount ?? this.publishAttemptCount,
       circuitCycles: circuitCycles ?? this.circuitCycles,
+      circuitNames: circuitNames ?? this.circuitNames,
       preferredRestIntervalSeconds: clearPreferredRestInterval
           ? null
           : (preferredRestIntervalSeconds ?? this.preferredRestIntervalSeconds),
@@ -366,6 +393,30 @@ class Session {
     final updated = Map<String, int>.from(circuitCycles);
     updated[circuitId] = cycles.clamp(1, 5);
     return copyWith(circuitCycles: updated);
+  }
+
+  /// Custom display name for a circuit. Returns the practitioner-set name
+  /// when present and non-empty; otherwise null (caller falls back to the
+  /// auto-assigned letter).
+  String? getCircuitName(String circuitId) {
+    final raw = circuitNames[circuitId];
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  /// Return a new Session with the custom name set or cleared for a
+  /// circuit. Empty / whitespace-only [name] removes the entry so the
+  /// surface falls back to the auto label.
+  Session setCircuitName(String circuitId, String name) {
+    final updated = Map<String, String>.from(circuitNames);
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      updated.remove(circuitId);
+    } else {
+      updated[circuitId] = trimmed;
+    }
+    return copyWith(circuitNames: updated);
   }
 
   /// Whether this session has been sent to the client.
