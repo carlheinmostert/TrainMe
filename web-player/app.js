@@ -2361,6 +2361,21 @@ function paintActiveRepBlock() {
     }
   }
 
+  // Bug fix 2026-05-03 (B): gate the "End of exercise" badge so it
+  // only appears once the workout has actually reached the rest
+  // phase of the last set. Pre-Start-Workout (isWorkoutMode false)
+  // and prep-phase + mid-flight slides keep the badge hidden via
+  // `.is-pending` (display:none in CSS).
+  const endMarker = $repStackColumn.querySelector('.end-marker[data-end-marker="true"]');
+  if (endMarker) {
+    const isLastSetIdx = currentSetIndex >= (totalSetsForSlide - 1);
+    const showEnd = isWorkoutMode
+      && !isPrepPhase
+      && isLastSetIdx
+      && setPhase === 'rest';
+    endMarker.classList.toggle('is-pending', !showEnd);
+  }
+
   const setSections = $repStackColumn.querySelectorAll('.rep-stack-section--set');
   setSections.forEach((section) => {
     const setIdx = parseInt(section.getAttribute('data-set-index'), 10);
@@ -4080,9 +4095,17 @@ function updateRepStack() {
   // Wave 41 — interleave per-set + per-set breather. The trailing
   // rest after the FINAL set carries an "End of exercise" marker
   // instead of an upcoming-weight chip.
+  // Bug fix 2026-05-03 (A): the LAST set's trailing rest block was
+  // conditional on `breather_seconds_after > 0`, so a set with zero
+  // breather (common for the final set) silently dropped its R block
+  // and the End-of-exercise badge along with it. The last set ALWAYS
+  // gets a trailing rest section (CLAUDE.md: "Trailing rest after
+  // EVERY set, incl. last"); middle sets stay conditional since a
+  // zero-breather middle slot is meaningfully empty.
   const sections = [];
   for (let i = 0; i < playSets.length; i++) {
     const set = playSets[i];
+    const isLast = i === playSets.length - 1;
     sections.push({
       kind: 'set',
       index: i,
@@ -4092,12 +4115,11 @@ function updateRepStack() {
       isFirst: i === 0,
       prevWeight: i > 0 ? playSets[i - 1].weight_kg : null,
     });
-    if (set.breather_seconds_after > 0) {
-      const isLast = i === playSets.length - 1;
+    if (set.breather_seconds_after > 0 || isLast) {
       sections.push({
         kind: 'rest',
         index: i,
-        total: set.breather_seconds_after,
+        total: set.breather_seconds_after || 0,
         nextWeight: isLast ? null : playSets[i + 1].weight_kg,
         prevWeight: set.weight_kg,
         isFinal: isLast,
@@ -4117,28 +4139,38 @@ function updateRepStack() {
           <div class="rep-stack-block-fill"></div>
         </div>`);
       }
+      // Bug fix 2026-05-03 (D): combine weight + hold into a SINGLE
+      // uniform pill per set. Separate weight chip + hold label
+      // produced different widths per set; the unified pill gets a
+      // fixed min-width / min-height so a "5 kg" set matches a
+      // "120 kg · 12 s" set visually. Hold suffix folds in via " · ".
       const chip = renderWeightChipHtml({
         weightKg: sec.weight_kg,
         urgent: sec.isFirst || (sec.weight_kg !== sec.prevWeight),
         leadGlyph: sec.isFirst
           ? (sec.weight_kg != null ? 'bolt' : null)
           : (sec.weight_kg !== sec.prevWeight && sec.weight_kg != null ? 'bolt' : null),
+        holdSeconds: sec.hold_seconds,
       });
-      const holdLabel = sec.hold_seconds > 0
-        ? `<div class="rep-stack-set-hold">${sec.hold_seconds} s hold</div>`
-        : '';
       return `<div class="rep-stack-section rep-stack-section--set"
                    data-set-index="${sec.index}"
                    style="--rep-stack-section-grow: ${sec.reps};">
                 <div class="rep-stack-section-blocks">${blocks.join('')}</div>
-                <div class="rep-stack-section-aside">${chip}${holdLabel}</div>
+                <div class="rep-stack-section-aside">${chip}</div>
               </div>`;
     }
     // Rest section — sage divider plus a forward-look chip (next
     // set's weight) OR an "End of exercise" marker on the final
     // breather. Per Wave 41 spec the rest pill itself has NO text.
+    // Bug fix 2026-05-03 (B): the End-of-exercise marker now starts
+    // hidden via the `is-pending` class. paintActiveRepBlock() toggles
+    // it on once the workout has actually reached the rest phase of
+    // the last set (post-Start-Workout, last rep landed). Render-time
+    // it's never visible because we don't yet know whether the user
+    // has tapped Start Workout (the cached fast-path can keep the same
+    // DOM across state transitions).
     const aside = sec.isFinal
-      ? `<span class="end-marker">
+      ? `<span class="end-marker is-pending" data-end-marker="true">
            <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7.5l3 3 5-7"/></svg>
            End of exercise
          </span>`
@@ -4183,14 +4215,17 @@ function updateRepStack() {
  * chip with no urgent styling. The `urgent` flag adds the brand-tint
  * background; `leadGlyph` adds a coral bolt before the value.
  */
-function renderWeightChipHtml({ weightKg, urgent, leadGlyph }) {
+function renderWeightChipHtml({ weightKg, urgent, leadGlyph, holdSeconds }) {
   const isBodyweight = weightKg == null;
   const classes = ['weight-chip'];
   if (isBodyweight) classes.push('weight-chip--bodyweight');
   if (urgent && !isBodyweight) classes.push('weight-chip--up');
   const glyph = leadGlyph === 'bolt' ? '<span class="weight-chip-bolt" aria-hidden="true">⚡</span>' : '';
-  const label = isBodyweight ? 'Bodyweight' : formatWeightKg(weightKg);
-  return `<span class="${classes.join(' ')}">${glyph}${label}</span>`;
+  const baseLabel = isBodyweight ? 'Bodyweight' : formatWeightKg(weightKg);
+  // Bug fix 2026-05-03 (D): optional hold suffix folds into the same
+  // pill so per-set pills render as a single uniform unit.
+  const holdSuffix = holdSeconds > 0 ? ` · ${holdSeconds} s` : '';
+  return `<span class="${classes.join(' ')}">${glyph}${baseLabel}${holdSuffix}</span>`;
 }
 
 /**
