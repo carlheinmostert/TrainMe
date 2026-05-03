@@ -405,7 +405,7 @@ class _SessionCardState extends State<SessionCard> {
                               style: TextStyle(
                                 color: session.version > 0
                                     ? AppColors.circuit
-                                    : AppColors.textSecondaryOnDark,
+                                    : AppColors.textOnDark,
                                 fontSize: 13,
                                 shadows: const [
                                   Shadow(
@@ -578,7 +578,7 @@ class _LockStateRow extends StatelessWidget {
         ? AppColors.error
         : state.tone == _LockTone.unlocked
             ? AppColors.primary
-            : AppColors.textSecondaryOnDark;
+            : AppColors.textOnDark;
     return Row(
       children: [
         Container(
@@ -1004,7 +1004,7 @@ class _AnalyticsLine extends StatelessWidget {
       style: const TextStyle(
         fontFamily: 'Inter',
         fontSize: 11,
-        color: AppColors.textSecondaryOnDark,
+        color: AppColors.textOnDark,
         shadows: [
           Shadow(color: Color(0x99000000), blurRadius: 4, offset: Offset(0, 1)),
         ],
