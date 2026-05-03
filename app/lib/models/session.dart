@@ -399,9 +399,14 @@ class Session {
   bool get allConversionsComplete =>
       exercises.every((e) => e.isConverted);
 
-  /// Number of exercises still awaiting conversion.
-  int get pendingConversions =>
-      exercises.where((e) => !e.isConverted).length;
+  /// Number of exercises still awaiting conversion (pending or in-flight).
+  /// Failed rows are NOT counted here — they get their own coral "N failed"
+  /// retry pill on the session card.
+  int get pendingConversions => exercises
+      .where((e) =>
+          e.conversionStatus == ConversionStatus.pending ||
+          e.conversionStatus == ConversionStatus.converting)
+      .length;
 
   /// Total estimated duration in seconds for the entire session.
   /// Accounts for circuit cycles: groups consecutive exercises by circuitId,
