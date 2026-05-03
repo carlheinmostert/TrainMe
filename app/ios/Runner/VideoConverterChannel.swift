@@ -178,12 +178,14 @@ private let backgroundDim: Double = 0.50
 /// Master switch for hand-region dilation. Disable to fall back to v7.2
 /// behaviour (person-only silhouette).
 ///
-/// 2026-05-03: TEMPORARILY DISABLED while we investigate device-side
-/// reports of permanent stuck-in-converting on fresh captures after the
-/// #198 v8 landing. Flip back to true once the underlying conversion
-/// hang is reproduced + root-caused. The dilator code itself is clean
-/// per RCA — disabling is precautionary while we get more diagnostics.
-private let handDilationEnabled: Bool = false
+/// History:
+///   2026-05-03 — disabled defensively while investigating device-side
+///   reports of "permanent stuck-in-converting on fresh captures". RCA
+///   subsequently cleared v8's name (real cause was a UI double-count
+///   bug + a damaged mp4 file with no recovery path). Re-enabled
+///   2026-05-04 so held equipment (dumbbells, water bottles, bands)
+///   reads as part of the body zone in line drawings + Hero shots.
+private let handDilationEnabled: Bool = true
 
 /// Disc radius as a fraction of the frame's shorter dimension. 0.10 →
 /// disc radius ≈ 10% of `min(width, height)`. Generous enough to cover a
@@ -2121,11 +2123,20 @@ class VideoConverterChannel {
                 let tightEnough = bboxW < Int(Double(width) * 0.9) ||
                                   bboxH < Int(Double(height) * 0.9)
                 if tightEnough {
-                    // 10% pad around the bbox on each axis.
+                    // 10% pad on each side EXCEPT top — Vision's mask often
+                    // gives the face/hair lower confidence than torso pixels
+                    // (motion blur, side-light, hair-on-bright-bg), so the
+                    // bbox stops at the neck and the 10% pad isn't enough
+                    // to recover. cropMinY uses padTop (25%) instead, so
+                    // an under-segmented head still lands inside the crop.
+                    // CGImage Y increases DOWNWARD — smaller y = closer to
+                    // the top of the rendered image, hence decreasing
+                    // cropMinY extends the crop UPWARD.
                     let padX = Int(Double(bboxW) * 0.10)
                     let padY = Int(Double(bboxH) * 0.10)
+                    let padTop = Int(Double(bboxH) * 0.25)
                     let cropMinX = max(0, minX - padX)
-                    let cropMinY = max(0, minY - padY)
+                    let cropMinY = max(0, minY - padTop)
                     let cropMaxX = min(width - 1, maxX + padX)
                     let cropMaxY = min(height - 1, maxY + padY)
                     let cropW = cropMaxX - cropMinX + 1
