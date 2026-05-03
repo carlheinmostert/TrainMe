@@ -1744,7 +1744,9 @@ video.is-prep-paused {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: 32px;
+  /* 2026-05-03 — rest card tightened: top + bottom padding reduced
+     by 66% (32px → 11px) per Carl. Sides unchanged at 32px. */
+  padding: 11px 32px;
   text-align: center;
 }
 
