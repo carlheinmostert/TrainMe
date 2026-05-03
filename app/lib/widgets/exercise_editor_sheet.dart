@@ -544,6 +544,10 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
             width: 168,
             height: 110,
             borderRadius: BorderRadius.circular(12),
+            // Editor header — show the Hero frame, not a looping clip.
+            // The Preview tab below uses MediaViewerBody (separate
+            // widget) so motion still happens where it should.
+            staticHero: true,
             overlay: _ChevronNavOverlay(
               canPrev: canPrev,
               canNext: canNext,
