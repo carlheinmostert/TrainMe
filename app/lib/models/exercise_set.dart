@@ -11,6 +11,46 @@ class _Sentinel {
 
 const Object _kSentinel = _Sentinel();
 
+/// When inside a set the isometric hold contributes to the per-set
+/// duration. Three modes — see the brief at
+/// `feat/hold-position-3-mode`:
+///
+///   * [perRep]        — `reps × hold`. Legacy contract; preserved on
+///                       existing rows via the v36 migration backfill so
+///                       displayed durations don't shift on already-
+///                       published plans.
+///   * [endOfSet]      — `1 × hold`. Default for new sets — one
+///                       isometric pause at the end of the set.
+///   * [endOfExercise] — `hold` only when this set is the LAST set in
+///                       the exercise; `0` on every prior set. Lets the
+///                       practitioner schedule a single hold at the very
+///                       end of the exercise (e.g. "30s plank at the end
+///                       of 3 sets of push-ups").
+enum HoldPosition {
+  perRep('per_rep'),
+  endOfSet('end_of_set'),
+  endOfExercise('end_of_exercise');
+
+  /// Wire string. Round-trips through SQLite + Supabase + the
+  /// `get_plan_full` RPC. The `CHECK` constraint in
+  /// `supabase/schema_wave43_hold_position.sql` accepts exactly these
+  /// three values.
+  final String wireValue;
+
+  const HoldPosition(this.wireValue);
+
+  /// Parse a wire string back to the enum. Defaults to [endOfSet] (the
+  /// new-row default) on null / unknown values — defence-in-depth so a
+  /// stale RPC payload can't blow up deserialisation.
+  static HoldPosition fromWire(String? value) {
+    if (value == null) return HoldPosition.endOfSet;
+    for (final p in HoldPosition.values) {
+      if (p.wireValue == value) return p;
+    }
+    return HoldPosition.endOfSet;
+  }
+}
+
 /// One playable set inside an [ExerciseCapture].
 ///
 /// Wave: per-set PLAN relational model. Each row carries reps, hold,
@@ -48,6 +88,13 @@ class ExerciseSet {
   /// Isometric hold seconds. 0 for non-isometric sets.
   final int holdSeconds;
 
+  /// How [holdSeconds] contributes to the per-set duration. See
+  /// [HoldPosition] for the three modes. New sets default to
+  /// [HoldPosition.endOfSet]. Existing rows whose `holdSeconds > 0`
+  /// were backfilled to [HoldPosition.perRep] by the v36 migration so
+  /// already-published plan durations stay byte-stable.
+  final HoldPosition holdPosition;
+
   /// Loaded weight in kg. `null` = bodyweight.
   final double? weightKg;
 
@@ -64,6 +111,7 @@ class ExerciseSet {
     required this.position,
     required this.reps,
     this.holdSeconds = 0,
+    this.holdPosition = HoldPosition.endOfSet,
     this.weightKg,
     this.breatherSecondsAfter = 60,
   });
@@ -73,6 +121,7 @@ class ExerciseSet {
     required int position,
     int reps = 10,
     int holdSeconds = 0,
+    HoldPosition holdPosition = HoldPosition.endOfSet,
     double? weightKg,
     int breatherSecondsAfter = 30,
   }) {
@@ -81,6 +130,7 @@ class ExerciseSet {
       position: position,
       reps: reps,
       holdSeconds: holdSeconds,
+      holdPosition: holdPosition,
       weightKg: weightKg,
       breatherSecondsAfter: breatherSecondsAfter,
     );
@@ -93,6 +143,7 @@ class ExerciseSet {
       position: (map['position'] as num).toInt(),
       reps: (map['reps'] as num).toInt(),
       holdSeconds: (map['hold_seconds'] as num?)?.toInt() ?? 0,
+      holdPosition: HoldPosition.fromWire(map['hold_position'] as String?),
       weightKg: (map['weight_kg'] as num?)?.toDouble(),
       breatherSecondsAfter:
           (map['breather_seconds_after'] as num?)?.toInt() ?? 60,
@@ -107,6 +158,7 @@ class ExerciseSet {
       'position': position,
       'reps': reps,
       'hold_seconds': holdSeconds,
+      'hold_position': holdPosition.wireValue,
       'weight_kg': weightKg,
       'breather_seconds_after': breatherSecondsAfter,
     };
@@ -119,6 +171,7 @@ class ExerciseSet {
       'position': position,
       'reps': reps,
       'hold_seconds': holdSeconds,
+      'hold_position': holdPosition.wireValue,
       'weight_kg': weightKg,
       'breather_seconds_after': breatherSecondsAfter,
     };
@@ -137,6 +190,7 @@ class ExerciseSet {
       position: (json['position'] as num).toInt(),
       reps: (json['reps'] as num).toInt(),
       holdSeconds: (json['hold_seconds'] as num?)?.toInt() ?? 0,
+      holdPosition: HoldPosition.fromWire(json['hold_position'] as String?),
       weightKg: (json['weight_kg'] as num?)?.toDouble(),
       breatherSecondsAfter:
           (json['breather_seconds_after'] as num?)?.toInt() ?? 60,
@@ -151,6 +205,7 @@ class ExerciseSet {
     int? position,
     int? reps,
     int? holdSeconds,
+    HoldPosition? holdPosition,
     Object? weightKg = _kSentinel,
     int? breatherSecondsAfter,
   }) {
@@ -159,6 +214,7 @@ class ExerciseSet {
       position: position ?? this.position,
       reps: reps ?? this.reps,
       holdSeconds: holdSeconds ?? this.holdSeconds,
+      holdPosition: holdPosition ?? this.holdPosition,
       weightKg: identical(weightKg, _kSentinel)
           ? this.weightKg
           : (weightKg as double?),
@@ -174,6 +230,7 @@ class ExerciseSet {
         other.position == position &&
         other.reps == reps &&
         other.holdSeconds == holdSeconds &&
+        other.holdPosition == holdPosition &&
         other.weightKg == weightKg &&
         other.breatherSecondsAfter == breatherSecondsAfter;
   }
@@ -184,6 +241,7 @@ class ExerciseSet {
         position,
         reps,
         holdSeconds,
+        holdPosition,
         weightKg,
         breatherSecondsAfter,
       );
@@ -191,5 +249,6 @@ class ExerciseSet {
   @override
   String toString() =>
       'ExerciseSet(pos=$position reps=$reps hold=${holdSeconds}s '
-      'weight=${weightKg ?? "BW"} breather=${breatherSecondsAfter}s)';
+      '@${holdPosition.wireValue} weight=${weightKg ?? "BW"} '
+      'breather=${breatherSecondsAfter}s)';
 }

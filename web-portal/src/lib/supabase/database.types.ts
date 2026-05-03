@@ -287,6 +287,53 @@ export type Database = {
           },
         ]
       }
+      exercise_sets: {
+        Row: {
+          breather_seconds_after: number
+          created_at: string
+          exercise_id: string
+          hold_position: string
+          hold_seconds: number
+          id: string
+          position: number
+          reps: number
+          updated_at: string
+          weight_kg: number | null
+        }
+        Insert: {
+          breather_seconds_after?: number
+          created_at?: string
+          exercise_id: string
+          hold_position?: string
+          hold_seconds?: number
+          id?: string
+          position: number
+          reps: number
+          updated_at?: string
+          weight_kg?: number | null
+        }
+        Update: {
+          breather_seconds_after?: number
+          created_at?: string
+          exercise_id?: string
+          hold_position?: string
+          hold_seconds?: number
+          id?: string
+          position?: number
+          reps?: number
+          updated_at?: string
+          weight_kg?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exercise_sets_exercise_id_fkey"
+            columns: ["exercise_id"]
+            isOneToOne: false
+            referencedRelation: "exercises"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pending_payments: {
         Row: {
           amount_zar: number

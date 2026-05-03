@@ -526,18 +526,37 @@ class _PlanTableState extends State<PlanTable> {
               _closeEditor();
             },
           ),
-        _PlanEditorTarget.hold => PresetChipRow(
-            controlKey: 'hold',
-            canonicalPresets: const <num>[0, 5, 10, 30, 60],
-            currentValue: set.holdSeconds,
-            accentColor: AppColors.primary,
-            displayFormat: (v) => v == 0 ? 'Off' : '${v.toInt()}s',
-            undoLabel: 'hold',
-            scrollable: false,
-            onChanged: (v) {
-              _commitHold(index, v.round());
-              _closeEditor();
-            },
+        _PlanEditorTarget.hold => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PresetChipRow(
+                controlKey: 'hold',
+                canonicalPresets: const <num>[0, 5, 10, 30, 60],
+                currentValue: set.holdSeconds,
+                accentColor: AppColors.primary,
+                displayFormat: (v) => v == 0 ? 'Off' : '${v.toInt()}s',
+                undoLabel: 'hold',
+                scrollable: false,
+                onChanged: (v) {
+                  // Wave 43 — DO NOT close the editor on hold-value
+                  // commit. The 3-pill mode toggle lives directly below
+                  // the chip row inside the same editor block; closing
+                  // would yank it out from under the practitioner mid-
+                  // configuration. The `hold` target re-opens on the
+                  // next cell tap anyway.
+                  _commitHold(index, v.round());
+                },
+              ),
+              const SizedBox(height: 10),
+              _HoldPositionPills(
+                value: set.holdPosition,
+                isDimmed: set.holdSeconds == 0,
+                onChanged: (next) {
+                  _commitHoldPosition(index, next);
+                },
+              ),
+            ],
           ),
         // Weight is a continuous slider. onCommit fires on drag-end or
         // tap-to-position (Slider.onChangeEnd) so the editor block
@@ -778,6 +797,15 @@ class _PlanTableState extends State<PlanTable> {
     _emit(next);
   }
 
+  /// Wave 43 — three-mode hold position. Inline state change, no
+  /// confirmation (R-01 + the no-popups extension).
+  void _commitHoldPosition(int index, HoldPosition value) {
+    HapticFeedback.selectionClick();
+    final next = [...widget.sets];
+    next[index] = next[index].copyWith(holdPosition: value);
+    _emit(next);
+  }
+
   void _commitWeight(int index, double? value) {
     final next = [...widget.sets];
     next[index] = next[index].copyWith(weightKg: value);
@@ -847,6 +875,116 @@ class _PlanTableState extends State<PlanTable> {
       return kg.toStringAsFixed(0);
     }
     return kg.toStringAsFixed(1);
+  }
+}
+
+/// Wave 43 — three-mode hold-position segmented control.
+///
+/// Renders a horizontal row of 3 pills:
+///
+///   `[ Per rep ]  [ End of set ✓ ]  [ End ]`
+///
+/// Selected pill: coral background (`AppColors.primary`) + white text.
+/// Unselected: `AppColors.surfaceRaised` + muted text + thin border.
+///
+/// When [isDimmed] is true (i.e. `holdSeconds == 0`), all three pills
+/// fade to ~50% opacity. Selection still works internally — switching
+/// modes when hold is 0 has no math impact, but we want the practitioner
+/// to be able to choose ahead of bumping the hold value. The dim is the
+/// signal that the choice doesn't currently affect duration.
+///
+/// Wraps to a second line on narrow widths via [Wrap].
+class _HoldPositionPills extends StatelessWidget {
+  final HoldPosition value;
+  final bool isDimmed;
+  final ValueChanged<HoldPosition> onChanged;
+
+  const _HoldPositionPills({
+    required this.value,
+    required this.isDimmed,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final pills = const [
+      (HoldPosition.perRep, 'Per rep'),
+      (HoldPosition.endOfSet, 'End of set'),
+      (HoldPosition.endOfExercise, 'End'),
+    ];
+    return Opacity(
+      opacity: isDimmed ? 0.5 : 1.0,
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final (mode, label) in pills)
+            _Pill(
+              label: label,
+              selected: mode == value,
+              onTap: () => onChanged(mode),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _Pill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(9999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primary : AppColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(9999),
+          border: Border.all(
+            color: selected
+                ? AppColors.primary
+                : AppColors.surfaceBorder,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (selected) ...[
+              const Icon(
+                Icons.check_rounded,
+                size: 13,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+                color: selected
+                    ? Colors.white
+                    : AppColors.textSecondaryOnDark,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
