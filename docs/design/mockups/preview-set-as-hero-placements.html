@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — Trim panel + Hero handle</title>
+  <style>
+    :root {
+      --brand-default: #ff6b35;
+      --brand-dim: #c44d23;
+      --brand-tint-bg: rgba(255, 107, 53, 0.14);
+      --brand-tint-border: rgba(255, 107, 53, 0.45);
+      --brand-glow: 0 0 0 3px rgba(255, 107, 53, 0.28), 0 0 18px rgba(255, 107, 53, 0.45);
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-border: #2e3140;
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --rest: #86efac;
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 40px 24px 80px;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      min-height: 100vh;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 22px;
+      margin: 0 0 4px;
+    }
+    .subtitle {
+      color: var(--ink-secondary);
+      font-size: 13px;
+      margin-bottom: 32px;
+      max-width: 760px;
+      line-height: 1.6;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 28px;
+      max-width: 1320px;
+    }
+    @media (max-width: 1100px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .variant { display: flex; flex-direction: column; gap: 14px; }
+    .variant-head {
+      display: flex; align-items: baseline; gap: 10px;
+      border-bottom: 1px solid var(--surface-border);
+      padding-bottom: 8px;
+    }
+    .variant-letter {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--brand-default);
+      font-size: 13px;
+      letter-spacing: 0.5px;
+    }
+    .variant-name {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 16px;
+    }
+    .variant-desc {
+      color: var(--ink-secondary);
+      font-size: 12px;
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    /* iPhone-like canvas */
+    .device {
+      width: 100%;
+      max-width: 360px;
+      aspect-ratio: 9 / 16;
+      background: #000;
+      border-radius: 24px;
+      border: 1px solid var(--surface-border);
+      overflow: hidden;
+      position: relative;
+      margin: 0 auto;
+    }
+    .device .video-frame {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at 50% 38%, #2a2f3c 0%, #0a0c12 65%);
+    }
+    .device .silhouette {
+      width: 38%; height: 56%;
+      background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255, 107, 53, 0.30);
+      border-radius: 14px;
+    }
+
+    /* === Existing chrome === */
+    .chrome-top-right {
+      position: absolute; top: 14px; right: 14px;
+      display: flex; flex-direction: column; gap: 8px;
+      z-index: 4;
+    }
+    .chrome-btn {
+      width: 36px; height: 36px;
+      border-radius: 18px;
+      background: rgba(15, 17, 23, 0.65);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.08);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--ink-primary);
+      font-size: 15px;
+    }
+    .treatment-pill {
+      position: absolute; top: 14px; right: 58px;
+      width: 28px; padding: 14px 0;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      font-family: var(--font-mono);
+      font-size: 9.5px; letter-spacing: 1.5px;
+      background: rgba(15, 17, 23, 0.65);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      text-align: center;
+      color: var(--ink-secondary);
+      z-index: 4;
+    }
+    .treatment-pill b { color: var(--brand-default); font-weight: 700; }
+    .chrome-bottom-left {
+      position: absolute; bottom: 96px; left: 14px;
+      display: flex; gap: 6px;
+      z-index: 4;
+    }
+    .pill {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(15, 17, 23, 0.65);
+      border: 1px solid rgba(255,255,255,0.08);
+      font-size: 10px;
+      color: var(--ink-secondary);
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .rep-stack {
+      position: absolute; left: 8px; top: 42%;
+      transform: translateY(-50%);
+      display: flex; flex-direction: column; gap: 3px;
+      z-index: 3;
+    }
+    .rep-block {
+      width: 6px; height: 8px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+    }
+    .rep-block.filled { background: var(--brand-default); }
+    .rep-block.rest { height: 4px; background: rgba(134, 239, 172, 0.5); }
+
+    .tab-strip {
+      position: absolute; top: 0; left: 0; right: 0;
+      display: flex; gap: 14px;
+      padding: 10px 14px 8px;
+      background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%);
+      z-index: 5;
+      font-size: 11px; color: var(--ink-muted);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .tab-strip .tab.active {
+      color: var(--brand-default);
+      border-bottom: 2px solid var(--brand-default);
+      padding-bottom: 4px;
+    }
+
+    /* === Trim panel === */
+    .trim-panel {
+      position: absolute;
+      left: 12px; right: 12px;
+      bottom: 14px;
+      background: rgba(15, 17, 23, 0.92);
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      padding: 10px 12px 12px;
+      z-index: 5;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+    .trim-row-times {
+      display: flex; justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--ink-muted);
+      letter-spacing: 0.4px;
+      margin-bottom: 6px;
+    }
+    .trim-row-times .selected-time {
+      color: var(--brand-default);
+      font-weight: 700;
+    }
+    .trim-track {
+      position: relative;
+      height: 24px;
+      margin: 8px 4px 4px;
+    }
+    .trim-track-bar {
+      position: absolute; left: 0; right: 0; top: 50%;
+      height: 3px;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.10);
+      border-radius: 2px;
+    }
+    .trim-track-bar-active {
+      position: absolute; top: 50%;
+      height: 3px;
+      transform: translateY(-50%);
+      background: var(--brand-dim);
+      border-radius: 2px;
+    }
+    /* Playhead pip — a thin coral vertical line on the track */
+    .playhead {
+      position: absolute; top: 0; bottom: 0;
+      width: 2px;
+      background: var(--brand-default);
+      border-radius: 1px;
+      box-shadow: 0 0 6px rgba(255, 107, 53, 0.7);
+      z-index: 1;
+    }
+
+    /* Handle base — positioned absolutely, transform centers it */
+    .handle {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      display: flex; align-items: center; justify-content: center;
+      cursor: grab;
+      z-index: 2;
+    }
+    /* Begin clip — left-bracket style */
+    .h-begin {
+      width: 14px; height: 22px;
+      background: var(--ink-primary);
+      border-radius: 2px 0 0 2px;
+      clip-path: polygon(0 0, 100% 0, 100% 4px, 5px 4px, 5px calc(100% - 4px), 100% calc(100% - 4px), 100% 100%, 0 100%);
+    }
+    /* End clip — right-bracket style */
+    .h-end {
+      width: 14px; height: 22px;
+      background: var(--ink-primary);
+      border-radius: 0 2px 2px 0;
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 calc(100% - 4px), calc(100% - 5px) calc(100% - 4px), calc(100% - 5px) 4px, 0 4px);
+    }
+    /* Hero — filled star, slightly larger to read above the brackets */
+    .h-hero {
+      width: 26px; height: 26px;
+      background: var(--ink-primary);
+      clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
+    }
+    /* Selected affordance — the chosen handle goes coral. Single
+     * colour swap, no ring, no scale, no extra chrome. Idle = white,
+     * selected = coral. Time tooltip layers on top. */
+    .handle.selected.h-begin,
+    .handle.selected.h-end,
+    .handle.selected.h-hero {
+      background: var(--brand-default);
+    }
+
+    /* Playing-flash — when the playhead crosses a handle's offset
+     * during playback, the handle pulses coral for ~600ms then fades
+     * back to white. Selection itself stays cleared during play (no
+     * tooltip, no persistent coral). The pulse is the only visual cue
+     * that you just passed begin / Hero / end. */
+    @keyframes handle-flash {
+      0%   { background: var(--ink-primary); }
+      15%  { background: var(--brand-default); }
+      55%  { background: var(--brand-default); }
+      100% { background: var(--ink-primary); }
+    }
+    .handle.flashing.h-begin,
+    .handle.flashing.h-end,
+    .handle.flashing.h-hero {
+      animation: handle-flash 600ms ease-out infinite;
+    }
+
+    /* Time tooltip above selected handle */
+    .handle .tooltip {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--brand-default);
+      background: rgba(15, 17, 23, 0.95);
+      border: 1px solid var(--brand-tint-border);
+      padding: 2px 6px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+
+    .trim-row-labels {
+      display: flex; justify-content: space-between;
+      margin-top: 8px;
+      font-size: 9.5px;
+      color: var(--ink-muted);
+      font-family: var(--font-body);
+      letter-spacing: 0.3px;
+    }
+    .trim-row-labels span.active { color: var(--brand-default); font-weight: 600; }
+
+    .state-label {
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--ink-muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-top: 8px;
+    }
+
+    /* Icon library */
+    .icon-lib {
+      max-width: 1320px;
+      margin-top: 40px;
+      padding: 22px 26px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 12px;
+    }
+    .icon-lib h3 {
+      font-family: var(--font-display);
+      font-size: 14px;
+      margin: 0 0 16px;
+      color: var(--ink-primary);
+    }
+    .icon-row {
+      display: flex; gap: 36px; flex-wrap: wrap;
+    }
+    .icon-cell {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      min-width: 90px;
+    }
+    .icon-cell .icon-stage {
+      width: 56px; height: 56px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    .icon-cell .icon-name {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--ink-secondary);
+      letter-spacing: 0.5px;
+    }
+    .icon-cell .icon-desc {
+      font-size: 11px; color: var(--ink-muted);
+      max-width: 140px; text-align: center; line-height: 1.4;
+    }
+
+    .interaction-notes {
+      max-width: 1320px;
+      margin-top: 28px;
+      padding: 20px 24px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 12px;
+      font-size: 12.5px;
+      color: var(--ink-secondary);
+      line-height: 1.7;
+    }
+    .interaction-notes h3 {
+      font-family: var(--font-display);
+      font-size: 13px;
+      margin: 0 0 10px;
+      color: var(--ink-primary);
+    }
+    .interaction-notes ul { margin: 0; padding-left: 20px; }
+    .interaction-notes li { margin-bottom: 6px; }
+    .interaction-notes b { color: var(--ink-primary); }
+    .interaction-notes code {
+      font-family: var(--font-mono);
+      background: var(--surface-raised);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 11.5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Trim panel + Hero handle · Preview tab</h1>
+  <p class="subtitle">
+    Three handles share one timeline at the bottom of the Preview tab: <b>begin clip</b>, <b>Hero</b> (★), <b>end clip</b>. Tap any handle → video pauses and seeks to that frame. <b>All three handles are white when idle; the selected one goes coral.</b> Single colour swap, no ring, no scale. The time tooltip layers above the selected handle. Drag any handle to move it; the Hero star is clamped inside the begin/end window. <b>Treatment pill renamed Original → Colour. Title overlay removed</b> so the canvas reads as pure video.
+  </p>
+
+  <div class="grid">
+
+    <!-- State A: Hero handle selected, video paused at hero offset -->
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-letter">A</span>
+        <span class="variant-name">Hero selected · paused at ★</span>
+      </div>
+      <p class="variant-desc">
+        Practitioner tapped the star. Playhead snapped to the hero offset. Coral glow + tooltip on the star handle.
+      </p>
+      <div class="device">
+        <div class="video-frame"><div class="silhouette"></div></div>
+        <div class="tab-strip">
+          <span class="tab">Plan</span>
+          <span class="tab">Notes</span>
+          <span class="tab active">Preview</span>
+          <span class="tab">Settings</span>
+        </div>
+        <div class="rep-stack">
+          <div class="rep-block filled"></div>
+          <div class="rep-block filled"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block rest"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block"></div>
+        </div>
+        <div class="treatment-pill">DRAWN · <b>B&amp;W</b> · COLOUR</div>
+        <div class="chrome-top-right">
+          <div class="chrome-btn">⛶</div>
+        </div>
+        <div class="chrome-bottom-left">
+          <span class="pill">⊙ Body focus</span>
+        </div>
+        <div class="trim-panel">
+          <div class="trim-row-times">
+            <span>0:00</span>
+            <span class="selected-time">★ at 0:08.4</span>
+            <span>0:42</span>
+          </div>
+          <div class="trim-track">
+            <div class="trim-track-bar"></div>
+            <div class="trim-track-bar-active" style="left: 8%; right: 6%;"></div>
+            <div class="playhead" style="left: calc(8% + (86% * 0.42));"></div>
+            <div class="handle h-begin" style="left: 8%;"></div>
+            <div class="handle h-hero selected" style="left: calc(8% + (86% * 0.42));">
+              <div class="tooltip">0:08.4</div>
+            </div>
+            <div class="handle h-end" style="left: 94%;"></div>
+          </div>
+          <div class="trim-row-labels">
+            <span>begin</span>
+            <span class="active">★ Hero</span>
+            <span>end</span>
+          </div>
+        </div>
+      </div>
+      <div class="state-label">A · ★ selected</div>
+    </div>
+
+    <!-- State B: Begin handle selected -->
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-letter">B</span>
+        <span class="variant-name">Begin selected · paused at clip start</span>
+      </div>
+      <p class="variant-desc">
+        Tap the left bracket. Playhead snaps to clip start. Selection is exclusive — only one handle is "holding" the playhead at a time.
+      </p>
+      <div class="device">
+        <div class="video-frame"><div class="silhouette"></div></div>
+        <div class="tab-strip">
+          <span class="tab">Plan</span>
+          <span class="tab">Notes</span>
+          <span class="tab active">Preview</span>
+          <span class="tab">Settings</span>
+        </div>
+        <div class="rep-stack">
+          <div class="rep-block filled"></div>
+          <div class="rep-block filled"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block rest"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block"></div>
+        </div>
+        <div class="treatment-pill">DRAWN · <b>B&amp;W</b> · COLOUR</div>
+        <div class="chrome-top-right">
+          <div class="chrome-btn">⛶</div>
+        </div>
+        <div class="chrome-bottom-left">
+          <span class="pill">⊙ Body focus</span>
+        </div>
+        <div class="trim-panel">
+          <div class="trim-row-times">
+            <span class="selected-time">▕ at 0:03.4</span>
+            <span>★ 0:08.4</span>
+            <span>0:42</span>
+          </div>
+          <div class="trim-track">
+            <div class="trim-track-bar"></div>
+            <div class="trim-track-bar-active" style="left: 8%; right: 6%;"></div>
+            <div class="playhead" style="left: 8%;"></div>
+            <div class="handle h-begin selected" style="left: 8%;">
+              <div class="tooltip">0:03.4</div>
+            </div>
+            <div class="handle h-hero" style="left: calc(8% + (86% * 0.42));"></div>
+            <div class="handle h-end" style="left: 94%;"></div>
+          </div>
+          <div class="trim-row-labels">
+            <span class="active">▕ Begin</span>
+            <span>★ Hero</span>
+            <span>end</span>
+          </div>
+        </div>
+      </div>
+      <div class="state-label">B · begin selected</div>
+    </div>
+
+    <!-- State C: Collision — Hero near End -->
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-letter">C</span>
+        <span class="variant-name">Collision · ★ near end</span>
+      </div>
+      <p class="variant-desc">
+        Hero star sits close to the end bracket. The star's larger size + coral fill keeps it readable above the white bracket; tap targets remain distinct (handle hit boxes don't overlap).
+      </p>
+      <div class="device">
+        <div class="video-frame"><div class="silhouette"></div></div>
+        <div class="tab-strip">
+          <span class="tab">Plan</span>
+          <span class="tab">Notes</span>
+          <span class="tab active">Preview</span>
+          <span class="tab">Settings</span>
+        </div>
+        <div class="rep-stack">
+          <div class="rep-block filled"></div>
+          <div class="rep-block filled"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block rest"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block"></div>
+        </div>
+        <div class="treatment-pill">DRAWN · <b>B&amp;W</b> · COLOUR</div>
+        <div class="chrome-top-right">
+          <div class="chrome-btn">⛶</div>
+        </div>
+        <div class="chrome-bottom-left">
+          <span class="pill">⊙ Body focus</span>
+        </div>
+        <div class="trim-panel">
+          <div class="trim-row-times">
+            <span>0:03.4</span>
+            <span class="selected-time">★ at 0:36.2</span>
+            <span>0:38.8</span>
+          </div>
+          <div class="trim-track">
+            <div class="trim-track-bar"></div>
+            <div class="trim-track-bar-active" style="left: 8%; right: 6%;"></div>
+            <div class="playhead" style="left: 84%;"></div>
+            <div class="handle h-begin" style="left: 8%;"></div>
+            <div class="handle h-hero selected" style="left: 84%;">
+              <div class="tooltip">0:36.2</div>
+            </div>
+            <div class="handle h-end" style="left: 92%;"></div>
+          </div>
+          <div class="trim-row-labels">
+            <span>begin</span>
+            <span class="active">★ Hero</span>
+            <span>end</span>
+          </div>
+        </div>
+      </div>
+      <div class="state-label">C · ★ ≈ end</div>
+    </div>
+
+    <!-- State D: Playing — passing the Hero frame -->
+    <div class="variant">
+      <div class="variant-head">
+        <span class="variant-letter">D</span>
+        <span class="variant-name">Playing · passing ★</span>
+      </div>
+      <p class="variant-desc">
+        Video is playing. All handles unselected (white). The playhead just crossed the Hero offset → the star pulses coral for ~600ms then fades back to white. No tooltip during play. Same flash fires for begin and end as the playhead enters / exits the clip window.
+      </p>
+      <div class="device">
+        <div class="video-frame"><div class="silhouette"></div></div>
+        <div class="tab-strip">
+          <span class="tab">Plan</span>
+          <span class="tab">Notes</span>
+          <span class="tab active">Preview</span>
+          <span class="tab">Settings</span>
+        </div>
+        <div class="rep-stack">
+          <div class="rep-block filled"></div>
+          <div class="rep-block filled"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block rest"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block"></div>
+          <div class="rep-block"></div>
+        </div>
+        <div class="treatment-pill">DRAWN · <b>B&amp;W</b> · COLOUR</div>
+        <div class="chrome-top-right">
+          <div class="chrome-btn">⛶</div>
+        </div>
+        <div class="chrome-bottom-left">
+          <span class="pill">⊙ Body focus</span>
+        </div>
+        <div class="trim-panel">
+          <div class="trim-row-times">
+            <span>0:00</span>
+            <span>★ 0:08.4</span>
+            <span>0:42</span>
+          </div>
+          <div class="trim-track">
+            <div class="trim-track-bar"></div>
+            <div class="trim-track-bar-active" style="left: 8%; right: 6%;"></div>
+            <div class="playhead" style="left: calc(8% + (86% * 0.42));"></div>
+            <div class="handle h-begin" style="left: 8%;"></div>
+            <div class="handle h-hero flashing" style="left: calc(8% + (86% * 0.42));"></div>
+            <div class="handle h-end" style="left: 94%;"></div>
+          </div>
+          <div class="trim-row-labels">
+            <span>begin</span>
+            <span>★ Hero</span>
+            <span>end</span>
+          </div>
+        </div>
+      </div>
+      <div class="state-label">D · playing · ★ flash</div>
+    </div>
+
+  </div>
+
+  <!-- Icon library -->
+  <div class="icon-lib">
+    <h3>Custom handle glyphs</h3>
+    <div class="icon-row">
+      <div class="icon-cell">
+        <div class="icon-stage">
+          <div class="handle h-begin" style="position: relative; transform: none;"></div>
+        </div>
+        <div class="icon-name">BEGIN · IDLE</div>
+        <div class="icon-desc">Left bracket. White.</div>
+      </div>
+      <div class="icon-cell">
+        <div class="icon-stage">
+          <div class="handle h-begin selected" style="position: relative; transform: none;"></div>
+        </div>
+        <div class="icon-name">BEGIN · SELECTED</div>
+        <div class="icon-desc">Same glyph, coral fill.</div>
+      </div>
+      <div class="icon-cell">
+        <div class="icon-stage">
+          <div class="handle h-hero" style="position: relative; transform: none;"></div>
+        </div>
+        <div class="icon-name">HERO · IDLE</div>
+        <div class="icon-desc">White star. Shape carries the role.</div>
+      </div>
+      <div class="icon-cell">
+        <div class="icon-stage">
+          <div class="handle h-hero selected" style="position: relative; transform: none;"></div>
+        </div>
+        <div class="icon-name">HERO · SELECTED</div>
+        <div class="icon-desc">Same star, coral fill.</div>
+      </div>
+      <div class="icon-cell">
+        <div class="icon-stage">
+          <div class="handle h-end" style="position: relative; transform: none;"></div>
+        </div>
+        <div class="icon-name">END · IDLE</div>
+        <div class="icon-desc">Right bracket. Mirror of begin.</div>
+      </div>
+      <div class="icon-cell">
+        <div class="icon-stage">
+          <div class="handle h-end selected" style="position: relative; transform: none;"></div>
+        </div>
+        <div class="icon-name">END · SELECTED</div>
+        <div class="icon-desc">Same glyph, coral fill.</div>
+      </div>
+      <div class="icon-cell">
+        <div class="icon-stage">
+          <div class="handle h-hero flashing" style="position: relative; transform: none;"></div>
+        </div>
+        <div class="icon-name">★ · FLASH</div>
+        <div class="icon-desc">~600ms coral pulse when the playhead crosses an offset during play. Same animation for begin / end.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="interaction-notes">
+    <h3>Interaction model</h3>
+    <ul>
+      <li><b>Tap a handle</b> → video pauses if playing, seeks to the handle's offset, handle gets the coral glow ring + time tooltip.</li>
+      <li><b>Drag a handle</b> → moves it; the playhead follows live (the dragged handle is implicitly selected during the drag).</li>
+      <li><b>Tap the video</b> (anywhere outside the trim panel) → resume playback. Selection clears (no handle is "holding" the playhead during play).</li>
+      <li><b>Playback flash</b> — while the video is playing, all handles are white. When the playhead crosses an offset (begin / Hero / end) within ±100ms, the corresponding handle pulses coral for ~600ms and fades back. No tooltip, no persistent selection. The flash is the only "you just passed it" cue.</li>
+      <li><b>Hero offset is clamped</b> to <code>[startOffsetMs, endOffsetMs]</code>. Drag begin past hero or end past hero → hero stays at the bound, doesn't slide.</li>
+      <li><b>Persistence:</b> begin/end already write <code>start_offset_ms</code> / <code>end_offset_ms</code>. Hero writes <code>focus_frame_offset_ms</code> + triggers the existing <code>regenerateHeroThumbnails</code> regen. Both happen on drag-end / programmatic move.</li>
+      <li><b>Tab strip:</b> Hero tab is removed. Plan · Notes · Preview · Settings (4 tabs).</li>
+    </ul>
+  </div>
+</body>
+</html>

@@ -154,6 +154,17 @@
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
+      <h3 class="title">19 waves awaiting device QA</h3>
+      <!-- Note: count includes the new 2026-05-03 wave (#1); the 2026-05-02 hero-cloud-prefetch wave moved to Past waves now that the standalone Hero tab is decommissioned. Net delta zero. -->
+              </div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
       <h3 class="title">20 waves awaiting device QA</h3>
       <p class="sub">
         <strong style="color: var(--text);">1. Install first:</strong> run <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--coral);">./install-device.sh</code> from the repo root. It pulls main, release-builds, installs to iPhone CHM.<br>
@@ -165,6 +176,7 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+<<<<<<< HEAD
         <a href="./2026-05-03-hero-star-badge.html">
           <div class="row">
             <div>
@@ -211,6 +223,13 @@
             <div>
               <div class="name">2 · Hero tab cloud prefetch (fixes "Raw video file not found." on cloud-pulled sessions)</div>
               <div class="scope">Mobile only. Stacks on PR #189 (Hero tab) + PR #190 (cloud session pull). The Hero tab in the exercise editor sheet hard-failed with "Raw video file not found." when the local raw mp4 was on Supabase's private <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">raw-archive</code> bucket but not yet on disk. Now reuses <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">MediaPrefetchService.prefetchRawArchive</code> — same path the Studio locked-segment tap uses — with a coral spinner + &ldquo;Downloading original…&rdquo; placeholder until the download lands. Failure copy reworded to &ldquo;Original video unavailable — recapture to use Hero.&rdquo; <strong>7 items in 5 sections.</strong></div>
+=======
+        <a href="./2026-05-03-hero-handle-trim-panel.html">
+          <div class="row">
+            <div>
+              <div class="name">1 · Hero handle on the trim panel (decommission standalone Hero tab)</div>
+              <div class="scope">Mobile only. The standalone Hero tab is gone — the Hero-frame pick now lives as a third handle (white star) on the existing soft-trim panel inside the Preview tab. Three handles share one timeline: <strong>begin clip</strong> (left bracket), <strong>Hero</strong> (★), <strong>end clip</strong> (right bracket). Idle = white. Selected = coral. Single colour swap, no glow ring, no scale. Tap a handle → pause + seek + select. Drag → live scrub + persist via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">regenerateHeroThumbnails</code>. Tap the video → resume + clear. While playing, each handle pulses coral for ~600ms as the playhead crosses it. Tab strip drops from 5 → 4 (Plan · Notes · Preview · Settings). <strong>15 items in 9 sections.</strong></div>
+>>>>>>> 1a4bf8b (feat(hero): handle in trim panel per mockup)
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -456,6 +475,19 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-05-02-hero-cloud-prefetch.html">
+          <div class="row">
+            <div>
+              <div class="name">Hero tab cloud prefetch — superseded by 2026-05-03 (standalone Hero tab decommissioned)</div>
+              <div class="date">2026-05-02</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Superseded</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-04-29-wave40-bundle.html">
           <div class="row">

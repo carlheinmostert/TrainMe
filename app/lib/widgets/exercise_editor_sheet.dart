@@ -1,17 +1,9 @@
-import 'dart:async';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:video_player/video_player.dart';
 
 import '../models/exercise_capture.dart';
 import '../models/exercise_set.dart';
 import '../models/session.dart';
-import '../services/auth_service.dart';
-import '../services/conversion_service.dart';
-import '../services/media_prefetch_service.dart';
-import '../services/sync_service.dart';
 import '../theme.dart';
 import 'plan_table.dart';
 import 'inline_editable_text.dart';
@@ -19,20 +11,22 @@ import 'media_viewer_body.dart';
 import 'mini_preview.dart';
 import 'preset_chip_row.dart';
 
-/// Which tab the editor sheet should land on when first opened.
-enum ExerciseEditorTab { plan, notes, preview, hero, settings }
+/// Which tab the editor sheet should land on when first opened. The
+/// standalone Hero tab was decommissioned 2026-05-03 — the Hero-frame
+/// pick now lives on the Preview tab's trim panel as a third handle on
+/// the shared timeline.
+enum ExerciseEditorTab { plan, notes, preview, settings }
 
 /// The tabbed bottom-sheet editor for an exercise.
 ///
-/// Mounts via [showExerciseEditorSheet]. Hosts five tabs:
+/// Mounts via [showExerciseEditorSheet]. Hosts four tabs:
 ///   * **Plan** — `PlanTable` editing per-set rows.
 ///   * **Notes** — multiline `TextField` for practitioner-only notes.
 ///   * **Preview** — embeds `MediaViewerBody` so the practitioner can
 ///     verify what the client will see, scoped to the active exercise.
-///   * **Hero** — scrub the raw video to pick the representative still
-///     image (the Hero frame). Drives every practitioner-facing
-///     thumbnail surface AND the web player's prep-phase overlay.
-///     Disabled for photos (the photo IS the Hero) and rest periods.
+///     The trim panel here also hosts the Hero-frame pick (a third
+///     handle on the shared timeline). Decommissioned the standalone
+///     Hero tab 2026-05-03 in favour of that consolidation.
 ///   * **Settings** — preset chip rows for `prepSeconds` +
 ///     `videoRepsPerLoop` (rarely-changed metadata).
 ///
@@ -145,9 +139,6 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   static const double _kMinDetent = 0.55;
   static const double _kMaxDetent = 0.95;
   static const double _kPreviewDetent = 0.95;
-  // Wave Hero — the Hero tab embeds a video preview + scrubber, so it
-  // promotes to the larger detent for canvas (matching Preview).
-  static const double _kHeroDetent = 0.95;
 
   /// Velocity threshold (logical pt/sec) for fling-down dismissal. Slow
   /// drags below the floor snap back to 0.55 instead of dismissing.
@@ -193,15 +184,12 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     _notesFocusNode.addListener(_onNotesFocusChanged);
   }
 
-  /// Returns the canonical detent for the given tab index — Preview +
-  /// Hero go large (0.95) so the embedded video has canvas; every other
+  /// Returns the canonical detent for the given tab index — Preview
+  /// goes large (0.95) so the embedded video has canvas; every other
   /// tab snaps to 0.55 so the underlying screen stays partially visible.
   double _detentForTab(int tabIndex) {
     if (tabIndex == _tabIndexFor(ExerciseEditorTab.preview)) {
       return _kPreviewDetent;
-    }
-    if (tabIndex == _tabIndexFor(ExerciseEditorTab.hero)) {
-      return _kHeroDetent;
     }
     return _kMinDetent;
   }
@@ -224,10 +212,8 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
         return 1;
       case ExerciseEditorTab.preview:
         return 2;
-      case ExerciseEditorTab.hero:
-        return 3;
       case ExerciseEditorTab.settings:
-        return 4;
+        return 3;
     }
   }
 
@@ -410,7 +396,6 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                               _buildPlanTab(scrollController),
                               _buildNotesTab(scrollController),
                               _buildPreviewTab(),
-                              _buildHeroTab(),
                               _buildSettingsTab(scrollController),
                             ],
                     ),
@@ -629,7 +614,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   Widget _buildTabStrip() {
     final tabs = _exercise.isRest
         ? const ['Rest']
-        : const ['Plan', 'Notes', 'Preview', 'Hero', 'Settings'];
+        : const ['Plan', 'Notes', 'Preview', 'Settings'];
     // Round 2 — tab strip listens for vertical drag too so the Preview
     // tab (whose body owns gestures inside MediaViewerBody) still has a
     // reliable drag region between the chrome and the page content.
@@ -840,39 +825,6 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       // so it doesn't collide with the bottom-left Body Focus + Rotate
       // pills on the shorter sheet canvas.
       embeddedInSheet: true,
-    );
-  }
-
-  Widget _buildHeroTab() {
-    if (_exercise.isRest) {
-      return const _HeroTabPlaceholder(
-        message: 'Rest periods have no Hero frame.',
-      );
-    }
-    if (_exercise.mediaType == MediaType.photo) {
-      return const _HeroTabPlaceholder(
-        message:
-            'Photos are already the Hero frame — no scrubbing needed.',
-      );
-    }
-    // session.practiceId is NULL on cloud-pulled rows because the local
-    // sessions table has no practice_id column (and toMap() doesn't emit
-    // one). Mirror the Studio locked-segment tap path: read the active
-    // practice from AuthService when the session itself doesn't carry it.
-    final practiceId = widget.session.practiceId ??
-        AuthService.instance.currentPracticeId.value;
-    return _HeroTab(
-      // Force re-mount on prev/next navigation. _HeroTab owns its own
-      // VideoPlayerController + scrubber state seeded from the exercise
-      // in initState — without a unique key Flutter reuses the old
-      // widget instance and the controller stays pinned to the previous
-      // exercise's raw mp4. Mirrors the Preview tab's `preview-tab-${id}`
-      // key trick.
-      key: ValueKey('hero-tab-${_exercise.id}'),
-      exercise: _exercise,
-      onChanged: _emit,
-      practiceId: practiceId,
-      planId: widget.session.id,
     );
   }
 
@@ -1180,539 +1132,3 @@ class _CollapsibleSettingsRow extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// Hero tab — scrub the raw video to pick the representative still frame.
-// ============================================================================
-
-/// Placeholder body for non-video exercises. The Hero tab is video-only
-/// because photos already are the Hero frame and rest periods carry no
-/// media.
-class _HeroTabPlaceholder extends StatelessWidget {
-  final String message;
-  /// When true, render a coral spinner above the message — used for the
-  /// "Downloading original…" state on cloud-only sessions where the raw
-  /// archive is being pulled in the background.
-  final bool showSpinner;
-  const _HeroTabPlaceholder({
-    required this.message,
-    this.showSpinner = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (showSpinner) ...[
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(height: 14),
-            ],
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13,
-                color: AppColors.textSecondaryOnDark,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Live video preview + horizontal scrubber for picking the Hero frame.
-///
-/// The scrubber is clamped to the soft-trim window
-/// `[startOffsetMs, endOffsetMs]` (Wave 20) so the Hero is always a frame
-/// the client will actually see. As the practitioner drags the slider,
-/// the video seeks to that time so the preview reflects the picked
-/// frame. The "Set as Hero" button commits the change: the offset is
-/// persisted to `focus_frame_offset_ms` AND all three treatment
-/// thumbnails (B&W, colour, line) are re-extracted at that offset, so
-/// every list-card surface refreshes on the next paint.
-class _HeroTab extends StatefulWidget {
-  final ExerciseCapture exercise;
-  final ValueChanged<ExerciseCapture> onChanged;
-
-  /// Practice + plan ids needed to sign + download the raw archive when
-  /// the local mp4 isn't on disk (cloud-only sessions, post-PR #190).
-  /// Both are nullable: a missing practice/plan context means we can't
-  /// kick off a prefetch and the tab falls back to the static
-  /// "Original video unavailable" copy.
-  final String? practiceId;
-  final String? planId;
-
-  const _HeroTab({
-    super.key,
-    required this.exercise,
-    required this.onChanged,
-    this.practiceId,
-    this.planId,
-  });
-
-  @override
-  State<_HeroTab> createState() => _HeroTabState();
-}
-
-class _HeroTabState extends State<_HeroTab> {
-  VideoPlayerController? _controller;
-  bool _initialised = false;
-  String? _initError;
-
-  /// True while we're pulling the raw archive from the private
-  /// `raw-archive` Supabase bucket on a cloud-only session. Renders a
-  /// coral spinner + "Downloading original…" placeholder until the
-  /// download lands (or fails). Mirrors the Studio locked-segment tap
-  /// path in `studio_mode_screen.dart`.
-  bool _downloading = false;
-
-  /// Subscribed listener on
-  /// `MediaPrefetchService.instance.archiveStatusFor(exerciseId)` so we
-  /// flip out of the downloading state the moment the row gets stamped.
-  /// Cleared in [dispose] to avoid leaking the listener after the sheet
-  /// closes mid-download.
-  VoidCallback? _archiveStatusListener;
-  ValueNotifier<MediaPrefetchStatus>? _archiveStatusNotifier;
-
-  /// Rotation-corrected aspect ratio (width / height) for the active
-  /// video, queried via `ConversionService.getRotatedAspect`. Null when
-  /// the native probe failed; the build() falls back to the controller's
-  /// raw `aspectRatio` in that case.
-  double? _naturalAspect;
-
-  /// Current scrubber position in ms. Mirrors slider state. Initialised
-  /// to the saved offset (or 0 if none) once the controller is ready.
-  int _scrubMs = 0;
-
-  /// True while a regen-on-save is in flight. Disables the button and
-  /// shows a spinner so the practitioner can't double-fire.
-  bool _saving = false;
-
-  /// True when the on-disk offset matches [_scrubMs] — i.e. nothing
-  /// to save. Initialised true (no pending change) and flipped on every
-  /// drag delta.
-  bool _committed = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _initController();
-  }
-
-  /// Returns the best available local path to the raw video — either
-  /// the original capture (`absoluteRawFilePath`) or the compressed
-  /// 720p archive (`absoluteArchiveFilePath`). The prefetch service
-  /// stamps `archive_file_path` on cloud-pulled rows, so we have to
-  /// check both. Mirrors `ConversionService._pickThumbnailSource`.
-  ///
-  /// Returns null when neither file is on disk.
-  String? _bestLocalRawPath(ExerciseCapture e) {
-    final raw = e.absoluteRawFilePath;
-    if (raw.isNotEmpty && File(raw).existsSync()) return raw;
-    final archive = e.absoluteArchiveFilePath;
-    if (archive != null && archive.isNotEmpty && File(archive).existsSync()) {
-      return archive;
-    }
-    return null;
-  }
-
-  Future<void> _initController({ExerciseCapture? exerciseOverride}) async {
-    final exercise = exerciseOverride ?? widget.exercise;
-    debugPrint(
-      '_HeroTab._initController seed: id=${exercise.id} '
-      'focusOffset=${exercise.focusFrameOffsetMs} '
-      'archive=${exercise.archiveFilePath != null} '
-      'override=${exerciseOverride != null}',
-    );
-    final localPath = _bestLocalRawPath(exercise);
-    if (localPath == null) {
-      // Cloud-only session — the raw mp4 isn't on disk yet. Try to pull
-      // from the private `raw-archive` bucket in the background. On
-      // success the prefetch service stamps `archive_file_path`; we
-      // re-read the row and retry [_initController] so the player
-      // initialises against the freshly-downloaded file.
-      //
-      // Without practice/plan context we can't sign a URL, so we fall
-      // back to the existing static-error placeholder.
-      final practiceId = widget.practiceId;
-      final planId = widget.planId;
-      if (practiceId == null || planId == null) {
-        setState(() {
-          _initError = 'Original video unavailable — recapture to use Hero.';
-        });
-        return;
-      }
-      _kickOffArchivePrefetch(practiceId: practiceId, planId: planId);
-      return;
-    }
-    final controller = VideoPlayerController.file(File(localPath));
-    try {
-      await controller.initialize();
-      // Mute — Hero scrubbing is a visual-only flow.
-      await controller.setVolume(0);
-      // Seed scrubber from saved offset; clamp to soft-trim window.
-      final start = exercise.startOffsetMs ?? 0;
-      final end = exercise.endOffsetMs ??
-          controller.value.duration.inMilliseconds;
-      final saved = exercise.focusFrameOffsetMs ?? start;
-      _scrubMs = saved.clamp(start, end).toInt();
-      await controller.seekTo(Duration(milliseconds: _scrubMs));
-      // Probe the rotation-corrected aspect via the native channel.
-      // c.value.aspectRatio reports the unrotated 16:9 for iPhone-portrait
-      // captures; AVPlayerLayer rotates the visual but the size doesn't
-      // follow, so the existing AspectRatio letterbox stretches the
-      // upright frame horizontally. Best-effort: a null result falls
-      // through to c.value.aspectRatio in build().
-      final naturalAspect =
-          await ConversionService.instance.getRotatedAspect(localPath);
-      if (mounted) {
-        setState(() {
-          _controller = controller;
-          _initialised = true;
-          _downloading = false;
-          _naturalAspect = naturalAspect;
-        });
-      }
-    } catch (e) {
-      debugPrint('_HeroTab controller init failed: $e');
-      if (mounted) {
-        setState(() {
-          _initError = 'Could not load video.';
-          _downloading = false;
-        });
-      }
-      await controller.dispose();
-    }
-  }
-
-  /// Kicks off `MediaPrefetchService.prefetchRawArchive`, subscribes to
-  /// the per-exercise archive status notifier, and flips
-  /// [_downloading] true so the placeholder surfaces. On the
-  /// `onDownloaded` callback we re-read the row from SQLite and retry
-  /// [_initController]; on `onFailed` we fall back to the static error
-  /// copy.
-  void _kickOffArchivePrefetch({
-    required String practiceId,
-    required String planId,
-  }) {
-    final exerciseId = widget.exercise.id;
-
-    // Wire a listener so we also react to status flips that happen
-    // outside of our own onDownloaded callback (e.g. the Studio
-    // locked-segment tap fired the same prefetch and stamped the row
-    // before our callback ran).
-    _archiveStatusNotifier =
-        MediaPrefetchService.instance.archiveStatusFor(exerciseId);
-    _archiveStatusListener = () {
-      final status = _archiveStatusNotifier?.value;
-      if (!mounted) return;
-      if (status == MediaPrefetchStatus.failed) {
-        setState(() {
-          _downloading = false;
-          _initError = 'Original video unavailable — recapture to use Hero.';
-        });
-      }
-    };
-    _archiveStatusNotifier!.addListener(_archiveStatusListener!);
-
-    setState(() {
-      _downloading = true;
-      _initError = null;
-    });
-
-    unawaited(
-      MediaPrefetchService.instance.prefetchRawArchive(
-        exercise: widget.exercise,
-        practiceId: practiceId,
-        planId: planId,
-        storage: SyncService.instance.storage,
-        onDownloaded: (downloadedId) async {
-          if (!mounted) return;
-          // Re-read the freshly-stamped row so absoluteArchiveFilePath
-          // resolves against the new local mp4. fetchExercise + retry
-          // _initController mirrors the Studio refresh path.
-          final fresh = await SyncService.instance.storage.getExerciseById(
-            downloadedId,
-          );
-          if (!mounted) return;
-          if (fresh != null) {
-            // Bubble the refreshed row up to the parent so the rest
-            // of the sheet (Plan / Settings tabs) sees the stamped
-            // archive_file_path on the next interaction.
-            widget.onChanged(fresh);
-            // Retry init against the freshly-fetched row directly.
-            // We can't wait for the parent rebuild to flow widget.exercise
-            // through (rebuilds are async), so pass the row in explicitly.
-            await _initController(exerciseOverride: fresh);
-          } else {
-            // No row found post-stamp — surface the static fallback.
-            if (!mounted) return;
-            setState(() {
-              _downloading = false;
-              _initError =
-                  'Original video unavailable — recapture to use Hero.';
-            });
-          }
-        },
-        onFailed: (_) {
-          if (!mounted) return;
-          setState(() {
-            _downloading = false;
-            _initError = 'Original video unavailable — recapture to use Hero.';
-          });
-        },
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    if (_archiveStatusListener != null && _archiveStatusNotifier != null) {
-      _archiveStatusNotifier!.removeListener(_archiveStatusListener!);
-    }
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  /// Soft-trim window for the slider. Falls back to full duration when
-  /// the practitioner hasn't trimmed.
-  ({int startMs, int endMs}) _window() {
-    final c = _controller;
-    final totalMs = c?.value.duration.inMilliseconds ?? 0;
-    final start = widget.exercise.startOffsetMs ?? 0;
-    final end = widget.exercise.endOffsetMs ?? totalMs;
-    final clampedEnd = end > start ? end : (totalMs > start ? totalMs : start + 1);
-    return (startMs: start, endMs: clampedEnd);
-  }
-
-  void _onSliderChanged(double valueMs) {
-    final w = _window();
-    final clamped = valueMs.clamp(w.startMs.toDouble(), w.endMs.toDouble());
-    final newMs = clamped.toInt();
-    setState(() {
-      _scrubMs = newMs;
-      _committed = newMs == widget.exercise.focusFrameOffsetMs;
-    });
-    _controller?.seekTo(Duration(milliseconds: newMs));
-  }
-
-  Future<void> _commitHero() async {
-    if (_saving) return;
-    setState(() => _saving = true);
-    try {
-      final updated = await ConversionService.instance
-          .regenerateHeroThumbnails(widget.exercise, _scrubMs);
-      widget.onChanged(updated);
-      if (mounted) {
-        setState(() => _committed = true);
-      }
-      HapticFeedback.lightImpact();
-    } catch (e) {
-      debugPrint('_HeroTab commit failed: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _saving = false);
-      }
-    }
-  }
-
-  String _formatMs(int ms) {
-    final totalSeconds = ms ~/ 1000;
-    final minutes = totalSeconds ~/ 60;
-    final seconds = totalSeconds % 60;
-    final tenths = (ms % 1000) ~/ 100;
-    return '$minutes:${seconds.toString().padLeft(2, '0')}.$tenths';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_initError != null) {
-      return _HeroTabPlaceholder(message: _initError!);
-    }
-    if (_downloading) {
-      return const _HeroTabPlaceholder(
-        message: 'Downloading original…',
-        showSpinner: true,
-      );
-    }
-    final c = _controller;
-    if (!_initialised || c == null) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: SizedBox(
-            width: 24,
-            height: 24,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: AppColors.primary,
-            ),
-          ),
-        ),
-      );
-    }
-    final w = _window();
-    final saved = widget.exercise.focusFrameOffsetMs;
-    final canSave = !_saving && !_committed;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Live preview surface — letterbox the video at its
-          // rotation-corrected aspect. iPhone portrait captures store
-          // a 90°/270° rotation transform; `c.value.aspectRatio` returns
-          // the UNROTATED 16:9 aspect, which made portrait videos render
-          // stretched-wide. Mirror the Studio mode pattern from
-          // studio_mode_screen.dart:4838-4855: swap the aspect when
-          // rotationQuarters is odd, then RotatedBox to apply the turn
-          // visually so the frame is upright.
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                color: Colors.black,
-                child: Builder(
-                  builder: (context) {
-                    final quarters =
-                        (widget.exercise.rotationQuarters ?? 0) % 4;
-                    // Prefer the native-probed rotation-corrected aspect
-                    // (`_naturalAspect`) so iPhone-portrait raws letterbox
-                    // 9:16 instead of stretched to the unrotated 16:9.
-                    // Practitioner-chosen `rotation_quarters` still
-                    // applies as an override on top.
-                    final base = _naturalAspect ?? c.value.aspectRatio;
-                    final aspect = quarters.isOdd ? 1 / base : base;
-                    return AspectRatio(
-                      aspectRatio: aspect,
-                      child: RotatedBox(
-                        quarterTurns: quarters,
-                        child: VideoPlayer(c),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Time row: current scrub position vs. window end.
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                _formatMs(_scrubMs),
-                style: const TextStyle(
-                  fontFamily: 'JetBrainsMono',
-                  fontSize: 13,
-                  color: AppColors.textOnDark,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                _formatMs(w.endMs),
-                style: const TextStyle(
-                  fontFamily: 'JetBrainsMono',
-                  fontSize: 13,
-                  color: AppColors.textSecondaryOnDark,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-
-          // Scrubber — clamped to [startMs, endMs] of the soft-trim
-          // window. Coral active track to match brand accent.
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: AppColors.primary,
-              inactiveTrackColor: AppColors.surfaceBorder,
-              thumbColor: AppColors.primary,
-              overlayColor: AppColors.primary.withValues(alpha: 0.18),
-              trackHeight: 3,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
-            ),
-            child: Slider(
-              min: w.startMs.toDouble(),
-              max: w.endMs.toDouble(),
-              value: _scrubMs.toDouble().clamp(
-                    w.startMs.toDouble(),
-                    w.endMs.toDouble(),
-                  ),
-              onChanged: _onSliderChanged,
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          // Commit row — coral CTA + a tiny status line so the
-          // practitioner knows whether the current Hero matches the
-          // saved one.
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  saved == null
-                      ? 'No Hero set yet — slide to pick a frame.'
-                      : (_committed
-                          ? 'Hero set at ${_formatMs(saved)}'
-                          : 'Slide to ${_formatMs(_scrubMs)} · unsaved'),
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    color: AppColors.textSecondaryOnDark,
-                    height: 1.45,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              ElevatedButton(
-                onPressed: canSave ? _commitHero : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: AppColors.surfaceRaised,
-                  disabledForegroundColor: AppColors.textSecondaryOnDark,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 18, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  textStyle: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                child: _saving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Text('Set as Hero'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
