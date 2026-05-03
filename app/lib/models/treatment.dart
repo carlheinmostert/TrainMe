@@ -24,7 +24,7 @@ extension TreatmentX on Treatment {
       case Treatment.grayscale:
         return 'B&W';
       case Treatment.original:
-        return 'Original';
+        return 'Colour';
     }
   }
 
