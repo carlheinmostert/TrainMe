@@ -196,11 +196,11 @@ class OriginalVideoService {
   /// [SaveToPhotosResult.permissionDenied] so the caller can guide the
   /// user to Settings; on other failures returns [SaveToPhotosResult.failed].
   ///
-  /// Routes to `saveVideo` for `.mp4` / `.mov` files and
-  /// `saveImageWithPath` for image extensions (`.jpg`, `.jpeg`, `.png`,
-  /// `.heic`). Files with an unrecognised extension fall through to
-  /// `saveVideo` for backwards compatibility (the original call sites
-  /// only ever passed `.mp4`).
+  /// Routes to `saveVideo` for known video extensions (`.mp4`, `.mov`,
+  /// `.m4v`) and `saveImageWithPath` for known image extensions (`.jpg`,
+  /// `.jpeg`, `.png`, `.heic`, `.heif`). Files with an unrecognised
+  /// extension return [SaveToPhotosResult.failed] — callers should only
+  /// hand this method file types that the iOS Photos library accepts.
   Future<SaveToPhotosResult> saveToPhotos(File file) async {
     try {
       final state = await PhotoManager.requestPermissionExtend(
@@ -217,20 +217,25 @@ class OriginalVideoService {
       }
 
       final ext = p.extension(file.path).toLowerCase();
-      final isImage = ext == '.jpg' ||
-          ext == '.jpeg' ||
-          ext == '.png' ||
-          ext == '.heic';
-      if (isImage) {
+      const imageExts = {'.jpg', '.jpeg', '.png', '.heic', '.heif'};
+      const videoExts = {'.mp4', '.mov', '.m4v'};
+      if (imageExts.contains(ext)) {
         await PhotoManager.editor.saveImageWithPath(
           file.path,
           title: p.basename(file.path),
         );
-      } else {
+      } else if (videoExts.contains(ext)) {
         await PhotoManager.editor.saveVideo(
           file,
           title: p.basename(file.path),
         );
+      } else {
+        dev.log(
+          'OriginalVideoService.saveToPhotos: unsupported extension "$ext" '
+          '(${file.path}) — refusing to save.',
+          name: 'OriginalVideoService',
+        );
+        return SaveToPhotosResult.failed;
       }
       return SaveToPhotosResult.saved;
     } catch (e) {

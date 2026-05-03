@@ -184,16 +184,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _SectionHeader(label: 'Session capture'),
                   _SettingsGroup(
                     children: [
-                      _ToggleRow(
+                      _ActionRow(
                         icon: Icons.photo_library_outlined,
                         label: 'Save originals to Photos',
                         subtitle:
                             'Every photo and video you capture is also '
                             'saved to your iOS Camera Roll.',
-                        value: _autoSaveOriginals ?? true,
-                        onChanged: _autoSaveOriginals == null
+                        onTap: _autoSaveOriginals == null
                             ? null
-                            : _toggleAutoSaveOriginals,
+                            : () => _toggleAutoSaveOriginals(
+                                  !(_autoSaveOriginals ?? true),
+                                ),
+                        trailing: Switch.adaptive(
+                          value: _autoSaveOriginals ?? true,
+                          onChanged: _autoSaveOriginals == null
+                              ? null
+                              : _toggleAutoSaveOriginals,
+                          activeThumbColor: AppColors.primary,
+                        ),
                       ),
                     ],
                   ),
@@ -930,12 +938,18 @@ class _PracticeRowState extends State<_PracticeRow> {
   }
 }
 
+/// Settings row with leading icon + label + optional subtitle, and a
+/// configurable [trailing] widget. Defaults to a chevron when [onTap]
+/// is set (the classic "navigate forward" affordance); pass a [Switch]
+/// (or any other widget) to override — used by the Session capture
+/// toggle so toggle rows share the chrome with action rows.
 class _ActionRow extends StatelessWidget {
   final IconData icon;
   final String label;
   final String? subtitle;
   final VoidCallback? onTap;
   final bool destructive;
+  final Widget? trailing;
 
   const _ActionRow({
     required this.icon,
@@ -943,6 +957,7 @@ class _ActionRow extends StatelessWidget {
     this.subtitle,
     this.onTap,
     this.destructive = false,
+    this.trailing,
   });
 
   @override
@@ -958,6 +973,15 @@ class _ActionRow extends StatelessWidget {
         : destructive
             ? AppColors.error
             : AppColors.primary;
+
+    final Widget? resolvedTrailing = trailing ??
+        (enabled && !destructive
+            ? const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.grey500,
+                size: 22,
+              )
+            : null);
 
     return Material(
       color: Colors.transparent,
@@ -996,88 +1020,7 @@ class _ActionRow extends StatelessWidget {
                   ],
                 ),
               ),
-              if (enabled && !destructive)
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppColors.grey500,
-                  size: 22,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Toggle row — same chrome as [_ActionRow] (icon + label + optional
-/// subtitle) but with a trailing [Switch] in place of the chevron.
-/// Disabled while [onChanged] is null (e.g. waiting on an async read of
-/// the persisted value).
-class _ToggleRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String? subtitle;
-  final bool value;
-  final ValueChanged<bool>? onChanged;
-
-  const _ToggleRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.subtitle,
-    this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onChanged != null;
-    final labelColor =
-        enabled ? AppColors.textOnDark : AppColors.grey600;
-    final iconColor = enabled ? AppColors.primary : AppColors.grey600;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled ? () => onChanged!(!value) : null,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Icon(icon, size: 20, color: iconColor),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: labelColor,
-                      ),
-                    ),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle!,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 12,
-                          color: AppColors.textSecondaryOnDark,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              Switch.adaptive(
-                value: value,
-                onChanged: onChanged,
-                activeColor: AppColors.primary,
-              ),
+              ?resolvedTrailing,
             ],
           ),
         ),

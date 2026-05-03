@@ -65,7 +65,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>homefit.studio needs access to your photo library to import existing videos or photos of exercises into client plans.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>homefit.studio saves exercise videos to your Photos library when you tap Download.</string>
+	<string>homefit.studio saves the original photo or video of every exercise you capture into your Photos library so you keep a personal copy. You can turn this off in Settings → Session capture.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
