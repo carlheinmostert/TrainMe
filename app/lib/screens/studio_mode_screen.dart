@@ -1219,7 +1219,19 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         updatedCycles[target] = updatedCycles[source]!;
       }
       updatedCycles.remove(source);
-      _pushSession(_session.copyWith(circuitCycles: updatedCycles));
+      // Same merge rule for the custom name: transfer the source's name
+      // when the target has none, otherwise keep target. Then drop the
+      // source entry so the broken circuit-id doesn't leak names.
+      final updatedNames = Map<String, String>.from(_session.circuitNames);
+      if (!updatedNames.containsKey(target) &&
+          updatedNames.containsKey(source)) {
+        updatedNames[target] = updatedNames[source]!;
+      }
+      updatedNames.remove(source);
+      _pushSession(_session.copyWith(
+        circuitCycles: updatedCycles,
+        circuitNames: updatedNames,
+      ));
     }
     setState(() {
       _touchAndPush(_session.copyWith(exercises: exercises));
@@ -1236,6 +1248,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // Remove the circuit-id from every member. Restore via undo.
     final originalExercises = List<ExerciseCapture>.from(_session.exercises);
     final originalCycles = Map<String, int>.from(_session.circuitCycles);
+    final originalNames = Map<String, String>.from(_session.circuitNames);
     final exercises = List<ExerciseCapture>.from(_session.exercises);
     for (var i = 0; i < exercises.length; i++) {
       if (exercises[i].circuitId == circuitId) {
@@ -1244,9 +1257,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     }
     final updatedCycles = Map<String, int>.from(_session.circuitCycles);
     updatedCycles.remove(circuitId);
+    final updatedNames = Map<String, String>.from(_session.circuitNames);
+    updatedNames.remove(circuitId);
     setState(() {
       _touchAndPush(
-        _session.copyWith(exercises: exercises, circuitCycles: updatedCycles),
+        _session.copyWith(
+          exercises: exercises,
+          circuitCycles: updatedCycles,
+          circuitNames: updatedNames,
+        ),
       );
     });
     _saveAllExercises(exercises);
@@ -1267,6 +1286,7 @@ class _StudioModeScreenState extends State<StudioModeScreen>
             _session.copyWith(
               exercises: originalExercises,
               circuitCycles: originalCycles,
+              circuitNames: originalNames,
             ),
           );
         });
@@ -1335,9 +1355,21 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       updatedCycles.remove(originalCircuitId);
     }
 
+    // Custom name follows the upper-half (the original circuit-id stays
+    // there). The new lower-half starts unnamed; if its upper sibling
+    // got dissolved (orphan cleanup), drop the original's name too.
+    final updatedNames = Map<String, String>.from(_session.circuitNames);
+    if (upperGroupSize < 2) {
+      updatedNames.remove(originalCircuitId);
+    }
+
     setState(() {
       _touchAndPush(
-        _session.copyWith(exercises: exercises, circuitCycles: updatedCycles),
+        _session.copyWith(
+          exercises: exercises,
+          circuitCycles: updatedCycles,
+          circuitNames: updatedNames,
+        ),
       );
     });
     _saveAllExercises(exercises);
@@ -1360,14 +1392,28 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   }
 
   void _renameCircuit(String circuitId, String name) {
-    // Circuit "name" is not yet a first-class session field — we piggy-back
-    // on circuitCycles for the spec's MVP. Persist as a
-    // circuitId -> count map; names live in-memory until a follow-up
-    // migration adds a dedicated column. For now: no-op.
-    //
-    // Leaving the hook wired so the sheet's name field still feels alive.
-    // If callers need the value they can read it back from the sheet's
-    // returned CircuitSheetResult.
+    // Diff-guard: avoid spurious _touchAndPush invocations when the
+    // commit equals the current effective name (typing "CIRCUIT A" back
+    // into the editor on a circuit that has no override should be a
+    // no-op, not a dirty-bit flip + cloud round-trip on next publish).
+    final current = _session.getCircuitName(circuitId);
+    final trimmed = name.trim();
+    final autoLabel = 'Circuit ${_circuitLetter(circuitId)}';
+    // Case-insensitive auto-label match collapses the override — the
+    // header renders the raw label uppercased for display, so a user
+    // submitting "CIRCUIT A" is semantically identical to clearing.
+    final isAutoLabel =
+        trimmed.toLowerCase() == autoLabel.toLowerCase();
+    final next = (trimmed.isEmpty || isAutoLabel) ? '' : trimmed;
+    if ((current ?? '') == next) return;
+    setState(() {
+      _touchAndPush(_session.setCircuitName(circuitId, next));
+    });
+    unawaited(
+      widget.storage.saveSession(_session).catchError((e, st) {
+        debugPrint('saveSession failed: $e');
+      }),
+    );
   }
 
   Future<void> _saveAllExercises(List<ExerciseCapture> exercises) async {
@@ -1379,16 +1425,17 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   Future<void> _openCircuitSheet(String circuitId) async {
     final cycles = _session.getCircuitCycles(circuitId);
     final letter = _circuitLetter(circuitId);
+    final effectiveName =
+        _session.getCircuitName(circuitId) ?? 'Circuit $letter';
     final result = await showCircuitControlSheet(
       context,
-      initialName: 'Circuit $letter',
+      initialName: effectiveName,
       initialCycles: cycles,
       // A circuit with 1 cycle is just a regular exercise — enforce ≥2.
       minCycles: 2,
       maxCycles: 10,
     );
     if (result == null) return;
-    _renameCircuit(circuitId, result.name);
     if (result.breakCircuit) {
       _breakCircuit(circuitId);
     } else {
@@ -2083,6 +2130,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   Widget _buildCircuitHeaderRow(String circuitId) {
     final cycles = _session.getCircuitCycles(circuitId);
     final letter = _circuitLetter(circuitId);
+    final autoLabel = 'Circuit $letter';
+    final displayName = _session.getCircuitName(circuitId) ?? autoLabel;
+    // Show the label uppercased for visual consistency with the legacy
+    // "CIRCUIT A" treatment, but feed the inline editor the raw mixed-case
+    // string so the practitioner doesn't have to type SHOUTING. The
+    // initialValue carries through `displayName.toUpperCase()` so the
+    // CustomPaint underline measures the rendered glyphs; on commit we
+    // hand the raw input to setCircuitName.
+    //
     // First-class dedicated slot: explicit bounded height so the header
     // NEVER inherits its size from the Row it lives in. This is the
     // origin of the circuit-only blow-out bug — a Row with
@@ -2095,6 +2151,13 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     // After the 32px header we emit a 6px rail-carrying spacer so the
     // header's bottom coral border doesn't touch the first card below.
     // The spacer continues the rail so there's no visual break.
+    const headerStyle = TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.5,
+      color: AppColors.primary,
+    );
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2107,34 +2170,40 @@ class _StudioModeScreenState extends State<StudioModeScreen>
               const GutterCircuitHeaderCell(height: 32),
               const SizedBox(width: 4),
               Expanded(
-                child: GestureDetector(
-                  onTap: () => _openCircuitSheet(circuitId),
-                  behavior: HitTestBehavior.opaque,
-                  child: Container(
-                    height: 32,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    // No bottom border — the 6px rail-carrying spacer below
-                    // (added in _buildCircuitHeaderRow's Column) plus the
-                    // header's own tinted background + coral text already
-                    // read as a distinct bar. A 2px coral underline here was
-                    // redundant and visually compressed the space between
-                    // the header and the first card.
-                    child: Row(
-                      children: [
-                        Text(
-                          'CIRCUIT $letter',
-                          style: const TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.5,
-                            color: AppColors.primary,
-                          ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      // Inline-editable label. Tap to rename; submit /
+                      // blur commits via _renameCircuit. Empty submission
+                      // is rejected by InlineEditableText itself; typing
+                      // back the auto label ("Circuit A") clears the
+                      // override (handled in _renameCircuit).
+                      Flexible(
+                        child: InlineEditableText(
+                          // Stable key per circuit-id so the widget
+                          // survives across rebuilds; InlineEditableText
+                          // syncs initialValue → controller via
+                          // didUpdateWidget when not actively editing.
+                          key: ValueKey('circuit-name-$circuitId'),
+                          initialValue: displayName.toUpperCase(),
+                          onCommit: (value) =>
+                              _renameCircuit(circuitId, value),
+                          textStyle: headerStyle,
+                          hintText: autoLabel.toUpperCase(),
                         ),
-                        const Spacer(),
-                        Container(
+                      ),
+                      const Spacer(),
+                      // Cycles chip — separate tap target. Tapping it
+                      // opens the cycles / break-circuit sheet without
+                      // colliding with the inline-edit gesture above.
+                      GestureDetector(
+                        onTap: () => _openCircuitSheet(circuitId),
+                        behavior: HitTestBehavior.opaque,
+                        child: Container(
                           height: 24,
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 10),
                           decoration: BoxDecoration(
                             color: AppColors.brandTintBg,
                             borderRadius: BorderRadius.circular(9999),
@@ -2154,8 +2223,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                             ),
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),

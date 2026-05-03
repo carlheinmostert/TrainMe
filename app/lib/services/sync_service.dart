@@ -591,6 +591,14 @@ class SyncService {
       });
     }
 
+    Map<String, String> circuitNames = const {};
+    final names = json['circuit_names'];
+    if (names is Map) {
+      circuitNames = names.map(
+        (k, v) => MapEntry(k.toString(), v?.toString() ?? ''),
+      );
+    }
+
     // Cloud-pulled sessions don't have a per-device authorship trail
     // (`created_by_user_id` is a SQLite-only column for Home-screen
     // scoping). Stamp with the currently-signed-in user so the pulled
@@ -611,6 +619,7 @@ class SyncService {
       version: version,
       lastPublishedAt: lastPublishedAt,
       circuitCycles: circuitCycles,
+      circuitNames: circuitNames,
       preferredRestIntervalSeconds: preferredRestIntervalSeconds,
       practiceId: practiceId,
       firstOpenedAt: firstOpenedAt,
