@@ -379,25 +379,27 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
           onMinus: () => _bumpRestSeconds(-5),
           onPlus: () => _bumpRestSeconds(5),
         ),
-        _SettingsStepperRow(
-          title: 'Auto-insert rest every',
-          help:
-              'A rest row is suggested whenever the running clock crosses '
-              'this threshold. Learned from your drag behaviour by default.',
-          value: _local.autoRestMinutes,
-          unit: 'min',
-          // TODO(phase-b): persist autoRestThresholdSeconds when schema
-          // migration lands. Phase A is in-memory only.
-          onMinus: () {
-            final next = (_local.autoRestMinutes - 1).clamp(1, 60);
-            if (next == _local.autoRestMinutes) return;
-            setState(() => _local.autoRestMinutes = next);
-          },
-          onPlus: () {
-            final next = (_local.autoRestMinutes + 1).clamp(1, 60);
-            if (next == _local.autoRestMinutes) return;
-            setState(() => _local.autoRestMinutes = next);
-          },
+        _PhaseBPlaceholder(
+          child: _SettingsStepperRow(
+            title: 'Auto-insert rest every',
+            help:
+                'A rest row is suggested whenever the running clock crosses '
+                'this threshold. Learned from your drag behaviour by default.',
+            value: _local.autoRestMinutes,
+            unit: 'min',
+            // TODO(phase-b): persist autoRestThresholdSeconds when schema
+            // migration lands. Phase A is in-memory only.
+            onMinus: () {
+              final next = (_local.autoRestMinutes - 1).clamp(1, 60);
+              if (next == _local.autoRestMinutes) return;
+              setState(() => _local.autoRestMinutes = next);
+            },
+            onPlus: () {
+              final next = (_local.autoRestMinutes + 1).clamp(1, 60);
+              if (next == _local.autoRestMinutes) return;
+              setState(() => _local.autoRestMinutes = next);
+            },
+          ),
         ),
       ],
     );
@@ -412,36 +414,42 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
       label: 'Display defaults',
       labelSuffix: 'applies to new exercises',
       children: [
-        _SettingsRow(
-          title: 'Default treatment',
-          help: "What new exercises preview as on the client's web viewer.",
-          // TODO(phase-b): persist defaultTreatment.
-          control: _SettingsChipGroup(
-            options: const ['Drawn', 'B&W', 'Colour'],
-            selectedIndex: _local.defaultTreatment.index,
-            onChanged: (i) => setState(
-              () => _local.defaultTreatment = _DefaultTreatment.values[i],
+        _PhaseBPlaceholder(
+          child: _SettingsRow(
+            title: 'Default treatment',
+            help: "What new exercises preview as on the client's web viewer.",
+            // TODO(phase-b): persist defaultTreatment.
+            control: _SettingsChipGroup(
+              options: const ['Drawn', 'B&W', 'Colour'],
+              selectedIndex: _local.defaultTreatment.index,
+              onChanged: (i) => setState(
+                () => _local.defaultTreatment = _DefaultTreatment.values[i],
+              ),
             ),
           ),
         ),
-        _SettingsRow(
-          title: 'Body focus on',
-          help:
-              'Crisp body, dimmed background. Practitioner-only viewing '
-              'default; client can still pick.',
-          // TODO(phase-b): persist defaultBodyFocusOn.
-          control: _SettingsToggle(
-            value: _local.defaultBodyFocusOn,
-            onChanged: (v) => setState(() => _local.defaultBodyFocusOn = v),
+        _PhaseBPlaceholder(
+          child: _SettingsRow(
+            title: 'Body focus on',
+            help:
+                'Crisp body, dimmed background. Practitioner-only viewing '
+                'default; client can still pick.',
+            // TODO(phase-b): persist defaultBodyFocusOn.
+            control: _SettingsToggle(
+              value: _local.defaultBodyFocusOn,
+              onChanged: (v) => setState(() => _local.defaultBodyFocusOn = v),
+            ),
           ),
         ),
-        _SettingsRow(
-          title: 'Audio on for new exercises',
-          help: 'Per-exercise toggle still wins; this is just the default.',
-          // TODO(phase-b): persist defaultAudioOn.
-          control: _SettingsToggle(
-            value: _local.defaultAudioOn,
-            onChanged: (v) => setState(() => _local.defaultAudioOn = v),
+        _PhaseBPlaceholder(
+          child: _SettingsRow(
+            title: 'Audio on for new exercises',
+            help: 'Per-exercise toggle still wins; this is just the default.',
+            // TODO(phase-b): persist defaultAudioOn.
+            control: _SettingsToggle(
+              value: _local.defaultAudioOn,
+              onChanged: (v) => setState(() => _local.defaultAudioOn = v),
+            ),
           ),
         ),
       ],
@@ -457,68 +465,80 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
       label: 'Web viewer',
       labelSuffix: 'what your client sees',
       children: [
-        _SettingsRow(
-          title: 'Show exercise title above video',
-          help: 'The big floating exercise name at the top of the player.',
-          // TODO(phase-b): persist via web_viewer_config jsonb.
-          control: _SettingsToggle(
-            value: _local.showExerciseTitle,
-            onChanged: (v) => setState(() => _local.showExerciseTitle = v),
+        _PhaseBPlaceholder(
+          child: _SettingsRow(
+            title: 'Show exercise title above video',
+            help: 'The big floating exercise name at the top of the player.',
+            // TODO(phase-b): persist via web_viewer_config jsonb.
+            control: _SettingsToggle(
+              value: _local.showExerciseTitle,
+              onChanged: (v) => setState(() => _local.showExerciseTitle = v),
+            ),
           ),
         ),
-        _SettingsRow(
-          title: 'Show practitioner notes',
-          help: 'Notes you wrote on each exercise card.',
-          // TODO(phase-b): persist via web_viewer_config jsonb.
-          control: _SettingsToggle(
-            value: _local.showPractitionerNotes,
-            onChanged: (v) =>
-                setState(() => _local.showPractitionerNotes = v),
+        _PhaseBPlaceholder(
+          child: _SettingsRow(
+            title: 'Show practitioner notes',
+            help: 'Notes you wrote on each exercise card.',
+            // TODO(phase-b): persist via web_viewer_config jsonb.
+            control: _SettingsToggle(
+              value: _local.showPractitionerNotes,
+              onChanged: (v) =>
+                  setState(() => _local.showPractitionerNotes = v),
+            ),
           ),
         ),
-        _SettingsRow(
-          title: 'Show progress pill matrix',
-          help: 'The dotted timeline strip + ETA at the top of the player.',
-          // TODO(phase-b): persist via web_viewer_config jsonb.
-          control: _SettingsToggle(
-            value: _local.showProgressPillMatrix,
-            onChanged: (v) =>
-                setState(() => _local.showProgressPillMatrix = v),
+        _PhaseBPlaceholder(
+          child: _SettingsRow(
+            title: 'Show progress pill matrix',
+            help: 'The dotted timeline strip + ETA at the top of the player.',
+            // TODO(phase-b): persist via web_viewer_config jsonb.
+            control: _SettingsToggle(
+              value: _local.showProgressPillMatrix,
+              onChanged: (v) =>
+                  setState(() => _local.showProgressPillMatrix = v),
+            ),
           ),
         ),
-        _SettingsRow(
-          title: 'Show rep stack',
-          help:
-              'Vertical block column on the left edge — one block per rep, '
-              'brackets for sets, fill follows the active rep.',
-          // TODO(phase-b): persist via web_viewer_config jsonb.
-          control: _SettingsToggle(
-            value: _local.showRepStack,
-            onChanged: (v) => setState(() => _local.showRepStack = v),
+        _PhaseBPlaceholder(
+          child: _SettingsRow(
+            title: 'Show rep stack',
+            help:
+                'Vertical block column on the left edge — one block per rep, '
+                'brackets for sets, fill follows the active rep.',
+            // TODO(phase-b): persist via web_viewer_config jsonb.
+            control: _SettingsToggle(
+              value: _local.showRepStack,
+              onChanged: (v) => setState(() => _local.showRepStack = v),
+            ),
           ),
         ),
-        _SettingsRow(
-          title: 'Allow client to override treatment',
-          help:
-              '"Show me" picker. Off — client sees only the treatment you '
-              'prescribed per exercise.',
-          // TODO(phase-b): persist via web_viewer_config jsonb.
-          control: _SettingsToggle(
-            value: _local.allowClientTreatmentOverride,
-            onChanged: (v) =>
-                setState(() => _local.allowClientTreatmentOverride = v),
+        _PhaseBPlaceholder(
+          child: _SettingsRow(
+            title: 'Allow client to override treatment',
+            help:
+                '"Show me" picker. Off — client sees only the treatment you '
+                'prescribed per exercise.',
+            // TODO(phase-b): persist via web_viewer_config jsonb.
+            control: _SettingsToggle(
+              value: _local.allowClientTreatmentOverride,
+              onChanged: (v) =>
+                  setState(() => _local.allowClientTreatmentOverride = v),
+            ),
           ),
         ),
-        _SettingsRow(
-          title: 'Allow client to skip / extend rests',
-          help:
-              "Off — rest timers run on a fixed clock the client can't "
-              'shortcut.',
-          // TODO(phase-b): persist via web_viewer_config jsonb.
-          control: _SettingsToggle(
-            value: _local.allowClientRestSkip,
-            onChanged: (v) =>
-                setState(() => _local.allowClientRestSkip = v),
+        _PhaseBPlaceholder(
+          child: _SettingsRow(
+            title: 'Allow client to skip / extend rests',
+            help:
+                "Off — rest timers run on a fixed clock the client can't "
+                'shortcut.',
+            // TODO(phase-b): persist via web_viewer_config jsonb.
+            control: _SettingsToggle(
+              value: _local.allowClientRestSkip,
+              onChanged: (v) =>
+                  setState(() => _local.allowClientRestSkip = v),
+            ),
           ),
         ),
       ],
@@ -637,6 +657,69 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
                 },
               ),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase B placeholder
+// ---------------------------------------------------------------------------
+
+/// Wraps a settings row whose state isn't yet persisted (a `TODO(phase-b)`
+/// row). Visually de-emphasises the row, blocks all input, and surfaces a
+/// small "Coming soon" chip in the top-right corner so the practitioner
+/// understands why their toggles don't survive a sheet reopen.
+///
+/// The wrapped child still renders fully (so the eventual shape of the
+/// row is visible) — interaction is suppressed via [IgnorePointer]. When
+/// the matching schema migration lands in Phase B, swap the placeholder
+/// out for a direct child render.
+class _PhaseBPlaceholder extends StatelessWidget {
+  final Widget child;
+
+  const _PhaseBPlaceholder({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Opacity(
+          opacity: 0.45,
+          child: IgnorePointer(
+            ignoring: true,
+            child: child,
+          ),
+        ),
+        Positioned(
+          top: 14,
+          right: 0,
+          child: IgnorePointer(
+            ignoring: true,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceRaised,
+                border: Border.all(
+                  color: AppColors.surfaceBorder,
+                  width: 1,
+                ),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: const Text(
+                'Coming soon',
+                style: TextStyle(
+                  fontFamily: 'JetBrains Mono',
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.6,
+                  color: AppColors.textSecondaryOnDark,
+                ),
+              ),
+            ),
           ),
         ),
       ],
