@@ -1473,6 +1473,11 @@ video.is-prep-paused {
   gap: 6px;
   flex: var(--rep-stack-section-grow, 1) 1 0;
   min-height: 0;
+  /* 2026-05-03: positioning context for the aside chip which
+     absolutely-positions to the right of the column so a wide
+     "120 kg · 12 s" pill doesn't squash the rep-blocks column to 0
+     inside a 34px rep-stack. */
+  position: relative;
 }
 .rep-stack-section--rest {
   /* Rest sections render as a single thinner block — already a
@@ -1490,7 +1495,14 @@ video.is-prep-paused {
 }
 
 .rep-stack-section-aside {
-  flex: 0 0 auto;
+  /* 2026-05-03: anchored to the right edge of the section, OUTSIDE the
+     rep-stack column. This frees the blocks column to use the full
+     34px width and lets the chip render at its natural size in the
+     card-viewport gutter beside the stack. */
+  position: absolute;
+  left: calc(100% + 4px);
+  top: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1518,14 +1530,12 @@ video.is-prep-paused {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  /* 2026-05-03 (rep-stack-rescue): bug-D's `min-width: 68px` collided
-     with bug-C's `.rep-stack { width: 34px }` — the aside (flex 0 0
-     auto) claimed 68px in a 34px parent, collapsing the sibling
-     `.rep-stack-section-blocks` to 0 and disappearing the rep-block
-     column. Drop the min-width — chip is now content-sized and may
-     vary per set ("5 kg" vs "120 kg · 12 s"). Re-balancing strict
-     uniformity vs the narrow-column requirement is a follow-up. */
+  /* 2026-05-03 (rep-stack-rescue v2): aside is now absolutely-
+     positioned outside the 34px rep-stack column, so chip min-width
+     can be restored without collapsing the sibling blocks column.
+     Bug-D's pixel uniformity reinstated. */
   padding: 2px 6px;
+  min-width: 68px;
   min-height: 18px;
   box-sizing: border-box;
   text-align: center;
