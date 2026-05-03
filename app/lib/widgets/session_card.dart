@@ -369,24 +369,16 @@ class _SessionCardState extends State<SessionCard> {
                 Positioned.fill(
                   child: _SessionFilmstripBackground(session: session),
                 ),
-                // z=1 — coral-tinted dark gradient that lets the title +
-                // chevron read against any cell content. Stops mirror
-                // the mockup CSS: 0.92 → 0.55 → 0.30 from left to right.
+                // z=1 — uniform 30% dark veil across every cell. Carl
+                // 2026-05-04: the original 0.92→0.55→0.30 left-to-right
+                // gradient over-darkened the leftmost cells; user
+                // explicitly asked for "all pics at 30%". Text
+                // legibility now leans on the per-element shadows on
+                // title/subtitle/analytics + the backdrop-blurred pills.
                 Positioned.fill(
                   child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [
-                            Color(0xEB0F1117), // rgba(15,17,23,0.92)
-                            Color(0x8C0F1117), // rgba(15,17,23,0.55)
-                            Color(0x4D0F1117), // rgba(15,17,23,0.30)
-                          ],
-                          stops: [0.0, 0.6, 1.0],
-                        ),
-                      ),
+                    child: ColoredBox(
+                      color: Color(0x4D0F1117), // rgba(15,17,23,0.30)
                     ),
                   ),
                 ),
