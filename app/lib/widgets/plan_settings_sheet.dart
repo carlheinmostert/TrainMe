@@ -51,14 +51,24 @@ class _InMemorySettingsState {
 ///
 /// Replaces the cloud-download icon's "Save to Photos" affordance on the
 /// Studio bottom toolbar — that handler is now reachable from inside
-/// the sheet's Plan actions section. Five sections, single-pane scroll:
-/// Pacing · Display defaults · Web viewer · Plan actions · Plan info.
+/// the sheet's Plan tab. Three tabs, each capped at one screen of
+/// content (no global scrolling-feel that the single-pane layout had):
+///
+///   Now      — per-session-tweak controls (Pacing rest stepper today,
+///              future per-session-only fields land here).
+///   Defaults — Display defaults (treatment / body focus / audio) +
+///              Web viewer toggles. Phase B persistence wave hydrates.
+///   Plan     — Plan actions (Save to Photos / Copy URL / Duplicate /
+///              Delete) + Plan info read-only metadata grid.
 ///
 /// Phase A: only the persisted-already fields write through to storage
 /// (`preferredRestIntervalSeconds` via [onRestIntervalChanged]). The
 /// other sections render but back onto an in-memory state with
 /// `TODO(phase-b)` markers for the follow-up agent that wires
 /// persistence.
+///
+/// Sheet always opens on the Now tab (no persistence of last-selected
+/// tab — Carl's call).
 Future<void> showPlanSettingsSheet({
   required BuildContext context,
   required Session session,
@@ -134,8 +144,15 @@ class PlanSettingsSheet extends StatefulWidget {
 class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
   static const double _kDetent = 0.85;
 
+  /// Tab indices.  Sheet always opens on [_kTabNow]; tab selection is
+  /// not persisted — reopening resets to Now.
+  static const int _kTabNow = 0;
+  static const int _kTabDefaults = 1;
+  static const int _kTabPlan = 2;
+
   late final DraggableScrollableController _sheetController;
   late int _restSeconds;
+  int _activeTabIndex = _kTabNow;
   final _InMemorySettingsState _local = _InMemorySettingsState();
 
   @override
@@ -150,6 +167,12 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
   void dispose() {
     _sheetController.dispose();
     super.dispose();
+  }
+
+  void _switchTab(int index) {
+    if (_activeTabIndex == index) return;
+    HapticFeedback.selectionClick();
+    setState(() => _activeTabIndex = index);
   }
 
   // ---------------------------------------------------------------------------
@@ -263,21 +286,9 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
             children: [
               _buildDragHandle(),
               _buildHeader(),
+              _buildTabStrip(),
               Expanded(
-                child: SingleChildScrollView(
-                  controller: scrollController,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildPacingSection(),
-                      _buildDisplayDefaultsSection(),
-                      _buildWebViewerSection(),
-                      _buildPlanActionsSection(),
-                      _buildPlanInfoSection(),
-                      const SizedBox(height: 8),
-                    ],
-                  ),
-                ),
+                child: _buildActiveTabBody(scrollController),
               ),
             ],
           ),
@@ -358,6 +369,112 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
             ),
             tooltip: 'Close settings',
           ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tab strip — mirrors exercise_editor_sheet's underline tabs (R-10
+  // visual parity inside the editor family). Coral 2px underline, Inter
+  // 13/600, dim treatment for inactive tabs.
+  // ---------------------------------------------------------------------------
+
+  Widget _buildTabStrip() {
+    const tabs = ['Now', 'Defaults', 'Plan'];
+    return Container(
+      decoration: const BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: AppColors.surfaceBorder, width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          for (int i = 0; i < tabs.length; i++)
+            Expanded(
+              child: InkWell(
+                onTap: () => _switchTab(i),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: _activeTabIndex == i
+                            ? AppColors.primary
+                            : Colors.transparent,
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    tabs[i],
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: _activeTabIndex == i
+                          ? AppColors.textOnDark
+                          : AppColors.textSecondaryOnDark,
+                      letterSpacing: 0.1,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveTabBody(ScrollController scrollController) {
+    switch (_activeTabIndex) {
+      case _kTabDefaults:
+        return _buildDefaultsTab(scrollController);
+      case _kTabPlan:
+        return _buildPlanTab(scrollController);
+      case _kTabNow:
+      default:
+        return _buildNowTab(scrollController);
+    }
+  }
+
+  Widget _buildNowTab(ScrollController scrollController) {
+    return SingleChildScrollView(
+      controller: scrollController,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildPacingSection(),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDefaultsTab(ScrollController scrollController) {
+    return SingleChildScrollView(
+      controller: scrollController,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildDisplayDefaultsSection(),
+          _buildWebViewerSection(),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlanTab(ScrollController scrollController) {
+    return SingleChildScrollView(
+      controller: scrollController,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildPlanActionsSection(),
+          _buildPlanInfoSection(),
+          const SizedBox(height: 8),
         ],
       ),
     );
