@@ -177,7 +177,13 @@ private let backgroundDim: Double = 0.50
 
 /// Master switch for hand-region dilation. Disable to fall back to v7.2
 /// behaviour (person-only silhouette).
-private let handDilationEnabled: Bool = true
+///
+/// 2026-05-03: TEMPORARILY DISABLED while we investigate device-side
+/// reports of permanent stuck-in-converting on fresh captures after the
+/// #198 v8 landing. Flip back to true once the underlying conversion
+/// hang is reproduced + root-caused. The dilator code itself is clean
+/// per RCA — disabling is precautionary while we get more diagnostics.
+private let handDilationEnabled: Bool = false
 
 /// Disc radius as a fraction of the frame's shorter dimension. 0.10 →
 /// disc radius ≈ 10% of `min(width, height)`. Generous enough to cover a
