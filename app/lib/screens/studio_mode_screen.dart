@@ -19,6 +19,7 @@ import '../services/media_prefetch_service.dart';
 import '../services/path_resolver.dart';
 import '../services/sticky_defaults.dart';
 import '../services/upload_service.dart';
+import '../main.dart' show rootScaffoldMessengerKey;
 import '../theme.dart';
 import '../models/treatment.dart';
 import '../services/api_client.dart';
@@ -2903,12 +2904,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     await widget.storage.softDeleteSession(snapshot.id);
     if (!mounted) return;
 
-    final messenger = ScaffoldMessenger.of(context);
+    // The local Studio Scaffold dies on pop — use the app-root messenger
+    // installed via main.dart's scaffoldMessengerKey so the undo lands on
+    // the parent (ClientSessionsScreen).
+    final messenger = rootScaffoldMessengerKey.currentState;
     Navigator.of(context).pop();
+    if (messenger == null) return;
 
-    // Show the undo SnackBar on the parent (ClientSessionsScreen) — the
-    // messenger reference was grabbed before pop so the SnackBar lands
-    // on the right scaffold.
+
     messenger
       ..clearSnackBars()
       ..showSnackBar(
@@ -4078,6 +4081,10 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
       // includeAudio, so swiping to a neighbour updates the pill
       // glyph + the video volume in lockstep.
       _isMuted = !_current.includeAudio;
+      // Trim-handle selection is per-exercise — clear it so the next
+      // exercise doesn't open with a stale coral selection painted on
+      // first frame.
+      _selectedTrimHandle = null;
     });
     _initVideoForCurrent();
   }
