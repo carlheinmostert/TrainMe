@@ -3373,6 +3373,18 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   bool _isVideo(ExerciseCapture e) =>
       e.mediaType == MediaType.video && !_isStillImageConversion(e);
 
+  /// True when the raw capture is a local file on disk (not a remote
+  /// URL placeholder for a cloud-only session). Distinguishes a fresh
+  /// capture that's still being archived by ConversionService from a
+  /// session pulled from the cloud whose raw file needs downloading —
+  /// the former gets a "still processing" toast on locked-segment tap;
+  /// the latter triggers a signed-URL prefetch.
+  bool _rawIsLocal(ExerciseCapture e) {
+    final raw = e.absoluteRawFilePath;
+    if (raw.isEmpty || raw.startsWith('http')) return false;
+    return File(raw).existsSync();
+  }
+
   /// True when the local raw source exists for this exercise — gates
   /// the B&W + Original treatment segments. For VIDEOS this is the
   /// 720p H.264 archive mp4 written by `compressVideo`. For PHOTOS
@@ -4637,6 +4649,25 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     final practiceId =
         session?.practiceId ?? AuthService.instance.currentPracticeId.value;
     final planId = session?.id;
+    final treatmentWord = t == Treatment.grayscale ? 'B&W' : 'Original';
+
+    // Fresh capture, archive still being built locally by ConversionService
+    // (the 720p H.264 mp4 lands in {Documents}/archive/ ~20-30s after the
+    // raw recording stops). The raw file is on disk but the archive isn't
+    // yet, and the cloud has nothing either (publish hasn't run). Firing
+    // prefetchRawArchive here would always fail with a futile signed-URL
+    // round-trip. Once the conversion service emits the archive-stamped
+    // row, _hasArchive flips true on the next rebuild and the segment
+    // unlocks automatically — no user action required.
+    if (missingArchive && _isVideo(exercise) && _rawIsLocal(exercise)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$treatmentWord still processing — try again in a moment.'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
 
     if (missingArchive && practiceId != null && planId != null) {
       // Cloud-only session — the raw file (mp4 for videos, jpg for
@@ -4683,7 +4714,6 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     final clientName = rawClientName.trim().isEmpty
         ? 'this client'
         : rawClientName;
-    final treatmentWord = t == Treatment.grayscale ? 'B&W' : 'Original';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
