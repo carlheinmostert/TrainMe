@@ -496,6 +496,31 @@ class ConversionService extends ChangeNotifier {
     return next;
   }
 
+  /// Probe the rotation-corrected aspect ratio (width / height) of the
+  /// video at [absolutePath] via the native channel. Used by the Hero
+  /// tab to letterbox iPhone-portrait raw archives correctly:
+  /// `VideoPlayerController.value.aspectRatio` reports the unrotated
+  /// 16:9 because the rotation lives in metadata, not pixels — but
+  /// AVPlayerLayer auto-rotates the visual, so the displayed video
+  /// gets stretched into the wrong-shaped letterbox.
+  ///
+  /// Returns null on missing file, missing video track, or any native
+  /// failure. Caller falls back to the unrotated `c.value.aspectRatio`.
+  Future<double?> getRotatedAspect(String absolutePath) async {
+    if (absolutePath.isEmpty) return null;
+    try {
+      final aspect = await _videoChannel.invokeMethod<double>(
+        'getVideoRotatedAspect',
+        {'inputPath': absolutePath},
+      ).timeout(const Duration(seconds: 5));
+      if (aspect != null && aspect > 0) return aspect;
+      return null;
+    } catch (e) {
+      debugPrint('getRotatedAspect failed for $absolutePath: $e');
+      return null;
+    }
+  }
+
   /// Convert a single capture. Dispatches to photo or video handler.
   /// For videos, also extracts a thumbnail from the first frame before
   /// starting the full conversion.

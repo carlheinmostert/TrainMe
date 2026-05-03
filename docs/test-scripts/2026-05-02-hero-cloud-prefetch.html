@@ -234,6 +234,22 @@
       </li>
     </ul>
 
+    <h2>7 · Aspect ratio + saved-offset persistence</h2>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">Open the Hero tab on an iPhone-portrait video (rotation_quarters = 0 in DB). Expect: the preview is letterboxed at the natural 9:16 portrait aspect — NOT stretched horizontally to widescreen. Native call to <code>getVideoRotatedAspect</code> reads the asset's preferredTransform; the existing <code>RotatedBox</code> still honours practitioner-set <code>rotationQuarters</code> as an override on top.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">On exercise A: drag scrubber to a non-start position, tap "Set as Hero". Wait for the spinner to clear (regen completes). Navigate to next exercise B. Navigate back to A. Expect: slider seeds at the previously-saved offset (the spec's "Hero set at X:XX.X" copy under the slider). Watch the device log via <code>idevicesyslog --udid 00008150-001A31D40E88401C 2>&1 | grep _HeroTab</code> — the seed line shows <code>focusOffset=&lt;ms&gt;</code> (non-null). If it's <code>null</code>, the persistence pipeline is dropping it; capture the log and report.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
     <footer>
       Pass-notes feed the next wave's polish list. Failures will spawn a targeted follow-up.
     </footer>

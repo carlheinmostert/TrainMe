@@ -295,11 +295,26 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 
   void _emit(ExerciseCapture next) {
+    // Look the exercise up by id, not by current index. _commitHero
+    // (Hero tab) awaits a native thumbnail regen that can outlive a
+    // user-initiated navigate-next: when the future finally settles,
+    // [_exerciseIndex] has already moved on, and a naive
+    // `_exercises[_exerciseIndex] = next` would clobber the new active
+    // exercise with the previous one's mutation.
+    final idx = _exercises.indexWhere((e) => e.id == next.id);
+    if (idx < 0) {
+      // Defensive: shouldn't happen for in-flight edits since the
+      // exercise is in `_exercises` by construction, but bail rather
+      // than corrupt the list.
+      return;
+    }
     setState(() {
-      _exercise = next;
-      _exercises[_exerciseIndex] = next;
+      _exercises[idx] = next;
+      if (_exerciseIndex == idx) {
+        _exercise = next;
+      }
     });
-    widget.onExerciseChanged(_exerciseIndex, next);
+    widget.onExerciseChanged(idx, next);
   }
 
   /// Step the active exercise by ±1 (or jump to a specific index from the
@@ -1272,6 +1287,12 @@ class _HeroTabState extends State<_HeroTab> {
   VoidCallback? _archiveStatusListener;
   ValueNotifier<MediaPrefetchStatus>? _archiveStatusNotifier;
 
+  /// Rotation-corrected aspect ratio (width / height) for the active
+  /// video, queried via `ConversionService.getRotatedAspect`. Null when
+  /// the native probe failed; the build() falls back to the controller's
+  /// raw `aspectRatio` in that case.
+  double? _naturalAspect;
+
   /// Current scrubber position in ms. Mirrors slider state. Initialised
   /// to the saved offset (or 0 if none) once the controller is ready.
   int _scrubMs = 0;
@@ -1310,6 +1331,12 @@ class _HeroTabState extends State<_HeroTab> {
 
   Future<void> _initController({ExerciseCapture? exerciseOverride}) async {
     final exercise = exerciseOverride ?? widget.exercise;
+    debugPrint(
+      '_HeroTab._initController seed: id=${exercise.id} '
+      'focusOffset=${exercise.focusFrameOffsetMs} '
+      'archive=${exercise.archiveFilePath != null} '
+      'override=${exerciseOverride != null}',
+    );
     final localPath = _bestLocalRawPath(exercise);
     if (localPath == null) {
       // Cloud-only session — the raw mp4 isn't on disk yet. Try to pull
@@ -1343,11 +1370,20 @@ class _HeroTabState extends State<_HeroTab> {
       final saved = exercise.focusFrameOffsetMs ?? start;
       _scrubMs = saved.clamp(start, end).toInt();
       await controller.seekTo(Duration(milliseconds: _scrubMs));
+      // Probe the rotation-corrected aspect via the native channel.
+      // c.value.aspectRatio reports the unrotated 16:9 for iPhone-portrait
+      // captures; AVPlayerLayer rotates the visual but the size doesn't
+      // follow, so the existing AspectRatio letterbox stretches the
+      // upright frame horizontally. Best-effort: a null result falls
+      // through to c.value.aspectRatio in build().
+      final naturalAspect =
+          await ConversionService.instance.getRotatedAspect(localPath);
       if (mounted) {
         setState(() {
           _controller = controller;
           _initialised = true;
           _downloading = false;
+          _naturalAspect = naturalAspect;
         });
       }
     } catch (e) {
@@ -1553,9 +1589,13 @@ class _HeroTabState extends State<_HeroTab> {
                   builder: (context) {
                     final quarters =
                         (widget.exercise.rotationQuarters ?? 0) % 4;
-                    final rawAspect = c.value.aspectRatio;
-                    final aspect =
-                        quarters.isOdd ? 1 / rawAspect : rawAspect;
+                    // Prefer the native-probed rotation-corrected aspect
+                    // (`_naturalAspect`) so iPhone-portrait raws letterbox
+                    // 9:16 instead of stretched to the unrotated 16:9.
+                    // Practitioner-chosen `rotation_quarters` still
+                    // applies as an override on top.
+                    final base = _naturalAspect ?? c.value.aspectRatio;
+                    final aspect = quarters.isOdd ? 1 / base : base;
                     return AspectRatio(
                       aspectRatio: aspect,
                       child: RotatedBox(
