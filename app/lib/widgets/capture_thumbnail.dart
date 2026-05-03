@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
 import '../theme.dart';
+import 'hero_star_badge.dart';
 
 /// Grayscale color matrix — zeroes the saturation while preserving
 /// luminance. Matches the web player's `filter: grayscale(1)
@@ -84,7 +85,7 @@ class CaptureThumbnail extends StatelessWidget {
             _buildImage(cacheWidth),
             if (showConversionOverlay) _buildConversionOverlay(),
             if (showChrome) _buildMediaTypeBadge(),
-            if (showHeroBadge) const _HeroStarBadge(),
+            if (showHeroBadge) const HeroStarBadge(),
           ],
         ),
       ),
@@ -276,10 +277,10 @@ class CaptureThumbnail extends StatelessWidget {
     }
   }
 
-  // Note: the Hero-frame star badge is rendered as a separate top-level
-  // [_HeroStarBadge] widget below; it's a sibling Positioned in the Stack
-  // (not built here) so it can be conditionally added/skipped at the
-  // build-tree level.
+  // Note: the Hero-frame star badge is rendered as a separate
+  // [HeroStarBadge] widget (see hero_star_badge.dart); it's a sibling
+  // Positioned in the Stack (not built here) so it can be conditionally
+  // added/skipped at the build-tree level.
 
   /// Small media type badge in the bottom-left corner.
   /// Camera icon for photo, video icon for video, pause for rest.
@@ -308,38 +309,3 @@ class CaptureThumbnail extends StatelessWidget {
   }
 }
 
-/// Small coral star badge anchored top-left of a thumbnail, signalling
-/// "this is the Hero frame". Mirrors the badge in [MiniPreview]. Used for
-/// video exercises ONLY — photos are the Hero by definition; rest periods
-/// have no media.
-///
-/// Glyph-only (no plate / backdrop) with a 1px black drop-shadow so the
-/// coral stays legible against light thumbnails. Fixed 14px to read
-/// consistently across the small thumbnail surfaces (camera peek box,
-/// ThumbnailPeek closed state) — the long-press 240px preview drops the
-/// badge via the surrounding `showChrome` gate.
-class _HeroStarBadge extends StatelessWidget {
-  const _HeroStarBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Positioned(
-      top: 6,
-      left: 6,
-      child: IgnorePointer(
-        child: Icon(
-          Icons.star_rounded,
-          size: 14,
-          color: AppColors.primary,
-          shadows: [
-            Shadow(
-              color: Colors.black54,
-              blurRadius: 2,
-              offset: Offset(0, 1),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
