@@ -380,6 +380,69 @@ class VideoConverterChannel {
                 }
             }
 
+        case "getVideoRotatedAspect":
+            // Returns the displayed (rotation-corrected) aspect ratio of
+            // the video at `inputPath`. Flutter's video_player on iOS
+            // visually applies the AVAsset's preferredTransform via
+            // AVPlayerLayer, but `VideoPlayerController.value.aspectRatio`
+            // is derived from the raw `naturalSize` — for iPhone portrait
+            // captures that's the unrotated 16:9 instead of the displayed
+            // 9:16. Hero tab uses this to letterbox the raw archive .mp4
+            // correctly when `rotation_quarters` on the row is null/0
+            // (cloud-pulled rows skip the practitioner-rotation column).
+            guard let args = call.arguments as? [String: Any],
+                  let inputPath = args["inputPath"] as? String else {
+                result(FlutterError(
+                    code: "INVALID_ARGS",
+                    message: "Missing inputPath for getVideoRotatedAspect",
+                    details: nil
+                ))
+                return
+            }
+            processingQueue.async {
+                guard FileManager.default.fileExists(atPath: inputPath) else {
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "FILE_NOT_FOUND",
+                            message: "Input file does not exist: \(inputPath)",
+                            details: nil
+                        ))
+                    }
+                    return
+                }
+                let asset = AVURLAsset(url: URL(fileURLWithPath: inputPath))
+                guard let track = asset.tracks(withMediaType: .video).first else {
+                    DispatchQueue.main.async {
+                        result(FlutterError(
+                            code: "NO_VIDEO_TRACK",
+                            message: "Asset has no video track: \(inputPath)",
+                            details: nil
+                        ))
+                    }
+                    return
+                }
+                let natural = track.naturalSize
+                let t = track.preferredTransform
+                // Mirrors the convertVideo rotation detection at line 549.
+                // 90°/270° transforms have |b| == 1 && |c| == 1 — width
+                // and height swap when applied. 0°/180° leave them alone.
+                let rotated = abs(t.b) == 1.0 && abs(t.c) == 1.0
+                let w = rotated ? natural.height : natural.width
+                let h = rotated ? natural.width : natural.height
+                let aspect = (h > 0) ? Double(w / h) : 0.0
+                DispatchQueue.main.async {
+                    if aspect > 0 {
+                        result(NSNumber(value: aspect))
+                    } else {
+                        result(FlutterError(
+                            code: "INVALID_DIMENSIONS",
+                            message: "Could not derive aspect from track \(natural.width)x\(natural.height)",
+                            details: nil
+                        ))
+                    }
+                }
+            }
+
         case "getPreferredBackCameraName":
             // Wave 33 — diagnostic + lens-disambiguation helper for the
             // avatar capture surface. The Flutter `camera` plugin maps
