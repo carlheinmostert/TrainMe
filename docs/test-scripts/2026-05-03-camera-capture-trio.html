@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Camera capture trio (#196 + #197 + #198)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 9999px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+    background: var(--coral-bg); color: var(--coral);
+    border: 1px solid rgba(255,107,53,0.3);
+    margin-right: 6px;
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-03 · Camera capture trio (#196 + #197 + #198)</div>
+    <h1>Device QA — Camera capture trio</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify three cloud-Claude PRs that all landed today and all touch the camera-capture path. Each section maps to one PR.
+      <br><br>
+      <span class="pill">#196</span><strong>Raw-archive download suppression.</strong> Tapping B&amp;W or Original within ~30s of a fresh capture used to fire the misleading red &ldquo;Couldn't download original — try again.&rdquo; toast. Now detects the &ldquo;still archiving locally&rdquo; case (video on disk + no archive yet) and shows a polite &ldquo;{Treatment} still processing — try again in a moment.&rdquo; toast instead. Auto-unlocks once the archive lands.
+      <br><br>
+      <span class="pill">#197</span><strong>Auto-save originals to Photos (default ON).</strong> Every camera-mode photo + video is now also written to the iOS Camera Roll. Library imports are skipped (no duplicate). Toggle lives at <code>Settings → Session capture → Save originals to Photos</code>. iOS Photos &ldquo;Add only&rdquo; permission dialog surfaces naturally on first capture.
+      <br><br>
+      <span class="pill">#198</span><strong>v8 hand-pose dilation for held equipment.</strong> Apple's person segmentation is intentionally person-only — dumbbells / bands / kettlebells used to fade into the background. v8 adds a <code>VNDetectHumanHandPoseRequest</code> pass that paints a filled disc at each detected hand on the upscaled mask, so held implements pop with the practitioner. Edge / line tuning (lo / hi / alpha / bgDim) <strong>unchanged</strong> — still locked at v7.
+      <br><br>
+      <strong>In scope:</strong> mobile camera path on Carl's iPhone <code>00008150-001A31D40E88401C</code>. Library import path. Settings → Session capture toggle. Cross-cutting golden-path + R-10 web-player smoke check.
+      <br><br>
+      <strong>Out of scope:</strong> web player chrome (PRs are mobile-only); the older Studio long-press &ldquo;Download&rdquo; path (#197 is a NEW auto-save on capture, not a refactor of the existing manual save).
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Latest <code>main</code> built + installed on Carl's iPhone <code>00008150-001A31D40E88401C</code> via <code>./install-device.sh</code> (commits <code>fc1efb0</code> + <code>9c1cf66</code> + the v8 segmentation merge).</li>
+        <li>One client with at least one open session in Studio.</li>
+        <li>Optional: a small piece of equipment to hand — dumbbell, water bottle, resistance band, or kettlebell — for the v8 hand-pose tests.</li>
+        <li>Optional: a previous build's converted video lying around for v6 aesthetic comparison (#198 item 9). If unsure, just trust your visual memory of the v6/v7 look.</li>
+        <li>iOS Settings shortcut: <code>Settings → Photos → homefit.studio</code> for the permission revoke / regrant dance in section 2.</li>
+      </ul>
+    </div>
+
+    <h2>1 · #196 raw-archive download suppression</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Capture a fresh video (long-press the shutter, record ~3–5s). Within 5 seconds of the recording stopping (while the line drawing is still rendering and the raw-archive write is still in flight), tap the <strong>B&amp;W</strong> treatment chip on the Studio card. Expect: a polite toast like &ldquo;<em>B&amp;W still processing — try again in a moment.</em>&rdquo; — NOT the old red &ldquo;<em>Couldn't download original — try again.</em>&rdquo; toast.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">Wait until archiving completes (~20–30s after capture; watch the Studio card's archive / cloud-icon state change). Tap <strong>B&amp;W</strong> again. Expect: switches normally, no toast, the segment unlocks and the B&amp;W treatment plays back.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Same exercise — tap <strong>Original</strong> within 5s of a NEW capture (capture another video first). Expect: same suppression behaviour — &ldquo;<em>Original still processing — try again in a moment.</em>&rdquo; (toast text now mentions &ldquo;Original&rdquo;, not hardcoded). Wait it out → tap again → unlocks normally.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Toggle iPhone airplane mode ON. Capture a fresh video (capture works offline — files stay local). Within 5s of capture, tap <strong>B&amp;W</strong>. Expected: same &ldquo;still processing&rdquo; suppression toast (offline ≠ futile-because-archiving, but the local archive completes regardless). Wait ~30s then tap again — should unlock locally even with airplane mode still on.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Regression — open a published session pulled from the cloud (e.g. an older session you didn't capture today). Tap <strong>B&amp;W</strong> on a video that wasn't auto-prefetched. Expect: the existing cloud-prefetch path still runs (coral chip overlay &ldquo;Downloading original…&rdquo;) and plays back when complete. The #196 fix should NOT have broken the legitimate cloud-download branch.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · #197 auto-save originals to Photos (default ON)</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Fresh-install scenario (or proxy: revoke Photos permission via <code>iOS Settings → Photos → homefit.studio → None</code>, then quit + relaunch the app). Take a <strong>photo</strong> capture (short shutter tap). Expected: iOS Photos permission dialog surfaces asking for &ldquo;Add only&rdquo; access. Tap <strong>Allow</strong>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">After granting permission, take ANOTHER photo + a video capture (long-press shutter). Open the iOS Photos app (swipe to home screen, then Photos). Expect: both originals appear in the camera roll, in addition to landing as exercises in the Studio session.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Revoke permission (<code>iOS Settings → Photos → homefit.studio → None</code>), force-quit the app, relaunch, take a fresh capture. Expect: a SnackBar at the top of the screen — &ldquo;<em>Photos permission denied — toggle off in Settings → Session capture.</em>&rdquo; (this is the denial chip from the #197 follow-up; flag if missing). Take a SECOND capture immediately. The chip should appear ONCE per app launch, not on every capture.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">Re-grant permission (<code>iOS Settings → Photos → homefit.studio → Add Photos Only</code>), force-quit and relaunch. Find <strong>Settings → Session capture</strong> in the app. Confirm the section exists between Account and Network, and the &ldquo;<em>Auto-save originals to Photos</em>&rdquo; toggle is <strong>ON</strong> by default.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">Toggle the &ldquo;Auto-save originals to Photos&rdquo; switch <strong>OFF</strong>. Take a capture. Open the iOS Photos app — the new capture should NOT appear in the camera roll. (It DOES land in the app's Studio session as usual.) Toggle back <strong>ON</strong>, take another capture — appears in iOS Photos again.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">With the toggle <strong>ON</strong>, tap the library-import button on the camera viewfinder bottom-left and pick an existing photo from the iOS Photos library. Expect: the imported asset lands as a Studio exercise, but does NOT get re-saved to iOS Photos (the import path correctly passes <code>autoSaveToCameraRoll: false</code>). Confirm by counting items in iOS Photos — should be unchanged after import.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · #198 v8 hand-pose dilation for held equipment</h2>
+    <ul class="checklist">
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">✓</button><button class="fail" type="button" aria-label="Fail 12">✗</button></div>
+        <span class="num">12.</span>
+        <span class="text">v6/v7 line-drawing aesthetic preserved. Re-capture a body-weight exercise you've shot before (e.g. a push-up, a squat). After conversion completes, compare the new line drawing visually to your memory of the previous output — should look essentially identical. No edge-threshold changes, no line-thickness changes, no background-dim changes. (Lo / hi / alpha / bgDim constants unchanged in this PR.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">✓</button><button class="fail" type="button" aria-label="Fail 13">✗</button></div>
+        <span class="num">13.</span>
+        <span class="text">Held-equipment-now-in-body-zone test. Capture a video holding a dumbbell or water bottle in one hand (~3s, simple bicep curl or just an arm raise is fine). After conversion lands, look at the line drawing: the dumbbell + the hand gripping it should render as ONE continuous body-coloured silhouette. The dumbbell should NOT &ldquo;float&rdquo; outside a separate hand-shaped silhouette, and should NOT fade into the dimmed background.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">✓</button><button class="fail" type="button" aria-label="Fail 14">✗</button></div>
+        <span class="num">14.</span>
+        <span class="text">No-equipment case unchanged. Capture a body-weight squat or jumping-jack — hands empty, no held objects. The line drawing should look the same as before #198 — no spurious bulges or halos around the hand area, no false-positive disc paint.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">✓</button><button class="fail" type="button" aria-label="Fail 15">✗</button></div>
+        <span class="num">15.</span>
+        <span class="text">Imported video gets the same v8 treatment. Tap library-import on the camera viewfinder, pick an existing video from the iOS Photos library — ideally one with held equipment (kettlebell swing, dumbbell row). After conversion, the held implement should render in the body zone. Confirms re-segmentation runs on imports, not just fresh captures.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">✓</button><button class="fail" type="button" aria-label="Fail 16">✗</button></div>
+        <span class="num">16.</span>
+        <span class="text">Edge case — hand outside the person silhouette. Capture a scene where one hand reaches well beyond the body (e.g. lying-down lat raise, arm extended straight out). The mask should dilate sensibly — no random background pixels painted as body, no obvious halo bleeding into walls or floor. Visual sanity-check; not a hard pass/fail. Note anything weird.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">✓</button><button class="fail" type="button" aria-label="Fail 17">✗</button></div>
+        <span class="num">17.</span>
+        <span class="text">Wide-grip stress test (optional if barbell unavailable). With both hands wide apart (e.g. arms outstretched holding a bath towel like a barbell), capture a brief clip. Expect: the spread-adaptive radius widens the disc to cover the full grip span — no &ldquo;two small islands&rdquo; on either hand with a dim gap between them.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · Cross-cutting</h2>
+    <ul class="checklist">
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">✓</button><button class="fail" type="button" aria-label="Fail 18">✗</button></div>
+        <span class="num">18.</span>
+        <span class="text">R-10 parity safety. Publish one of today's freshly-captured sessions. Open the share URL in iOS Safari (or copy-paste to a desktop browser). Confirm the web player at <code>session.homefit.studio/p/{uuid}</code> plays correctly — pill matrix, three-treatment segmented control, video playback. The trio of PRs is mobile-only; web player should be unaffected.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="19" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 19">✓</button><button class="fail" type="button" aria-label="Fail 19">✗</button></div>
+        <span class="num">19.</span>
+        <span class="text">No regression on the broader workflow. Walk the full golden path: capture (photo + video) → edit (rename, add notes, swipe-to-duplicate) → preview → publish → share. Confirm nothing in the broader Studio flow broke: thumbnails render, edits persist, publish succeeds, share sheet opens. If anything in this list fails, note which step + which PR you suspect (#196 / #197 / #198).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass-notes feed the next wave's polish list. Failures spawn a targeted follow-up.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-03-camera-capture-trio.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'camera-capture-trio', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setStatus(status) {
+          li.setAttribute('data-status', status);
+          if (!state[num]) state[num] = {};
+          state[num].status = status;
+          save();
+        }
+
+        passBtn.addEventListener('click', function() { setStatus('pass'); });
+        failBtn.addEventListener('click', function() { setStatus('fail'); });
+
+        if (noteInput) {
+          var debounce;
+          noteInput.addEventListener('input', function() {
+            clearTimeout(debounce);
+            if (!state[num]) state[num] = {};
+            state[num].note = noteInput.value;
+            debounce = setTimeout(save, 400);
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
