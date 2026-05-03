@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hook QA — orphan-agent detection + auto-resume reminder</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  pre {
+    background: var(--raised); padding: 12px 16px; border-radius: 8px;
+    border: 1px solid var(--border); overflow-x: auto;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--text-mute); line-height: 1.5;
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-03 · Orphan-agent hook system</div>
+    <h1>Hook QA — orphan-agent detection + auto-resume reminder</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify the new hook pair (<code>record-agent-dispatch.py</code> on PostToolUse, <code>check-orphan-agents.py</code> on SessionStart) durably tracks isolated-worktree sub-agents and surfaces a system reminder on the next session start when any orphan worktrees still hold uncommitted work.
+      <br><br>
+      <strong>In scope:</strong> two new Python hooks under <code>.claude/hooks/</code>, registry + brief sidecars under <code>.claude/state/</code> (gitignored), <code>.claude/settings.json</code> wiring for both hooks, unit tests under <code>.claude/hooks/test_check_orphan_agents.py</code>.
+      <br><br>
+      <strong>Out of scope:</strong> auto-spawning continuation agents (deliberately manual — Carl reads the reminder and tells Claude what to do); rotating / pruning the registry (it's append-only and capped at MAX_REGISTRY_ENTRIES on read); cross-machine sync of orphan state.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>This branch (<code>feat/orphan-agent-hooks</code>) merged to <code>main</code> on the host's main repo at <code>/Users/chm/dev/TrainMe</code>.</li>
+        <li><code>gh</code> CLI authenticated (the SessionStart hook calls <code>gh pr list</code> to filter merged-PR worktrees).</li>
+        <li>At least one existing dirty agent worktree under <code>.claude/worktrees/agent-*</code> on disk (you have ~140 from prior sessions; perfect).</li>
+      </ul>
+    </div>
+
+    <h2>1 · Unit-test suite passes</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The shipped test runner is plain <code>python3</code>, no pytest. Run from the repo root.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Run <code>python3 .claude/hooks/test_check_orphan_agents.py</code> from <code>/Users/chm/dev/TrainMe</code>. Output ends with a line reading <code>PASSED: 33   FAILED: 0</code>. No tracebacks anywhere in the output. (33 individual <code>ok</code> lines covering both hooks across 10 named scenarios.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · PostToolUse hook records a dispatch</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Synthesise a real-shape PostToolUse payload, pipe it to the hook, and verify the registry + brief sidecar appear with correct content.
+    </p>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">From the repo root, run:
+<pre>cd /tmp && rm -rf orphan-test && mkdir -p orphan-test/.claude && cd orphan-test
+echo '{"session_id":"test-session","tool_name":"Agent","tool_input":{"description":"Sample agent","subagent_type":"general-purpose","isolation":"worktree","prompt":"Do the thing.\nMore detail."},"tool_response":{"agentId":"deadbeefcafe","output_file":"/tmp/x.out"}}' \
+  | python3 /Users/chm/dev/TrainMe/.claude/hooks/record-agent-dispatch.py
+echo "exit=$?"
+cat .claude/state/agent-registry.jsonl
+cat .claude/state/agent-briefs/deadbeefcafe.md</pre>
+        Expect: <code>exit=0</code>, one JSON line in the registry whose <code>agent_id</code> is <code>deadbeefcafe</code> and <code>brief_first_line</code> is <code>Do the thing.</code>; the sidecar contains the full prompt body. Cleanup: <code>rm -rf /tmp/orphan-test</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Negative case: a non-worktree agent must NOT be recorded. Repeat the test in step 2 but with <code>"isolation": null</code> in the tool_input. Expect: <code>exit=0</code> and no <code>.claude/state/</code> directory created at all.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · SessionStart hook against live worktree state</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Run the SessionStart hook against the real <code>.claude/worktrees/</code> on Carl's machine, with a registry that points at known-dirty agent worktrees. Output should list each orphan with diff stats + brief pointer.
+    </p>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">From <code>/Users/chm/dev/TrainMe</code>, run:
+<pre>echo '{"session_id":"current"}' \
+  | python3 .claude/hooks/check-orphan-agents.py</pre>
+        Expect: a <code>&lt;orphan-agents-detected&gt;</code> block enumerating 1+ entries (whatever's both in the registry AND has a dirty worktree on disk AND has no MERGED PR). Each entry shows: short agent ID, description, worktree path, branch, diff (lines/files), last-touch age, and a brief: pointer with the first-line preview. Block ends with <code>To resurrect, ask Claude: "resume orphaned agents"</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Time the same call:
+<pre>time (echo '{"session_id":"current"}' | python3 .claude/hooks/check-orphan-agents.py >/dev/null)</pre>
+        Empty-registry path: <code>real</code> &lt; 200ms. Live-registry path with a small number of orphans: <code>real</code> &lt; 1500ms. (Most of the budget goes to <code>gh pr list</code> calls — they're parallelised but each one still takes ~500ms.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · Merged-PR worktrees are filtered out</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      A worktree whose branch has a merged PR shouldn't appear as an orphan — the work shipped, the worktree is just leftover.
+    </p>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Pick any worktree whose branch HAS a merged PR (e.g. <code>chore/rest-card-tighter</code> in <code>agent-a78d9149b71ea5318</code> if its PR landed; verify via <code>gh pr list --head chore/rest-card-tighter --state all</code>). Append a registry entry pointing at it with <code>session_id: "stale"</code>. Add a single uncommitted byte to the worktree to make it look "dirty": <code>cd .claude/worktrees/agent-a78d9149b71ea5318 && touch DIRTY.md && cd -</code>. Re-run the hook from step 4 — that worktree must NOT appear in the orphan list because its PR shows MERGED. Cleanup: <code>rm .claude/worktrees/agent-a78d9149b71ea5318/DIRTY.md</code> and remove the seeded registry line.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Same-session agents aren't treated as orphans</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">Edit the registry so one entry's <code>session_id</code> matches the current session's. Run the hook with <code>'{"session_id":"matching-id"}'</code> — that entry must NOT appear. (This is what protects the live alongside-running agents from being reported as orphans during their parent session's lifetime.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 · Settings wiring + .gitignore</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text"><code>cat .claude/settings.json</code> — confirm <code>PostToolUse[matcher=Agent] → record-agent-dispatch.py</code> AND <code>SessionStart → check-orphan-agents.py</code> are both wired. <code>python3 -c "import json; json.load(open('.claude/settings.json'))"</code> exits 0.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text"><code>git check-ignore -v .claude/state/agent-registry.jsonl</code> reports the file as ignored (matches the <code>.claude/*</code> rule plus the explicit <code>.claude/state/</code> rule). <code>git status</code> on the main repo shows no <code>.claude/state/</code> entries even after the hook has written to that path.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>7 · Real-world dogfood: dispatch a sub-agent and verify the trail</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      End-to-end check: spawn a brand-new sub-agent in a Claude session, then read the registry to confirm the PostToolUse hook captured it. (Needs a Claude session with the new settings.json applied — i.e. a session that started AFTER this PR merged.)
+    </p>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">In a fresh Claude session on main, ask Claude to dispatch a trivial isolated-worktree agent (e.g. "spawn a sub-agent in a worktree to print 'hello' to a new file"). After Claude reports the agent launched, run <code>tail -1 .claude/state/agent-registry.jsonl</code> in a terminal — the row's <code>agent_id</code> should match the agent's worktree path. Run <code>cat .claude/state/agent-briefs/&lt;agent_id&gt;.md</code> — the file contains the brief Claude sent.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Force-quit Claude before the agent finishes (or wait for it to finish). Open a new Claude session on main. Within the first model turn, the conversation context contains a <code>&lt;orphan-agents-detected&gt;</code> block listing the agent from step 10 (assuming its work didn't ship as a merged PR yet). Ask Claude "resume orphaned agents" — Claude reads the brief sidecar and proposes (or spawns) a continuation. The full forensic chain is now: registry line → brief sidecar → resume.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass-notes feed the next wave's polish list. Failures will spawn a targeted follow-up. Items 10-11 require a fresh Claude session post-merge — they're the real end-to-end test; the earlier items are unit/integration coverage that runs without Claude.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-03-orphan-agent-hook.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'orphan-agent-hook', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setStatus(status) {
+          li.setAttribute('data-status', status);
+          if (!state[num]) state[num] = {};
+          state[num].status = status;
+          save();
+        }
+
+        passBtn.addEventListener('click', function() { setStatus('pass'); });
+        failBtn.addEventListener('click', function() { setStatus('fail'); });
+
+        if (noteInput) {
+          var debounce;
+          noteInput.addEventListener('input', function() {
+            clearTimeout(debounce);
+            if (!state[num]) state[num] = {};
+            state[num].note = noteInput.value;
+            debounce = setTimeout(save, 400);
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

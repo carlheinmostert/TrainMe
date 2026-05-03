@@ -22,6 +22,29 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/record-agent-dispatch.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/check-orphan-agents.py",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
