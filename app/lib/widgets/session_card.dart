@@ -398,10 +398,7 @@ class _SessionCardState extends State<SessionCard> {
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   child: Row(
                     children: [
-                      _LeadingIconBadge(
-                        icon: Icons.list_alt_rounded,
-                        count: exerciseCount,
-                      ),
+                      _LeadingCountGlyph(count: exerciseCount),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -783,127 +780,56 @@ class _FailedConversionsPill extends StatelessWidget {
   }
 }
 
-/// Small coral-tinted icon badge sat at the leading edge of session
-/// (and client) cards. Colour token + treatment is centralised here
-/// so both surfaces stay in lock-step visually.
+/// Floating exercise-count glyph at the leading edge of the session
+/// card. Replaces the prior coral-tinted icon-box+badge composite
+/// (`_LeadingIconBadge` + `_CountBadge`) — now that PR #220's filmstrip
+/// background carries the visual context of "what's in this session",
+/// the icon is redundant and the count carries the data on its own.
 ///
-/// Coral at 12% alpha background on the dark surface + a coral-filled
-/// glyph. Wave 34 bumps the size +50% (40×40 → 60×60, icon 22 → 33,
-/// radius 10 → 14) so the leading icon reads as a confident anchor on
-/// the card row vs the previous chip-sized footprint. Client-card
-/// leading icon (in `home_screen.dart`) was bumped in lock-step.
+/// Renders as a large coral mono-numeric digit cluster with a strong
+/// drop-shadow so it stays legible against any filmstrip cell. No
+/// enclosing shape — pure glyph, anchored by typography alone.
 ///
-/// Wave 32: when [count] > 0, an exercise-count badge overlays the
-/// bottom-right corner — like an app-icon notification badge. White
-/// digits on solid coral with a 1px dark border so it pops against
-/// both the icon and the card surface. Hidden when [count] == 0
-/// (pre-capture sessions).
-///
-/// Wave 34: count badge shrunk ~15% (16×16 → 14×14, font 10 → 9 single,
-/// 8 → 7 multi-digit) — but device QA found the smaller badge looked
-/// anemic against the +50% leading icon.
-///
-/// Wave 36: reverse direction — bump 14×14 → 21×21 (+50%), fonts 9/7 →
-/// 13/10. Anchor offset relaxed so the larger badge still feels
-/// pinned to the bottom-right corner rather than floating off it.
-class _LeadingIconBadge extends StatelessWidget {
-  final IconData icon;
+/// Footprint stays 60px wide so existing horizontal layout (title +
+/// subtitle column to the right) doesn't shift.
+class _LeadingCountGlyph extends StatelessWidget {
   final int count;
-  const _LeadingIconBadge({required this.icon, this.count = 0});
+  const _LeadingCountGlyph({required this.count});
 
   @override
   Widget build(BuildContext context) {
+    if (count <= 0) {
+      // Pre-capture sessions show nothing in the leading slot.
+      return const SizedBox(width: 60, height: 60);
+    }
+    final label = count > 99 ? '99+' : '$count';
+    final isMultiDigit = label.length >= 2;
     return SizedBox(
       width: 60,
       height: 60,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          // Filmstrip backdrop-blur (Wave 41): sits under the coral tint
-          // so the badge stays anchored against any cell content. The
-          // 0.12 → 0.20 alpha bump compensates for the lighter
-          // gradient stop on the badge's column.
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-              child: Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.20),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                alignment: Alignment.center,
-                child: Icon(icon, color: AppColors.primary, size: 33),
+      child: Center(
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'Inter',
+            // Single-digit can carry more visual weight; multi-digit
+            // ("12" / "26" / "99+") drops a notch so three glyphs fit
+            // inside the 60px slot without touching the title beside.
+            fontSize: isMultiDigit ? 34 : 42,
+            fontWeight: FontWeight.w800,
+            color: AppColors.primary,
+            height: 1.0,
+            letterSpacing: -1.5,
+            fontFeatures: [FontFeature.tabularFigures()],
+            shadows: [
+              Shadow(
+                color: Color(0xCC000000),
+                blurRadius: 6,
+                offset: Offset(0, 1),
               ),
-            ),
+            ],
           ),
-          if (count > 0)
-            // Wave 36 — at 21×21 the badge body is meatier, so we sit it
-            // about a third outside the icon footprint (rather than
-            // hugging the corner). Tested: single-digit + 2-digit + "99+"
-            // all read as confidently anchored accents against the icon.
-            Positioned(
-              right: -5,
-              bottom: -5,
-              child: _CountBadge(count: count),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Coral count pill — circular, white digits, 1px dark border.
-/// Triple-digit counts widen to a stadium so "99+" still reads.
-///
-/// Wave 33: digits shrink at 2+ characters so the count fits without
-/// truncating inside the badge footprint. Carl flagged 10+ were running
-/// off the badge — dropping the font at width ≥ 2 chars solves that
-/// without changing the iconography.
-///
-/// Wave 34: badge geometry shrunk ~15% (16 → 14, fonts 10/8 → 9/7) —
-/// QA found the result anemic next to the +50% leading icon.
-///
-/// Wave 36: reverse direction. 14 → 21 (+50%), fonts 9/7 → 13/10. Pad
-/// for "99+" widened in lock-step so the stadium still hugs the glyphs.
-class _CountBadge extends StatelessWidget {
-  final int count;
-  const _CountBadge({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    final label = count > 99 ? '99+' : '$count';
-    final isMultiDigit = label.length >= 2;
-    return Container(
-      constraints: const BoxConstraints(minWidth: 21, minHeight: 21),
-      padding: EdgeInsets.symmetric(
-        // "99+" gets enough horizontal pad that the glyphs don't kiss
-        // the dark border — three glyphs at 9pt need a bit of room.
-        // Two-digit fits inside 21px once the font drops to 9pt — no
-        // extra pad needed.
-        horizontal: count > 99 ? 4 : 0,
-        vertical: 0,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.surfaceBg, width: 1),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        label,
-        style: TextStyle(
-          fontFamily: 'Inter',
-          color: Colors.white,
-          // Wave 37 — −10% from W36's 13/10. Single-digit 13 → 12,
-          // two-digit 10 → 9. Container size stays 21×21; the smaller
-          // glyph reads as a confident accent without crowding the
-          // pill border.
-          fontSize: isMultiDigit ? 9 : 12,
-          fontWeight: FontWeight.w700,
-          height: 1.0,
         ),
       ),
     );
