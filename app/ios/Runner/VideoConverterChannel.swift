@@ -109,6 +109,31 @@ import CoreVideo
 //     the data available when tunable backgroundDim / other effects
 //     land, without needing to re-capture. Mask writer failure is
 //     non-fatal — line-drawing + segmented passes continue.
+//   v8 (2026-05-03 "hand-region mask dilation"):
+//     lo=1, hi=0.88, alpha=0.96, bgDim=0.50 (UNCHANGED — tuning LOCKED).
+//     Structural change only: `PersonSegmenter` now augments the Vision
+//     person-segmentation mask with a hand-pose pass via
+//     `VNDetectHumanHandPoseRequest` (iOS 14+, max two hands). For each
+//     detected hand we paint a filled disc onto the mask centred on
+//     the hand's keypoint centroid; radius adapts to the hand's
+//     keypoint spread plus a base padding of `handDilationRadiusMin`.
+//     Pixels under the disc become body (255), so dumbbells, bands,
+//     cables, kettlebell handles — anything the practitioner is
+//     gripping — fall inside the body zone of the existing two-zone
+//     blend instead of getting dimmed into the background. The
+//     existing `applyMaskedDim` tent-convolve still softens the
+//     boundary, so the dilation reads as a smooth bulge around the
+//     hands rather than a hard circle.
+//     Cost: ~5–15ms/frame on Neural Engine on top of the existing
+//     person-segmentation request. No-op when no hands are detected
+//     (e.g. bodyweight push-ups) — `VNDetectHumanHandPoseRequest`
+//     returns no observations and the mask passes through unchanged.
+//     Tunable via `handDilationEnabled` / `handDilationRadiusFraction`
+//     / `handDilationRadiusMin` / `handDilationConfidenceMin` below.
+//     Same dilation runs for the line-drawing pass, the segmented-
+//     colour companion (v7.1), AND the `processClientAvatar` /
+//     `processPhotoBodyFocus` thumbnail paths via the shared
+//     `PersonSegmenter`.
 //
 //   ✅ Edge / line tuning (edgeThresholdLo, edgeThresholdHi, lineAlpha)
 //      remains LOCKED at v6 by Carl on 2026-04-20. Do NOT change these
@@ -139,6 +164,42 @@ private let lineAlpha: Double = 0.96
 /// dropped it back to 0.50 to restore subject-pop after Carl's feedback
 /// that the body wasn't separating strongly enough from the background.
 private let backgroundDim: Double = 0.50
+
+// MARK: - Hand-region dilation (v8)
+//
+// Vision's `VNGeneratePersonSegmentationRequest` produces a person-only
+// silhouette — held equipment (dumbbells, bands, kettlebell handles) is
+// excluded by design and gets dimmed into the background by the two-zone
+// blend in `applyMaskedDim`. v8 augments the mask with a hand-pose pass
+// (`VNDetectHumanHandPoseRequest`) and paints a filled disc onto the mask
+// at each detected hand. The disc lands inside the body zone, so anything
+// the practitioner is gripping pops with the body instead of fading.
+
+/// Master switch for hand-region dilation. Disable to fall back to v7.2
+/// behaviour (person-only silhouette).
+private let handDilationEnabled: Bool = true
+
+/// Disc radius as a fraction of the frame's shorter dimension. 0.10 →
+/// disc radius ≈ 10% of `min(width, height)`. Generous enough to cover a
+/// dumbbell head + grip in a typical capture but not so large that the
+/// dilation visibly bulges the silhouette outside the gripped object.
+/// Combined with `handDilationRadiusMin` so very low-resolution frames
+/// don't shrink the disc to nothing.
+private let handDilationRadiusFraction: Double = 0.10
+
+/// Minimum disc radius in pixels — overrides the fraction-based radius
+/// when the latter would be too small (e.g. heavily downsampled previews).
+private let handDilationRadiusMin: Int = 60
+
+/// The disc is also widened to cover the full keypoint spread × this
+/// factor. Captures held implements that extend past the wrist/finger
+/// keypoints (long-handle dumbbells, plate edges).
+private let handDilationSpreadMultiplier: Double = 1.4
+
+/// Minimum keypoint confidence to count toward the centroid + bounding box.
+/// Lower than Vision's default suggestion (0.3) — we want to include
+/// occluded fingertips when the practitioner is gripping a barbell.
+private let handDilationConfidenceMin: Float = 0.20
 
 /// Native iOS platform channel for video-to-line-drawing conversion.
 ///
@@ -2866,6 +2927,12 @@ private class PersonSegmenter {
     // frame and reuse this buffer's backing memory across every frame.
     private var upscaledMaskBuffer: vImage_Buffer
 
+    // v8 — optional hand-pose dilator. Painted onto the mask after
+    // upscaling so equipment held in either hand pops with the body
+    // instead of fading into the background. nil when disabled at the
+    // top-of-file flag or when running on iOS < 14 (HumanHandPose API).
+    private let handDilator: HandPoseDilator?
+
     init(width: Int, height: Int) {
         self.width = width
         self.height = height
@@ -2885,10 +2952,26 @@ private class PersonSegmenter {
             width: vImagePixelCount(width),
             rowBytes: width
         )
+
+        // PersonSegmenter is iOS 15+ so VNDetectHumanHandPoseRequest
+        // (iOS 14+) is unconditionally available here.
+        self.handDilator = handDilationEnabled
+            ? HandPoseDilator(width: width, height: height)
+            : nil
     }
 
     deinit {
         upscaledMaskBuffer.data.deallocate()
+    }
+
+    /// Apply hand-pose dilation to the freshly upscaled mask. Called from
+    /// both the per-frame and one-shot paths after the upscale has landed
+    /// in `upscaledMaskBuffer`. No-op when no dilator is allocated or when
+    /// no hands are detected — the original mask passes through unchanged.
+    private func augmentWithHandDilation(pixelBuffer: CVPixelBuffer) {
+        guard let dilator = handDilator else { return }
+        let dstPtr = upscaledMaskBuffer.data.assumingMemoryBound(to: UInt8.self)
+        dilator.augment(mask: dstPtr, pixelBuffer: pixelBuffer)
     }
 
     /// Run segmentation on the supplied BGRA pixel buffer and return a pointer
@@ -2945,6 +3028,7 @@ private class PersonSegmenter {
                     )
                 }
             }
+            augmentWithHandDilation(pixelBuffer: pixelBuffer)
             return UnsafePointer(dstPtr)
         }
 
@@ -2965,6 +3049,7 @@ private class PersonSegmenter {
             NSLog("PersonSegmenter: vImageScale_Planar8 failed with \(scaleErr)")
             return nil
         }
+        augmentWithHandDilation(pixelBuffer: pixelBuffer)
         let dstPtr = upscaledMaskBuffer.data.assumingMemoryBound(to: UInt8.self)
         return UnsafePointer(dstPtr)
     }
@@ -3013,6 +3098,7 @@ private class PersonSegmenter {
                     )
                 }
             }
+            augmentWithHandDilation(pixelBuffer: pixelBuffer)
             return UnsafePointer(dstPtr)
         }
 
@@ -3032,7 +3118,165 @@ private class PersonSegmenter {
             NSLog("PersonSegmenter: vImageScale_Planar8 failed with \(scaleErr)")
             return nil
         }
+        augmentWithHandDilation(pixelBuffer: pixelBuffer)
         let dstPtr = upscaledMaskBuffer.data.assumingMemoryBound(to: UInt8.self)
         return UnsafePointer(dstPtr)
+    }
+}
+
+// MARK: - Hand-pose dilation (v8)
+
+/// Runs `VNDetectHumanHandPoseRequest` per frame and paints filled discs
+/// onto a Planar8 mask buffer at each detected hand. Used by
+/// `PersonSegmenter` to expand the person silhouette to cover gripped
+/// equipment (dumbbells, bands, kettlebells, plates) so they fall inside
+/// the body zone of the two-zone blend.
+///
+/// Pooled across frames the same way `PersonSegmenter` is — the
+/// `VNSequenceRequestHandler` and the underlying request are created
+/// once and reused.
+///
+/// iOS 14+ only. The caller must gate with `@available(iOS 14.0, *)`.
+@available(iOS 14.0, *)
+private class HandPoseDilator {
+    let width: Int
+    let height: Int
+
+    private let sequenceHandler = VNSequenceRequestHandler()
+    private let request: VNDetectHumanHandPoseRequest
+
+    /// Base disc radius in pixels. Computed once at init from the frame's
+    /// shorter dimension via `handDilationRadiusFraction` (with a minimum
+    /// floor of `handDilationRadiusMin`). The actual painted radius can
+    /// grow larger when a hand's keypoint spread exceeds the base.
+    private let baseRadius: Int
+
+    init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+
+        let req = VNDetectHumanHandPoseRequest()
+        // Two hands is the common case for held equipment (barbell,
+        // landmine, double-dumbbell). The default is 2 already; setting
+        // it explicitly so future Apple changes don't surprise us.
+        req.maximumHandCount = 2
+        self.request = req
+
+        let shortSide = Swift.min(width, height)
+        let fractional = Int((Double(shortSide) * handDilationRadiusFraction).rounded())
+        self.baseRadius = Swift.max(handDilationRadiusMin, fractional)
+    }
+
+    /// Detect hands in `pixelBuffer` and paint a filled disc onto `mask`
+    /// at each one. `mask` MUST be a tightly-packed Planar8 buffer of
+    /// `width * height` bytes (matches `PersonSegmenter.upscaledMaskBuffer`).
+    /// Disc pixels are set to 255 — pixels already at 255 stay at 255.
+    /// No-op when Vision fails or no hands are detected.
+    func augment(mask: UnsafeMutablePointer<UInt8>, pixelBuffer: CVPixelBuffer) {
+        do {
+            try sequenceHandler.perform([request], on: pixelBuffer)
+        } catch {
+            // Hand detection is best-effort — a failure leaves the
+            // mask in its pre-augmentation state. Don't log per-frame;
+            // the segmentation pipeline already logs Vision errors and
+            // a flood here would just be noise on tricky scenes.
+            return
+        }
+        guard let observations = request.results, !observations.isEmpty else {
+            return
+        }
+        for obs in observations {
+            paintHandDisc(observation: obs, mask: mask)
+        }
+    }
+
+    /// Compute the centroid + spread of confident keypoints on a single
+    /// hand observation, then paint a filled disc onto the mask.
+    private func paintHandDisc(
+        observation: VNHumanHandPoseObservation,
+        mask: UnsafeMutablePointer<UInt8>
+    ) {
+        // `recognizedPoints(.all)` throws if the request hasn't finished;
+        // by the time we're here it has. Treat any throw as "skip this
+        // hand" — partial hand detections aren't worth dilating around.
+        guard let points = try? observation.recognizedPoints(.all),
+              !points.isEmpty else {
+            return
+        }
+
+        var sumX: Double = 0
+        var sumY: Double = 0
+        var count: Int = 0
+        var minX: Double = 1.0
+        var maxX: Double = 0.0
+        var minY: Double = 1.0
+        var maxY: Double = 0.0
+
+        for (_, point) in points {
+            if point.confidence < handDilationConfidenceMin { continue }
+            // Vision normalised coords: origin lower-left, range 0…1.
+            let x = Double(point.location.x)
+            let y = Double(point.location.y)
+            sumX += x
+            sumY += y
+            count += 1
+            if x < minX { minX = x }
+            if x > maxX { maxX = x }
+            if y < minY { minY = y }
+            if y > maxY { maxY = y }
+        }
+
+        if count == 0 { return }
+
+        let cxNorm = sumX / Double(count)
+        let cyNorm = sumY / Double(count)
+        // Flip Y because Vision's origin is lower-left but our mask
+        // buffer rows count from the top.
+        let centerX = Int((cxNorm * Double(width)).rounded())
+        let centerY = Int(((1.0 - cyNorm) * Double(height)).rounded())
+
+        // Adaptive radius — the larger of the base radius and the
+        // keypoint-spread radius (half the bounding-box diagonal,
+        // scaled by `handDilationSpreadMultiplier`). Wide grips
+        // (barbell, kettlebell handle held with both hands close
+        // together) get a generous halo; tight fists (dumbbell handle)
+        // fall back to the base.
+        let spreadX = (maxX - minX) * Double(width)
+        let spreadY = (maxY - minY) * Double(height)
+        let spreadDiag = (spreadX * spreadX + spreadY * spreadY).squareRoot()
+        let spreadRadius = Int((spreadDiag * 0.5 * handDilationSpreadMultiplier).rounded())
+        let radius = Swift.max(baseRadius, spreadRadius)
+
+        paintDisc(centerX: centerX, centerY: centerY, radius: radius, mask: mask)
+    }
+
+    /// Paint a filled disc at `(centerX, centerY)` with radius `radius`
+    /// onto the Planar8 `mask`. Pixels inside the disc are set to 255;
+    /// pixels outside are left untouched. Bounds-clipped on every side.
+    private func paintDisc(
+        centerX: Int,
+        centerY: Int,
+        radius: Int,
+        mask: UnsafeMutablePointer<UInt8>
+    ) {
+        if radius <= 0 { return }
+        let r2 = radius * radius
+        let yMin = Swift.max(0, centerY - radius)
+        let yMax = Swift.min(height - 1, centerY + radius)
+        let xMin = Swift.max(0, centerX - radius)
+        let xMax = Swift.min(width - 1, centerX + radius)
+        if yMin > yMax || xMin > xMax { return }
+
+        for y in yMin...yMax {
+            let dy = y - centerY
+            let dy2 = dy * dy
+            let row = y * width
+            for x in xMin...xMax {
+                let dx = x - centerX
+                if dx * dx + dy2 <= r2 {
+                    mask[row + x] = 255
+                }
+            }
+        }
     }
 }
