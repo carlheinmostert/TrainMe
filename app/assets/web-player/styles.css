@@ -1518,14 +1518,14 @@ video.is-prep-paused {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  /* Bug fix 2026-05-03 (D): pills must be uniform width + height
-     regardless of content length. Fixed min-width keeps a "5 kg"
-     pill the same size as a "120 kg · 12 s" pill; min-height pins
-     the vertical dimension. (C): trimmed padding too. min-width
-     sized to fit "120 kg · 12 s" (~13 chars at 9px mono ≈ 64px +
-     padding); pad +4 for breathing room. */
+  /* 2026-05-03 (rep-stack-rescue): bug-D's `min-width: 68px` collided
+     with bug-C's `.rep-stack { width: 34px }` — the aside (flex 0 0
+     auto) claimed 68px in a 34px parent, collapsing the sibling
+     `.rep-stack-section-blocks` to 0 and disappearing the rep-block
+     column. Drop the min-width — chip is now content-sized and may
+     vary per set ("5 kg" vs "120 kg · 12 s"). Re-balancing strict
+     uniformity vs the narrow-column requirement is a follow-up. */
   padding: 2px 6px;
-  min-width: 68px;
   min-height: 18px;
   box-sizing: border-box;
   text-align: center;
