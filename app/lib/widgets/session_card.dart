@@ -8,6 +8,7 @@ import '../models/session.dart';
 import '../services/conversion_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
+import 'conversion_error_log_sheet.dart';
 
 /// Visual session card — one row in a client's session list.
 ///
@@ -567,6 +568,10 @@ class _FailedConversionsPill extends StatelessWidget {
         child: InkWell(
           customBorder: const StadiumBorder(),
           onTap: () => _retry(context, failed),
+          onLongPress: () {
+            HapticFeedback.selectionClick();
+            ConversionErrorLogSheet.show(context);
+          },
           child: Padding(
             padding:
                 const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
