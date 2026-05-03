@@ -70,3 +70,7 @@ docs/test-scripts/*.results.json
 !.claude/settings.json
 !.claude/hooks
 !.claude/hooks/**
+# Per-developer hook state (orphan-agent registry + brief sidecars
+# written by record-agent-dispatch.py). Already covered by `.claude/*`
+# above, but called out explicitly so the intent is obvious.
+.claude/state/
