@@ -72,6 +72,18 @@ class MiniPreview extends StatefulWidget {
   static final ValueNotifier<bool> studioPauseAll =
       ValueNotifier<bool>(false);
 
+  /// Wave Hero — when true, the mini renders the static Hero-frame JPG
+  /// (auto-picked motion-peak by default, or the practitioner's pick
+  /// from the trim panel) instead of spinning up a video controller.
+  /// Used by Studio exercise cards + the editor sheet's header
+  /// thumbnail — surfaces where the Hero shot is the source of truth.
+  /// The Preview tab inside the editor sheet uses [MediaViewerBody]
+  /// (not this widget), so motion still shows where it should.
+  ///
+  /// No-op for photos and rest periods — those branches already render
+  /// static content.
+  final bool staticHero;
+
   const MiniPreview({
     super.key,
     required this.exercise,
@@ -80,6 +92,7 @@ class MiniPreview extends StatefulWidget {
     this.borderRadius,
     this.overlay,
     this.respectGlobalPause = false,
+    this.staticHero = false,
   });
 
   @override
@@ -99,7 +112,11 @@ class _MiniPreviewState extends State<MiniPreview> {
     if (widget.respectGlobalPause) {
       MiniPreview.studioPauseAll.addListener(_onGlobalPauseChanged);
     }
-    _initForExercise(widget.exercise);
+    // Static-Hero surfaces never instantiate a VideoPlayerController —
+    // they render the {id}_thumb*.jpg straight via Image.file.
+    if (!widget.staticHero) {
+      _initForExercise(widget.exercise);
+    }
   }
 
   void _onGlobalPauseChanged() {
@@ -117,6 +134,26 @@ class _MiniPreviewState extends State<MiniPreview> {
     super.didUpdateWidget(oldWidget);
     final oldEx = oldWidget.exercise;
     final newEx = widget.exercise;
+
+    // staticHero toggle — drop any controller we hold and short-circuit.
+    // The Image.file path doesn't need lifecycle management. Re-engage
+    // the controller path if the flag flips back to false.
+    if (oldWidget.staticHero != widget.staticHero) {
+      _disposeController();
+      if (!widget.staticHero) {
+        _initForExercise(newEx);
+      }
+      return;
+    }
+
+    if (widget.staticHero) {
+      // Pure Image.file render — no controller to maintain. Flutter's
+      // image cache keys on the path; bumping focus_frame_offset_ms
+      // overwrites the JPG in place, so the next paint after
+      // regenerateHeroThumbnails picks up the new bytes via
+      // [_HeroFrameImage]'s ValueKey.
+      return;
+    }
 
     final oldPath = _videoPathFor(oldEx);
     final newPath = _videoPathFor(newEx);
@@ -339,6 +376,13 @@ class _MiniPreviewState extends State<MiniPreview> {
     if (ex.mediaType == MediaType.photo) {
       return _PhotoFrame(exercise: ex, treatment: treatment);
     }
+    // Wave Hero — Studio cards + the editor sheet header opt into
+    // [staticHero] so the practitioner sees the picked Hero shot, not
+    // a playing video. The Preview tab inside the editor sheet still
+    // gets motion via [MediaViewerBody] (a different widget).
+    if (widget.staticHero) {
+      return _HeroFrameImage(exercise: ex, treatment: treatment);
+    }
     return _VideoFrame(
       controller: _controller,
       initialized: _initialized,
@@ -488,5 +532,79 @@ class _VideoFrame extends StatelessWidget {
     }
     return video;
   }
+}
+
+/// Wave Hero — static-frame variant for video exercises. Reads the
+/// per-treatment JPG written by [ConversionService.regenerateHeroThumbnails]
+/// (and the post-conversion thumbnail extraction):
+///
+///   * line      → `{id}_thumb_line.jpg`  (frame from converted line video)
+///   * grayscale → `{id}_thumb.jpg`       (B&W frame from raw)
+///   * original  → `{id}_thumb_color.jpg` (colour frame from raw)
+///
+/// Falls through to the next-best on-disk JPG when a variant is missing
+/// (e.g. a legacy exercise without colour/line variants), and finally
+/// to the [_PhotoFrame] (which itself falls through to the dark glyph)
+/// when no JPG exists at all.
+///
+/// Hero regeneration overwrites the JPG IN PLACE — same path, new bytes —
+/// which Flutter's default `FileImage` cache can't see. We use
+/// [_HeroFileImage] (a `FileImage` subclass that includes the picked
+/// offset in its identity) so a fresh pick busts the cache and the
+/// Studio card / editor header repaint with the new frame.
+class _HeroFrameImage extends StatelessWidget {
+  final ExerciseCapture exercise;
+  final Treatment treatment;
+
+  const _HeroFrameImage({required this.exercise, required this.treatment});
+
+  @override
+  Widget build(BuildContext context) {
+    final basePath = exercise.absoluteThumbnailPath;
+    // No thumbnail extracted yet (e.g. mid-conversion on a fresh
+    // capture). Show the dark fallback instead of trying to render the
+    // raw video as an Image — that just bubbles up an error painter.
+    if (basePath == null) {
+      return const _PhotoFallback();
+    }
+    String thumbPath;
+    switch (treatment) {
+      case Treatment.line:
+        thumbPath = basePath.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
+      case Treatment.grayscale:
+        thumbPath = basePath; // default thumbnail IS B&W
+      case Treatment.original:
+        thumbPath = basePath.replaceFirst('_thumb.jpg', '_thumb_color.jpg');
+    }
+    final thumbFile = File(thumbPath);
+    final fallbackFile = File(basePath);
+    final useFile = thumbFile.existsSync() ? thumbFile : fallbackFile;
+    if (!useFile.existsSync()) return const _PhotoFallback();
+    final offset = exercise.focusFrameOffsetMs ?? 0;
+    return Image(
+      image: _HeroFileImage(useFile, offset),
+      fit: BoxFit.cover,
+      errorBuilder: (_, e, s) => const _PhotoFallback(),
+    );
+  }
+}
+
+/// `FileImage` whose cache identity includes the practitioner-picked
+/// Hero offset. Without this, an in-place rewrite of the same path
+/// (which is what [ConversionService.regenerateHeroThumbnails] does)
+/// keeps the stale bytes in [PaintingBinding.imageCache]. Bumping the
+/// offset → different `==` / `hashCode` → cache miss → fresh decode.
+class _HeroFileImage extends FileImage {
+  final int offsetMs;
+  const _HeroFileImage(super.file, this.offsetMs);
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! _HeroFileImage) return false;
+    return file.path == other.file.path && offsetMs == other.offsetMs;
+  }
+
+  @override
+  int get hashCode => Object.hash(file.path, offsetMs);
 }
 

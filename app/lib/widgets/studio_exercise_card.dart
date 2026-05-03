@@ -199,18 +199,20 @@ class StudioExerciseCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // Layer 1 — video flood-fill. MiniPreview already handles
-              // rest/photo/video branches, treatment + body-focus
-              // mirroring, and manual loop. width: infinity + height: null
+              // Layer 1 — Hero-frame flood-fill. MiniPreview's staticHero
+              // branch renders the per-treatment {id}_thumb*.jpg picked
+              // by the practitioner via the trim panel (or the
+              // motion-peak default for un-edited captures), so the
+              // Studio card stops looping the source video and shows the
+              // single representative frame. Photo + rest branches are
+              // unchanged (already static). width: infinity + height: null
               // → MiniPreview falls into SizedBox.expand and fills the
               // 152pt Stack.
               MiniPreview(
                 exercise: exercise,
                 width: double.infinity,
                 borderRadius: BorderRadius.circular(16),
-                // Pause this video while the editor sheet is open so
-                // the practitioner isn't distracted by background motion.
-                respectGlobalPause: true,
+                staticHero: true,
               ),
               // Layer 2 — bottom-up gradient scrim. Lower 70% of card,
               // black 0.85 at the bottom transitioning through 0.55 to
