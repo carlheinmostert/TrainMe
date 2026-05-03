@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Studio settings card (UI-only Phase A)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 9999px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+    background: var(--coral-bg); color: var(--coral);
+    border: 1px solid rgba(255,107,53,0.3);
+    margin-right: 6px;
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-03 · Studio settings card · Phase A (UI-only)</div>
+    <h1>Device QA — Studio settings card</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify the new plan-settings sheet ships behind a gear icon on the Studio bottom toolbar (replacing the prior cloud-download icon). The sheet renders five sections per the locked mockup — Pacing, Display defaults, Web viewer, Plan actions, Plan info — and routes Save-to-Photos plus Soft-delete plan to the existing handlers.
+      <br><br>
+      <strong>Phase A scope:</strong> UI only. The persisted field (<code>preferred_rest_interval_seconds</code>) writes through; <em>every other toggle / chip / stepper is in-memory state with <code>TODO(phase-b)</code> markers</em>. Reopening the sheet resets in-memory fields to their defaults — that's expected, schema-half lands in Phase B.
+      <br><br>
+      <strong>Out of scope:</strong> persistence for the in-memory fields, web-player consumption of any Web-viewer toggle, Duplicate plan (renders disabled), web-portal mirror.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Branch <code>feat/studio-settings-card-ui</code> installed via <code>./install-device.sh</code>.</li>
+        <li>Carl's iPhone <code>00008150-001A31D40E88401C</code>.</li>
+        <li>At least one client with at least one published session (so Plan info has real values).</li>
+      </ul>
+    </div>
+
+    <h2>1 · Toolbar entry-point + sheet open</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The cloud-download icon is gone; a gear sits in its place. Tapping opens the sheet at ~85% detent.
+    </p>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">+</button><button class="fail" type="button" aria-label="Fail 1">x</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open any client → tap into a session. Studio mode renders. The bottom toolbar's right edge shows a <strong>gear icon</strong> (settings_outlined). The old cloud-download icon is no longer present anywhere on the toolbar.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">+</button><button class="fail" type="button" aria-label="Fail 2">x</button></div>
+        <span class="num">2.</span>
+        <span class="text">Tap the gear. A bottom sheet rises to ~85% of screen height. Header reads <strong>Plan settings</strong> with a subtitle <code>{DD Mon YYYY HH:MM} · client: {Name}</code>. A drag handle sits above the header; an X icon top-right.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">+</button><button class="fail" type="button" aria-label="Fail 3">x</button></div>
+        <span class="num">3.</span>
+        <span class="text">Tap the X (or tap outside the sheet). The sheet dismisses with the standard modal-bottom-sheet slide-down animation. No haptic glitches; no flash of black.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Pacing section</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Rest-between-exercises persists to <code>preferred_rest_interval_seconds</code>; auto-insert threshold is in-memory only.
+    </p>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">+</button><button class="fail" type="button" aria-label="Fail 4">x</button></div>
+        <span class="num">4.</span>
+        <span class="text">In Pacing, the first row is <strong>Default rest between exercises</strong>. The stepper shows the current value (default 30s for fresh plans). Tap the + button — value bumps in <strong>5s</strong> increments (30 → 35 → 40, etc). Tap minus — value drops by 5s. Floor 5s, ceiling 180s.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">+</button><button class="fail" type="button" aria-label="Fail 5">x</button></div>
+        <span class="num">5.</span>
+        <span class="text">Bump rest to 45s. Close the sheet → reopen. Value still shows 45s (persisted to SQLite via the existing <code>_touchAndPush</code> path). The session card's "dirty" indicator may flip to coral cloud-sync since the edit counts as a content change.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">+</button><button class="fail" type="button" aria-label="Fail 6">x</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Auto-insert rest every</strong> stepper bumps in 1-min increments (default 10 min). Change to 7 min → close sheet → reopen → value resets to 10 (Phase A in-memory only — not persisted, expected).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · Display defaults section</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      All three controls in this section are in-memory only this wave. Header subtitle reads "applies to new exercises".
+    </p>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">+</button><button class="fail" type="button" aria-label="Fail 7">x</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Default treatment</strong> chip group shows three pills: Drawn / B&amp;W / Colour. Tap each — selected chip flips to coral fill + coral border. Only one chip is selected at a time. Default selection: B&amp;W.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">+</button><button class="fail" type="button" aria-label="Fail 8">x</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Body focus on</strong> toggle: pill-shaped, 42x24, tap flips coral on / surface off; thumb slides left&lt;-&gt;right with a 140ms ease. Default state: ON.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">+</button><button class="fail" type="button" aria-label="Fail 9">x</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Audio on for new exercises</strong> toggle works the same way. Default state: OFF.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">+</button><button class="fail" type="button" aria-label="Fail 10">x</button></div>
+        <span class="num">10.</span>
+        <span class="text">Flip all three to non-default. Close + reopen the sheet. Every value resets to default (Phase A in-memory only — expected).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · Web viewer section</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Six toggles, all default ON. Header subtitle reads "what your client sees".
+    </p>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">+</button><button class="fail" type="button" aria-label="Fail 11">x</button></div>
+        <span class="num">11.</span>
+        <span class="text">All six toggles render in this order with their help text:
+          <em>Show exercise title above video</em>,
+          <em>Show practitioner notes</em>,
+          <em>Show progress pill matrix</em>,
+          <em>Show rep stack</em>,
+          <em>Allow client to override treatment</em>,
+          <em>Allow client to skip / extend rests</em>.
+          Every toggle defaults <strong>ON</strong>.
+        </span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">+</button><button class="fail" type="button" aria-label="Fail 12">x</button></div>
+        <span class="num">12.</span>
+        <span class="text">Flip a few toggles off. Close + reopen the sheet. Every toggle resets ON (Phase A in-memory only — expected).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Plan actions section</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Save-all and Delete route to existing handlers. Copy-URL writes to clipboard. Duplicate is disabled.
+    </p>
+    <ul class="checklist">
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">+</button><button class="fail" type="button" aria-label="Fail 13">x</button></div>
+        <span class="num">13.</span>
+        <span class="text">Tap <strong>Save all videos to camera roll</strong>. Sheet closes. The familiar Save-to-Photos progress SnackBar fires (<code>1/N saving...</code>) followed by <code>N files saved to Photos</code>. Open the iOS Photos app — the freshly saved files are present (regression check that the prior cloud-download handler is correctly routed through).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">+</button><button class="fail" type="button" aria-label="Fail 14">x</button></div>
+        <span class="num">14.</span>
+        <span class="text">Reopen the sheet. Tap <strong>Copy plan share URL</strong>. SnackBar reads <code>Plan URL copied</code>. Open the Notes app, paste — clipboard contents are <code>https://session.homefit.studio/p/{plan-id}</code> with the FULL UUID (no ellipsis). The sheet stays open after the copy.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">+</button><button class="fail" type="button" aria-label="Fail 15">x</button></div>
+        <span class="num">15.</span>
+        <span class="text"><strong>Duplicate plan</strong> row is dimmed (~55% opacity). Tap — nothing happens. Help text reads "Coming soon — creates a copy in the same client's session list, version 1, unpublished."</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">+</button><button class="fail" type="button" aria-label="Fail 16">x</button></div>
+        <span class="num">16.</span>
+        <span class="text"><strong>Delete plan</strong> row title renders <strong>red</strong> (danger color). Tap — the sheet closes, Studio pops back to the client sessions list, the deleted plan is gone, and a SnackBar reads <code>Plan deleted</code> with an <strong>Undo</strong> action. Tap Undo — the plan re-appears in the list (R-01 soft-delete + 7-day undo).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 · Plan info section</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      Read-only metadata grid. All values resolved from the existing Session model.
+    </p>
+    <ul class="checklist">
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">+</button><button class="fail" type="button" aria-label="Fail 17">x</button></div>
+        <span class="num">17.</span>
+        <span class="text">Plan info section renders these labels in pairs (mono-font caps): <em>VERSION</em>, <em>LAST PUBLISHED</em>, <em>ESTIMATED DURATION</em>, <em>CREDIT COST</em>, <em>CREATED BY</em>, <em>FIRST OPENED</em>. Then <em>PLAN URL</em> on a full-width row. Layout reads as a 2-column grid above + 1 full-width row below.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">+</button><button class="fail" type="button" aria-label="Fail 18">x</button></div>
+        <span class="num">18.</span>
+        <span class="text">Open the sheet on a <strong>published</strong> plan. <em>VERSION</em> matches the version chip on the session card. <em>LAST PUBLISHED</em> renders <code>DD Mon HH:MM</code>. <em>ESTIMATED DURATION</em> shows minutes. <em>CREDIT COST</em> reads <code>1 credit</code> for ≤ 75-min plans / <code>2 credits</code> for &gt; 75-min plans. <em>CREATED BY</em> renders the practitioner's email (or "—" if not resolvable). <em>FIRST OPENED</em> renders <code>DD Mon HH:MM</code> for opened plans / <code>— never —</code> for unopened.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="19" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 19">+</button><button class="fail" type="button" aria-label="Fail 19">x</button></div>
+        <span class="num">19.</span>
+        <span class="text"><em>PLAN URL</em> renders in coral monospace, full UUID visible. Tap the URL — clipboard receives the same URL + SnackBar fires <code>Plan URL copied</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>7 · Coral-dot deviation indicator</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The toolbar gear shows a coral dot when any persisted plan-setting deviates from default. Phase A inspects only <code>preferred_rest_interval_seconds</code> != 30.
+    </p>
+    <ul class="checklist">
+      <li data-num="20" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 20">+</button><button class="fail" type="button" aria-label="Fail 20">x</button></div>
+        <span class="num">20.</span>
+        <span class="text">Find a session whose rest interval is at default (30s) — gear icon has NO coral dot. Open the sheet, bump rest to 45s, close. The toolbar gear now shows a small coral dot in its top-right corner. Bump rest back to 30s — dot disappears.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="21" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 21">+</button><button class="fail" type="button" aria-label="Fail 21">x</button></div>
+        <span class="num">21.</span>
+        <span class="text">Open the sheet, flip Web-viewer toggles off + change Default treatment to Drawn — close. The gear does NOT show a coral dot (in-memory toggles don't trip the indicator in Phase A — the helper only inspects persisted fields, expected).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass-notes feed Phase B's persistence wave. Failures spawn targeted follow-ups. Out-of-scope items observed during this pass (Duplicate plan still wanted, Web-viewer toggles wanting cloud round-trip) belong in the Phase B brief, not here.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-03-studio-settings-card-ui.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'studio-settings-card-ui', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setStatus(status) {
+          li.setAttribute('data-status', status);
+          if (!state[num]) state[num] = {};
+          state[num].status = status;
+          save();
+        }
+
+        passBtn.addEventListener('click', function() { setStatus('pass'); });
+        failBtn.addEventListener('click', function() { setStatus('fail'); });
+
+        if (noteInput) {
+          var debounce;
+          noteInput.addEventListener('input', function() {
+            clearTimeout(debounce);
+            if (!state[num]) state[num] = {};
+            state[num].note = noteInput.value;
+            debounce = setTimeout(save, 400);
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
