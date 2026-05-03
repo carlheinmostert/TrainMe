@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 35;
+  static const _dbVersion = 36;
 
   Database? _db;
 
@@ -156,8 +156,15 @@ class LocalStorageService {
   /// Shared DDL for the per-set PLAN child table. Called from both
   /// [_createTables] (fresh installs) and the v33 migration branch.
   /// Mirrors the cloud `public.exercise_sets` table column-for-column
-  /// (id PK, exercise_id FK, position, reps, hold_seconds, weight_kg
-  /// REAL, breather_seconds_after, timestamps).
+  /// (id PK, exercise_id FK, position, reps, hold_seconds, hold_position,
+  /// weight_kg REAL, breather_seconds_after, timestamps).
+  ///
+  /// `hold_position` is one of `'per_rep' | 'end_of_set' | 'end_of_exercise'`.
+  /// Defaults to `'end_of_set'` for new sets (the natural default — one
+  /// isometric pause at the end of the set). The v36 migration backfills
+  /// existing rows with `hold_seconds > 0` to `'per_rep'` to preserve the
+  /// previous web-player contract (`reps × hold`) byte-stable on already-
+  /// published plans.
   Future<void> _createExerciseSetsTable(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS exercise_sets (
@@ -166,6 +173,7 @@ class LocalStorageService {
         position INTEGER NOT NULL,
         reps INTEGER NOT NULL,
         hold_seconds INTEGER NOT NULL DEFAULT 0,
+        hold_position TEXT NOT NULL DEFAULT 'end_of_set',
         weight_kg REAL,
         breather_seconds_after INTEGER NOT NULL DEFAULT 60,
         created_at INTEGER NOT NULL,
@@ -904,6 +912,31 @@ class LocalStorageService {
       // Supabase mirror: schema_wave_hero_focus_frame.sql.
       await db.execute(
         'ALTER TABLE exercises ADD COLUMN focus_frame_offset_ms INTEGER',
+      );
+    }
+    if (oldVersion < 36) {
+      // Wave 43 — three-mode hold position on per-set PLAN rows.
+      //
+      // `hold_position` controls how `hold_seconds` contributes to the
+      // per-set duration:
+      //   * 'per_rep'         → reps × hold        (legacy contract)
+      //   * 'end_of_set'      → 1 × hold           (new default)
+      //   * 'end_of_exercise' → only on last set; 0 elsewhere
+      //
+      // Backfill: existing rows with hold_seconds > 0 get 'per_rep' so
+      // already-displayed plan durations stay byte-stable. Rows with
+      // hold_seconds = 0 stay on the new default 'end_of_set' — math is
+      // identical in all three modes when hold is 0, and new sets the
+      // practitioner adds will inherit the same default.
+      //
+      // Supabase mirror: schema_wave43_hold_position.sql.
+      await db.execute(
+        "ALTER TABLE exercise_sets ADD COLUMN hold_position TEXT NOT NULL "
+        "DEFAULT 'end_of_set'",
+      );
+      await db.execute(
+        "UPDATE exercise_sets SET hold_position = 'per_rep' "
+        "WHERE hold_seconds > 0",
       );
     }
   }

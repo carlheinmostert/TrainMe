@@ -517,7 +517,8 @@ function onVisibilityChange() {
               currentSetIndex++;
               setPhase = 'set';
               const nextSet = playSets[currentSetIndex];
-              setPhaseRemaining = calculatePerSetSeconds(nextSet, slide);
+              const nextIsLast = currentSetIndex >= playSets.length - 1;
+              setPhaseRemaining = calculatePerSetSeconds(nextSet, slide, nextIsLast);
             } else {
               // Exhausted all sets — clamp
               setPhaseRemaining = 0;
@@ -529,7 +530,8 @@ function onVisibilityChange() {
             if (!isLastSet) {
               currentSetIndex++;
               const nextSet = playSets[currentSetIndex];
-              setPhaseRemaining = calculatePerSetSeconds(nextSet, slide);
+              const nextIsLast = currentSetIndex >= playSets.length - 1;
+              setPhaseRemaining = calculatePerSetSeconds(nextSet, slide, nextIsLast);
             } else {
               break;
             }
@@ -2343,9 +2345,11 @@ function paintActiveRepBlock() {
   let activeFillPct = 0;
   const playSetsActive = playSetsForSlide(slide);
   if (isWorkoutMode && setPhase === 'set') {
-    const activeSet = playSetsActive[Math.min(currentSetIndex, playSetsActive.length - 1)];
+    const activeIdx = Math.min(currentSetIndex, playSetsActive.length - 1);
+    const activeSet = playSetsActive[activeIdx];
     const totalReps = (activeSet && activeSet.reps) || 0;
-    const perSet = calculatePerSetSeconds(activeSet, slide);
+    const isLast = activeIdx >= playSetsActive.length - 1;
+    const perSet = calculatePerSetSeconds(activeSet, slide, isLast);
     // The breather is baked into perSet; subtract it for the rep-fill
     // window so the active rep block reaches 100% at "last rep" and
     // the breather plays its own sage block.
@@ -2678,11 +2682,26 @@ function perRepSecondsForSlide(slide) {
  */
 function _coerceSet(rawSet) {
   if (!rawSet) {
-    return { reps: 10, hold_seconds: 0, weight_kg: null, breather_seconds_after: 0 };
+    return {
+      reps: 10,
+      hold_seconds: 0,
+      hold_position: 'end_of_set',
+      weight_kg: null,
+      breather_seconds_after: 0,
+    };
   }
+  // Wave 43 — three-mode hold_position. Unknown / missing values fall
+  // through to the new default 'end_of_set' (math identical to legacy
+  // behaviour when hold_seconds === 0; per-rep-multiplying durations
+  // keep their per_rep stamp via the v36 / wave43 backfills).
+  const rawHp = rawSet.hold_position;
+  const holdPosition = (rawHp === 'per_rep' || rawHp === 'end_of_set' || rawHp === 'end_of_exercise')
+    ? rawHp
+    : 'end_of_set';
   return {
     reps: Math.max(1, Number(rawSet.reps) || 10),
     hold_seconds: Math.max(0, Number(rawSet.hold_seconds) || 0),
+    hold_position: holdPosition,
     weight_kg: rawSet.weight_kg == null ? null : Number(rawSet.weight_kg),
     breather_seconds_after: Math.max(0, Number(rawSet.breather_seconds_after) || 0),
   };
@@ -2735,16 +2754,36 @@ function effectiveSetsForSlide(slide) {
 /**
  * Wave 41 — per-set duration in seconds for one entry of slide.sets[].
  *
- *   per_rep = perRepSecondsForSlide(slide)
- *   per_set = (set.reps × per_rep)
- *           + (set.reps × set.hold_seconds)   // hold every rep
- *           + set.breather_seconds_after
+ * Wave 43 — three-mode hold_position:
+ *   per_rep         → hold_total = reps × hold      (legacy contract)
+ *   end_of_set      → hold_total = 1 × hold         (new default)
+ *   end_of_exercise → hold_total = hold on LAST set; 0 elsewhere
+ *
+ *   per_rep_seconds = perRepSecondsForSlide(slide)
+ *   per_set         = (reps × per_rep_seconds)
+ *                   + hold_total
+ *                   + set.breather_seconds_after
  *
  * The set's trailing breather is BAKED IN to the per-set total —
  * calculateDuration() sums these directly without re-adding rest. The
  * old `inter_set_rest_seconds` × N formula is gone.
+ *
+ * @param {object} setOrSlide  Either the set object (with reps + hold_*)
+ *                             or the slide (with media_type) — the
+ *                             single-arg legacy signature reads the
+ *                             active set off the global state machine.
+ * @param {object} [maybeSlide] Slide object when the first arg is a set.
+ * @param {boolean} [isLastSetInExercise] True when this set is the last
+ *                             playable set in its slide. Required for
+ *                             `end_of_exercise` mode to contribute its
+ *                             hold; ignored in the other two modes. The
+ *                             single-arg fallback resolves this from
+ *                             `currentSetIndex` / `totalSetsForSlide`
+ *                             when not supplied. For circuit slides
+ *                             (one effective set per slide), defaults
+ *                             to true.
  */
-function calculatePerSetSeconds(setOrSlide, maybeSlide) {
+function calculatePerSetSeconds(setOrSlide, maybeSlide, isLastSetInExercise) {
   // Two-arg signature: (set, slide) — preferred. Single-arg legacy
   // signature: (slide) — maps to the currently-active set on that
   // slide. The single-arg path covers ~10 call sites that have always
@@ -2752,6 +2791,7 @@ function calculatePerSetSeconds(setOrSlide, maybeSlide) {
   // active set off the global state machine.
   let set;
   let slide;
+  let lastFlag = isLastSetInExercise;
   if (
     setOrSlide
     && typeof setOrSlide === 'object'
@@ -2762,20 +2802,41 @@ function calculatePerSetSeconds(setOrSlide, maybeSlide) {
     const playSets = playSetsForSlide(slide);
     const activeIdx = Math.max(0, Math.min(currentSetIndex || 0, playSets.length - 1));
     set = playSets[activeIdx];
+    if (lastFlag === undefined) {
+      // Single-arg fallback — derive from the active set's index
+      // against the slide's effective set count. Circuit slides
+      // produce one play-set so isLast collapses to true.
+      lastFlag = activeIdx >= playSets.length - 1;
+    }
   } else {
     set = setOrSlide;
     slide = maybeSlide;
+    if (lastFlag === undefined) {
+      // Two-arg, last flag omitted: legacy callers from before Wave 43.
+      // Default to FALSE to preserve byte-stable durations on plans
+      // that haven't opted into end_of_exercise. The hold contributes
+      // 0 in that mode, which matches the v36 backfill's choice for
+      // pre-existing plans (per_rep / end_of_set only).
+      lastFlag = false;
+    }
   }
 
   const perRep = perRepSecondsForSlide(slide);
   const reps = Math.max(1, (set && set.reps) || 1);
   const hold = Math.max(0, (set && set.hold_seconds) || 0);
   const breather = Math.max(0, (set && set.breather_seconds_after) || 0);
-  // Hold seconds historically applied per-rep (an isometric beat at
-  // each rep apex). Keep that contract on the per-set total; the
-  // brief's formula `(per_rep × reps) + (hold × reps) + breather`
-  // matches.
-  const phys = (reps * perRep) + (reps * hold);
+  const holdPosition = (set && set.hold_position) || 'end_of_set';
+  // Wave 43 — three-mode hold_total.
+  let holdTotal;
+  if (holdPosition === 'per_rep') {
+    holdTotal = reps * hold;
+  } else if (holdPosition === 'end_of_exercise') {
+    holdTotal = lastFlag ? hold : 0;
+  } else {
+    // 'end_of_set' (also the default for unknown wire values).
+    holdTotal = hold;
+  }
+  const phys = (reps * perRep) + holdTotal;
   return Math.max(1, Math.round(phys + breather));
 }
 
@@ -2796,10 +2857,14 @@ function calculateDuration(slide) {
     return Math.max(1, Math.round(Number(v)));
   }
 
+  // Wave 43 — pass isLastSetInExercise per iteration so end_of_exercise
+  // hold contributes only on the final set. Circuit slides produce one
+  // play-set so the last-set check collapses to true.
   const playSets = playSetsForSlide(slide);
   let total = 0;
-  for (const s of playSets) {
-    total += calculatePerSetSeconds(s, slide);
+  for (let i = 0; i < playSets.length; i++) {
+    const isLast = i === playSets.length - 1;
+    total += calculatePerSetSeconds(playSets[i], slide, isLast);
   }
   return Math.max(1, total);
 }
@@ -3139,7 +3204,14 @@ function beginSetMachineForCurrent() {
   const playSets = playSetsForSlide(slide);
   totalSetsForSlide = playSets.length;
   setPhase = 'set';
-  setPhaseRemaining = calculatePerSetSeconds(playSets[0], slide);
+  // Wave 43 — the first set is also the last when there's only one
+  // play-set on this slide (circuit slides always; pyramids only when
+  // they happen to authour a single set).
+  setPhaseRemaining = calculatePerSetSeconds(
+    playSets[0],
+    slide,
+    playSets.length <= 1,
+  );
   // The breather is per-set; cache the FIRST set's breather here for
   // legacy consumers that still read `interSetRestForSlide`. Phase
   // transitions refresh this from the active set.
@@ -3335,7 +3407,8 @@ function advanceSetPhase() {
       currentSetIndex++;
       setPhase = 'set';
       const nextSet = playSets[currentSetIndex];
-      setPhaseRemaining = calculatePerSetSeconds(nextSet, slide);
+      const nextIsLast = currentSetIndex >= playSets.length - 1;
+      setPhaseRemaining = calculatePerSetSeconds(nextSet, slide, nextIsLast);
       interSetRestForSlide = nextSet.breather_seconds_after || 0;
     }
   } else {
@@ -3346,7 +3419,8 @@ function advanceSetPhase() {
     currentSetIndex++;
     setPhase = 'set';
     const nextSet = playSets[currentSetIndex];
-    setPhaseRemaining = calculatePerSetSeconds(nextSet, slide);
+    const nextIsLast = currentSetIndex >= playSets.length - 1;
+    setPhaseRemaining = calculatePerSetSeconds(nextSet, slide, nextIsLast);
     interSetRestForSlide = nextSet.breather_seconds_after || 0;
     resumeActiveVideoAfterBreather();
   }
@@ -4733,7 +4807,11 @@ function _canJumpRepStack() {
   const playSets = playSetsForSlide(slide);
   if (!playSets.length) return false;
   const firstSet = playSets[0];
-  return firstSet.reps > 0 && calculatePerSetSeconds(firstSet, slide) > 0;
+  // Wave 43 — for the "is there ANY playable time?" check, the
+  // last-set flag matches "single-set slide" so end_of_exercise hold
+  // contributes when present. Falls back to default false otherwise.
+  return firstSet.reps > 0
+    && calculatePerSetSeconds(firstSet, slide, playSets.length <= 1) > 0;
 }
 
 function _repaintAfterJump() {
@@ -4753,7 +4831,8 @@ function _repaintAfterJump() {
 function _cumulativeSecondsBeforeSet(slide, playSets, setIdx) {
   let sum = 0;
   for (let i = 0; i < setIdx && i < playSets.length; i++) {
-    sum += calculatePerSetSeconds(playSets[i], slide);
+    const isLast = i === playSets.length - 1;
+    sum += calculatePerSetSeconds(playSets[i], slide, isLast);
   }
   return sum;
 }
@@ -4766,7 +4845,8 @@ function jumpToRep(setIdx, repIdx) {
   if (setIdx < 0 || setIdx >= playSets.length) return;
 
   const targetSet = playSets[setIdx];
-  const targetPerSet = calculatePerSetSeconds(targetSet, slide);
+  const targetIsLast = setIdx >= playSets.length - 1;
+  const targetPerSet = calculatePerSetSeconds(targetSet, slide, targetIsLast);
   const targetReps = Math.max(1, targetSet.reps || 1);
   const breatherForTarget = targetSet.breather_seconds_after || 0;
   // Physical (rep-fill) seconds within this set, minus baked-in breather.
@@ -4792,8 +4872,9 @@ function jumpToRest(setIdx) {
   if (setIdx < 0 || setIdx >= playSets.length) return;
 
   const targetSet = playSets[setIdx];
+  const targetIsLast = setIdx >= playSets.length - 1;
   const breatherForTarget = targetSet.breather_seconds_after || 0;
-  const targetPerSet = calculatePerSetSeconds(targetSet, slide);
+  const targetPerSet = calculatePerSetSeconds(targetSet, slide, targetIsLast);
   const physicalSet = Math.max(1, targetPerSet - breatherForTarget);
 
   currentSetIndex = setIdx;

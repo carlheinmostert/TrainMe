@@ -154,8 +154,8 @@
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
-      <h3 class="title">19 waves awaiting device QA</h3>
-      <!-- Note: count includes the new 2026-05-03 wave (#1); the 2026-05-02 hero-cloud-prefetch wave moved to Past waves now that the standalone Hero tab is decommissioned. Net delta zero. -->
+      <h3 class="title">20 waves awaiting device QA</h3>
+      <!-- Note: count includes the new 2026-05-03 hold-position wave (#0). -->
               </div>
             </div>
             <div style="text-align: right;">
@@ -175,6 +175,19 @@
 
     <h2>Order · test these now</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-05-03-hold-position.html">
+          <div class="row">
+            <div>
+              <div class="name">0 · Hold position 3-mode (Wave 43)</div>
+              <div class="scope">Mobile + web. Per-set hold gets a 3-mode toggle: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">per_rep</code> (legacy <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">reps × hold</code>) · <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">end_of_set</code> (new default — one isometric pause at the end of the set) · <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">end_of_exercise</code> (hold on the LAST set only). New 3-pill segmented control beneath the Hold stepper inside the editor sheet's Plan tab. Existing rows with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">hold &gt; 0</code> backfilled to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">per_rep</code> so already-published plan durations stay byte-stable. SQLite v36, Supabase migration ready but unapplied (Carl reviews). SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v29-hold-position</code>. <strong>11 items in 5 sections.</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-05-03-camera-capture-trio.html">
           <div class="row">

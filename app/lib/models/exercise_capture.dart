@@ -672,12 +672,19 @@ class ExerciseCapture {
   /// Rest periods return their [restHoldSeconds] (or the global default
   /// when unset).
   ///
-  /// Per-set derivation:
+  /// Per-set derivation (Wave 43 — three-mode hold position):
   ///
   ///   per_rep_seconds = (videoDurationMs / 1000) / (videoRepsPerLoop ?? 1)
   ///                     for video captures with a known duration;
   ///                     [AppConfig.secondsPerRep] otherwise.
-  ///   per_set_seconds = set.reps × per_rep_seconds + set.holdSeconds
+  ///
+  ///   hold_total      = match (set.holdPosition) {
+  ///                       per_rep        → set.reps × set.holdSeconds
+  ///                       end_of_set     → 1 × set.holdSeconds
+  ///                       end_of_exercise → set.holdSeconds when this is
+  ///                                          the LAST set in [sets]; else 0
+  ///                     }
+  ///   per_set_seconds = (set.reps × per_rep_seconds) + hold_total
   ///   total           = Σ (per_set_seconds + set.breatherSecondsAfter)
   ///                     across every set in [sets].
   ///
@@ -700,8 +707,15 @@ class ExerciseCapture {
         ? ((videoDurationMs! / 1000) / (videoRepsPerLoop ?? 1)).round()
         : AppConfig.secondsPerRep;
     int total = 0;
-    for (final s in sets) {
-      total += s.reps * perRep + s.holdSeconds + s.breatherSecondsAfter;
+    for (var i = 0; i < sets.length; i++) {
+      final s = sets[i];
+      final isLastSet = i == sets.length - 1;
+      final holdTotal = switch (s.holdPosition) {
+        HoldPosition.perRep => s.reps * s.holdSeconds,
+        HoldPosition.endOfSet => s.holdSeconds,
+        HoldPosition.endOfExercise => isLastSet ? s.holdSeconds : 0,
+      };
+      total += s.reps * perRep + holdTotal + s.breatherSecondsAfter;
     }
     return total;
   }

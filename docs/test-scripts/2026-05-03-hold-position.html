@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA — Hold position 3-mode (Wave 43)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-family: Inter, sans-serif; font-weight: 600; font-size: 14px;
+    color: var(--coral); margin: 18px 0 8px; letter-spacing: 0.2px;
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 9999px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+    background: var(--coral-bg); color: var(--coral);
+    border: 1px solid rgba(255,107,53,0.3);
+    margin-right: 6px;
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  table.modes {
+    width: 100%; border-collapse: collapse; margin: 12px 0 24px;
+    font-size: 13px;
+  }
+  table.modes th, table.modes td {
+    border: 1px solid var(--border); padding: 8px 10px; text-align: left;
+  }
+  table.modes th {
+    background: var(--raised); color: var(--coral);
+    font-family: Inter, sans-serif; font-weight: 600;
+    letter-spacing: 0.3px; font-size: 11px; text-transform: uppercase;
+  }
+  table.modes td code { background: transparent; color: var(--text); padding: 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-03 · Hold position 3-mode (Wave 43)</div>
+    <h1>Device QA — Hold position 3-mode</h1>
+    <p class="lede">
+      <strong>Purpose:</strong> verify the new <strong>per-set hold position</strong> control. Each set gets a small 3-pill segmented control beneath the existing Hold stepper. The chosen mode controls how <code>hold_seconds</code> contributes to the per-set duration on both surfaces (mobile preview + web player at <code>session.homefit.studio</code>).
+      <br><br>
+      <strong>The three modes:</strong>
+    </p>
+
+    <table class="modes">
+      <thead>
+        <tr><th>Wire value</th><th>UI label</th><th>Math contribution</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>per_rep</code></td><td>Per rep</td><td><code>reps × hold</code> (legacy contract)</td></tr>
+        <tr><td><code>end_of_set</code></td><td>End of set ✓</td><td><code>1 × hold</code> (new default)</td></tr>
+        <tr><td><code>end_of_exercise</code></td><td>End</td><td><code>hold</code> on the LAST set only; 0 elsewhere</td></tr>
+      </tbody>
+    </table>
+
+    <p class="lede">
+      <strong>Migration:</strong> existing rows with <code>hold_seconds &gt; 0</code> were backfilled to <code>per_rep</code> so already-published plan durations stay byte-stable. Rows with <code>hold_seconds = 0</code> use the new default (math identical in all 3 modes when hold is 0). New sets default to <code>end_of_set</code>.
+      <br><br>
+      <strong>Surfaces:</strong> mobile editor sheet (Plan tab) is the only place to <em>change</em> the mode — web is consumption only. Mobile preview + web player both honour the chosen mode in their per-set duration math.
+      <br><br>
+      <strong>Out of scope:</strong> portal doesn't render hold-timing data; types updated but no UI surface.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Latest <code>feat/hold-position-3-mode</code> branch built + installed on Carl's iPhone <code>00008150-001A31D40E88401C</code> via <code>./install-device.sh</code>.</li>
+        <li><strong>Important:</strong> Carl must apply the Supabase migration first via <code>supabase db query --linked --file supabase/schema_wave43_hold_position.sql</code> — the SQL is intentionally NOT auto-applied. Without it, publishes will keep working (the new column has a default) but the web-player will see <code>hold_position = 'end_of_set'</code> on every set regardless of mobile-side choice.</li>
+        <li>One client with at least one open session containing a video exercise.</li>
+        <li>Optional: a previously-published plan from before this wave for the migration-stability check (item 8).</li>
+      </ul>
+    </div>
+
+    <h2>1 · Editor UI</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">✓</button><button class="fail" type="button" aria-label="Fail 1">✗</button></div>
+        <span class="num">1.</span>
+        <span class="text">Open any video exercise in the editor sheet → <strong>Plan</strong> tab. Tap the <strong>Hold</strong> cell on any set to expand its inline editor. Confirm the existing chip row (<code>Off · 5s · 10s · 30s · 60s</code>) is still there, AND a NEW horizontal row of 3 coral-bordered pills sits directly beneath it: <code>[ Per rep ]  [ End of set ]  [ End ]</code>. On a freshly-added set the highlighted pill is <strong>End of set</strong> (with a small white check inside).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">✓</button><button class="fail" type="button" aria-label="Fail 2">✗</button></div>
+        <span class="num">2.</span>
+        <span class="text">With <strong>hold = 5s</strong> and <strong>reps = 12</strong>, tap <strong>Per rep</strong>. The pill highlights coral. Note the ETA at the top of the <strong>Preview</strong> tab — should grow noticeably (the per-set physical adds <code>12 × 5 = 60s</code> instead of just <code>5s</code>). Close the editor sheet, re-open the same exercise, return to <strong>Plan</strong> tab → tap the same Hold cell. The selection should still read <strong>Per rep</strong> (persistence check).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">✓</button><button class="fail" type="button" aria-label="Fail 3">✗</button></div>
+        <span class="num">3.</span>
+        <span class="text">Tap <strong>End</strong>. ETA shrinks back. With a single-set exercise the math is identical to End-of-set; with a multi-set exercise (3+ sets), only the LAST set's hold contributes — non-last sets contribute 0. Confirm by adding a second + third set with the same Hold mode set to <strong>End</strong>: the ETA grows by <code>reps × per_rep + breather</code> per non-last set, plus <code>hold</code> only once at the end.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">✓</button><button class="fail" type="button" aria-label="Fail 4">✗</button></div>
+        <span class="num">4.</span>
+        <span class="text">Tap <strong>Add Set</strong> at the bottom of the Plan table. A fresh set appears. Tap its Hold cell → expand the editor → confirm the <strong>End of set</strong> pill is selected by default (this is the "new sets default" check, regardless of what mode the previous set is on).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">✓</button><button class="fail" type="button" aria-label="Fail 5">✗</button></div>
+        <span class="num">5.</span>
+        <span class="text">Set <strong>hold = 0</strong> (tap the <code>Off</code> chip). The 3 pills should fade to ~50% opacity (dimmed). Tap the pills anyway — the selection visibly updates (the highlighted pill changes), but it's clear the choice has no current duration impact. Bump hold back to <code>5s</code> → pills regain full brightness, the previously-selected mode is preserved.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Mobile preview &amp; web player parity (R-10)</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">✓</button><button class="fail" type="button" aria-label="Fail 6">✗</button></div>
+        <span class="num">6.</span>
+        <span class="text">Build a 3-set exercise: each set <code>reps=10, hold=5s, breather=20s</code>, all sets on <strong>End of set</strong>. Note the per-set duration label (or the bottom decoded grammar). Publish the plan. Open <code>session.homefit.studio/p/{uuid}</code> in iOS Safari (or copy via the share sheet). The pill matrix's per-pill duration should match the mobile preview's per-pill duration — line-for-line, set-for-set.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">✓</button><button class="fail" type="button" aria-label="Fail 7">✗</button></div>
+        <span class="num">7.</span>
+        <span class="text">In the same plan, switch one set to <strong>Per rep</strong>. Republish. Hard-refresh the web player URL (force the new SW cache <code>homefit-player-v29-hold-position</code> to load — the cache name bumped). The matrix pill for that set should now show a longer duration. Mobile workflow Preview tab shows the same number.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · Migration stability</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">✓</button><button class="fail" type="button" aria-label="Fail 8">✗</button></div>
+        <span class="num">8.</span>
+        <span class="text">Open an OLD published plan you'd already shared with a client (one with non-zero holds, e.g. anything you authored before today). Compare the per-pill durations on the web player against what you remember (or against an earlier screenshot if you have one). They should be UNCHANGED — the v36 SQLite migration + the Supabase backfill stamped <code>per_rep</code> on those rows so durations stay byte-stable. If durations shifted, flag it — the migration backfill failed and previously-displayed totals would silently mutate.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · Math correctness — multi-set sweep</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">✓</button><button class="fail" type="button" aria-label="Fail 9">✗</button></div>
+        <span class="num">9.</span>
+        <span class="text">Build a 3-set exercise where ALL sets are on <strong>End</strong> mode (<code>reps=10, hold=10s, breather=15s</code>). The hold should contribute on the LAST set only. Manual check: per-rep ~3s (assuming a 30s video with reps=10 per loop), per-set physical 30s, so sets 1+2 = <code>30 + 15 = 45s each</code> (no hold), set 3 = <code>30 + 10 + 15 = 55s</code>. Confirm the bottom-row decoded grammar tallies, and the ETA at top matches the sum.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">✓</button><button class="fail" type="button" aria-label="Fail 10">✗</button></div>
+        <span class="num">10.</span>
+        <span class="text">Mixed-mode exercise: S1 = <strong>Per rep</strong>, S2 = <strong>End of set</strong>, S3 = <strong>End</strong>. Same <code>reps=10, hold=5s, breather=15s, per-rep=3s</code>. Expected per-set: S1 = <code>30 + 50 + 15 = 95s</code>, S2 = <code>30 + 5 + 15 = 50s</code>, S3 = <code>30 + 5 + 15 = 50s</code>. Total = <code>195s ≈ 3:15</code>. Confirm both surfaces (mobile preview and web player after publish) report this total.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Cross-cutting</h2>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">✓</button><button class="fail" type="button" aria-label="Fail 11">✗</button></div>
+        <span class="num">11.</span>
+        <span class="text">Golden-path smoke check. Walk: capture (one fresh video) → editor (rename, tweak Plan/Hold modes) → preview → publish → share URL. Nothing should regress. Confirm all 5 of the editor sheet tabs still load (Plan · Notes · Preview · Settings, plus any Hero handle present), the Add Set button still works, swipe-to-delete still fires the Undo SnackBar.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass-notes feed the next wave's polish list. Failures spawn a targeted follow-up.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-03-hold-position.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'hold-position', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline — localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setStatus(status) {
+          li.setAttribute('data-status', status);
+          if (!state[num]) state[num] = {};
+          state[num].status = status;
+          save();
+        }
+
+        passBtn.addEventListener('click', function() { setStatus('pass'); });
+        failBtn.addEventListener('click', function() { setStatus('fail'); });
+
+        if (noteInput) {
+          var debounce;
+          noteInput.addEventListener('input', function() {
+            clearTimeout(debounce);
+            if (!state[num]) state[num] = {};
+            state[num].note = noteInput.value;
+            debounce = setTimeout(save, 400);
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
