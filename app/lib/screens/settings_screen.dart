@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../config.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
+import '../services/capture_auto_save_preference.dart';
 import '../services/portal_links.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -61,6 +62,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// "Signing out… Undo" affordance via the SnackBar; cancelling flips
   /// this back to null without calling `signOut()`.
   bool _signOutPending = false;
+
+  /// Per-device toggle: also save every capture to the iOS Camera Roll.
+  /// Seeded from [CaptureAutoSavePreference] in [initState] — null while
+  /// the SharedPreferences read is in flight, then resolves to the
+  /// stored value (default ON for fresh installs).
+  bool? _autoSaveOriginals;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAutoSavePref();
+  }
+
+  Future<void> _loadAutoSavePref() async {
+    final enabled = await CaptureAutoSavePreference.isEnabled();
+    if (!mounted) return;
+    setState(() => _autoSaveOriginals = enabled);
+  }
+
+  Future<void> _toggleAutoSaveOriginals(bool value) async {
+    HapticFeedback.selectionClick();
+    setState(() => _autoSaveOriginals = value);
+    await CaptureAutoSavePreference.setEnabled(value);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -152,6 +177,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         label: 'Sign out',
                         destructive: true,
                         onTap: _signOutPending ? null : _signOutWithUndo,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  _SectionHeader(label: 'Session capture'),
+                  _SettingsGroup(
+                    children: [
+                      _ToggleRow(
+                        icon: Icons.photo_library_outlined,
+                        label: 'Save originals to Photos',
+                        subtitle:
+                            'Every photo and video you capture is also '
+                            'saved to your iOS Camera Roll.',
+                        value: _autoSaveOriginals ?? true,
+                        onChanged: _autoSaveOriginals == null
+                            ? null
+                            : _toggleAutoSaveOriginals,
                       ),
                     ],
                   ),
@@ -960,6 +1002,82 @@ class _ActionRow extends StatelessWidget {
                   color: AppColors.grey500,
                   size: 22,
                 ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Toggle row — same chrome as [_ActionRow] (icon + label + optional
+/// subtitle) but with a trailing [Switch] in place of the chevron.
+/// Disabled while [onChanged] is null (e.g. waiting on an async read of
+/// the persisted value).
+class _ToggleRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String? subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  const _ToggleRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.subtitle,
+    this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onChanged != null;
+    final labelColor =
+        enabled ? AppColors.textOnDark : AppColors.grey600;
+    final iconColor = enabled ? AppColors.primary : AppColors.grey600;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? () => onChanged!(!value) : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: iconColor),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: labelColor,
+                      ),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle!,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          color: AppColors.textSecondaryOnDark,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                value: value,
+                onChanged: onChanged,
+                activeColor: AppColors.primary,
+              ),
             ],
           ),
         ),

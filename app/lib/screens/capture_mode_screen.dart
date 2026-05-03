@@ -9,9 +9,11 @@ import 'package:path_provider/path_provider.dart';
 import '../config.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import '../services/capture_auto_save_preference.dart';
 import '../services/conversion_service.dart';
 import '../services/homefit_haptics.dart';
 import '../services/local_storage_service.dart';
+import '../services/original_video_service.dart';
 import '../services/path_resolver.dart';
 import '../services/sticky_defaults.dart';
 import '../services/sync_service.dart';
@@ -979,10 +981,17 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   /// Copy [sourcePath] into the app's raw directory, build an
   /// [ExerciseCapture], save it, and queue it for line-drawing conversion.
   /// Returns the exercise on success, null on failure.
+  ///
+  /// When [autoSaveToCameraRoll] is true (the camera-capture default),
+  /// the freshly-copied file is also written to the iOS Camera Roll if
+  /// the practitioner has the Settings → Session capture toggle on.
+  /// Library imports pass false to avoid duplicating an asset that
+  /// already lives in Photos.
   Future<ExerciseCapture?> _persistCapture(
     String sourcePath,
-    MediaType type,
-  ) async {
+    MediaType type, {
+    bool autoSaveToCameraRoll = true,
+  }) async {
     try {
       final dir = await getApplicationDocumentsDirectory();
       final rawDir = Directory(p.join(dir.path, 'raw'));
@@ -994,6 +1003,20 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
         '${DateTime.now().millisecondsSinceEpoch}$ext',
       );
       await File(sourcePath).copy(destPath);
+
+      // Camera-roll auto-save (default ON, opt-out via Settings → Session
+      // capture). Fire-and-forget — the capture has already landed in the
+      // app's own raw archive, so a Photos failure never blocks the
+      // session flow. iOS first-time `addOnly` permission prompt is
+      // surfaced by `OriginalVideoService.saveToPhotos`; if the
+      // practitioner declines, subsequent attempts return
+      // `permissionDenied` silently and we keep going.
+      //
+      // Skipped for library imports: the asset already exists in Photos,
+      // re-saving would create a duplicate.
+      if (autoSaveToCameraRoll) {
+        unawaited(_maybeSaveToCameraRoll(File(destPath)));
+      }
 
       var exercise = ExerciseCapture.create(
         position: widget.session.exercises.length + _newCapturesSoFar(),
@@ -1039,6 +1062,23 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
   }
 
+  /// Background save of the just-captured raw file to the iOS Camera
+  /// Roll. Gated on [CaptureAutoSavePreference] (default ON; toggle in
+  /// Settings → Session capture). Best-effort — failures + permission
+  /// denials are logged but never surfaced to the practitioner mid-
+  /// session, because the capture itself has already succeeded into the
+  /// app's raw archive.
+  Future<void> _maybeSaveToCameraRoll(File rawFile) async {
+    try {
+      final enabled = await CaptureAutoSavePreference.isEnabled();
+      if (!enabled) return;
+      if (!await rawFile.exists()) return;
+      await OriginalVideoService.instance.saveToPhotos(rawFile);
+    } catch (e) {
+      debugPrint('Camera-roll auto-save failed: $e');
+    }
+  }
+
   /// Wave 40 (M2) — open the iOS multi-select photo picker. For each
   /// picked photo we fire the SAME pipeline as a captured photo:
   /// `_persistCapture` writes the file into `raw/`, builds an
@@ -1058,7 +1098,11 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
       if (picked.isEmpty) return;
       for (final xfile in picked) {
         final type = _detectMediaType(xfile.path);
-        final exercise = await _persistCapture(xfile.path, type);
+        final exercise = await _persistCapture(
+          xfile.path,
+          type,
+          autoSaveToCameraRoll: false,
+        );
         if (exercise != null && mounted) {
           _onCaptureLanded(exercise);
           // A short stagger so the peek-box animation visibly fires
