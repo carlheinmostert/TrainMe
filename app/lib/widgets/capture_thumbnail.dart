@@ -68,6 +68,11 @@ class CaptureThumbnail extends StatelessWidget {
     final dpr = MediaQuery.of(context).devicePixelRatio;
     final cacheWidth = (size * dpr).round().clamp(1, 4096);
 
+    // Hero-frame indicator: coral star top-left for video exercises only.
+    // Tracks [showChrome] so the long-press 240px peek (which strips
+    // chrome to avoid mid-animation "popping") also drops the badge.
+    final showHeroBadge =
+        showChrome && !exercise.isRest && exercise.mediaType == MediaType.video;
     return SizedBox(
       width: size,
       height: size,
@@ -79,6 +84,7 @@ class CaptureThumbnail extends StatelessWidget {
             _buildImage(cacheWidth),
             if (showConversionOverlay) _buildConversionOverlay(),
             if (showChrome) _buildMediaTypeBadge(),
+            if (showHeroBadge) const _HeroStarBadge(),
           ],
         ),
       ),
@@ -270,6 +276,11 @@ class CaptureThumbnail extends StatelessWidget {
     }
   }
 
+  // Note: the Hero-frame star badge is rendered as a separate top-level
+  // [_HeroStarBadge] widget below; it's a sibling Positioned in the Stack
+  // (not built here) so it can be conditionally added/skipped at the
+  // build-tree level.
+
   /// Small media type badge in the bottom-left corner.
   /// Camera icon for photo, video icon for video, pause for rest.
   Widget _buildMediaTypeBadge() {
@@ -291,6 +302,42 @@ class CaptureThumbnail extends StatelessWidget {
               : Icons.videocam,
           size: size * 0.18,
           color: Colors.white,
+        ),
+      ),
+    );
+  }
+}
+
+/// Small coral star badge anchored top-left of a thumbnail, signalling
+/// "this is the Hero frame". Mirrors the badge in [MiniPreview]. Used for
+/// video exercises ONLY — photos are the Hero by definition; rest periods
+/// have no media.
+///
+/// Glyph-only (no plate / backdrop) with a 1px black drop-shadow so the
+/// coral stays legible against light thumbnails. Fixed 14px to read
+/// consistently across the small thumbnail surfaces (camera peek box,
+/// ThumbnailPeek closed state) — the long-press 240px preview drops the
+/// badge via the surrounding `showChrome` gate.
+class _HeroStarBadge extends StatelessWidget {
+  const _HeroStarBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Positioned(
+      top: 6,
+      left: 6,
+      child: IgnorePointer(
+        child: Icon(
+          Icons.star_rounded,
+          size: 14,
+          color: AppColors.primary,
+          shadows: [
+            Shadow(
+              color: Colors.black54,
+              blurRadius: 2,
+              offset: Offset(0, 1),
+            ),
+          ],
         ),
       ),
     );

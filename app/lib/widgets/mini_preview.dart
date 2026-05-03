@@ -293,12 +293,20 @@ class _MiniPreviewState extends State<MiniPreview> {
   @override
   Widget build(BuildContext context) {
     final radius = widget.borderRadius ?? BorderRadius.circular(12);
+    final ex = widget.exercise;
+    // Hero-frame indicator: coral star top-left for video exercises only.
+    // Photos ARE the Hero by definition (badge would be redundant); rest
+    // periods have no media. Auto-picked motion-peak counts as the active
+    // Hero — don't gate on `focus_frame_offset_ms` being non-null.
+    final showHeroBadge =
+        !ex.isRest && ex.mediaType == MediaType.video;
     final clip = ClipRRect(
       borderRadius: radius,
       child: Stack(
         fit: StackFit.expand,
         children: [
           IgnorePointer(child: _buildMedia()),
+          if (showHeroBadge) const _HeroStarBadge(),
           if (widget.overlay != null) widget.overlay!,
         ],
       ),
@@ -478,5 +486,43 @@ class _VideoFrame extends StatelessWidget {
       return ColorFiltered(colorFilter: _kGrayscaleFilter, child: video);
     }
     return video;
+  }
+}
+
+// =============================================================================
+// Internal: Hero-frame indicator
+// =============================================================================
+
+/// Small coral star badge anchored top-left of the preview area, signalling
+/// "this is the Hero frame". Video exercises always show the badge — the
+/// thumbnail IS the Hero (motion-peak default or practitioner-picked via
+/// the trim panel). Photos and rest periods never show it.
+///
+/// The badge is just the glyph (no plate / backdrop) with a subtle 1px
+/// black drop-shadow so the coral stays legible against light thumbnails.
+/// `IgnorePointer` keeps taps falling through to the host card.
+class _HeroStarBadge extends StatelessWidget {
+  const _HeroStarBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Positioned(
+      top: 6,
+      left: 6,
+      child: IgnorePointer(
+        child: Icon(
+          Icons.star_rounded,
+          size: 14,
+          color: AppColors.primary,
+          shadows: [
+            Shadow(
+              color: Colors.black54,
+              blurRadius: 2,
+              offset: Offset(0, 1),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

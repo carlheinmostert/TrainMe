@@ -165,6 +165,20 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-03-hero-star-badge.html">
+          <div class="row">
+            <div>
+              <div class="name">1 · Hero star badge on mini-previews (Studio thumbnails get a coral star top-left)</div>
+              <div class="scope">Mobile only. Small additive change. Every Studio-side mini-preview that shows a video exercise thumbnail now renders a small coral star top-left, indicating &ldquo;this is the Hero frame&rdquo;. Photos NEVER (photo IS the Hero); rest periods NEVER (no media). Auto-picked motion-peak counts as the active Hero, so the star shows even on videos where the practitioner has never opened the trim panel. Implementation lives in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">MiniPreview</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">CaptureThumbnail</code>; long-press 240px peek strips chrome (and the badge) to avoid mid-animation popping. <strong>12 items in 3 sections.</strong></div>
+              </div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-03-web-player-rep-stack-fixes.html">
           <div class="row">
             <div>
