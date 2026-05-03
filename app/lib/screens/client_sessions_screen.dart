@@ -743,34 +743,28 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
         itemBuilder: (context, visualIndex) {
           final dataIndex = _sessions.length - 1 - visualIndex;
           final session = _sessions[dataIndex];
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SessionCard(
-                session: session,
-                isPublishing: _publishingIds.contains(session.id),
-                onOpen: () => _openSession(session),
-                onDelete: () => _deleteSession(session),
-                // Wave 38 — inline rename writes through SyncService.
-                // Reflect the new title in our in-memory list immediately
-                // so the rest of the row (dashed underline, version line)
-                // re-paints without a roundtrip.
-                onRenamed: (renamed) {
-                  if (!mounted) return;
-                  setState(() {
-                    _sessions = _sessions
-                        .map((s) => s.id == renamed.id ? renamed : s)
-                        .toList(growable: false);
-                  });
-                },
-              ),
-              // Wave 17 — plan analytics stats line.
-              _PlanAnalyticsRow(
-                session: session,
-                summary: _analyticsCache[session.id],
-              ),
-            ],
+          return SessionCard(
+            session: session,
+            isPublishing: _publishingIds.contains(session.id),
+            onOpen: () => _openSession(session),
+            onDelete: () => _deleteSession(session),
+            // Wave 38 — inline rename writes through SyncService.
+            // Reflect the new title in our in-memory list immediately
+            // so the rest of the row (dashed underline, version line)
+            // re-paints without a roundtrip.
+            onRenamed: (renamed) {
+              if (!mounted) return;
+              setState(() {
+                _sessions = _sessions
+                    .map((s) => s.id == renamed.id ? renamed : s)
+                    .toList(growable: false);
+              });
+            },
+            // Wave 17 analytics — moved INSIDE the card boundary
+            // 2026-05-04 so the new filmstrip background frames the
+            // stats row. The previous `_PlanAnalyticsRow` widget is
+            // retired with this commit.
+            analyticsSummary: _analyticsCache[session.id],
           );
         },
       ),
@@ -1014,72 +1008,6 @@ class _DashedUnderlinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DashedUnderlinePainter old) =>
       old.color != color;
-}
-
-/// Wave 17 — compact analytics stats line below a published session card.
-/// Shows "Opened N× · X/Y completed · last {relative}" for plans with
-/// data, or nothing for unpublished / no-data plans.
-class _PlanAnalyticsRow extends StatelessWidget {
-  final Session session;
-  final PlanAnalyticsSummary? summary;
-
-  const _PlanAnalyticsRow({required this.session, this.summary});
-
-  @override
-  Widget build(BuildContext context) {
-    if (!session.isPublished) return const SizedBox.shrink();
-    if (summary == null || summary!.opens == 0) {
-      return const Padding(
-        padding: EdgeInsets.only(left: 88, bottom: 4),
-        child: Text(
-          '\u2014',
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 11,
-            color: AppColors.textSecondaryOnDark,
-          ),
-        ),
-      );
-    }
-    final s = summary!;
-    final totalExercises = session.exercises
-        .where((e) => !e.isRest)
-        .length;
-    final completionLabel = totalExercises > 0
-        ? '${s.completions}/$totalExercises completed'
-        : '${s.completions} completed';
-    final lastLabel = s.lastOpenedAt != null
-        ? _formatRelativeTime(s.lastOpenedAt!)
-        : '';
-    final parts = <String>[
-      'Opened ${s.opens}\u00d7',
-      completionLabel,
-      if (lastLabel.isNotEmpty) 'last $lastLabel',
-    ];
-    return Padding(
-      padding: const EdgeInsets.only(left: 88, bottom: 4),
-      child: Text(
-        parts.join(' \u00b7 '),
-        style: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 11,
-          color: AppColors.textSecondaryOnDark,
-        ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-    );
-  }
-
-  static String _formatRelativeTime(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    if (diff.inDays < 30) return '${(diff.inDays / 7).floor()}w ago';
-    return '${(diff.inDays / 30).floor()}mo ago';
-  }
 }
 
 /// Items in the per-client overflow menu. Scoped to this file — adding

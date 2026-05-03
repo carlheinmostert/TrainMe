@@ -1,14 +1,56 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import '../services/api_client.dart' show PlanAnalyticsSummary;
 import '../services/conversion_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
 import 'conversion_error_log_sheet.dart';
+
+/// Greyscale colour matrix — zeroes saturation while preserving luminance.
+/// Mirrors the existing `_kGrayscaleFilter` in `capture_thumbnail.dart` and
+/// `mini_preview.dart` so the filmstrip B&W treatment matches the rest of
+/// the practitioner-facing surfaces (and, by lineage, the web player's
+/// `filter: grayscale(1) contrast(1.05)`).
+const ColorFilter _kFilmstripGrayscale = ColorFilter.matrix(<double>[
+  0.2126, 0.7152, 0.0722, 0, 0, //
+  0.2126, 0.7152, 0.0722, 0, 0, //
+  0.2126, 0.7152, 0.0722, 0, 0, //
+  0, 0, 0, 1, 0, //
+]);
+
+/// Maximum number of filmstrip cells. Carl signed off N=4 — beyond that
+/// each cell shrinks below ~80px on iPhone widths and the heroes become
+/// unreadable noise.
+const int _kFilmstripMaxCells = 4;
+
+/// Hero pick rule per Option B: take the first N video exercises in
+/// session order; if zero videos, fall back to the first photo; if zero
+/// photos either, return empty (caller paints the coral-tinted dark
+/// surface that's the card's existing default).
+List<ExerciseCapture> _pickFilmstripHeroes(Session session) {
+  final videos = <ExerciseCapture>[];
+  for (final ex in session.exercises) {
+    if (ex.isRest) continue;
+    if (ex.mediaType == MediaType.video) {
+      videos.add(ex);
+      if (videos.length >= _kFilmstripMaxCells) break;
+    }
+  }
+  if (videos.isNotEmpty) return videos;
+  // No videos — fall back to the first photo (single cell).
+  for (final ex in session.exercises) {
+    if (ex.isRest) continue;
+    if (ex.mediaType == MediaType.photo) return [ex];
+  }
+  return const [];
+}
 
 /// Visual session card — one row in a client's session list.
 ///
@@ -46,6 +88,13 @@ class SessionCard extends StatefulWidget {
   /// without the next pull-to-refresh.
   final ValueChanged<Session>? onRenamed;
 
+  /// Wave 17 analytics — "Opened N× · X/Y completed · last X" stats.
+  /// Pre-Wave-43 this rendered OUTSIDE the card from the parent screen;
+  /// 2026-05-04 brings it INSIDE the card boundary so the filmstrip
+  /// background frames the whole row. Null while still loading or for
+  /// unpublished sessions; the renderer handles both states.
+  final PlanAnalyticsSummary? analyticsSummary;
+
   const SessionCard({
     super.key,
     required this.session,
@@ -53,6 +102,7 @@ class SessionCard extends StatefulWidget {
     required this.onOpen,
     required this.onDelete,
     this.onRenamed,
+    this.analyticsSummary,
   });
 
   @override
@@ -290,6 +340,7 @@ class _SessionCardState extends State<SessionCard> {
           borderRadius: BorderRadius.circular(12),
           side: const BorderSide(color: AppColors.surfaceBorder, width: 1),
         ),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           // Wave 38 — when the title is in edit mode, the surrounding
           // card body must NOT navigate; the keyboard tap-outside flow
@@ -298,56 +349,124 @@ class _SessionCardState extends State<SessionCard> {
           // edit mode; the editable title's TapRegion handles
           // tap-outside to commit.
           onTap: _editing ? null : widget.onOpen,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: Row(
+          // Filmstrip stack — z=0 heroes, z=1 coral-tinted dark gradient,
+          // z=2 existing card content. ConstrainedBox enforces the +30%
+          // minimum height (was ~80px effective, now ~104px). The
+          // filmstrip Stack layers everything; ListView.builder windowing
+          // keeps off-screen cards out of memory and Image.file's
+          // cacheWidth caps decode size per cell.
+          child: ConstrainedBox(
+            // Wave 41 (this PR): card minimum height bumped +30% from
+            // the previous effective ~80px (60×60 leading icon + 10px
+            // top/bottom padding) to 104px so the filmstrip background
+            // has room to read as a deliberate hero, not a chrome trim.
+            // Carl explicitly capped at +30% (the mockup proposed +50%).
+            constraints: const BoxConstraints(minHeight: 104),
+            child: Stack(
+              fit: StackFit.passthrough,
               children: [
-                _LeadingIconBadge(
-                  icon: Icons.list_alt_rounded,
-                  count: exerciseCount,
+                // z=0 — filmstrip hero cells (or default surface if no media).
+                Positioned.fill(
+                  child: _SessionFilmstripBackground(session: session),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildTitle(session),
-                      const SizedBox(height: 2),
-                      Text(
-                        SessionCard._publishLabel(session),
-                        style: TextStyle(
-                          color: session.version > 0
-                              ? AppColors.circuit
-                              : AppColors.textSecondaryOnDark,
-                          fontSize: 13,
+                // z=1 — coral-tinted dark gradient that lets the title +
+                // chevron read against any cell content. Stops mirror
+                // the mockup CSS: 0.92 → 0.55 → 0.30 from left to right.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [
+                            Color(0xEB0F1117), // rgba(15,17,23,0.92)
+                            Color(0x8C0F1117), // rgba(15,17,23,0.55)
+                            Color(0x4D0F1117), // rgba(15,17,23,0.30)
+                          ],
+                          stops: [0.0, 0.6, 1.0],
                         ),
                       ),
-                      if (lockState != null) ...[
-                        const SizedBox(height: 4),
-                        _LockStateRow(state: lockState),
-                      ],
-                      if (pending > 0) ...[
-                        const SizedBox(height: 6),
-                        _PendingConversionsPill(count: pending),
-                      ],
-                      if (hasFailedConversions) ...[
-                        const SizedBox(height: 6),
-                        _FailedConversionsPill(
-                          failed: failedConversions,
-                        ),
-                      ],
-                    ],
+                    ),
                   ),
                 ),
-                // Wave 18 — Publish + Share icons moved to the Studio
-                // toolbar. The card now ends with the chevron only so
-                // the row reads as a pure navigation affordance.
-                const Icon(
-                  Icons.chevron_right,
-                  color: AppColors.grey500,
-                  size: 22,
+                // z=2 — existing card content (icon, title, status pills,
+                // chevron). Title + subtitle pick up text-shadows so they
+                // stay legible across light filmstrip cells.
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: Row(
+                    children: [
+                      _LeadingIconBadge(
+                        icon: Icons.list_alt_rounded,
+                        count: exerciseCount,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildTitle(session),
+                            const SizedBox(height: 2),
+                            Text(
+                              SessionCard._publishLabel(session),
+                              style: TextStyle(
+                                color: session.version > 0
+                                    ? AppColors.circuit
+                                    : AppColors.textSecondaryOnDark,
+                                fontSize: 13,
+                                shadows: const [
+                                  Shadow(
+                                    color: Color(0x99000000),
+                                    blurRadius: 4,
+                                    offset: Offset(0, 1),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (lockState != null) ...[
+                              const SizedBox(height: 4),
+                              _LockStateRow(state: lockState),
+                            ],
+                            if (pending > 0) ...[
+                              const SizedBox(height: 6),
+                              _PendingConversionsPill(count: pending),
+                            ],
+                            if (hasFailedConversions) ...[
+                              const SizedBox(height: 6),
+                              _FailedConversionsPill(
+                                failed: failedConversions,
+                              ),
+                            ],
+                            // Wave 17 analytics — Opened N× · X/Y completed · last X.
+                            // Lives INSIDE the card boundary as of 2026-05-04 so
+                            // the filmstrip background frames the whole row
+                            // (Carl: "below each card we currently have stats,
+                            // this should be inside the card boundary").
+                            if (widget.session.isPublished) ...[
+                              const SizedBox(height: 6),
+                              _AnalyticsLine(
+                                session: widget.session,
+                                summary: widget.analyticsSummary,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      // Wave 18 — Publish + Share icons moved to the
+                      // Studio toolbar. The card now ends with the
+                      // chevron only so the row reads as a pure
+                      // navigation affordance.
+                      const Icon(
+                        Icons.chevron_right,
+                        color: AppColors.grey500,
+                        size: 22,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -376,6 +495,17 @@ class _SessionCardState extends State<SessionCard> {
               style: const TextStyle(
                 fontWeight: FontWeight.w600,
                 color: AppColors.textOnDark,
+                // Filmstrip background can include light cell content.
+                // 4px blurred black shadow keeps the title readable
+                // even when the right-side gradient stop is only 30%
+                // dark.
+                shadows: [
+                  Shadow(
+                    color: Color(0x99000000),
+                    blurRadius: 4,
+                    offset: Offset(0, 1),
+                  ),
+                ],
               ),
               overflow: TextOverflow.ellipsis,
               maxLines: 1,
@@ -515,35 +645,44 @@ class _PendingConversionsPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Align(
       alignment: Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: AppColors.primary.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
-              width: 12,
-              height: 12,
-              child: CircularProgressIndicator(
-                strokeWidth: 1.5,
-                valueColor:
-                    AlwaysStoppedAnimation<Color>(AppColors.primary),
-              ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: BackdropFilter(
+          // Wave 41 — backdrop blur so the pill stays legible on top of
+          // the filmstrip hero behind it.
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(999),
             ),
-            const SizedBox(width: 6),
-            Text(
-              '$count converting...',
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.primary,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.5,
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(AppColors.primary),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$count converting...',
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -562,38 +701,46 @@ class _FailedConversionsPill extends StatelessWidget {
     final count = failed.length;
     return Align(
       alignment: Alignment.centerLeft,
-      child: Material(
-        color: AppColors.primary.withValues(alpha: 0.14),
-        shape: const StadiumBorder(),
-        child: InkWell(
-          customBorder: const StadiumBorder(),
-          onTap: () => _retry(context, failed),
-          onLongPress: () {
-            HapticFeedback.selectionClick();
-            ConversionErrorLogSheet.show(context);
-          },
-          child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.refresh_rounded,
-                  size: 14,
-                  color: AppColors.primary,
+      child: ClipRRect(
+        // Wave 41 — backdrop blur so the retry pill stays legible
+        // against any filmstrip cell content sat behind it.
+        borderRadius: BorderRadius.circular(999),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+          child: Material(
+            color: AppColors.primary.withValues(alpha: 0.22),
+            shape: const StadiumBorder(),
+            child: InkWell(
+              customBorder: const StadiumBorder(),
+              onTap: () => _retry(context, failed),
+              onLongPress: () {
+                HapticFeedback.selectionClick();
+                ConversionErrorLogSheet.show(context);
+              },
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.refresh_rounded,
+                      size: 14,
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$count failed',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 4),
-                Text(
-                  '$count failed',
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -672,15 +819,25 @@ class _LeadingIconBadge extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(14),
+          // Filmstrip backdrop-blur (Wave 41): sits under the coral tint
+          // so the badge stays anchored against any cell content. The
+          // 0.12 → 0.20 alpha bump compensates for the lighter
+          // gradient stop on the badge's column.
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.20),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, color: AppColors.primary, size: 33),
+              ),
             ),
-            alignment: Alignment.center,
-            child: Icon(icon, color: AppColors.primary, size: 33),
           ),
           if (count > 0)
             // Wave 36 — at 21×21 the badge body is meatier, so we sit it
@@ -783,4 +940,188 @@ class _DashedUnderlinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DashedUnderlinePainter old) =>
       old.color != color;
+}
+
+/// Filmstrip hero background for the session card.
+///
+/// Renders up to [_kFilmstripMaxCells] cells horizontally, each showing
+/// a single Hero frame in B&W (matches existing card thumbnails — Carl
+/// signed off Option B as POPIA-friendly). Cells flex equally, so 1
+/// video → 1 cell at 100%, 2 videos → 2 at 50%, 3 → 3 at 33%, 4 → 4 at
+/// 25%. If the session has zero videos but at least one photo, a single
+/// cell is rendered using the first photo's line-drawing thumbnail.
+/// Rest-only sessions (zero videos AND zero photos) render the default
+/// coral-tinted dark surface (mock spec: fall back to current chrome).
+///
+/// Static — no carousel / crossfade. Animation question (#3) was
+/// closed at "static" because filmstrip rotation in a list view fights
+/// scroll perception and burns CPU on long client lists.
+///
+/// Performance:
+///   - Each cell uses [Image.file] with `cacheWidth: 240` so retina
+///     decode size stays bounded — small enough for ~120px-tall cards
+///     yet sharp on 3x displays.
+///   - The card itself lives inside a `ListView.builder`; Flutter's
+///     lazy build keeps off-screen filmstrips out of memory.
+///   - Cloud-only state (raw mp4 not yet on disk after a fresh
+///     install): the cell's `errorBuilder` falls back to the same
+///     coral-tinted dark fill — never a broken-image glyph.
+class _SessionFilmstripBackground extends StatelessWidget {
+  final Session session;
+  const _SessionFilmstripBackground({required this.session});
+
+  @override
+  Widget build(BuildContext context) {
+    final heroes = _pickFilmstripHeroes(session);
+    if (heroes.isEmpty) {
+      // Rest-only session (or any session with no media) — keep the
+      // default surface colour. Coral-tinted dark surface IS the card's
+      // existing default (`AppColors.surfaceBase` + 1px border on the
+      // outer Card). We render a transparent placeholder so the gradient
+      // overlay continues to read against `surfaceBase` underneath.
+      return const SizedBox.shrink();
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < heroes.length; i++) ...[
+          Expanded(child: _FilmstripCell(exercise: heroes[i])),
+          // Hairline 1px black separator between adjacent cells (per
+          // mockup CSS). Skipped after the last cell.
+          if (i < heroes.length - 1)
+            const SizedBox(
+              width: 1,
+              child: ColoredBox(color: Colors.black),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+/// A single filmstrip cell — one video Hero frame (B&W) or one photo
+/// line drawing (the photo path stays line because the file at
+/// `displayFilePath` is the converted line-drawing JPG; B&W requires the
+/// raw, which not every device has cached on a fresh re-install).
+class _FilmstripCell extends StatelessWidget {
+  final ExerciseCapture exercise;
+  const _FilmstripCell({required this.exercise});
+
+  @override
+  Widget build(BuildContext context) {
+    final file = _resolveFile(exercise);
+    if (file == null) {
+      return const SizedBox.expand(
+        child: ColoredBox(color: AppColors.surfaceBase),
+      );
+    }
+    Widget image = Image.file(
+      file,
+      fit: BoxFit.cover,
+      // 240 = practical max retina decode for a ~120px-tall card cell.
+      // Bigger doesn't read; smaller goes mushy on 3x.
+      cacheWidth: 240,
+      gaplessPlayback: true,
+      errorBuilder: (context, error, stackTrace) => const ColoredBox(
+        color: AppColors.surfaceBase,
+      ),
+    );
+    // B&W treatment for videos. Photos stay as their line drawing — the
+    // converted file is already greyscale-friendly line art, and a raw
+    // photo path isn't guaranteed to be on disk after a cloud-only sync.
+    if (exercise.mediaType == MediaType.video) {
+      image = ColorFiltered(
+        colorFilter: _kFilmstripGrayscale,
+        child: image,
+      );
+    }
+    return SizedBox.expand(child: image);
+  }
+
+  /// Resolve the file to render for this cell.
+  ///
+  /// Videos: prefer the cached thumbnail (exists for every successfully
+  /// converted video — populated at conversion time + by PR #218 to
+  /// reflect Hero picks). The thumbnail is already a still frame so it
+  /// renders as a static hero with no video controller cost. If no
+  /// thumbnail (still converting / failed): null → fallback fill.
+  ///
+  /// Photos: use the converted line-drawing JPG (always on disk for
+  /// any photo that's been added to the session — same path the rest
+  /// of the practitioner-facing surfaces use).
+  static File? _resolveFile(ExerciseCapture ex) {
+    if (ex.isRest) return null;
+    if (ex.mediaType == MediaType.video) {
+      final thumb = ex.absoluteThumbnailPath;
+      if (thumb == null) return null;
+      final f = File(thumb);
+      if (!f.existsSync()) return null;
+      return f;
+    }
+    // Photo — display path is the converted line drawing.
+    final f = File(ex.displayFilePath);
+    if (!f.existsSync()) return null;
+    return f;
+  }
+}
+
+/// Wave 17 analytics line — "Opened N× · X/Y completed · last X".
+///
+/// Moved INSIDE SessionCard 2026-05-04. Same formatting + relative-time
+/// helper as the retired `_PlanAnalyticsRow` in client_sessions_screen.dart;
+/// rendering inside the card lets the filmstrip background frame the row
+/// instead of breaking visually below it. Empty-summary ("—") and
+/// non-zero-opens variants are both supported.
+class _AnalyticsLine extends StatelessWidget {
+  final Session session;
+  final PlanAnalyticsSummary? summary;
+
+  const _AnalyticsLine({required this.session, this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = _format();
+    return Text(
+      text,
+      style: const TextStyle(
+        fontFamily: 'Inter',
+        fontSize: 11,
+        color: AppColors.textSecondaryOnDark,
+        shadows: [
+          Shadow(color: Color(0x99000000), blurRadius: 4, offset: Offset(0, 1)),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  String _format() {
+    if (summary == null || summary!.opens == 0) return '—';
+    final s = summary!;
+    final totalExercises =
+        session.exercises.where((e) => !e.isRest).length;
+    final completionLabel = totalExercises > 0
+        ? '${s.completions}/$totalExercises completed'
+        : '${s.completions} completed';
+    final lastLabel = s.lastOpenedAt != null
+        ? _formatRelativeTime(s.lastOpenedAt!)
+        : '';
+    final parts = <String>[
+      'Opened ${s.opens}×',
+      completionLabel,
+      if (lastLabel.isNotEmpty) 'last $lastLabel',
+    ];
+    return parts.join(' · ');
+  }
+
+  static String _formatRelativeTime(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    if (diff.inDays < 30) return '${(diff.inDays / 7).floor()}w ago';
+    return '${(diff.inDays / 30).floor()}mo ago';
+  }
 }
