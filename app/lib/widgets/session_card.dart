@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
+import '../services/api_client.dart' show PlanAnalyticsSummary;
 import '../services/conversion_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -87,6 +88,13 @@ class SessionCard extends StatefulWidget {
   /// without the next pull-to-refresh.
   final ValueChanged<Session>? onRenamed;
 
+  /// Wave 17 analytics — "Opened N× · X/Y completed · last X" stats.
+  /// Pre-Wave-43 this rendered OUTSIDE the card from the parent screen;
+  /// 2026-05-04 brings it INSIDE the card boundary so the filmstrip
+  /// background frames the whole row. Null while still loading or for
+  /// unpublished sessions; the renderer handles both states.
+  final PlanAnalyticsSummary? analyticsSummary;
+
   const SessionCard({
     super.key,
     required this.session,
@@ -94,6 +102,7 @@ class SessionCard extends StatefulWidget {
     required this.onOpen,
     required this.onDelete,
     this.onRenamed,
+    this.analyticsSummary,
   });
 
   @override
@@ -430,6 +439,18 @@ class _SessionCardState extends State<SessionCard> {
                               const SizedBox(height: 6),
                               _FailedConversionsPill(
                                 failed: failedConversions,
+                              ),
+                            ],
+                            // Wave 17 analytics — Opened N× · X/Y completed · last X.
+                            // Lives INSIDE the card boundary as of 2026-05-04 so
+                            // the filmstrip background frames the whole row
+                            // (Carl: "below each card we currently have stats,
+                            // this should be inside the card boundary").
+                            if (widget.session.isPublished) ...[
+                              const SizedBox(height: 6),
+                              _AnalyticsLine(
+                                session: widget.session,
+                                summary: widget.analyticsSummary,
                               ),
                             ],
                           ],
@@ -1041,5 +1062,66 @@ class _FilmstripCell extends StatelessWidget {
     final f = File(ex.displayFilePath);
     if (!f.existsSync()) return null;
     return f;
+  }
+}
+
+/// Wave 17 analytics line — "Opened N× · X/Y completed · last X".
+///
+/// Moved INSIDE SessionCard 2026-05-04. Same formatting + relative-time
+/// helper as the retired `_PlanAnalyticsRow` in client_sessions_screen.dart;
+/// rendering inside the card lets the filmstrip background frame the row
+/// instead of breaking visually below it. Empty-summary ("—") and
+/// non-zero-opens variants are both supported.
+class _AnalyticsLine extends StatelessWidget {
+  final Session session;
+  final PlanAnalyticsSummary? summary;
+
+  const _AnalyticsLine({required this.session, this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = _format();
+    return Text(
+      text,
+      style: const TextStyle(
+        fontFamily: 'Inter',
+        fontSize: 11,
+        color: AppColors.textSecondaryOnDark,
+        shadows: [
+          Shadow(color: Color(0x99000000), blurRadius: 4, offset: Offset(0, 1)),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  String _format() {
+    if (summary == null || summary!.opens == 0) return '—';
+    final s = summary!;
+    final totalExercises =
+        session.exercises.where((e) => !e.isRest).length;
+    final completionLabel = totalExercises > 0
+        ? '${s.completions}/$totalExercises completed'
+        : '${s.completions} completed';
+    final lastLabel = s.lastOpenedAt != null
+        ? _formatRelativeTime(s.lastOpenedAt!)
+        : '';
+    final parts = <String>[
+      'Opened ${s.opens}×',
+      completionLabel,
+      if (lastLabel.isNotEmpty) 'last $lastLabel',
+    ];
+    return parts.join(' · ');
+  }
+
+  static String _formatRelativeTime(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    if (diff.inDays < 30) return '${(diff.inDays / 7).floor()}w ago';
+    return '${(diff.inDays / 30).floor()}mo ago';
   }
 }
