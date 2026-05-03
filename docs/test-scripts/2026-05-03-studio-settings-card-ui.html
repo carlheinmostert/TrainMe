@@ -133,9 +133,9 @@
     <div class="kicker">2026-05-03 · Studio settings card · Phase A (UI-only)</div>
     <h1>Device QA — Studio settings card</h1>
     <p class="lede">
-      <strong>Purpose:</strong> verify the new plan-settings sheet ships behind a gear icon on the Studio bottom toolbar (replacing the prior cloud-download icon). The sheet renders five sections per the locked mockup — Pacing, Display defaults, Web viewer, Plan actions, Plan info — and routes Save-to-Photos plus Soft-delete plan to the existing handlers.
+      <strong>Purpose:</strong> verify the plan-settings sheet behind the gear icon on the Studio bottom toolbar. The sheet now splits its five sections across <strong>three tabs</strong> — <em>Now</em> (Pacing), <em>Defaults</em> (Display defaults + Web viewer), <em>Plan</em> (Plan actions + Plan info) — so no single page exceeds one screen. Save-to-Photos and Soft-delete plan continue to route through the existing handlers.
       <br><br>
-      <strong>Phase A scope:</strong> UI only. The persisted field (<code>preferred_rest_interval_seconds</code>) writes through; <em>every other toggle / chip / stepper is in-memory state with <code>TODO(phase-b)</code> markers</em>. Reopening the sheet resets in-memory fields to their defaults — that's expected, schema-half lands in Phase B. Phase B rows now ship a <strong>"Coming soon"</strong> chip + ~45% opacity dim + tap-blocking so practitioners aren't misled.
+      <strong>Phase A scope:</strong> UI only. The persisted field (<code>preferred_rest_interval_seconds</code>) writes through; <em>every other toggle / chip / stepper is in-memory state with <code>TODO(phase-b)</code> markers</em>. Reopening the sheet resets in-memory fields to their defaults <em>and</em> resets the active tab to <strong>Now</strong> — both intended; persistence + tab-memory wave is Phase B. Phase B rows ship a <strong>"Coming soon"</strong> chip + ~45% opacity dim + tap-blocking so practitioners aren't misled.
       <br><br>
       <strong>Out of scope:</strong> persistence for the in-memory fields, web-player consumption of any Web-viewer toggle, Duplicate plan (renders disabled), web-portal mirror.
     </p>
@@ -143,102 +143,115 @@
     <div class="oos">
       <h3>Prerequisites</h3>
       <ul>
-        <li>Branch <code>feat/studio-settings-card-ui</code> installed via <code>./install-device.sh</code>.</li>
+        <li>Branch <code>chore/studio-settings-tabs</code> installed via <code>./install-device.sh</code>.</li>
         <li>Carl's iPhone <code>00008150-001A31D40E88401C</code>.</li>
         <li>At least one client with at least one published session (so Plan info has real values).</li>
       </ul>
     </div>
 
-    <h2>1 · Toolbar entry-point + sheet open</h2>
+    <h2>1 · Tab structure</h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      The cloud-download icon is gone; a gear sits in its place. Tapping opens the sheet at ~85% detent.
+      The sheet is now split into three underline-style tabs. Active tab gets a 2px coral underline + bright white label; inactive tabs use the dim secondary-text color. Selection is not persisted — every reopen lands on Now.
     </p>
     <ul class="checklist">
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">+</button><button class="fail" type="button" aria-label="Fail 1">x</button></div>
         <span class="num">1.</span>
-        <span class="text"><strong>Phase B rows show "Coming soon" chip + are visually de-emphasised + don't respond to taps.</strong> Open the sheet on any session. Every row except the <em>Default rest between exercises</em> stepper renders at ~45% opacity with a small grey "Coming soon" pill in the top-right. Tapping anywhere inside those rows (toggles, chips, stepper buttons) does <em>nothing</em>. Only the Pacing rest stepper accepts input.</span>
+        <span class="text"><strong>3-tab structure replaces the previous one-pane scroll.</strong> Tap the gear icon in Studio → settings sheet rises at ~85% detent showing <strong>Now / Defaults / Plan</strong> tabs in a strip directly under the header. Active tab is <strong>Now</strong> by default with a coral 2px underline; the other two render dim. Tap <strong>Defaults</strong> → underline slides over; content swaps to the Display defaults (treatment chips, Body focus toggle, Audio toggle) + Web viewer (six toggles) — all dimmed at ~45% with "Coming soon" pills. Tap <strong>Plan</strong> → Plan actions row stack on top (Save / Copy URL / Duplicate / Delete), Plan info read-only metadata grid below. No tab content scrolls beyond one screen on iPhone 16e. Close the sheet, reopen — tab resets to <strong>Now</strong> every time (no persistence intended for Phase A).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
+    </ul>
+
+    <h2>2 · Toolbar entry-point + sheet open</h2>
+    <p style="color: var(--text-mute); margin: 0 0 12px;">
+      The cloud-download icon is gone; a gear sits in its place. Tapping opens the sheet at ~85% detent on the <em>Now</em> tab.
+    </p>
+    <ul class="checklist">
       <li data-num="2" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 2">+</button><button class="fail" type="button" aria-label="Fail 2">x</button></div>
         <span class="num">2.</span>
-        <span class="text">Open any client → tap into a session. Studio mode renders. The bottom toolbar's right edge shows a <strong>gear icon</strong> (settings_outlined). The old cloud-download icon is no longer present anywhere on the toolbar.</span>
+        <span class="text"><strong>Phase B rows show "Coming soon" chip + are visually de-emphasised + don't respond to taps.</strong> Open the sheet on any session. The Pacing rest stepper on the <em>Now</em> tab is the ONLY fully interactive control; switch to <em>Defaults</em> and every row renders at ~45% opacity with a small grey "Coming soon" pill in the top-right. Tapping anywhere inside those rows (toggles, chips) does <em>nothing</em>.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="3" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">+</button><button class="fail" type="button" aria-label="Fail 3">x</button></div>
         <span class="num">3.</span>
-        <span class="text">Tap the gear. A bottom sheet rises to ~85% of screen height. Header reads <strong>Plan settings</strong> with a subtitle <code>{DD Mon YYYY HH:MM} · client: {Name}</code>. A drag handle sits above the header; an X icon top-right.</span>
+        <span class="text">Open any client → tap into a session. Studio mode renders. The bottom toolbar's right edge shows a <strong>gear icon</strong> (settings_outlined). The old cloud-download icon is no longer present anywhere on the toolbar.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">+</button><button class="fail" type="button" aria-label="Fail 4">x</button></div>
         <span class="num">4.</span>
+        <span class="text">Tap the gear. A bottom sheet rises to ~85% of screen height. Header reads <strong>Plan settings</strong> with a subtitle <code>{DD Mon YYYY HH:MM} · client: {Name}</code>. A drag handle sits above the header; an X icon top-right; the 3-tab strip sits directly under the header.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">+</button><button class="fail" type="button" aria-label="Fail 5">x</button></div>
+        <span class="num">5.</span>
         <span class="text">Tap the X (or tap outside the sheet). The sheet dismisses with the standard modal-bottom-sheet slide-down animation. No haptic glitches; no flash of black.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>2 · Pacing section</h2>
+    <h2>3 · Pacing section <span class="pill">Now tab</span></h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      Rest-between-exercises persists to <code>preferred_rest_interval_seconds</code>; auto-insert threshold is a Phase B placeholder.
+      Lives on the <strong>Now</strong> tab. Rest-between-exercises persists to <code>preferred_rest_interval_seconds</code>; auto-insert threshold is a Phase B placeholder.
     </p>
     <ul class="checklist">
-      <li data-num="5" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">+</button><button class="fail" type="button" aria-label="Fail 5">x</button></div>
-        <span class="num">5.</span>
-        <span class="text">In Pacing, the first row is <strong>Default rest between exercises</strong>. The stepper shows the current value (default 30s for fresh plans) at full opacity, with no "Coming soon" chip. Tap the + button — value bumps in <strong>5s</strong> increments (30 → 35 → 40, etc). Tap minus — value drops by 5s. Floor 5s, ceiling 180s.</span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="6" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 6">+</button><button class="fail" type="button" aria-label="Fail 6">x</button></div>
         <span class="num">6.</span>
-        <span class="text">Bump rest to 45s. Close the sheet → reopen. Value still shows 45s (persisted to SQLite via the existing <code>_touchAndPush</code> path). The session card's "dirty" indicator may flip to coral cloud-sync since the edit counts as a content change.</span>
+        <span class="text">Land on the <em>Now</em> tab. The first row is <strong>Default rest between exercises</strong>. The stepper shows the current value (default 30s for fresh plans) at full opacity, with no "Coming soon" chip. Tap the + button — value bumps in <strong>5s</strong> increments (30 → 35 → 40, etc). Tap minus — value drops by 5s. Floor 5s, ceiling 180s.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="7" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 7">+</button><button class="fail" type="button" aria-label="Fail 7">x</button></div>
         <span class="num">7.</span>
-        <span class="text"><strong>Auto-insert rest every</strong> row renders dimmed (~45% opacity) with a "Coming soon" chip in the top-right. Tapping the +/- buttons does <em>nothing</em> — the row is tap-blocked. Value stays at 10 min.</span>
+        <span class="text">On the <em>Now</em> tab, bump rest to 45s. Close the sheet → reopen. Sheet lands on <em>Now</em> again with value still showing 45s (persisted to SQLite via the existing <code>_touchAndPush</code> path). The session card's "dirty" indicator may flip to coral cloud-sync since the edit counts as a content change.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">+</button><button class="fail" type="button" aria-label="Fail 8">x</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Auto-insert rest every</strong> row sits below the rest stepper on the <em>Now</em> tab, rendered dimmed (~45% opacity) with a "Coming soon" chip in the top-right. Tapping the +/- buttons does <em>nothing</em> — the row is tap-blocked. Value stays at 10 min.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>3 · Display defaults section</h2>
+    <h2>4 · Display defaults section <span class="pill">Defaults tab</span></h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      All three rows are Phase B placeholders — dimmed, "Coming soon" chip, tap-blocked. Header subtitle reads "applies to new exercises".
+      Lives on the <strong>Defaults</strong> tab (top group). All three rows are Phase B placeholders — dimmed, "Coming soon" chip, tap-blocked. Header subtitle reads "applies to new exercises".
     </p>
     <ul class="checklist">
-      <li data-num="8" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">+</button><button class="fail" type="button" aria-label="Fail 8">x</button></div>
-        <span class="num">8.</span>
-        <span class="text"><strong>Default treatment</strong> chip group renders dimmed with a "Coming soon" chip top-right. Three pills (Drawn / B&amp;W / Colour) are visible (B&amp;W shows as the selected default). Tapping any chip does <em>nothing</em> — selection doesn't change.</span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="9" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 9">+</button><button class="fail" type="button" aria-label="Fail 9">x</button></div>
         <span class="num">9.</span>
-        <span class="text"><strong>Body focus on</strong> row renders dimmed with a "Coming soon" chip top-right. Toggle visually shows ON (default state). Tapping the toggle does <em>nothing</em> — it stays ON.</span>
+        <span class="text">Switch to the <em>Defaults</em> tab. <strong>Default treatment</strong> chip group is the first row in the Display defaults block; renders dimmed with a "Coming soon" chip top-right. Three pills (Drawn / B&amp;W / Colour) are visible (B&amp;W shows as the selected default). Tapping any chip does <em>nothing</em> — selection doesn't change.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="10" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 10">+</button><button class="fail" type="button" aria-label="Fail 10">x</button></div>
         <span class="num">10.</span>
-        <span class="text"><strong>Audio on for new exercises</strong> row renders dimmed with a "Coming soon" chip top-right. Toggle visually shows OFF (default state). Tapping does <em>nothing</em>.</span>
+        <span class="text">On <em>Defaults</em>, <strong>Body focus on</strong> row renders dimmed with a "Coming soon" chip top-right. Toggle visually shows ON (default state). Tapping the toggle does <em>nothing</em> — it stays ON.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">+</button><button class="fail" type="button" aria-label="Fail 11">x</button></div>
+        <span class="num">11.</span>
+        <span class="text">On <em>Defaults</em>, <strong>Audio on for new exercises</strong> row renders dimmed with a "Coming soon" chip top-right. Toggle visually shows OFF (default state). Tapping does <em>nothing</em>.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>4 · Web viewer section</h2>
+    <h2>5 · Web viewer section <span class="pill">Defaults tab</span></h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      Six toggles, all Phase B placeholders. Header subtitle reads "what your client sees".
+      Lives on the <strong>Defaults</strong> tab (bottom group, below Display defaults). Six toggles, all Phase B placeholders. Header subtitle reads "what your client sees".
     </p>
     <ul class="checklist">
-      <li data-num="11" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">+</button><button class="fail" type="button" aria-label="Fail 11">x</button></div>
-        <span class="num">11.</span>
-        <span class="text">All six rows render dimmed (~45% opacity) with a "Coming soon" chip in the top-right corner of each:
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">+</button><button class="fail" type="button" aria-label="Fail 12">x</button></div>
+        <span class="num">12.</span>
+        <span class="text">On the <em>Defaults</em> tab, scroll past Display defaults (if needed) to the Web viewer block. All six rows render dimmed (~45% opacity) with a "Coming soon" chip in the top-right corner of each:
           <em>Show exercise title above video</em>,
           <em>Show practitioner notes</em>,
           <em>Show progress pill matrix</em>,
@@ -249,85 +262,85 @@
         </span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-      <li data-num="12" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">+</button><button class="fail" type="button" aria-label="Fail 12">x</button></div>
-        <span class="num">12.</span>
-        <span class="text">Tap each toggle — none of them respond. Toggles all stay ON. Close + reopen the sheet — still all ON (Phase B placeholder, expected).</span>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">+</button><button class="fail" type="button" aria-label="Fail 13">x</button></div>
+        <span class="num">13.</span>
+        <span class="text">Tap each toggle — none of them respond. Toggles all stay ON. Close + reopen the sheet, switch to <em>Defaults</em> — still all ON (Phase B placeholder, expected).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>5 · Plan actions section</h2>
+    <h2>6 · Plan actions section <span class="pill">Plan tab</span></h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      Save-all and Delete route to existing handlers. Copy-URL writes to clipboard. Duplicate is disabled.
+      Lives on the <strong>Plan</strong> tab (top group). Save-all and Delete route to existing handlers. Copy-URL writes to clipboard. Duplicate is disabled.
     </p>
     <ul class="checklist">
-      <li data-num="13" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">+</button><button class="fail" type="button" aria-label="Fail 13">x</button></div>
-        <span class="num">13.</span>
-        <span class="text">Tap <strong>Save all videos to camera roll</strong>. Sheet closes. The familiar Save-to-Photos progress SnackBar fires (<code>1/N saving...</code>) followed by <code>N files saved to Photos</code>. Open the iOS Photos app — the freshly saved files are present (regression check that the prior cloud-download handler is correctly routed through).</span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="14" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 14">+</button><button class="fail" type="button" aria-label="Fail 14">x</button></div>
         <span class="num">14.</span>
-        <span class="text">Reopen the sheet. Tap <strong>Copy plan share URL</strong>. SnackBar reads <code>Plan URL copied</code>. Open the Notes app, paste — clipboard contents are <code>https://session.homefit.studio/p/{plan-id}</code> with the FULL UUID (no ellipsis). The sheet stays open after the copy.</span>
+        <span class="text">Switch to the <em>Plan</em> tab. Tap <strong>Save all videos to camera roll</strong>. Sheet closes. The familiar Save-to-Photos progress SnackBar fires (<code>1/N saving...</code>) followed by <code>N files saved to Photos</code>. Open the iOS Photos app — the freshly saved files are present (regression check that the prior cloud-download handler is correctly routed through).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="15" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 15">+</button><button class="fail" type="button" aria-label="Fail 15">x</button></div>
         <span class="num">15.</span>
-        <span class="text"><strong>Duplicate plan</strong> row is dimmed (~55% opacity). Tap — nothing happens. Help text reads "Coming soon — creates a copy in the same client's session list, version 1, unpublished."</span>
+        <span class="text">Reopen the sheet, switch to the <em>Plan</em> tab. Tap <strong>Copy plan share URL</strong>. SnackBar reads <code>Plan URL copied</code>. Open the Notes app, paste — clipboard contents are <code>https://session.homefit.studio/p/{plan-id}</code> with the FULL UUID (no ellipsis). The sheet stays open after the copy.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="16" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 16">+</button><button class="fail" type="button" aria-label="Fail 16">x</button></div>
         <span class="num">16.</span>
-        <span class="text"><strong>Delete plan</strong> row title renders <strong>red</strong> (danger color). Tap — the sheet closes, Studio pops back to the client sessions list, the deleted plan is gone, and a SnackBar reads <code>Plan deleted</code> with an <strong>Undo</strong> action. Tap Undo — the plan re-appears in the list (R-01 soft-delete + 7-day undo).</span>
+        <span class="text">On the <em>Plan</em> tab, <strong>Duplicate plan</strong> row is dimmed (~55% opacity). Tap — nothing happens. Help text reads "Coming soon — creates a copy in the same client's session list, version 1, unpublished."</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">+</button><button class="fail" type="button" aria-label="Fail 17">x</button></div>
+        <span class="num">17.</span>
+        <span class="text">On the <em>Plan</em> tab, <strong>Delete plan</strong> row title renders <strong>red</strong> (danger color). Tap — the sheet closes, Studio pops back to the client sessions list, the deleted plan is gone, and a SnackBar reads <code>Plan deleted</code> with an <strong>Undo</strong> action. Tap Undo — the plan re-appears in the list (R-01 soft-delete + 7-day undo).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>6 · Plan info section</h2>
+    <h2>7 · Plan info section <span class="pill">Plan tab</span></h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      Read-only metadata grid. All values resolved from the existing Session model.
+      Lives on the <strong>Plan</strong> tab (bottom group, below Plan actions). Read-only metadata grid. All values resolved from the existing Session model.
     </p>
     <ul class="checklist">
-      <li data-num="17" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">+</button><button class="fail" type="button" aria-label="Fail 17">x</button></div>
-        <span class="num">17.</span>
-        <span class="text">Plan info section renders these labels in pairs (mono-font caps): <em>VERSION</em>, <em>LAST PUBLISHED</em>, <em>ESTIMATED DURATION</em>, <em>CREDIT COST</em>, <em>CREATED BY</em>, <em>FIRST OPENED</em>. Then <em>PLAN URL</em> on a full-width row. Layout reads as a 2-column grid above + 1 full-width row below.</span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="18" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 18">+</button><button class="fail" type="button" aria-label="Fail 18">x</button></div>
         <span class="num">18.</span>
-        <span class="text">Open the sheet on a <strong>published</strong> plan. <em>VERSION</em> matches the version chip on the session card. <em>LAST PUBLISHED</em> renders <code>DD Mon HH:MM</code>. <em>ESTIMATED DURATION</em> shows minutes. <em>CREDIT COST</em> reads <code>1 credit</code> for ≤ 75-min plans / <code>2 credits</code> for &gt; 75-min plans. <em>CREATED BY</em> renders the practitioner's email (or "—" if not resolvable). <em>FIRST OPENED</em> renders <code>DD Mon HH:MM</code> for opened plans / <code>— never —</code> for unopened.</span>
+        <span class="text">On the <em>Plan</em> tab, scroll past Plan actions (if needed). Plan info section renders these labels in pairs (mono-font caps): <em>VERSION</em>, <em>LAST PUBLISHED</em>, <em>ESTIMATED DURATION</em>, <em>CREDIT COST</em>, <em>CREATED BY</em>, <em>FIRST OPENED</em>. Then <em>PLAN URL</em> on a full-width row. Layout reads as a 2-column grid above + 1 full-width row below.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="19" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 19">+</button><button class="fail" type="button" aria-label="Fail 19">x</button></div>
         <span class="num">19.</span>
-        <span class="text"><em>PLAN URL</em> renders in coral monospace, full UUID visible. Tap the URL — clipboard receives the same URL + SnackBar fires <code>Plan URL copied</code>.</span>
+        <span class="text">Open the sheet on a <strong>published</strong> plan, switch to the <em>Plan</em> tab. <em>VERSION</em> matches the version chip on the session card. <em>LAST PUBLISHED</em> renders <code>DD Mon HH:MM</code>. <em>ESTIMATED DURATION</em> shows minutes. <em>CREDIT COST</em> reads <code>1 credit</code> for ≤ 75-min plans / <code>2 credits</code> for &gt; 75-min plans. <em>CREATED BY</em> renders the practitioner's email (or "—" if not resolvable). <em>FIRST OPENED</em> renders <code>DD Mon HH:MM</code> for opened plans / <code>— never —</code> for unopened.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="20" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 20">+</button><button class="fail" type="button" aria-label="Fail 20">x</button></div>
+        <span class="num">20.</span>
+        <span class="text">On the <em>Plan</em> tab, <em>PLAN URL</em> renders in coral monospace, full UUID visible. Tap the URL — clipboard receives the same URL + SnackBar fires <code>Plan URL copied</code>.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>7 · Coral-dot deviation indicator</h2>
+    <h2>8 · Coral-dot deviation indicator</h2>
     <p style="color: var(--text-mute); margin: 0 0 12px;">
-      The toolbar gear shows a coral dot when any persisted plan-setting deviates from default. Phase A inspects only <code>preferred_rest_interval_seconds</code> != 30.
+      The toolbar gear shows a coral dot when any persisted plan-setting deviates from default. Phase A inspects only <code>preferred_rest_interval_seconds</code> != 30 — only the <em>Now</em> tab's rest stepper drives this.
     </p>
     <ul class="checklist">
-      <li data-num="20" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 20">+</button><button class="fail" type="button" aria-label="Fail 20">x</button></div>
-        <span class="num">20.</span>
-        <span class="text">Find a session whose rest interval is at default (30s) — gear icon has NO coral dot. Open the sheet, bump rest to 45s, close. The toolbar gear now shows a small coral dot in its top-right corner. Bump rest back to 30s — dot disappears.</span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="21" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 21">+</button><button class="fail" type="button" aria-label="Fail 21">x</button></div>
         <span class="num">21.</span>
-        <span class="text">The Phase B placeholder rows are tap-blocked, so they can't be flipped at all — the gear's coral-dot helper still inspects only persisted fields. Open the sheet on a default-rest session: gear stays dotless regardless of how many times you tap the dimmed Web-viewer / Display-defaults rows.</span>
+        <span class="text">Find a session whose rest interval is at default (30s) — gear icon has NO coral dot. Open the sheet (lands on <em>Now</em>), bump rest to 45s, close. The toolbar gear now shows a small coral dot in its top-right corner. Bump rest back to 30s — dot disappears.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="22" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 22">+</button><button class="fail" type="button" aria-label="Fail 22">x</button></div>
+        <span class="num">22.</span>
+        <span class="text">The Phase B placeholder rows on <em>Defaults</em> are tap-blocked, so they can't be flipped at all — the gear's coral-dot helper still inspects only persisted fields. Open the sheet on a default-rest session: gear stays dotless regardless of how many times you tap dimmed rows on <em>Defaults</em>.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
