@@ -43,7 +43,14 @@ class StudioBottomBar extends StatelessWidget {
   final VoidCallback onPreview;
   final VoidCallback onPublish;
   final VoidCallback onShare;
-  final VoidCallback onDownload;
+  /// Tapping the gear icon on the toolbar's right edge opens the
+  /// plan-settings sheet. Replaced the cloud-download icon (Save to
+  /// Photos relocated INTO the sheet's Plan actions section).
+  final VoidCallback onSettings;
+  /// True when at least one persisted plan-settings field deviates
+  /// from its default. Drives the coral dot on the gear icon. Computed
+  /// by the host via `settingsDeviateFromDefaults(session)`.
+  final bool settingsHaveDeviations;
   final VoidCallback onPublishLockedTap;
   final VoidCallback onUnlockTap;
   final VoidCallback onShowPublishError;
@@ -61,7 +68,8 @@ class StudioBottomBar extends StatelessWidget {
     required this.onPreview,
     required this.onPublish,
     required this.onShare,
-    required this.onDownload,
+    required this.onSettings,
+    this.settingsHaveDeviations = false,
     required this.onPublishLockedTap,
     required this.onUnlockTap,
     required this.onShowPublishError,
@@ -306,14 +314,15 @@ class StudioBottomBar extends StatelessWidget {
           const SizedBox(width: 4),
           // Workflow pill.
           workflowPill,
-          // Flexible gap pushes Download to the right edge.
+          // Flexible gap pushes Settings to the right edge.
           const Spacer(),
-          // Download — right-aligned, no background.
-          _ToolbarIconButton(
-            icon: Icons.cloud_download_outlined,
-            active: hasExercises,
-            onTap: hasExercises ? onDownload : null,
-            tooltip: 'Save to Photos',
+          // Settings — right-aligned utility, replaces the prior
+          // cloud-download icon (Save-to-Photos moved into the sheet's
+          // Plan actions section). Coral dot in top-right when any
+          // persisted plan-setting deviates from default.
+          _SettingsToolbarIconButton(
+            onTap: onSettings,
+            showDot: settingsHaveDeviations,
           ),
         ],
       ),
@@ -457,6 +466,63 @@ class _ToolbarIconButton extends StatelessWidget {
         iconSize: 28,
         splashRadius: 24,
         tooltip: tooltip,
+      ),
+    );
+  }
+}
+
+/// Settings gear button — sits where the cloud-download icon used to
+/// (right edge of the Studio toolbar). Renders a tiny coral dot in the
+/// top-right corner when [showDot] is true (a persisted plan-setting
+/// deviates from default).
+class _SettingsToolbarIconButton extends StatelessWidget {
+  final VoidCallback onTap;
+  final bool showDot;
+
+  const _SettingsToolbarIconButton({
+    required this.onTap,
+    required this.showDot,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Center(
+            child: IconButton(
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                onTap();
+              },
+              padding: EdgeInsets.zero,
+              icon: const Icon(
+                Icons.settings_outlined,
+                color: AppColors.textOnDark,
+                size: 28,
+              ),
+              iconSize: 28,
+              splashRadius: 24,
+              tooltip: 'Plan settings',
+            ),
+          ),
+          if (showDot)
+            Positioned(
+              top: 8,
+              right: 6,
+              child: Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

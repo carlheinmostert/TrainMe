@@ -9,6 +9,7 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_player/video_player.dart';
+import '../config.dart';
 import '../models/client.dart';
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
@@ -38,6 +39,7 @@ import '../widgets/treatment_segmented_control.dart';
 import '../widgets/undo_snackbar.dart';
 import '../services/auth_service.dart';
 import '../widgets/orientation_lock_guard.dart';
+import '../widgets/plan_settings_sheet.dart';
 import 'unified_preview_screen.dart';
 
 /// Post-session editing — the "Studio" mode.
@@ -1520,7 +1522,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                     onPreview: _openPreview,
                     onPublish: _publishFromToolbar,
                     onShare: _shareFromToolbar,
-                    onDownload: _downloadAllToPhotos,
+                    // Wave-settings — replaces the cloud-download icon
+                    // with a gear that opens the PlanSettingsSheet. The
+                    // save-all-to-Photos affordance moved INTO that
+                    // sheet's Plan actions section (still routed to
+                    // [_downloadAllToPhotos]).
+                    onSettings: _openPlanSettings,
+                    settingsHaveDeviations:
+                        settingsDeviateFromDefaults(_session),
                     // Wave 30 — tapping Publish on a still-mid-grace plan
                     // routes to the unlock sheet (two-tap UX so the
                     // practitioner sees the unlocked state before the
@@ -2822,6 +2831,101 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// current session to the iOS Camera Roll. Skips rest periods and
   /// exercises with no raw file. Uses `photo_manager` for the actual
   /// PHPhotoLibrary write, same as `OriginalVideoService.saveToPhotos`.
+  // ---------------------------------------------------------------------------
+  // Plan settings sheet — gear icon on the bottom toolbar.
+  // ---------------------------------------------------------------------------
+
+  /// Opens the plan-settings sheet. The sheet binds the existing
+  /// rest-interval persistence path to its stepper, routes Save-All-to-
+  /// Photos to [_downloadAllToPhotos], and routes Delete plan to the
+  /// soft-delete path. UI-only Phase A — every other field is in-memory
+  /// with `TODO(phase-b)` markers.
+  void _openPlanSettings() {
+    HapticFeedback.selectionClick();
+    showPlanSettingsSheet(
+      context: context,
+      session: _session,
+      clientName: _session.clientName,
+      onRestIntervalChanged: (newValue) {
+        // Persists via the existing _touchAndPush flow so the
+        // session-card "dirty" indicator flips correctly. Every other
+        // inline edit in Studio (circuit cycles, exercise renames)
+        // routes the same way.
+        _touchAndPush(
+          _session.copyWith(preferredRestIntervalSeconds: newValue),
+        );
+      },
+      onSaveAllToPhotos: _downloadAllToPhotos,
+      onCopyPlanUrl: _copyPlanShareUrl,
+      onDeletePlan: _softDeletePlanFromSettings,
+      createdByLabel: _resolveCreatedByLabel(),
+    );
+  }
+
+  /// Best-effort resolution of "Created by" for the Plan info section.
+  /// Returns the practitioner's email when the session row was created
+  /// under the currently-signed-in user; otherwise "—" (we don't have
+  /// a per-user lookup table on-device).
+  String _resolveCreatedByLabel() {
+    final createdByUid = _session.createdByUserId;
+    if (createdByUid == null) return '—';
+    final auth = AuthService.instance;
+    if (auth.currentUserId == createdByUid) {
+      final email = ApiClient.instance.currentUserEmail;
+      if (email != null && email.trim().isNotEmpty) return email;
+    }
+    return '—';
+  }
+
+  /// Copy the canonical plan URL to the clipboard + flash a SnackBar.
+  Future<void> _copyPlanShareUrl() async {
+    final url = '${AppConfig.webPlayerBaseUrl}/p/${_session.id}';
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Plan URL copied'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+  }
+
+  /// Soft-delete the plan from inside the settings sheet.
+  ///
+  /// R-01: no modal confirmation — fires immediately, undo via the
+  /// SnackBar (matching `client_sessions_screen.dart._deleteSession`).
+  /// Pops the Studio screen so the parent ClientSessionsScreen's
+  /// `_loadSessions` refresh runs.
+  Future<void> _softDeletePlanFromSettings() async {
+    final snapshot = _session;
+    await widget.storage.softDeleteSession(snapshot.id);
+    if (!mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).pop();
+
+    // Show the undo SnackBar on the parent (ClientSessionsScreen) — the
+    // messenger reference was grabbed before pop so the SnackBar lands
+    // on the right scaffold.
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'Plan deleted',
+          ),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () async {
+              await widget.storage.restoreSession(snapshot.id);
+            },
+          ),
+        ),
+      );
+  }
+
   Future<void> _downloadAllToPhotos() async {
     // Collect saveable exercises — skip rests and exercises with no raw file.
     final saveable = _session.exercises.where((e) {

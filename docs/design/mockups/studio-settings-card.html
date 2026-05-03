@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>homefit.studio — Studio settings card</title>
+  <style>
+    :root {
+      --brand-default: #ff6b35;
+      --brand-tint-bg: rgba(255, 107, 53, 0.14);
+      --brand-tint-border: rgba(255, 107, 53, 0.38);
+      --surface-bg: #0f1117;
+      --surface-base: #1a1d27;
+      --surface-raised: #242733;
+      --surface-row: #1f222d;
+      --surface-border: #2e3140;
+      --ink-primary: #f0f0f5;
+      --ink-secondary: #9ca3af;
+      --ink-muted: #6b7280;
+      --rest: #86efac;
+      --danger: #f87171;
+      --danger-bg: rgba(248, 113, 113, 0.10);
+      --danger-border: rgba(248, 113, 113, 0.30);
+      --font-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 24px 80px;
+      background: var(--surface-bg);
+      color: var(--ink-primary);
+      font-family: var(--font-body);
+      min-height: 100vh;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 22px;
+      margin: 0 0 4px;
+    }
+    .subtitle {
+      color: var(--ink-secondary);
+      font-size: 13px;
+      margin-bottom: 28px;
+      max-width: 720px;
+      line-height: 1.55;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+      gap: 36px;
+      align-items: start;
+    }
+    @media (max-width: 880px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    /* ============================================================== */
+    /*  Bottom toolbar — gear replaces the cloud-download icon         */
+    /* ============================================================== */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      margin-bottom: 22px;
+    }
+    .workflow-pill {
+      display: flex;
+      align-items: center;
+      background: var(--surface-raised);
+      border-radius: 999px;
+      padding: 6px 8px;
+      gap: 4px;
+    }
+    .step {
+      padding: 6px 12px;
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 11.5px;
+      color: var(--ink-secondary);
+      letter-spacing: 0.3px;
+      border-radius: 999px;
+      cursor: default;
+    }
+    .step.active {
+      background: var(--brand-default);
+      color: #fff;
+    }
+    .step.divider {
+      color: var(--ink-muted);
+      padding: 6px 2px;
+    }
+    .toolbar-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: var(--surface-raised);
+      border: 1px solid var(--surface-border);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--ink-primary);
+      font-size: 17px;
+      cursor: pointer;
+    }
+    .toolbar-icon.changed {
+      box-shadow: 0 0 0 2px var(--brand-tint-bg) inset;
+      border-color: var(--brand-tint-border);
+    }
+    .toolbar-caption {
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin-top: 8px;
+      font-family: var(--font-mono);
+      letter-spacing: 0.5px;
+      text-align: center;
+    }
+    .toolbar-caption b { color: var(--brand-default); font-weight: 700; }
+
+    /* ============================================================== */
+    /*  Settings card                                                   */
+    /* ============================================================== */
+    .card {
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 18px;
+      overflow: hidden;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+    .card-handle {
+      width: 36px; height: 4px;
+      background: var(--surface-border);
+      border-radius: 2px;
+      margin: 8px auto 0;
+    }
+    .card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    .card-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 17px;
+    }
+    .card-title small {
+      display: block;
+      font-family: var(--font-body);
+      font-weight: 400;
+      font-size: 11.5px;
+      color: var(--ink-muted);
+      margin-top: 2px;
+      letter-spacing: 0.2px;
+    }
+    .close-x {
+      width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--ink-secondary);
+      font-size: 18px;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .card-body {
+      max-height: 78vh;
+      overflow-y: auto;
+    }
+
+    .section {
+      padding: 18px 20px 6px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    .section:last-child { border-bottom: 0; }
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+    .row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 0;
+      gap: 16px;
+      border-top: 1px solid var(--surface-border);
+    }
+    .row:first-of-type { border-top: 0; }
+    .row-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .row-title {
+      font-size: 13.5px;
+      color: var(--ink-primary);
+      font-weight: 500;
+    }
+    .row-help {
+      font-size: 11.5px;
+      color: var(--ink-muted);
+      margin-top: 2px;
+      line-height: 1.45;
+    }
+
+    /* ===== Inline controls ===== */
+    .toggle {
+      width: 42px; height: 24px;
+      background: var(--surface-row);
+      border: 1px solid var(--surface-border);
+      border-radius: 999px;
+      position: relative;
+      flex-shrink: 0;
+      cursor: pointer;
+      transition: background 120ms ease;
+    }
+    .toggle::after {
+      content: "";
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--ink-secondary);
+      transition: transform 140ms ease, background 120ms ease;
+    }
+    .toggle.on {
+      background: var(--brand-tint-bg);
+      border-color: var(--brand-tint-border);
+    }
+    .toggle.on::after {
+      transform: translateX(18px);
+      background: var(--brand-default);
+    }
+
+    .stepper {
+      display: flex; align-items: center;
+      background: var(--surface-row);
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      padding: 2px;
+      flex-shrink: 0;
+    }
+    .stepper button {
+      width: 28px; height: 28px;
+      background: transparent;
+      border: 0;
+      color: var(--ink-secondary);
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    .stepper button:hover { color: var(--ink-primary); }
+    .stepper-value {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--ink-primary);
+      min-width: 56px;
+      text-align: center;
+      font-weight: 600;
+    }
+    .stepper-value small {
+      color: var(--ink-muted);
+      font-weight: 400;
+      margin-left: 3px;
+    }
+
+    .chip-group {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .chip {
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: var(--surface-row);
+      border: 1px solid var(--surface-border);
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 11.5px;
+      color: var(--ink-secondary);
+      letter-spacing: 0.3px;
+      cursor: pointer;
+    }
+    .chip.selected {
+      background: var(--brand-tint-bg);
+      border-color: var(--brand-tint-border);
+      color: var(--brand-default);
+    }
+
+    /* ===== Action rows (one-shot buttons) ===== */
+    .action-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 13px 0;
+      gap: 12px;
+      border-top: 1px solid var(--surface-border);
+      cursor: pointer;
+    }
+    .action-row:first-of-type { border-top: 0; }
+    .action-row .row-text { flex: 1; }
+    .action-row .row-title { font-size: 13.5px; }
+    .action-row .arrow {
+      color: var(--ink-muted);
+      font-size: 18px;
+    }
+    .action-row.danger .row-title { color: var(--danger); }
+
+    /* ===== Info footer ===== */
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px 18px;
+      padding: 12px 0 4px;
+    }
+    .info-cell .info-label {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      letter-spacing: 1px;
+      color: var(--ink-muted);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .info-cell .info-value {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      color: var(--ink-primary);
+    }
+    .info-cell .info-value.url {
+      color: var(--brand-default);
+      word-break: break-all;
+      cursor: pointer;
+    }
+    .info-cell.full {
+      grid-column: 1 / -1;
+    }
+
+    /* ===== Annotations panel (right column) ===== */
+    .notes {
+      padding: 22px 24px;
+      background: var(--surface-base);
+      border: 1px solid var(--surface-border);
+      border-radius: 14px;
+      font-size: 12.5px;
+      color: var(--ink-secondary);
+      line-height: 1.65;
+    }
+    .notes h3 {
+      font-family: var(--font-display);
+      font-size: 13px;
+      margin: 22px 0 8px;
+      color: var(--ink-primary);
+      letter-spacing: 0.2px;
+    }
+    .notes h3:first-child { margin-top: 0; }
+    .notes ul { margin: 0; padding-left: 18px; }
+    .notes li { margin-bottom: 6px; }
+    .notes b { color: var(--ink-primary); }
+    .notes code {
+      font-family: var(--font-mono);
+      background: var(--surface-raised);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Studio settings card · plan-scoped configuration</h1>
+  <p class="subtitle">
+    Replaces the cloud-download icon on the Studio bottom toolbar with a gear that opens this sheet. Five sections — pacing, display defaults, web-viewer chrome, plan actions, plan info. <b>Save-to-photos relocates here</b> from the toolbar; <b>crossfade tuner stays on the MediaViewer</b> (per Carl's "stays where used" call). All values are per-plan; nothing lives in per-device prefs from this sheet.
+  </p>
+
+  <div class="layout">
+
+    <!-- Left column: toolbar + the settings sheet -->
+    <div>
+      <!-- Bottom toolbar with the new gear -->
+      <div class="toolbar">
+        <div class="workflow-pill">
+          <span class="step">Camera</span>
+          <span class="step divider">›</span>
+          <span class="step">Preview</span>
+          <span class="step divider">›</span>
+          <span class="step active">Publish</span>
+          <span class="step divider">›</span>
+          <span class="step">Share</span>
+        </div>
+        <div class="toolbar-icon changed" title="Plan settings">⚙</div>
+      </div>
+      <div class="toolbar-caption">cloud-download <b>→</b> ⚙ plan settings</div>
+
+      <div style="height: 24px;"></div>
+
+      <!-- The settings card -->
+      <div class="card">
+        <div class="card-handle"></div>
+        <div class="card-head">
+          <div class="card-title">
+            Plan settings
+            <small>3 May 2026 14:32 · client: Carl</small>
+          </div>
+          <div class="close-x">✕</div>
+        </div>
+
+        <div class="card-body">
+
+          <!-- Pacing -->
+          <div class="section">
+            <div class="section-label">Pacing</div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">Default rest between exercises</div>
+                <div class="row-help">Used when an exercise has no per-row override.</div>
+              </div>
+              <div class="stepper">
+                <button>−</button>
+                <div class="stepper-value">30<small>s</small></div>
+                <button>+</button>
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">Auto-insert rest every</div>
+                <div class="row-help">A rest row is suggested whenever the running clock crosses this threshold. Learned from your drag behaviour by default.</div>
+              </div>
+              <div class="stepper">
+                <button>−</button>
+                <div class="stepper-value">10<small>min</small></div>
+                <button>+</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Display defaults -->
+          <div class="section">
+            <div class="section-label">Display defaults <span style="color: var(--ink-muted); font-weight: 400;">· applies to new exercises</span></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">Default treatment</div>
+                <div class="row-help">What new exercises preview as on the client's web viewer.</div>
+              </div>
+              <div class="chip-group">
+                <span class="chip">Drawn</span>
+                <span class="chip selected">B&amp;W</span>
+                <span class="chip">Colour</span>
+              </div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">Body focus on</div>
+                <div class="row-help">Crisp body, dimmed background. Practitioner-only viewing default; client can still pick.</div>
+              </div>
+              <div class="toggle on"></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">Audio on for new exercises</div>
+                <div class="row-help">Per-exercise toggle still wins; this is just the default.</div>
+              </div>
+              <div class="toggle"></div>
+            </div>
+          </div>
+
+          <!-- Web Viewer -->
+          <div class="section">
+            <div class="section-label">Web viewer <span style="color: var(--ink-muted); font-weight: 400;">· what your client sees</span></div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">Show exercise title above video</div>
+                <div class="row-help">The big floating exercise name at the top of the player.</div>
+              </div>
+              <div class="toggle on"></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">Show practitioner notes</div>
+                <div class="row-help">Notes you wrote on each exercise card.</div>
+              </div>
+              <div class="toggle on"></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">Show progress pill matrix</div>
+                <div class="row-help">The dotted timeline strip + ETA at the top of the player.</div>
+              </div>
+              <div class="toggle on"></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">Show rep stack</div>
+                <div class="row-help">Vertical block column on the left edge — one block per rep, brackets for sets, fill follows the active rep.</div>
+              </div>
+              <div class="toggle on"></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">Allow client to override treatment</div>
+                <div class="row-help">"Show me" picker. Off → client sees only the treatment you prescribed per exercise.</div>
+              </div>
+              <div class="toggle on"></div>
+            </div>
+            <div class="row">
+              <div class="row-text">
+                <div class="row-title">Allow client to skip / extend rests</div>
+                <div class="row-help">Off → rest timers run on a fixed clock the client can't shortcut.</div>
+              </div>
+              <div class="toggle on"></div>
+            </div>
+          </div>
+
+          <!-- Plan actions -->
+          <div class="section">
+            <div class="section-label">Plan actions</div>
+            <div class="action-row">
+              <div class="row-text">
+                <div class="row-title">Save all videos to camera roll</div>
+                <div class="row-help">Exports each exercise as Drawn / B&amp;W / Colour per your treatment picks.</div>
+              </div>
+              <div class="arrow">↓</div>
+            </div>
+            <div class="action-row">
+              <div class="row-text">
+                <div class="row-title">Copy plan share URL</div>
+                <div class="row-help"><span style="color: var(--brand-default); font-family: var(--font-mono);">session.homefit.studio/p/1fcff5f1…</span></div>
+              </div>
+              <div class="arrow">⧉</div>
+            </div>
+            <div class="action-row">
+              <div class="row-text">
+                <div class="row-title">Duplicate plan</div>
+                <div class="row-help">Creates a copy in the same client's session list, version 1, unpublished.</div>
+              </div>
+              <div class="arrow">›</div>
+            </div>
+            <div class="action-row danger">
+              <div class="row-text">
+                <div class="row-title">Delete plan</div>
+                <div class="row-help">Soft-delete with 7-day undo. Files stay until the cron sweep.</div>
+              </div>
+              <div class="arrow">›</div>
+            </div>
+          </div>
+
+          <!-- Plan info -->
+          <div class="section">
+            <div class="section-label">Plan info</div>
+            <div class="info-grid">
+              <div class="info-cell">
+                <div class="info-label">Version</div>
+                <div class="info-value">v3</div>
+              </div>
+              <div class="info-cell">
+                <div class="info-label">Last published</div>
+                <div class="info-value">2 May 14:50</div>
+              </div>
+              <div class="info-cell">
+                <div class="info-label">Estimated duration</div>
+                <div class="info-value">38 min</div>
+              </div>
+              <div class="info-cell">
+                <div class="info-label">Credit cost</div>
+                <div class="info-value">1 credit</div>
+              </div>
+              <div class="info-cell">
+                <div class="info-label">Created by</div>
+                <div class="info-value">Carl</div>
+              </div>
+              <div class="info-cell">
+                <div class="info-label">First opened</div>
+                <div class="info-value">— never —</div>
+              </div>
+              <div class="info-cell full">
+                <div class="info-label">Plan URL</div>
+                <div class="info-value url">session.homefit.studio/p/1fcff5f1-1aae-42e7-8602-8b9dad7dae52</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Right column: design notes -->
+    <div class="notes">
+      <h3>Layout choices</h3>
+      <ul>
+        <li><b>One pane, vertical scroll.</b> No tabs. Sections separated by a 1px divider + caps-mono label. Five sections fit comfortably at default detent (~80% screen height).</li>
+        <li><b>Sticky header</b> with the plan title + a subtitle showing the timestamp + client name (so the practitioner can confirm they're editing the right plan). Close X top-right.</li>
+        <li><b>Section order</b> is roughly "things you tweak often" → "things you set once" → "actions" → "info". Pacing is first because rest defaults change per-plan; info is last because it's read-only.</li>
+      </ul>
+
+      <h3>Control patterns</h3>
+      <ul>
+        <li><b>Toggle</b> for booleans (web-viewer flags, audio default, body focus default).</li>
+        <li><b>Stepper</b> for numerics with discrete bumps (rest seconds, auto-insert minutes).</li>
+        <li><b>Chip group</b> for enums with ≤ 4 options (default treatment).</li>
+        <li><b>Action row</b> for one-shots with a trailing arrow / glyph (save-all has ↓; copy has ⧉; nav has ›).</li>
+        <li><b>Danger</b> rendered in <code>--danger</code> red, separated only by section break — no extra confirm dialog (R-01 governs; SnackBar undo is the safety net).</li>
+      </ul>
+
+      <h3>What lives elsewhere (deliberate)</h3>
+      <ul>
+        <li><b>Crossfade tuner</b> stays on the MediaViewer chrome — tuned in-context while watching the playback. Don't move.</li>
+        <li><b>Per-exercise treatment</b> stays on each Studio card row — already inline.</li>
+        <li><b>Per-exercise audio toggle</b> stays in the editor sheet's settings tab.</li>
+        <li><b>Practice picker</b> stays as the top-left chip on Home; immutable mid-session.</li>
+      </ul>
+
+      <h3>Storage</h3>
+      <ul>
+        <li><b>Web viewer</b> flags → new <code>web_viewer_config</code> jsonb on <code>plans</code>; defaults all true so existing plans don't change behaviour. <code>get_plan_full</code> already returns the plan row, so no new RPC.</li>
+        <li><b>Display defaults</b> + pacing → existing columns on <code>plans</code> (<code>preferred_rest_interval_seconds</code> exists; treatment / body-focus / audio defaults are new columns OR roll into the same jsonb).</li>
+      </ul>
+
+      <h3>Open questions</h3>
+      <ul>
+        <li>Does the practitioner ever want a per-plan <b>language</b> for the audio prep prompts? Could go in Display defaults if so.</li>
+        <li>Is "Allow client to skip rests" honoured by the existing rest skip gesture, or do we need a UI hide on the timer chip?</li>
+        <li>If the toolbar gear shows a <b>changed</b> state when any non-default value is set, the visual signal helps the practitioner notice "this plan deviates from defaults" — worth a small dot indicator?</li>
+      </ul>
+    </div>
+
+  </div>
+</body>
+</html>
