@@ -1079,14 +1079,19 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
     }
   }
 
-  /// Wave 40 (M2) — open the iOS multi-select photo picker. For each
-  /// picked photo we fire the SAME pipeline as a captured photo:
-  /// `_persistCapture` writes the file into `raw/`, builds an
-  /// `ExerciseCapture`, queues it for line-drawing conversion, then
-  /// `_onCaptureLanded` plays the peek-box animation and bumps the
+  /// Wave 40 (M2) — open the iOS multi-select media picker. Each picked
+  /// file (photo OR video — `pickMultipleMedia` returns both) is routed
+  /// through the SAME pipeline as a fresh capture: `_persistCapture`
+  /// writes the file into `raw/`, builds an `ExerciseCapture` with the
+  /// type detected from the extension by `_detectMediaType`, and queues
+  /// it via `ConversionService.queueConversion` — which dispatches to
+  /// the native `convertVideo` / line-drawing photo path. v8 hand-pose
+  /// dilation runs end-to-end here, so an imported video gets the same
+  /// person + equipment segmentation as one captured in-app. The peek-
+  /// box animation fires per file and `_onCaptureLanded` bumps the
   /// counter. The `await` between each picked file gives the peek-box
-  /// animation a moment to play one-per-import — this is intentional
-  /// per the brief: "no batched silent ingest".
+  /// animation a moment to play one-per-import — intentional per the
+  /// brief: "no batched silent ingest".
   ///
   /// Failures are silent — the count simply doesn't increment for the
   /// failed file. Cancel (no selection) is a no-op.
