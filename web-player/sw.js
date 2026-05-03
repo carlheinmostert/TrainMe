@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v25-rest-card-tighter';
+const CACHE_NAME = 'homefit-player-v26-rep-stack-fixes';
 
 // App shell files — always cached
 const APP_SHELL = [

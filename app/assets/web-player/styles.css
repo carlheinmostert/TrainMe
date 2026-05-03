@@ -1394,8 +1394,13 @@ video.is-prep-paused {
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  gap: 4px;
-  width: 50px;
+  gap: 3px;
+  /* Bug fix 2026-05-03 (C): width 50px → 34px (~32% reduction) +
+     tightened gap so the rep stack stops colliding with the centered
+     notes overlay. The aside chips ("45 kg", "End of exercise") still
+     bleed slightly past this width but render with smaller padding
+     (see .weight-chip / .end-marker below). */
+  width: 34px;
   z-index: 12;
   /* Carl 2026-04-24: blocks need to receive taps for navigable stack
      (v52). The container itself stays pass-through so the gaps between
@@ -1410,8 +1415,11 @@ video.is-prep-paused {
 
 .rep-stack-labels {
   position: relative;
-  width: 18px;
-  flex: 0 0 18px;
+  /* Bug fix 2026-05-03 (C): 18px → 13px (~28% reduction) to match
+     the parent stack tightening. Single-character labels (S1/S2/R)
+     still render legibly at this width. */
+  width: 13px;
+  flex: 0 0 13px;
   display: flex;
   flex-direction: column-reverse; /* section 1 sits at the bottom */
 }
@@ -1508,13 +1516,24 @@ video.is-prep-paused {
 .weight-chip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 3px;
-  padding: 3px 8px;
+  /* Bug fix 2026-05-03 (D): pills must be uniform width + height
+     regardless of content length. Fixed min-width keeps a "5 kg"
+     pill the same size as a "120 kg · 12 s" pill; min-height pins
+     the vertical dimension. (C): trimmed padding too. min-width
+     sized to fit "120 kg · 12 s" (~13 chars at 9px mono ≈ 64px +
+     padding); pad +4 for breathing room. */
+  padding: 2px 6px;
+  min-width: 68px;
+  min-height: 18px;
+  box-sizing: border-box;
+  text-align: center;
   border-radius: 999px;
   background: var(--c-surface-raised);
   border: 1px solid var(--c-surface-border);
   font-family: var(--f-mono);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   color: var(--c-ink-primary);
   letter-spacing: 0.3px;
@@ -1577,6 +1596,12 @@ video.is-prep-paused {
   stroke-width: 2.5;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+/* Bug fix 2026-05-03 (B): badge starts hidden; revealed by
+   paintActiveRepBlock() once the workout has reached the trailing
+   rest of the last set. */
+.end-marker.is-pending {
+  display: none;
 }
 
 .rep-stack-block {
