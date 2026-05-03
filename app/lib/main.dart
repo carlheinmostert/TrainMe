@@ -15,6 +15,13 @@ import 'services/unified_preview_scheme_bridge.dart';
 import 'screens/auth_gate.dart';
 import 'widgets/orientation_lock_guard.dart';
 
+/// App-root ScaffoldMessenger — used when destructive actions pop the
+/// current route before the undo SnackBar can mount on the local
+/// scaffold (e.g. delete-from-settings-sheet which pops Studio back to
+/// ClientSessionsScreen).
+final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
+
 /// TrainMe — Exercise plan capture and sharing for biokineticists.
 ///
 /// App entry point. Initializes local storage and the background conversion
@@ -114,6 +121,7 @@ class TrainMeApp extends StatelessWidget {
     return MaterialApp(
       title: 'TrainMe',
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: rootScaffoldMessengerKey,
       theme: kEnableLightTheme ? AppTheme.light : AppTheme.dark,
       darkTheme: AppTheme.dark,
       themeMode: kEnableLightTheme ? ThemeMode.system : ThemeMode.dark,
