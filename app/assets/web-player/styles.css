@@ -659,6 +659,14 @@ body {
   color: var(--c-rest);
 }
 
+/* Embedded surface (Flutter WebView preview) — practitioner already
+   knows the exercise name from Studio context, the floating title is
+   redundant chrome. Gate driven by `body.is-embedded`, set in app.js
+   based on `window.isHomefitEmbedded()` (HomefitBridge presence). */
+body.is-embedded .active-slide-title {
+  display: none;
+}
+
 /* === Card Viewport — the hero region ============================= */
 .card-viewport {
   flex: 1;

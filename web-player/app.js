@@ -77,6 +77,24 @@ const PLAYER_VERSION = 'v82-wave42-overrides';
     }
   };
 
+  // Tag <body> so embed-only chrome tweaks can be expressed declaratively
+  // in CSS (e.g. `body.is-embedded .active-slide-title { display: none }`).
+  // Runs early enough that the class is in place before the first paint.
+  if (window.isHomefitEmbedded()) {
+    try {
+      if (document.body) {
+        document.body.classList.add('is-embedded');
+      } else {
+        document.addEventListener('DOMContentLoaded', function () {
+          if (document.body) document.body.classList.add('is-embedded');
+        });
+      }
+    } catch (_) {
+      // Best-effort — failure to tag the body just means the floating
+      // title stays visible inside the embed. No functional impact.
+    }
+  }
+
   // Delegated `video.play` listener — the first time any <video> element
   // kicks off playback, flip the audio session to `.playback` so the
   // Silent switch stops muting the preview. `capture: true` lets us
