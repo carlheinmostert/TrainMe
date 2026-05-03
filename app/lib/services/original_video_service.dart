@@ -195,6 +195,12 @@ class OriginalVideoService {
   /// [PhotoManager.requestPermissionExtend]. On denial returns
   /// [SaveToPhotosResult.permissionDenied] so the caller can guide the
   /// user to Settings; on other failures returns [SaveToPhotosResult.failed].
+  ///
+  /// Routes to `saveVideo` for `.mp4` / `.mov` files and
+  /// `saveImageWithPath` for image extensions (`.jpg`, `.jpeg`, `.png`,
+  /// `.heic`). Files with an unrecognised extension fall through to
+  /// `saveVideo` for backwards compatibility (the original call sites
+  /// only ever passed `.mp4`).
   Future<SaveToPhotosResult> saveToPhotos(File file) async {
     try {
       final state = await PhotoManager.requestPermissionExtend(
@@ -210,10 +216,22 @@ class OriginalVideoService {
         return SaveToPhotosResult.permissionDenied;
       }
 
-      await PhotoManager.editor.saveVideo(
-        file,
-        title: p.basename(file.path),
-      );
+      final ext = p.extension(file.path).toLowerCase();
+      final isImage = ext == '.jpg' ||
+          ext == '.jpeg' ||
+          ext == '.png' ||
+          ext == '.heic';
+      if (isImage) {
+        await PhotoManager.editor.saveImageWithPath(
+          file.path,
+          title: p.basename(file.path),
+        );
+      } else {
+        await PhotoManager.editor.saveVideo(
+          file,
+          title: p.basename(file.path),
+        );
+      }
       return SaveToPhotosResult.saved;
     } catch (e) {
       dev.log(
