@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../config.dart';
+import '../main.dart' show rootScaffoldMessengerKey;
 import '../models/exercise_capture.dart';
 import '../models/session.dart';
 import '../services/capture_auto_save_preference.dart';
@@ -79,6 +80,13 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
   // with three states: idle / pressed-recording / locked. The
   // process-wide static flag and 3s auto-dismiss timer are gone with
   // it.
+
+  // Process-wide latch: only show the Photos-permission-denied SnackBar
+  // once per app launch. The practitioner doesn't need to be reminded on
+  // every capture — once they've seen the hint pointing at Settings,
+  // further nags are noise. Resets on app relaunch by virtue of being a
+  // static field.
+  static bool _denialChipShown = false;
 
   // --- Camera state ---
   CameraController? _cameraController;
@@ -1064,16 +1072,37 @@ class _CaptureModeScreenState extends State<CaptureModeScreen>
 
   /// Background save of the just-captured raw file to the iOS Camera
   /// Roll. Gated on [CaptureAutoSavePreference] (default ON; toggle in
-  /// Settings → Session capture). Best-effort — failures + permission
-  /// denials are logged but never surfaced to the practitioner mid-
-  /// session, because the capture itself has already succeeded into the
-  /// app's raw archive.
+  /// Settings → Session capture). Best-effort — capture-side failures
+  /// are logged but never surfaced to the practitioner mid-session,
+  /// because the capture itself has already succeeded into the app's
+  /// raw archive.
+  ///
+  /// Permission denials are the one exception: when iOS returns
+  /// [SaveToPhotosResult.permissionDenied] (the practitioner tapped
+  /// "Don't Allow" on the iOS prompt), surface a one-time SnackBar so
+  /// they realise their captures aren't being saved and know where to
+  /// flip the toggle. Latch is process-wide ([_denialChipShown]) so we
+  /// don't nag every capture.
   Future<void> _maybeSaveToCameraRoll(File rawFile) async {
     try {
       final enabled = await CaptureAutoSavePreference.isEnabled();
       if (!enabled) return;
       if (!await rawFile.exists()) return;
-      await OriginalVideoService.instance.saveToPhotos(rawFile);
+      final result =
+          await OriginalVideoService.instance.saveToPhotos(rawFile);
+      if (result == SaveToPhotosResult.permissionDenied &&
+          !_denialChipShown) {
+        _denialChipShown = true;
+        rootScaffoldMessengerKey.currentState?.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Photos permission denied — toggle off in '
+              'Settings → Session capture.',
+            ),
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('Camera-roll auto-save failed: $e');
     }

@@ -90,6 +90,21 @@ App Store Connect may ask about retention. Brief answers Carl can adapt:
 
 ---
 
+## Step 5b — Info.plist purpose strings (cross-check)
+
+These are not part of the App Privacy form, but Apple Review cross-checks them against actual app behaviour. If wording drifts from when/why the prompt fires, expect a rejection.
+
+| Key | Current copy |
+|---|---|
+| `NSCameraUsageDescription` | homefit.studio uses your camera to capture exercise demonstrations during client sessions. |
+| `NSMicrophoneUsageDescription` | homefit.studio records audio when you capture video demonstrations so you can include verbal cues. |
+| `NSPhotoLibraryUsageDescription` | homefit.studio needs access to your photo library to import existing videos or photos of exercises into client plans. |
+| `NSPhotoLibraryAddUsageDescription` | homefit.studio saves the original photo or video of every exercise you capture into your Photos library so you keep a personal copy. You can turn this off in Settings → Session capture. |
+
+The `Add` purpose string was updated 2026-05-03 (post-PR #197) to reflect the default-ON auto-save behaviour — the prompt now fires on first capture, not on a manual Download tap. Practitioners can opt out via Settings → Session capture.
+
+---
+
 ## Step 6 — Required-Reason API declarations (already in the manifest)
 
 These are **not** part of the App Privacy form, but Apple cross-checks them at upload. The manifest declares:
