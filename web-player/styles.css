@@ -3083,33 +3083,40 @@ body.is-fullscreen .playpause-toggle {
   background: transparent;
 }
 
+/* Round 5 — Fix 3 — header gutter widened to 56px, rail at left:24px
+   to match the in-circuit row gutter geometry. Header rail piece bleeds
+   downward by 5px (Round 5 Fix 2) so it joins the first in-circuit row's
+   rail across the row boundary with no visible break. */
 .lobby-circuit-header-gutter {
-  flex: 0 0 22px;
+  flex: 0 0 56px;
   position: relative;
 }
 
-/* Vertical rail piece — header centre → bottom edge, so it concatenates
-   with the first in-circuit row's full-height piece below. Pinned to
-   the gutter's RIGHT edge (left: 11px = 22 - 8 - 3 ≈ centre-right) so
-   the rail sits just OUTSIDE the card column's left edge. */
+/* Vertical rail piece — header centre → 5px past bottom edge, so it
+   concatenates with the first in-circuit row's full-height piece below
+   without a sub-pixel gap. Pinned to left: 24px within the 56px gutter
+   so the rail sits well outside the card column's left edge AND well
+   inside the page edge. */
 .lobby-circuit-header-gutter-rail {
   position: absolute;
-  left: 11px;
+  left: 24px;
   top: 50%;
-  bottom: 0;
+  bottom: -5px;
   width: 3px;
   background: var(--c-coral-rail);
   pointer-events: none;
 }
 
-/* Horizontal stub — joins the rail to the label content (header
-   bridges from rail right-edge into the content column). */
+/* Horizontal stub — joins the rail to the label content. Round 5 Fix 3:
+   width 26 so the connector tip lands ~6px before the content column,
+   giving ~16px breathing once the column's own 4px padding is counted
+   plus the label's natural inset. */
 .lobby-circuit-header-gutter-connector {
   position: absolute;
-  left: 11px;
+  left: 24px;
   top: 50%;
   transform: translateY(-50%);
-  width: 11px;
+  width: 26px;
   height: 3px;
   background: var(--c-coral-rail);
   border-radius: 0 2px 2px 0;
@@ -3159,11 +3166,30 @@ body.is-fullscreen .playpause-toggle {
    on `.lobby-row`. CSS reveals the gutter column on `.in-circuit` rows
    and renders the rail pieces. The `is-circuit` class is the legacy
    hook (kept for backward compat); `in-circuit` is the alias the
-   mockup uses. Both apply the same chrome here. */
+   mockup uses. Both apply the same chrome here.
+
+   Round 5 — Fix 3 — gutter widened from 22px → 56px (~3×) so the rail +
+   connector cluster sits indented from the page edge with clear
+   breathing space on both sides. Rail position within the gutter moved
+   from left:11px to left:24px (the "wider rail-from-edge" geometry
+   Carl asked for). Connector width recomputed so its tip lands ~6px
+   before the card's left border — combined with the card's 10px
+   padding, that's the ~16px breathing gap between connector tip and
+   the card's actual content (hero / info column).
+
+   Round 5 — Fix 2 — rail-piece bleed. Each row's rail extends ~5px
+   above and below its own bounding box so adjacent rail pieces overlap
+   any sub-pixel / border-collapse gaps that otherwise show as a tiny
+   break in the vertical coral line at row boundaries. The last row's
+   rail still terminates at vertical centre (L corner) — see the .last
+   override below; we keep `top: -5px` on .last too (extends upward to
+   join the previous row's rail) but use `height: calc(50% + 5px)` so
+   the rail's bottom edge lands exactly at the row's actual vertical
+   centre, where the horizontal connector sits. */
 .lobby-row.in-circuit > .lobby-row-gutter,
 .lobby-row.is-circuit > .lobby-row-gutter {
   display: block;
-  flex: 0 0 22px;
+  flex: 0 0 56px;
   position: relative;
 }
 
@@ -3175,41 +3201,53 @@ body.is-fullscreen .playpause-toggle {
   margin-top: -1px;
 }
 
-/* Vertical rail piece for in-circuit rows — top → bottom by default;
-   `last` clamps to 50% so the rail terminates at the row's centre,
-   forming a clean └ corner with the horizontal connector. Pinned to
-   the gutter's right edge (left: 11px) so the line sits just OUTSIDE
-   the content card's left edge — Carl's directive: "the vertical line
-   must run outside the left edge of the exercise cards". */
+/* Vertical rail piece for in-circuit rows — top → bottom by default,
+   with a -5/+5 vertical bleed so adjacent pieces overlap into the
+   inter-row gap (Round 5 Fix 2). `last` clamps to 50% so the rail
+   terminates at the row's centre, forming a clean └ corner with the
+   horizontal connector. Pinned to left: 24px within the 56px gutter
+   (Round 5 Fix 3) so the line sits well outside the content card's
+   left edge AND well inside the page edge — Carl's directive: the
+   gutter must "open up" so the rail isn't crammed against either
+   edge. */
 .lobby-row.in-circuit > .lobby-row-gutter > .lobby-row-gutter-rail,
 .lobby-row.is-circuit > .lobby-row-gutter > .lobby-row-gutter-rail {
   display: block;
   position: absolute;
-  left: 11px;
-  top: 0;
-  bottom: 0;
+  left: 24px;
+  top: -5px;
+  bottom: -5px;
   width: 3px;
   background: var(--c-coral-rail);
   pointer-events: none;
 }
 .lobby-row.in-circuit.last > .lobby-row-gutter > .lobby-row-gutter-rail,
 .lobby-row.is-circuit.last > .lobby-row-gutter > .lobby-row-gutter-rail {
+  /* Last row: rail terminates at the row's vertical centre to form the
+     └ corner. Keep the upward bleed (top: -5px) so the rail joins the
+     previous row's piece cleanly across the boundary; height is
+     calc(50% + 5px) so the rail's bottom edge still lands exactly at
+     the row's actual centre (where the connector sits). */
   bottom: auto;
-  height: 50%;
+  height: calc(50% + 5px);
 }
 
-/* Horizontal connector — 11 × 3 stub at the row's vertical centre,
-   bridging from the rail's right edge into the content card's left
-   edge. Width 11 = gutter width 22 − rail offset 11 so it lands flush
-   at the card border. */
+/* Horizontal connector — stub at the row's vertical centre, bridging
+   from the rail's right edge toward the content card. Round 5 Fix 3:
+   width recomputed from 11 → 26 so the connector tip lands 6px before
+   the card's left border. With the card's 10px padding-left, that's
+   ~16px of breathing between connector tip and the card's actual
+   content (hero / info). The visible coral does NOT touch the card,
+   per Carl's "indented from page edge, breathing on both sides"
+   directive. */
 .lobby-row.in-circuit > .lobby-row-gutter > .lobby-row-gutter-connector,
 .lobby-row.is-circuit > .lobby-row-gutter > .lobby-row-gutter-connector {
   display: block;
   position: absolute;
-  left: 11px;
+  left: 24px;
   top: 50%;
   transform: translateY(-50%);
-  width: 11px;
+  width: 26px;
   height: 3px;
   background: var(--c-coral-rail);
   border-radius: 0 2px 2px 0;

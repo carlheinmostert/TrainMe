@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Lobby circuit header — canonical mockup (hotfix round 2)</title>
+<title>Lobby circuit header — canonical mockup (round 5: name fallback + rail bleed + wider gutter)</title>
 <style>
   /* Brand tokens — mirrors web-player/styles.css :root. */
   :root {
@@ -140,7 +140,8 @@
   }
 
   /* ============================================================
-     RIGHT panel — corrected state (hotfix round 3)
+     RIGHT panel — corrected state (round 5: name fallback + rail
+     bleed + wider gutter)
      - Container is transparent (no backdrop)
      - Two-column gutter layout per row: fixed-width rail column +
        flex content card (the existing hero + info)
@@ -148,8 +149,15 @@
        pseudo-elements — so the rail sits OUTSIDE the card's
        bounding box and can never be covered by the active-row
        coral border or any other stacking context above the card
-     - Last row's vertical rail clamps at 50% to form an L corner
-     - Header has its own gutter with the upper rail piece
+     - Round 5 — gutter widened from 22 → 56px (~3×); rail moved
+       from left:11 → left:24 within the gutter; connector width
+       grew from 11 → 26 so its tip stops ~6px before the card
+       border (~16px breathing with the card's 10px padding).
+     - Round 5 — rail span gets top:-5px / bottom:-5px so adjacent
+       rail pieces overlap the inter-row gap (no sub-pixel break).
+       Last row's rail keeps the L corner via height: calc(50%+5px).
+     - Round 5 — corrected panel uses a default-named circuit
+       (`Circuit A`) so the letter-fallback fix is visible.
      - No row numerals
      - Cycles chip just "×3"
      ============================================================ */
@@ -169,27 +177,29 @@
     height: 32px;
   }
   .good .circuit-header-gutter {
-    flex: 0 0 22px;
+    flex: 0 0 56px;       /* round 5 — was 22px */
     position: relative;
   }
-  /* Vertical rail piece — header centre → bottom of header. Sits at
-     the gutter's right edge so the line lands just outside the
-     content card. */
+  /* Vertical rail piece — header centre → 5px past bottom edge so it
+     joins the first in-circuit row's rail across the boundary. Sits
+     at left:24 within the 56px gutter — well outside the card column
+     AND well inside the page edge. */
   .good .circuit-header-gutter-rail {
     position: absolute;
-    left: 11px;
+    left: 24px;           /* round 5 — was 11px */
     top: 50%;
-    bottom: 0;
+    bottom: -5px;         /* round 5 — bleed downward into row gap */
     width: 3px;
     background: var(--c-coral-rail);
   }
-  /* Horizontal stub — joins rail to label content. */
+  /* Horizontal stub — joins rail to label content. Round 5 width 26
+     so the tip sits with breathing before the content column. */
   .good .circuit-header-gutter-connector {
     position: absolute;
-    left: 11px;
+    left: 24px;           /* round 5 — was 11px */
     top: 50%;
     transform: translateY(-50%);
-    width: 11px;
+    width: 26px;          /* round 5 — was 11px */
     height: 3px;
     background: var(--c-coral-rail);
     border-radius: 0 2px 2px 0;
@@ -230,31 +240,39 @@
     padding: 0;
   }
   .good .ex-row-gutter {
-    flex: 0 0 22px;
+    flex: 0 0 56px;       /* round 5 — was 22px */
     position: relative;
   }
-  /* Vertical rail piece — top → bottom for in-circuit rows. Last
-     gets clamped to 50% to form an L corner. Pinned to gutter's
-     right edge so the line sits OUTSIDE the card's left edge. */
+  /* Vertical rail piece — top → bottom for in-circuit rows, with a
+     -5/+5 vertical bleed so adjacent pieces overlap the inter-row
+     gap and the rail reads as one continuous coral line. Last row
+     keeps an L corner; see .last override below. Pinned to left:24
+     within the 56px gutter. */
   .good .ex-row.in-circuit .ex-row-gutter-rail {
     position: absolute;
-    left: 11px;
-    top: 0;
-    bottom: 0;
+    left: 24px;           /* round 5 — was 11px */
+    top: -5px;            /* round 5 — bleed up into prev row's gap */
+    bottom: -5px;         /* round 5 — bleed down into next row's gap */
     width: 3px;
     background: var(--c-coral-rail);
   }
   .good .ex-row.in-circuit.last .ex-row-gutter-rail {
+    /* Last: rail terminates at the row's actual vertical centre —
+       keep the upward bleed (top:-5px) for boundary join, but the
+       height is exactly half-row-plus-bleed so the bottom edge
+       lands at row centre where the connector sits. */
     bottom: auto;
-    height: 50%;               /* terminate at vertical centre → L corner */
+    height: calc(50% + 5px);
   }
-  /* Horizontal connector — joins rail to the content card's left edge. */
+  /* Horizontal connector — joins rail to the content card. Round 5
+     width 26 so the tip stops ~6px before the card border (~16px
+     breathing with the card's 10px padding-left). */
   .good .ex-row.in-circuit .ex-row-gutter-connector {
     position: absolute;
-    left: 11px;
+    left: 24px;           /* round 5 — was 11px */
     top: 50%;
     transform: translateY(-50%);
-    width: 11px;
+    width: 26px;          /* round 5 — was 11px */
     height: 3px;
     background: var(--c-coral-rail);
     border-radius: 0 2px 2px 0;
@@ -345,34 +363,42 @@
 <body>
   <div class="wrap">
     <div class="kicker">Web player lobby &middot; canonical visual spec</div>
-    <h1>Lobby circuit header &mdash; tree-branch rail</h1>
+    <h1>Lobby circuit header &mdash; tree-branch rail (round 5)</h1>
     <p class="lede">
-      Side-by-side mockup for hotfix round 2. <strong>Left:</strong> the
-      broken state Carl saw on his iPhone after PR 234 merged &mdash; coral
-      backdrops on the matrix circuit blocks AND the circuit container
-      itself, a duplicate header on the first circuit (rest-inside-circuit
-      closes the group then the next exercise re-opens it), redundant row
-      numerals, and a verbose &ldquo;&times; 3 ROUNDS&rdquo; chip.
-      <strong>Right:</strong> the corrected geometry &mdash; container
-      transparent, group structure conveyed by a 3 px coral tree-branch
-      rail at <code>left: 8px</code>, per-row horizontal connectors, and
-      a clean L corner on the last row. No numerals. Cycles chip is just
-      <code>&times;3</code>.
+      Side-by-side mockup brought up to <strong>round 5</strong> reality.
+      <strong>Left:</strong> the broken state Carl saw on his iPhone
+      after PR 234 merged &mdash; coral backdrops on the matrix circuit
+      blocks AND the circuit container itself, a duplicate header on
+      the first circuit, redundant row numerals, and a verbose
+      &ldquo;&times; 3 ROUNDS&rdquo; chip.
+      <strong>Right:</strong> the corrected geometry as of round 5 &mdash;
+      container transparent; group structure conveyed by a 3 px coral
+      tree-branch rail; gutter widened to <strong>56 px</strong> with
+      the rail at <code>left: 24px</code> so the rail+connector cluster
+      sits indented from the page edge; rail span gets a -5/+5
+      vertical bleed so adjacent pieces overlap the inter-row gap (no
+      sub-pixel break); connector tip stops ~6 px before the card
+      border (~16 px breathing with the card&apos;s 10 px padding); the
+      last in-circuit row clamps the rail at <code>height: calc(50% + 5px)</code>
+      to form a clean L corner. Default-named circuits render as
+      <code>Circuit A</code> / <code>Circuit B</code> using the
+      first-appearance letter map (mirrors Studio&apos;s
+      <code>_circuitLetter</code>); custom names render verbatim.
     </p>
 
-    <pre class="rail-spec">RAIL COMPOSITION (right panel — hotfix round 3 architecture)
+    <pre class="rail-spec">RAIL COMPOSITION (right panel — round 5 architecture)
 
    ┌─ circuit-header (32px, 2-column flex)
-   │   ┌── circuit-header-gutter           (flex: 0 0 22px)
-   │   │     .gutter-rail        rail piece: centre → bottom    (3px wide)
-   │   │     .gutter-connector   stub: rail edge → content      (11 × 3)
+   │   ┌── circuit-header-gutter           (flex: 0 0 56px)        ← round 5: 22 → 56
+   │   │     .gutter-rail        rail piece: centre → bottom + 5    (3px wide, left:24)
+   │   │     .gutter-connector   stub: rail edge → toward content   (26 × 3)
    │   └── circuit-header-content          (flex: 1 1 auto)
-   │           label (uppercase coral) + cycles chip (×3)
+   │           label (uppercase coral; "Circuit A" if default-named) + cycles chip (×3)
    │
    ├─ ex-row.in-circuit (first, 2-column flex)
-   │   ┌── ex-row-gutter                   (flex: 0 0 22px)
-   │   │     .gutter-rail        rail piece: top → bottom       (3px wide)
-   │   │     .gutter-connector   connector: rail edge → card    (11 × 3)
+   │   ┌── ex-row-gutter                   (flex: 0 0 56px)        ← round 5: 22 → 56
+   │   │     .gutter-rail        rail piece: -5 → bottom +5         (bleed both ends)
+   │   │     .gutter-connector   connector: rail edge → near card   (26 × 3, ~6px gap)
    │   └── ex-row-content                  (flex: 1 1 auto)
    │           hero + info (the card; gets the active-row border)
    │
@@ -380,20 +406,28 @@
    │
    └─ ex-row.in-circuit.last
        ┌── ex-row-gutter
-       │     .gutter-rail        rail: top → 50% only           (forms └ corner)
+       │     .gutter-rail        rail: -5 → 50% (height calc(50%+5))  forms └ corner
        │     .gutter-connector   connector at row centre
        └── ex-row-content
                hero + info
 
-KEY ARCHITECTURAL DIFFERENCE vs hotfix round 2:
-The rail pieces are REAL elements inside `.ex-row-gutter`, NOT pseudo-
-elements on `.ex-row`. The gutter is a real flex column outside the
-card's bounding box. This means the active-row coral border (intentional
-UX — focused row gets a coral outline) sits on the CONTENT card and
-naturally wraps around just the card; the rail in the gutter column is
-unaffected. With pseudo-elements at `left: 8px`, the rail was rendered
-INSIDE the row's box and got covered by the card border / any z-stacking
-of overlay layers.
+KEY ARCHITECTURAL POINTS:
+1. Rail pieces are REAL elements inside `.ex-row-gutter`, NOT pseudo-
+   elements on `.ex-row`. Active-row coral border (intentional UX) sits
+   on the CONTENT card and wraps just the card; the rail in the gutter
+   column is unaffected.
+2. Gutter widened 22 → 56 (round 5 Fix 3): rail at left:24, connector
+   width 26, connector tip ~6px before card border → ~16px breathing
+   with card padding. Cluster is indented from page edge with breathing
+   on both sides; nothing touches the card.
+3. Rail span has top:-5/bottom:-5 bleed (round 5 Fix 2): adjacent pieces
+   overlap the inter-row gap so no sub-pixel break shows up at row
+   boundaries. Last row uses calc(50% + 5px) so the upward bleed is
+   preserved while the bottom edge still lands exactly at the row's
+   actual vertical centre (the connector's height).
+4. Default-named circuits resolve to "Circuit {Letter}" via a
+   first-appearance letter map (round 5 Fix 1) mirroring Studio's
+   _circuitLetter helper; custom names render verbatim.
     </pre>
 
     <div class="pair">
@@ -464,9 +498,9 @@ of overlay layers.
         </ul>
       </div>
 
-      <!-- RIGHT — corrected (hotfix round 3 architecture) -->
+      <!-- RIGHT — corrected (round 5 architecture) -->
       <div class="panel is-good">
-        <div class="panel-label"><span class="dot"></span> Corrected (hotfix round 3)</div>
+        <div class="panel-label"><span class="dot"></span> Corrected (round 5)</div>
 
         <ul class="lobby-list good">
           <li class="lobby-circuit-group">
@@ -476,7 +510,11 @@ of overlay layers.
                 <span class="circuit-header-gutter-connector"></span>
               </div>
               <div class="circuit-header-content">
-                <span class="circuit-header-label">Lower body</span>
+                <!-- Round 5 — default-named circuit. Practitioner has
+                     not customised, so the lobby substitutes "Circuit A"
+                     by first-appearance order (mirrors Studio's
+                     _circuitLetter helper). -->
+                <span class="circuit-header-label">Circuit A</span>
                 <span class="circuit-header-cycles">&times;3</span>
               </div>
             </div>
@@ -532,46 +570,73 @@ of overlay layers.
     </div>
 
     <div class="legend">
-      <h3>What changed (hotfix round 3)</h3>
+      <h3>What changed (round 5: name fallback + rail bleed + wider gutter)</h3>
       <ul>
-        <li><strong>Two-column rows.</strong> Each row is now a real
-            flex container with a fixed 22 px gutter column on the left
-            and a flex content column on the right. The rail pieces are
-            real <code>&lt;span&gt;</code> children of the gutter, NOT
-            absolutely-positioned pseudo-elements on the row. Result: the
-            rail sits in its own layout slot OUTSIDE the card's bounding
-            box, so the active-row coral border (intentional UX) wraps
-            around just the card and the rail is unaffected.</li>
+        <li><strong>Round 5 &mdash; circuit name fallback.</strong>
+            When neither <code>slide.circuitName</code> nor
+            <code>plan.circuit_names[circuit_id]</code> resolves,
+            <code>renderList</code> in <code>lobby.js</code> substitutes
+            <code>Circuit {Letter}</code> using a first-appearance letter
+            map (A, B, C, &hellip; mod 26). Mirrors Studio&rsquo;s
+            <code>_circuitLetter</code> helper at
+            <code>app/lib/screens/studio_mode_screen.dart:1449</code>.
+            Custom names render verbatim. Right-panel mockup uses
+            <code>Circuit A</code> to make the fix visible.</li>
+        <li><strong>Round 5 &mdash; gutter widened.</strong>
+            <code>flex: 0 0 22px</code> &rarr;
+            <code>flex: 0 0 56px</code> on every gutter column (header
+            + per-row). Rail moved from <code>left: 11px</code> to
+            <code>left: 24px</code> within the gutter; connector width
+            grew from 11 to 26 so its tip lands ~6 px before the
+            card border. With the card&rsquo;s 10 px padding-left
+            that&rsquo;s ~16 px of breathing between connector tip
+            and the hero / info content. Cluster sits clearly
+            indented from the page edge.</li>
+        <li><strong>Round 5 &mdash; rail-piece bleed.</strong>
+            <code>.ex-row-gutter-rail</code> gets
+            <code>top: -5px; bottom: -5px</code> on regular in-circuit
+            rows so adjacent rail pieces overlap into the inter-row
+            gap and the line reads as one continuous coral. Header
+            rail uses <code>bottom: -5px</code> for the same reason.
+            Last row uses <code>top: -5px; height: calc(50% + 5px)</code>
+            so the upward bleed is preserved while the bottom edge
+            still lands exactly at the row&rsquo;s actual vertical
+            centre (where the connector sits) for the L corner.</li>
+        <li><strong>Two-column rows (round 3 carry-over).</strong>
+            Each row is a real flex container with a fixed-width
+            gutter column on the left and a flex content column on
+            the right. The rail pieces are real
+            <code>&lt;span&gt;</code> children of the gutter, NOT
+            absolutely-positioned pseudo-elements on the row.
+            Result: the rail sits in its own layout slot OUTSIDE
+            the card&rsquo;s bounding box, so the active-row coral
+            border (intentional UX) wraps around just the card and
+            the rail is unaffected.</li>
         <li><strong>Container.</strong> <code>.lobby-circuit-group</code>
             stays transparent (no backdrop, no border). All grouping is
             conveyed by the rail.</li>
-        <li><strong>Rail tokens.</strong> 3 px wide, pinned to
-            <code>left: 11px</code> within the 22 px gutter (sits at
-            the gutter's right edge so the line lands just outside
-            the card column). Colour
-            <code>rgba(255,107,53,0.85)</code>
-            (use <code>--c-coral-rail</code>).</li>
-        <li><strong>Header rail piece.</strong>
-            <code>.circuit-header-gutter-rail</code> = centre &rarr;
-            bottom of header. <code>.circuit-header-gutter-connector</code>
-            = 11 &times; 3 horizontal stub at vertical centre, joining
-            rail to label.</li>
+        <li><strong>Rail tokens.</strong> 3 px wide; colour
+            <code>rgba(255,107,53,0.85)</code> via
+            <code>--c-coral-rail</code>.</li>
         <li><strong>Per-row connectors.</strong>
-            <code>.ex-row-gutter-rail</code> = full-height vertical
-            piece. <code>.ex-row-gutter-connector</code> = 11 &times; 3
-            stub at row centre. Adjacent in-circuit cards collapse top
-            borders (<code>margin-top: -1px</code>) so the rail reads
-            as one continuous coral line.</li>
+            <code>.ex-row-gutter-rail</code> = -5 &rarr; +5 vertical
+            piece (bleed both ends). <code>.ex-row-gutter-connector</code>
+            = 26 &times; 3 stub at row centre, terminating ~6 px
+            before the card border. Adjacent in-circuit cards
+            collapse top borders (<code>margin-top: -1px</code>) so
+            the rail reads as one continuous coral line.</li>
         <li><strong>Last-row L.</strong>
             <code>.ex-row.in-circuit.last .ex-row-gutter-rail</code>
-            sets <code>height: 50%</code> instead of <code>top:0; bottom:0</code>
-            so the rail terminates at the row centre &mdash; combined with the
-            connector at that centre line, it forms a clean &#x2514; corner.</li>
-        <li><strong>Numerals.</strong> Removed entirely. Default-named
-            exercises now have a fallback <code>&ldquo;Exercise N&rdquo;</code>
-            label generated in <code>lobby.js</code> from a position
-            counter, since Studio doesn&rsquo;t persist the auto-name to
-            the cloud row. Renamed exercises trust the practitioner.</li>
+            uses <code>top: -5px; height: calc(50% + 5px)</code> so
+            the rail terminates at the row centre &mdash; combined
+            with the connector at that centre line, it forms a clean
+            &#x2514; corner with no boundary gap above it.</li>
+        <li><strong>Numerals.</strong> Removed entirely (round 2).
+            Default-named exercises have a fallback
+            <code>&ldquo;Exercise N&rdquo;</code> label generated in
+            <code>lobby.js</code> from a position counter (round 3),
+            since Studio doesn&rsquo;t persist the auto-name to the
+            cloud row. Renamed exercises trust the practitioner.</li>
         <li><strong>Cycles chip.</strong> &ldquo;&times; 3 ROUNDS&rdquo;
             &rarr; <code>&times;3</code>. Just the multiplier.</li>
       </ul>
