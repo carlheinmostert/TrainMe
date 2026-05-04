@@ -612,25 +612,35 @@
    * up by app.js). Single source of truth so the lobby and the deck's
    * active-slide-header always agree on:
    *   - `N × R reps` (uniform) vs `R1/R2/R3 reps` (varying)
-   *   - hold-mode parenthetical: `Ns hold (each)` (per_rep) /
-   *     `Ns hold` (end_of_set, default — no qualifier) /
-   *     `Ns hold (end)` (end_of_exercise)
+   *   - hold-mode parenthetical: `Ns hold (per rep)` (per_rep) /
+   *     `Ns hold (per set)` (end_of_set, default) /
+   *     `Ns hold (after last rep)` (end_of_exercise)
+   *
+   * Round 7 — sets sourced via `allSetsForSlide()` (NOT
+   * `playSetsForSlide()`). The lobby groups circuits and renders ONE
+   * row per exercise across all rounds, so we need every authored set,
+   * regardless of `slide.circuitRound`. The deck path stays on
+   * `playSetsForSlide()` because per-round filtering is correct there.
+   * Pre-Round-7 bug: a pyramid-in-circuit (e.g. [12,10,8]) rendered as
+   * `1 × 12 reps` because the deck's circuit filter returned only the
+   * first round's single set.
    *
    * Photos use the same hold rules; if the photo lacks a sets[] array
-   * (legacy fallback), playSetsForSlide() synthesises a default-mode
-   * single set so formatHold() emits the unqualified `Ns hold` form
-   * — matching the brief's "fall back gracefully to the legacy
-   * holdSeconds scalar with no qualifier" requirement.
+   * (legacy fallback), allSetsForSlide() synthesises a default-mode
+   * single set so formatHold() emits the unqualified `Ns hold (per set)`
+   * form — matching the brief's "fall back gracefully to the legacy
+   * holdSeconds scalar" requirement.
    */
   function buildDoseLine(slide) {
     if (!slide || slide.media_type === 'rest') return '';
+    const setsResolver = api.allSetsForSlide || api.playSetsForSlide;
     if (slide.media_type === 'photo' || slide.media_type === 'image') {
-      const playSets = (api.playSetsForSlide ? api.playSetsForSlide(slide) : []);
+      const playSets = setsResolver ? setsResolver(slide) : [];
       const hold = (api.formatHold && api.formatHold(playSets)) || '';
       if (hold) return hold;
       return 'Reference position';
     }
-    const playSets = (api.playSetsForSlide ? api.playSetsForSlide(slide) : []);
+    const playSets = setsResolver ? setsResolver(slide) : [];
     if (!playSets.length) return '';
 
     const breathersList = playSets.map((s) => s.breather_seconds_after || 0);
@@ -1081,6 +1091,28 @@
     if (!scrollContainer) return;
     const rows = $lobbyList.querySelectorAll('.lobby-row[data-slide-index]');
     if (!rows.length) return;
+
+    // Round 7 — Fix 3 — symmetric scroll-top guard. Mirror of the
+    // scroll-bottom guard below. At scroll position 0 the first row's
+    // centre sits ~80–100px below the viewport top while the viewport
+    // centre is ~400px down, so the second row wins the nearest-to-
+    // centre reducer and the first row's pill never highlights when
+    // the user scrolls back up to the top. Detection: scrollTop within
+    // ~4px of zero (matches the 4px tolerance on atBottom).
+    const atTop = scrollContainer.scrollTop <= 4;
+    if (atTop) {
+      // Pick the first non-rest row (matches activateInitialRow's
+      // semantics so the user's "scrolled back up" highlight matches
+      // the page-load highlight). Falls back to the very first row if
+      // every row is rest (impossible in real plans).
+      let firstNonRest = null;
+      for (let i = 0; i < rows.length; i++) {
+        if (!rows[i].classList.contains('is-rest')) { firstNonRest = rows[i]; break; }
+      }
+      const target = firstNonRest || rows[0];
+      if (target) setActiveRow(target);
+      return;
+    }
 
     // Hotfix round 3 — Fix E — scroll-bottom edge case for the last
     // row. The nearest-to-centre reducer below works for every row
