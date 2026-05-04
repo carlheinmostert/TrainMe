@@ -298,6 +298,12 @@ class UnifiedPreviewSchemeBridge {
       // Wave Hero — practitioner-picked Hero frame offset (ms). Drives
       // the web-player prep-phase overlay + video poster.
       'focus_frame_offset_ms': e.focusFrameOffsetMs,
+      // Wave Lobby (PR 1/N) — practitioner-authored 1:1 Hero crop
+      // offset, normalized 0.0..1.0 along the source media's free
+      // axis. NULL = unset (consumers default to 0.5 / centred). No
+      // bundle consumer reads this yet — wired for round-trip parity
+      // ahead of the editor + lobby PRs.
+      'hero_crop_offset': e.heroCropOffset,
       // Wave 28 — landscape orientation metadata.
       'aspect_ratio': e.aspectRatio,
       'rotation_quarters': e.rotationQuarters,
