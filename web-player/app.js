@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v50-deck-no-preload-on-lobby';
+const PLAYER_VERSION = 'v51-no-mp4-in-img-src';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)

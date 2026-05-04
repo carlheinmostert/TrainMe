@@ -816,16 +816,25 @@
     const url = api.resolveTreatmentUrl
       ? api.resolveTreatmentUrl(slide, activeTreatment)
       : (slide.line_drawing_url || slide.thumbnail_url || null);
-    const fallbackPoster = slide.thumbnail_url || slide.line_drawing_url || '';
+    // v51 — POSTER source must be a real image URL only. NEVER fall back to
+    // a video URL (line_drawing_url) when thumbnail_url is missing. iOS
+    // WKWebView is lenient enough to render motion from a video shoved
+    // into <img src=>, which allocates HW decoders invisibly (counted as
+    // 0 by `document.querySelectorAll('video')` queries) and tips the cap.
+    // That was the actual freeze cause through PR #254. If thumbnail_url
+    // is missing, the skeleton placeholder takes over below.
+    const posterSrc = slide.thumbnail_url || '';
 
-    if (!url && !fallbackPoster) {
+    if (!url && !posterSrc) {
       return `<div class="lobby-hero-skeleton" aria-hidden="true"></div>`;
     }
 
     if (isPhoto) {
-      // Photos are always static. CSS grayscale filter handles the B&W
-      // treatment off the same source JPG.
-      const src = url || fallbackPoster;
+      // Photos are always static. The treatment URL IS a JPG (Wave 22 photo
+      // three-treatment parity), so it's safe as <img src>. Falling back
+      // to the poster is fine too — also a JPG. CSS grayscale filter
+      // handles B&W treatment.
+      const src = url || posterSrc;
       const grayscale = (activeTreatment === 'bw') ? ' is-grayscale' : '';
       return `
         <img class="lobby-hero-media${grayscale}"
@@ -845,17 +854,37 @@
     // (v47 tried to manage <video> per row via src on/off + load(); on iOS
     // multiple decoders still ended up engaged. v48 sidesteps that by keeping
     // inactive rows as plain <img>.)
-    const videoSrc = url || fallbackPoster;
+    // videoSrc is the actual VIDEO URL — used by swapToVideoOnActiveRow
+    // when this row becomes active. It MAY be the line_drawing_url (mp4)
+    // or any treatment URL. NEVER use it as <img src=> — that's the
+    // iOS-WKWebView-renders-mp4-as-img trap that cost us PRs #251–#254.
+    const videoSrc = url || posterSrc;
     const grayscale = (activeTreatment === 'bw') ? ' is-grayscale' : '';
+    // If posterSrc is empty (no thumbnail_url available), render the
+    // skeleton placeholder. The active row will still get its <video>
+    // via swap, but the inactive presentation falls back to a coral
+    // skeleton — better than allocating HW decoders behind every
+    // inactive row by pointing <img src> at an mp4.
+    if (!posterSrc) {
+      return `
+        <div class="lobby-hero-skeleton lobby-hero-media" aria-hidden="true"
+             style="object-position: ${escape(objPos)};"
+             data-treatment="${activeTreatment}"
+             data-video-src="${escape(videoSrc)}"
+             data-poster-src=""
+             data-trim-start="${Number(slide.start_offset_ms) || 0}"
+             data-trim-end="${Number(slide.end_offset_ms) || 0}"></div>
+      `;
+    }
     return `
       <img class="lobby-hero-media${grayscale}"
-           src="${escape(fallbackPoster)}"
+           src="${escape(posterSrc)}"
            alt="${escape(slide.name || 'Exercise')}"
            style="object-position: ${escape(objPos)};"
            loading="lazy"
            data-treatment="${activeTreatment}"
            data-video-src="${escape(videoSrc)}"
-           data-poster-src="${escape(fallbackPoster)}"
+           data-poster-src="${escape(posterSrc)}"
            data-trim-start="${Number(slide.start_offset_ms) || 0}"
            data-trim-end="${Number(slide.end_offset_ms) || 0}">
     `;
@@ -1427,23 +1456,40 @@
         const playPromise = v.play();
         if (playPromise && playPromise.catch) playPromise.catch(() => { /* autoplay blocked */ });
       } else {
-        // Inactive row — must be an <img>. If currently a <video>, swap back.
-        if (!isVideoTag) return; // Already an img; nothing to do.
+        // Inactive row — must be an <img> (or skeleton if no poster).
+        // If currently a <video>, swap back.
+        if (!isVideoTag) return; // Already an img/skeleton; nothing to do.
         // Best-effort tear-down; the orphaned video gets GC'd anyway, but
         // pausing first stops audible playback if any.
         try { hero.pause(); } catch (_) {}
+        const posterSrc = hero.dataset.posterSrc || hero.getAttribute('poster') || '';
+        // No poster → swap back to a skeleton placeholder (NOT an <img>
+        // with empty src; that shows broken-image, AND we MUST never put
+        // a video URL in <img src> per the v51 fix).
+        if (!posterSrc) {
+          const skel = document.createElement('div');
+          skel.className = 'lobby-hero-skeleton lobby-hero-media';
+          skel.setAttribute('aria-hidden', 'true');
+          skel.style.cssText = hero.style.cssText;
+          skel.dataset.treatment = hero.dataset.treatment || '';
+          skel.dataset.videoSrc = hero.dataset.videoSrc || '';
+          skel.dataset.posterSrc = '';
+          skel.dataset.trimStart = hero.dataset.trimStart || '0';
+          skel.dataset.trimEnd = hero.dataset.trimEnd || '0';
+          hero.parentNode.replaceChild(skel, hero);
+          return;
+        }
         const img = document.createElement('img');
-        img.className = hero.className;
+        img.className = hero.className.replace(/\blobby-hero-skeleton\b/, '').trim();
         img.setAttribute('alt', '');
         img.setAttribute('loading', 'lazy');
         img.style.cssText = hero.style.cssText;
         img.dataset.treatment = hero.dataset.treatment || '';
         img.dataset.videoSrc = hero.dataset.videoSrc || '';
-        img.dataset.posterSrc = hero.dataset.posterSrc || '';
+        img.dataset.posterSrc = posterSrc;
         img.dataset.trimStart = hero.dataset.trimStart || '0';
         img.dataset.trimEnd = hero.dataset.trimEnd || '0';
-        const posterSrc = hero.dataset.posterSrc || hero.getAttribute('poster') || '';
-        if (posterSrc) img.setAttribute('src', posterSrc);
+        img.setAttribute('src', posterSrc);
         hero.parentNode.replaceChild(img, hero);
       }
     });
