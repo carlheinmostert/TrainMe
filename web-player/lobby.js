@@ -70,6 +70,99 @@
   const DEFAULT_TITLE_RE = /^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{1,2}:\d{2}$/;
 
   // ==========================================================================
+  // Circuit breaker — diagnostic for the iOS WKWebView lobby freeze
+  // ==========================================================================
+  //
+  // The lobby freezes ~5–8s into sustained scrolling on iPhone WKWebView:
+  // the WebView "goes black", heartbeat console.log dies, no JS errors, no
+  // network. PR #249's smooth-scroll fix didn't resolve it. This breaker
+  // surfaces the runaway callsite by tracking call rate per name.
+  //
+  //   - cbBump(name): inline counter at function entry. Returns false if
+  //     either we just tripped this name (→ caller bails out and we log
+  //     a single warning), or the name was already tripped within the
+  //     last 5s (caller bails silently — no log spam).
+  //   - cb(name, fn): same as cbBump but wraps a synchronous callback.
+  //   - cbAsync(name, asyncFn): same for async callbacks (e.g. setTimeout
+  //     bodies that await).
+  //   - 2s heartbeat: prints `[CB-hb] {name: count, ...}` to console for
+  //     any name with > 0 calls in the last second. Wired ONCE inside
+  //     showLobby() (guarded by `_cbHbWired`). Works in iOS Safari Web
+  //     Inspector — that's the only way to see the runaway on device.
+  //
+  // Threshold: 60 calls / 1000ms — picks up rAF (60Hz) re-entry loops
+  // without flagging a single rAF callback chain. Trip auto-clears
+  // after 5s so we re-arm and can catch follow-up runaways.
+
+  const _cbCounts = new Map();          // name → number[] (recent timestamps)
+  const _cbTripped = new Map();         // name → number (trip timestamp)
+  const _cbDropLogged = new Set();      // names we've logged a drop for since trip
+  let _cbHbWired = false;
+
+  function cbBump(name) {
+    const now = performance.now();
+    let arr = _cbCounts.get(name);
+    if (!arr) { arr = []; _cbCounts.set(name, arr); }
+    arr.push(now);
+    // Trim to a 1-second sliding window.
+    while (arr.length && now - arr[0] > 1000) arr.shift();
+    if (_cbTripped.has(name)) {
+      // Silent drop, but log once per trip so Carl knows we're suppressing.
+      if (!_cbDropLogged.has(name)) {
+        _cbDropLogged.add(name);
+        try {
+          console.warn(`[CB] ${name} suppressed (already tripped) — re-arming in 5s`);
+        } catch (_) { /* console may be gone in some webviews */ }
+      }
+      return false;
+    }
+    if (arr.length > 60) {
+      _cbTripped.set(name, now);
+      try {
+        console.warn(`[CB] ${name} runaway: ${arr.length} calls in last 1000ms — aborting`);
+      } catch (_) {}
+      setTimeout(() => {
+        _cbTripped.delete(name);
+        _cbDropLogged.delete(name);
+      }, 5000);
+      return false;
+    }
+    return true;
+  }
+
+  function cb(name, fn) {
+    if (!cbBump(name)) return undefined;
+    return fn();
+  }
+
+  async function cbAsync(name, asyncFn) {
+    if (!cbBump(name)) return undefined;
+    return await asyncFn();
+  }
+
+  function startCircuitBreakerHeartbeat() {
+    if (_cbHbWired) return;
+    _cbHbWired = true;
+    setInterval(() => {
+      const now = performance.now();
+      const summary = {};
+      _cbCounts.forEach((arr, name) => {
+        // Trim again — the counts may not have been touched in this window.
+        while (arr.length && now - arr[0] > 1000) arr.shift();
+        if (arr.length > 0) summary[name] = arr.length;
+      });
+      // Only log when there's activity to surface.
+      const keys = Object.keys(summary);
+      if (keys.length === 0) return;
+      try {
+        // Stringify so the WebView log shows the structure even if the
+        // logger doesn't pretty-print objects.
+        console.log('[CB-hb] ' + JSON.stringify(summary));
+      } catch (_) {}
+    }, 2000);
+  }
+
+  // ==========================================================================
   // Public API
   // ==========================================================================
 
@@ -119,6 +212,10 @@
 
     $lobby.hidden = false;
     document.body.classList.add('is-lobby-mode');
+
+    // Diagnostic heartbeat — see circuit-breaker block at the top of this
+    // file. Wired exactly once.
+    startCircuitBreakerHeartbeat();
 
     // Wire scroll-driven row↔matrix coupling AFTER first paint so
     // measured offsets are accurate. Default the first non-rest row to
@@ -790,7 +887,11 @@
       } else {
         // Another error already kicked off the re-fetch — wait a tick
         // and re-read the (now-updated) `slides` reference.
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => {
+          setTimeout(() => {
+            cb('heroErrorRetry', resolve);
+          }, 50);
+        });
       }
 
       // Re-resolve the URL for THIS row's slide using whatever
@@ -889,8 +990,10 @@
     // gets re-applied to the new DOM nodes.
     activeRowIndex = -1;
     requestAnimationFrame(() => {
-      activateInitialRow();
-      recomputeActiveRow();
+      cb('treatmentRaf', () => {
+        activateInitialRow();
+        recomputeActiveRow();
+      });
     });
     // Round 4 — close the popover after a successful pick. One-tap UX.
     closeLobbySettingsPopover();
@@ -931,7 +1034,9 @@
     // Tick to let the browser paint `display:block` before the
     // opacity/transform transition kicks in.
     requestAnimationFrame(() => {
-      $lobbySettingsPopover.setAttribute('data-open', 'true');
+      cb('popoverOpenRaf', () => {
+        $lobbySettingsPopover.setAttribute('data-open', 'true');
+      });
     });
     $lobbyGearBtn.setAttribute('aria-expanded', 'true');
   }
@@ -949,10 +1054,12 @@
     // Wait for the transition to finish before adding `hidden` back —
     // otherwise the close is a hard pop. Match the CSS `160ms`.
     setTimeout(() => {
-      // Guard against a re-open that happened during the transition.
-      if (!isLobbySettingsPopoverOpen()) {
-        $lobbySettingsPopover.hidden = true;
-      }
+      cb('popoverCloseTimeout', () => {
+        // Guard against a re-open that happened during the transition.
+        if (!isLobbySettingsPopoverOpen()) {
+          $lobbySettingsPopover.hidden = true;
+        }
+      });
     }, 180);
   }
 
@@ -1027,8 +1134,10 @@
     renderList();
     activeRowIndex = -1;
     requestAnimationFrame(() => {
-      activateInitialRow();
-      recomputeActiveRow();
+      cb('selfGrantRaf', () => {
+        activateInitialRow();
+        recomputeActiveRow();
+      });
     });
     closeSelfGrantModal();
   }
@@ -1064,7 +1173,7 @@
       if (scrollRafToken != null) return;
       scrollRafToken = requestAnimationFrame(() => {
         scrollRafToken = null;
-        recomputeActiveRow();
+        cb('scrollRaf', recomputeActiveRow);
       });
     };
     scrollContainer.addEventListener('scroll', onScroll, { passive: true });
@@ -1088,6 +1197,7 @@
   }
 
   function recomputeActiveRow() {
+    if (!cbBump('recomputeActiveRow')) return;
     if (!scrollContainer) return;
     const rows = $lobbyList.querySelectorAll('.lobby-row[data-slide-index]');
     if (!rows.length) return;
@@ -1165,6 +1275,7 @@
   }
 
   function setActiveRow(row) {
+    if (!cbBump('setActiveRow')) return;
     const idx = parseInt(row.getAttribute('data-slide-index'), 10);
     if (Number.isNaN(idx) || idx === activeRowIndex) return;
     activeRowIndex = idx;
@@ -1207,6 +1318,7 @@
    * current row range. Pause + reset others.
    */
   function lazyKickVideosNear(idx) {
+    if (!cbBump('lazyKickVideosNear')) return;
     const rows = $lobbyList.querySelectorAll('.lobby-row[data-slide-index]');
     rows.forEach((row) => {
       const rIdx = parseInt(row.getAttribute('data-slide-index'), 10);
