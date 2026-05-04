@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA · lobby hotfix round 2 — backdrops, tree-branch rail, drop numerals</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 32px; height: 32px; border-radius: 6px;
+    background: var(--raised); border: 1px solid var(--border);
+    color: var(--text-mute); font-size: 14px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background 120ms, color 120ms, border-color 120ms;
+  }
+  .checklist li .vote button.pass:hover { background: var(--coral-bg); color: var(--coral); border-color: var(--coral); }
+  .checklist li .vote button.fail:hover { background: rgba(239,68,68,0.10); color: #EF4444; border-color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass { background: var(--coral); color: #0B0D11; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .vote button.fail { background: #EF4444; color: #0B0D11; border-color: #EF4444; }
+  .checklist li .num {
+    position: absolute; left: 86px; top: 12px;
+    color: var(--text-dim); font-variant-numeric: tabular-nums;
+    font-weight: 600; font-size: 13px;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .text strong { color: var(--text); }
+  .checklist li .note-row { margin-top: 8px; }
+  .checklist li input.note {
+    width: 100%; background: var(--raised); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; color: var(--text);
+    font: inherit; font-size: 13px;
+  }
+  .checklist li input.note::placeholder { color: var(--text-dim); }
+  .oos {
+    margin-top: 28px; padding: 14px 18px;
+    background: var(--raised); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-mute); font-size: 13px;
+  }
+  .oos h3 {
+    margin: 0 0 6px; color: var(--text); font-size: 14px;
+    font-family: Montserrat, sans-serif; font-weight: 600;
+  }
+  .oos ul { margin: 0; padding-left: 20px; }
+  .oos li { margin: 2px 0; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px;
+    color: var(--coral);
+  }
+  footer {
+    margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">Device QA &middot; iPhone &middot; Lobby hotfix round 2</div>
+    <h1>Lobby hotfix round 2 &mdash; strip coral backdrops, tree-branch rail, drop numerals</h1>
+    <p class="lede">
+      Three follow-ups Carl surfaced after PR 234's lobby device-QA
+      round landed. Same shared <code>web-player/</code> bundle &mdash;
+      mobile workflow Preview WebView gets the fixes for free.
+      <br><br>
+      <strong>Fix 1.</strong> Pill matrix had a coral backdrop on circuit
+      blocks. Stripped &mdash; the matrix sits on the dark surface, only
+      the pills carry coral.
+      <br><br>
+      <strong>Fix 2.</strong> Circuit-group chrome rebuilt around a coral
+      tree-branch rail (canonical mockup at
+      <code>docs/design/mockups/lobby-circuit-header.html</code>).
+      Container is transparent (no backdrop / no border); rail is 3 px
+      wide at <code>left:8px</code>, colour
+      <code>rgba(255,107,53,0.85)</code>, composed from
+      <code>.circuit-header::before/::after</code> and
+      <code>.ex-row.in-circuit::before/::after</code>. Last in-circuit row
+      gets <code>.last</code> &mdash; rail clamps to <code>height:50%</code>
+      to form a clean &#x2514; corner. Cycles chip reads
+      <code>&times;3</code> only. Duplicate-header bug fixed: a rest slide
+      whose <code>circuit_id</code> matches the open
+      <code>circuitGroup</code> is now appended to the group's rows
+      instead of closing it (close-and-reopen was emitting two
+      <code>.lobby-circuit-group</code> &lt;li&gt;s with the same id).
+      <br><br>
+      <strong>Fix 3.</strong> Row index numerals dropped entirely.
+      Studio's auto-naming gives default-named exercises labels like
+      <code>Exercise 1</code>, <code>Exercise 2</code> &mdash; so the
+      number is already part of the name when the practitioner hasn't
+      renamed. Renamed exercises (<code>Goblet squat</code>) show only
+      the custom name. <code>numberFor()</code>,
+      <code>.lobby-info-num</code>, and
+      <code>.lobby-info-titlebar</code> are gone.
+      <br><br>
+      <strong>SW cache bumped:</strong>
+      <code>homefit-player-v36-lobby-fixes</code> &rarr;
+      <code>homefit-player-v37-lobby-hotfix-round2</code>.
+      Build-marker chip on the lobby will read
+      <code>v37-lobby-hotfix-round2 &middot; sw v37-lobby-hotfix-round2</code>
+      once the new SW takes over.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Pull / hard-refresh <code>session.homefit.studio</code> in Safari (Cmd-Shift-R or kill + relaunch) so the new SW activates.</li>
+        <li>Confirm the build-marker chip in the lobby's metadata strip reads <code>v37-lobby-hotfix-round2 &middot; sw v37-lobby-hotfix-round2</code>. If the SW label still shows the old <code>v36-lobby-fixes</code>, swipe Safari closed and reopen.</li>
+        <li>Open a published session that has at least one <strong>multi-exercise circuit</strong> (e.g. 3 exercises &times; 3 rounds) so the rail geometry exercises every state. If you also have a session with a <strong>rest inside a circuit</strong>, even better &mdash; that's the duplicate-header repro path.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Build marker + version sanity</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Build chip reads v37 on both halves.</strong> Open a session, scroll to the metadata strip at the top of the lobby. <strong>Expected:</strong> the dim mono chip below the date stamp reads <code>v37-lobby-hotfix-round2 &middot; sw v37-lobby-hotfix-round2</code> &mdash; both sides match. Divergence (e.g. <code>sw v36-lobby-fixes</code>) means the new SW hasn't activated yet; hard-refresh.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Fix 1 &mdash; pill matrix has no coral backdrop</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Circuit pills sit on the dark surface, no coral wash.</strong> In the lobby, look at the sticky pill matrix at the top. <strong>Expected:</strong> the pills themselves carry coral (active/full pills); the background behind any circuit grouping is the same dark <code>#0F1117</code> as the rest of the matrix &mdash; no faint coral fill block around the circuit pills. The circuit pills should still be visually grouped via spacing/columns; they just shouldn't have a tinted backdrop.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Pill tap accuracy unchanged.</strong> Tap a circuit pill to jump to that row. <strong>Expected:</strong> works as before (PR 234 floor of 24 px per column still applies); no size regressions, no ghost taps. Long plans still scroll the matrix horizontally rather than squashing pills.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Fix 2(a) &mdash; circuit container is transparent</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>No coral backdrop around the circuit group.</strong> Scroll to a circuit in the lobby's hero list. <strong>Expected:</strong> the area surrounding the circuit's exercise cards has NO coral tint. Each card sits on the same dark <code>#1A1D27</code> surface as standalone exercise cards; no faint coral wash, no coral border ring around the whole group.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; Fix 2(b) &mdash; tree-branch rail geometry</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Header rail piece + horizontal stub.</strong> Look at the circuit's header row (the uppercase circuit name + cycles chip). <strong>Expected:</strong> a thin coral rail starts at the vertical centre of the header and runs straight down to the bottom edge of that header. A short coral stub (~14 px) extends rightward from that rail to just before the circuit name. The header itself has no background and no bottom border &mdash; only the rail conveys structure.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Per-row connectors form a continuous rail.</strong> Scan down the in-circuit rows. <strong>Expected:</strong> the coral rail continues unbroken from the header through every middle in-circuit row. Each row has a small coral stub (~14 px) joining the rail to the row content at the row's vertical centre. The vertical line should look like ONE continuous coral piece, not three stacked-but-misaligned segments.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Last row terminates with a clean &#x2514; corner.</strong> Look at the bottom in-circuit row. <strong>Expected:</strong> the vertical rail stops at the row's vertical centre (not at the row's bottom edge); combined with the horizontal connector at that same centre line, it forms a clean &#x2514; corner that visually closes the group. The next item (a standalone exercise or a plan-level rest) sits free of any rail.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Cycles chip reads <code>&times;N</code> only.</strong> Look at the right side of the circuit header. <strong>Expected:</strong> the pill chip shows just the multiplier (e.g. <code>&times;3</code>) &mdash; no &ldquo;ROUNDS&rdquo; / &ldquo;rounds&rdquo; suffix, no extra space. Same coral pill chrome as before.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 &middot; Fix 2(c) &mdash; duplicate-header bug</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Exactly one header per circuit.</strong> Scroll through every circuit in the session. <strong>Expected:</strong> each circuit shows ONE coral uppercase header at the top of its group &mdash; never two. (The bug Carl reported showed two stacked headers on the first circuit; the close-and-reopen on rest-inside-circuit is the root cause and is now fixed.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Rest-inside-circuit renders inside the rail.</strong> If your test session has a Rest exercise sitting between two circuit exercises (same <code>circuit_id</code>), look for it in the lobby. <strong>Expected:</strong> the rest row appears INSIDE the circuit group, with the coral rail still running through it; the rail does NOT break and re-form below. The circuit header above stays single. (If you don't have such a session, mark this Pass-with-note and move on &mdash; it's the rare repro path.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 &middot; Fix 3 &mdash; no row numerals</h2>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&#10003;</button><button class="fail" type="button" aria-label="Fail 11">&#10007;</button></div>
+        <span class="num">11.</span>
+        <span class="text"><strong>Default-named exercises show the auto-name as-is.</strong> If you've got a row whose name is the Studio default (e.g. <code>Exercise 3</code>), look at its info column. <strong>Expected:</strong> the name renders verbatim &mdash; the &ldquo;3&rdquo; is part of the name itself, not a separate prefix numeral. No <code>3.</code> in front of <code>Exercise 3</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&#10003;</button><button class="fail" type="button" aria-label="Fail 12">&#10007;</button></div>
+        <span class="num">12.</span>
+        <span class="text"><strong>Renamed exercises show only the custom name.</strong> Scroll to a row whose name was edited in Studio (e.g. <code>Goblet squat</code>). <strong>Expected:</strong> the name is just <code>Goblet squat</code> &mdash; no leading <code>2.</code> or any other numeral; no extra dot, no extra space, no leftover <code>.lobby-info-titlebar</code> column eating horizontal space. Hero card width unchanged from before.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>7 &middot; Regression sanity</h2>
+    <ul class="checklist">
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&#10003;</button><button class="fail" type="button" aria-label="Fail 13">&#10007;</button></div>
+        <span class="num">13.</span>
+        <span class="text"><strong>Pill ↔ row coupling still works.</strong> Scroll the lobby's hero list slowly. <strong>Expected:</strong> the matrix's active pill keeps tracking the row whose vertical centre is closest to viewport centre. Tap a pill &mdash; the corresponding hero row scrolls into view. PR 234's nearest-to-centre rAF reducer is untouched.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&#10003;</button><button class="fail" type="button" aria-label="Fail 14">&#10007;</button></div>
+        <span class="num">14.</span>
+        <span class="text"><strong>Treatment switching still propagates globally.</strong> Tap Line / B&amp;W / Colour in the bottom CTA bar. <strong>Expected:</strong> all rows switch in lockstep. Locked treatments still show the padlock + open the self-grant modal. (This was Fix 4 of PR 234 &mdash; the always-write override path.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">&#10003;</button><button class="fail" type="button" aria-label="Fail 15">&#10007;</button></div>
+        <span class="num">15.</span>
+        <span class="text"><strong>Plan-level rest rows still render OUTSIDE any circuit.</strong> If your session has a Rest exercise that sits between two top-level (non-circuit) items, it should render as a sage Rest row outside any group. <strong>Expected:</strong> ONE Rest row, sage chrome, no rail, no coral wash &mdash; same as before this PR. The rest-inside-circuit fix should only affect rests whose <code>circuit_id</code> matches an open circuit group.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">&#10003;</button><button class="fail" type="button" aria-label="Fail 16">&#10007;</button></div>
+        <span class="num">16.</span>
+        <span class="text"><strong>Start Workout still hands off cleanly.</strong> Tap the coral Start Workout CTA. <strong>Expected:</strong> the lobby dismisses, the deck takes over, the prep countdown fires, and the first exercise plays as normal. Nothing about the lobby chrome interferes with the handoff.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass-notes feed the next polish wave. Scope: <code>web-player/lobby.js</code>
+      (rest-inside-circuit branch + numeral chrome removal),
+      <code>web-player/styles.css</code> (rail pseudo-elements, coral
+      backdrop strip, <code>--c-coral-rail</code> token),
+      <code>web-player/app.js</code> + <code>web-player/sw.js</code>
+      (version bump). Mockup at
+      <code>docs/design/mockups/lobby-circuit-header.html</code>.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'lobby-hotfix-round2.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'lobby-hotfix-round2', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>
