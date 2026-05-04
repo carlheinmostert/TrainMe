@@ -2144,7 +2144,11 @@ body.is-fullscreen {
   overscroll-behavior: none;
 }
 body.is-fullscreen #app {
-  padding-top: 0;
+  /* Keep the status-bar / Dynamic Island inset on iPhone so the matrix
+     pills + active-pill clock stop below the island instead of slipping
+     under it. Phones without an island report 0 here, so this is a
+     no-op on hardware that doesn't need the clamp. */
+  padding-top: var(--safe-top);
   padding-bottom: 0;
 }
 body.is-fullscreen .plan-bar {
