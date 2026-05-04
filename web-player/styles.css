@@ -3264,6 +3264,12 @@ body.is-fullscreen .playpause-toggle {
 }
 
 /* Sticky CTA bar ------------------------------------------------------- */
+/*
+ * Round 4 (2026-05-04) — treatment selector moved behind the gear.
+ * Bar is now Start + gear in a single row. The treatment row lives
+ * inside `#lobby-settings-popover` which is `position: absolute`
+ * inside `.lobby-cta-bar` and opens UPWARD from above the gear.
+ */
 .lobby-cta-bar {
   position: fixed;
   bottom: 0;
@@ -3281,8 +3287,9 @@ body.is-fullscreen .playpause-toggle {
   max-width: 720px;
   margin: 0 auto;
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
 }
 
 .lobby-treatment-row {
@@ -3335,7 +3342,7 @@ body.is-fullscreen .playpause-toggle {
 }
 
 .lobby-start-btn {
-  width: 100%;
+  flex: 1 1 auto;
   height: 50px;
   background: var(--c-brand);
   color: #0F1117;
@@ -3358,6 +3365,111 @@ body.is-fullscreen .playpause-toggle {
 .lobby-start-btn svg {
   width: 18px;
   height: 18px;
+}
+
+/* Lobby gear button — sits to the right of Start in the sticky CTA
+   bar. 48×48 hit target, transparent surface, dim icon at rest, coral
+   when the popover is open. Mirrors the deck's #btn-settings shape but
+   ships its own coords + colour because the chrome contexts differ
+   (deck = absolute on top of video; lobby = inline in the bar). */
+.lobby-gear-btn {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface-base);
+  color: var(--c-ink-secondary);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--dur-fast) var(--ease-standard),
+              color var(--dur-fast) var(--ease-standard),
+              border-color var(--dur-fast) var(--ease-standard);
+}
+.lobby-gear-btn:hover {
+  background: var(--c-surface-raised);
+  color: var(--c-ink-primary);
+}
+.lobby-gear-btn:active { transform: scale(0.96); }
+.lobby-gear-btn:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+.lobby-gear-btn[aria-expanded="true"] {
+  color: var(--c-brand);
+  border-color: var(--c-brand);
+}
+.lobby-gear-btn svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  stroke: currentColor;
+}
+
+/* Lobby settings popover — anchored to the viewport-bottom and opens
+   UPWARD from the gear. `position: absolute` inside `.lobby-cta-bar`
+   so it reads "stuck to the bar" rather than free-floating. The bar
+   has `z-index: 60`; this lives inside it, no conflict.
+
+   Anchored to the right edge of the bar's inner container (where the
+   gear sits). Width grows to a comfortable popover size on phone +
+   tablet; max-width clamps it on desktop. */
+.lobby-settings-popover {
+  position: absolute;
+  /* Float above the bar — bar's top padding is 12px; we sit just above
+     it with an 8px gap. `bottom: 100%` aligns the popover's bottom
+     edge to the bar's top edge; `+8px` lift comes from translateY. */
+  bottom: calc(100% + 8px);
+  right: 16px;
+  z-index: 70;
+  min-width: 240px;
+  max-width: calc(100vw - 32px);
+  background: rgba(26, 29, 39, 0.96);
+  border: 1px solid var(--c-brand);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  font-family: var(--f-body);
+  color: var(--c-ink-primary);
+  /* Animation on open — match the deck's settings-popover convention. */
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity 160ms var(--ease-standard),
+              transform 160ms var(--ease-standard);
+}
+.lobby-settings-popover[data-open="true"] {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+/* HTML `hidden` attribute — keep the element off the a11y tree until
+   it opens (popover starts hidden). When JS sets data-open + clears
+   `hidden`, the transition above runs. */
+.lobby-settings-popover[hidden] { display: none; }
+
+.lobby-settings-popover-title {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-ink-secondary);
+  margin-bottom: 8px;
+}
+
+/* When the popover IS the host of the treatment row, give the row a
+   little more breathing room so each pill is comfortably tappable
+   (≥44 px hit target on phones). The bar context squeezed it to 36px;
+   here we can afford 40. */
+.lobby-settings-popover .lobby-treatment-row {
+  height: 40px;
 }
 
 /* Self-grant modal ----------------------------------------------------- */

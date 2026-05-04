@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-04 — lobby gear refactor (round 4)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-04 · web-player lobby gear refactor</div>
+    <h1>Device QA — hide treatment selector behind a settings gear (round 4)</h1>
+    <p class="lede">
+      <strong>Why:</strong> the practitioner has already set per-client <code>preferred_treatment</code> per-exercise as part of plan setup, so 95% of clients should never need a global override. The treatment row was earning a premium spot it didn&apos;t deserve. Round 4 hides it behind a gear in the sticky CTA bar &mdash; the chrome reclaims its visual space; the override is one tap away when actually needed.
+      <br><br>
+      <strong>Net layout:</strong> sticky bar drops the treatment-pills row entirely. <code>Start workout</code> shrinks horizontally (<code>flex: 1 1 auto</code>) to make room for a 48&times;48 gear button to its right with an 8 px gap. Tap gear &rarr; popover anchored above the gear opens upward with the same three pills (Line / B&amp;W / Colour) and the same lock-glyph + self-grant-modal behaviour. Practitioner default still applies on lobby load &mdash; clients who don&apos;t open the gear get the right treatment automatically.
+      <br><br>
+      <strong>Bumps:</strong> <code>PLAYER_VERSION</code> &rarr; <code>v40-lobby-gear</code>; <code>CACHE_NAME</code> &rarr; <code>homefit-player-v40-lobby-gear</code>.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>This PR merged + Vercel auto-deploy of <code>session.homefit.studio</code> live.</li>
+        <li>Hard-refresh (kill + reopen Safari) on iPhone CHM so the new SW takes over and you load <code>v40-lobby-gear</code> end-to-end.</li>
+        <li>Test plan: any published plan whose client has line-only consent (so locked-pill paths exercise) plus one whose client has full consent (so the unlocked path is also covered).</li>
+      </ul>
+    </div>
+
+    <h2>Sticky bar layout</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Sticky bar shows only Start workout + gear &mdash; NO inline treatment pills.</strong> Open a plan&apos;s lobby. Look at the bottom sticky bar. <strong>Expected:</strong> one row, two children: a wide coral <code>Start workout</code> button and a square gear button to its right. The three-pill <code>Line / B&amp;W / Colour</code> row that previously sat above Start is gone from the bar entirely.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Gear is reachable, &ge; 44&times;44 hit target.</strong> The gear renders to the right of Start with an 8 px gap. CSS sets it to 48&times;48 (fits the Apple HIG 44 px floor with margin). Tapping the gear should not require pixel precision &mdash; anywhere on the square should fire.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Popover open / close</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Tap gear &rarr; popover opens ABOVE the bar showing 3 pills.</strong> A small dark card appears anchored to the right edge above the gear, titled <code>SHOW ME</code>. The three pills (Line / B&amp;W / Colour) sit inside it with the existing lock-glyph behaviour preserved. The gear&apos;s <code>aria-expanded</code> flips to <code>true</code> when open.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Tap outside the popover &rarr; closes.</strong> With the popover open, tap anywhere outside it (e.g. the matrix, a hero row, the metadata strip). <strong>Expected:</strong> popover dismisses cleanly; no orphan chrome left behind. <code>aria-expanded</code> flips back to <code>false</code>. Tapping the gear again re-opens it.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Press Escape &rarr; closes.</strong> Open popover via gear. Press the Esc key (a Bluetooth keyboard or DevTools console <code>document.dispatchEvent(new KeyboardEvent(&apos;keydown&apos;,{key:&apos;Escape&apos;}))</code>). <strong>Expected:</strong> popover dismisses. If the self-grant modal is open instead, Escape dismisses that first; the popover Escape only triggers when nothing else is open.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Treatment pick path</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Tap unlocked pill &rarr; applies globally + closes popover + heroes re-render.</strong> Open the popover. Tap a non-active, non-locked pill. <strong>Expected:</strong> popover closes immediately; the active pill state moves to the picked treatment; the hero list re-renders with the new treatment&apos;s sources (B&amp;W via CSS filter / Colour via the original_url / Line via line_drawing_url). The matrix highlight is preserved on the same row after re-render.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Locked pill &rarr; opens self-grant modal (popover dismisses; modal owns the spotlight).</strong> Pick a plan whose client has line-only consent. Open popover. Tap the B&amp;W pill (which renders with a lock glyph). <strong>Expected:</strong> the popover closes BEFORE the modal opens (no competing chrome). The same self-grant modal that landed in PR 231 fires &mdash; identity row + Allow / Cancel. After Allow, the picked treatment activates and the heroes re-render.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Practitioner default still applies</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Lobby loads with the practitioner&apos;s default treatment without ever touching the gear.</strong> Open a plan whose <code>preferred_treatment</code> is <code>bw</code> on most exercises. The lobby renders with the heroes already in B&amp;W (CSS grayscale filter applied). The gear is closed. The bar shows only Start + gear. The client can tap Start without ever opening the popover and the deck inherits the same defaults.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Build marker</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Hard-refresh shows the chip read <code>plan v{N} &middot; web-player v40-lobby-gear &middot; cache v40-lobby-gear</code>.</strong> Kill + reopen Safari, open the lobby. Look at the dim line under the metadata strip. <strong>Expected:</strong> three segments; both the bundle and cache slugs read <code>v40-lobby-gear</code>. If they diverge (e.g. the cache lags on <code>v38-...</code>), do a second hard-refresh; both should converge after the SW reactivates.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Regression — deck gear</h2>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Deck&apos;s gear (post-Start) still works for per-exercise overrides &mdash; no shared state.</strong> Tap Start to enter the deck. Tap the right-edge gear icon (small circular gear top-right). <strong>Expected:</strong> the deck&apos;s settings popover (the Wave 42 panel with Mute / Treatment / Body focus + Reset) opens normally; per-exercise overrides still apply per-exercise; the lobby&apos;s gear popover stays closed; closing the deck&apos;s popover does not affect the lobby&apos;s state on a subsequent reload.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Bug? Reply with the failing item number(s) plus any notes; I&apos;ll triage. <code>10 items</code> across 6 sections.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'lobby-gear-refactor.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({items: state, ts: Date.now()})
+        }).catch(function() { /* offline; localStorage suffices */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+          }
+          save();
+        });
+
+        if (noteInput) {
+          noteInput.addEventListener('input', function() {
+            var status = li.getAttribute('data-status') || '';
+            if (!status) return;
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

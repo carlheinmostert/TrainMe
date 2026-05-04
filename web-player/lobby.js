@@ -42,6 +42,8 @@
   const $lobbyList = document.getElementById('lobby-list');
   const $lobbyTreatmentRow = document.getElementById('lobby-treatment-row');
   const $lobbyStartBtn = document.getElementById('lobby-start-btn');
+  const $lobbyGearBtn = document.getElementById('lobby-gear-btn');
+  const $lobbySettingsPopover = document.getElementById('lobby-settings-popover');
   const $selfGrantModal = document.getElementById('lobby-self-grant-modal');
   const $selfGrantTitle = document.getElementById('lobby-self-grant-title');
   const $selfGrantName = document.getElementById('lobby-self-grant-name');
@@ -763,9 +765,19 @@
   }
 
   function onTreatmentClick(value) {
-    if (value === activeTreatment && !isLockedTreatment(value)) return;
+    // Locked pill → self-grant modal. Round 4 UX choice: close the
+    // popover so the modal owns the spotlight (no competing chrome).
     if (isLockedTreatment(value)) {
+      closeLobbySettingsPopover();
       openSelfGrantModal(value === 'bw' ? 'grayscale' : 'original');
+      return;
+    }
+    // Tapping the already-active pill → just close the popover (no
+    // hero re-render, no analytics ping). Round 4 one-tap-to-pick UX:
+    // a tap on any pill (including the active one) dismisses the
+    // popover so the gear feels light.
+    if (value === activeTreatment) {
+      closeLobbySettingsPopover();
       return;
     }
     const previous = activeTreatment;
@@ -792,6 +804,76 @@
       activateInitialRow();
       recomputeActiveRow();
     });
+    // Round 4 — close the popover after a successful pick. One-tap UX.
+    closeLobbySettingsPopover();
+  }
+
+  // ==========================================================================
+  // Lobby settings popover (gear-anchored, opens upward)
+  // ==========================================================================
+  //
+  // Round 4 (2026-05-04): the treatment row used to live inline above
+  // the Start button. It now hides behind a gear in the sticky CTA bar.
+  // Practitioners pre-set per-exercise `preferred_treatment` per client,
+  // so 95% of clients never need the global override — the gear pattern
+  // earns it back its premium spot only when actually needed.
+  //
+  // Behaviour:
+  //   - Gear tap toggles open/closed.
+  //   - Outside-tap closes (capture-phase document listener).
+  //   - Escape closes (a11y).
+  //   - A treatment pick closes (one-tap-to-pick).
+  //   - A locked-pill tap closes BEFORE the self-grant modal opens
+  //     (the modal owns the spotlight).
+  //
+  // Implementation note: the popover element is `position: absolute`
+  // INSIDE `.lobby-cta-bar`, so it inherits the bar's stacking context
+  // and slides up via CSS (no JS positioning). aria-expanded mirrors
+  // the gear button's state so screen readers know what's happening.
+
+  function isLobbySettingsPopoverOpen() {
+    if (!$lobbySettingsPopover) return false;
+    return $lobbySettingsPopover.getAttribute('data-open') === 'true';
+  }
+
+  function openLobbySettingsPopover() {
+    if (!$lobbySettingsPopover || !$lobbyGearBtn) return;
+    if (isLobbySettingsPopoverOpen()) return;
+    $lobbySettingsPopover.hidden = false;
+    // Tick to let the browser paint `display:block` before the
+    // opacity/transform transition kicks in.
+    requestAnimationFrame(() => {
+      $lobbySettingsPopover.setAttribute('data-open', 'true');
+    });
+    $lobbyGearBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeLobbySettingsPopover() {
+    if (!$lobbySettingsPopover || !$lobbyGearBtn) return;
+    if (!isLobbySettingsPopoverOpen()) {
+      // If we're not open, still ensure aria + hidden agree.
+      $lobbyGearBtn.setAttribute('aria-expanded', 'false');
+      $lobbySettingsPopover.hidden = true;
+      return;
+    }
+    $lobbySettingsPopover.removeAttribute('data-open');
+    $lobbyGearBtn.setAttribute('aria-expanded', 'false');
+    // Wait for the transition to finish before adding `hidden` back —
+    // otherwise the close is a hard pop. Match the CSS `160ms`.
+    setTimeout(() => {
+      // Guard against a re-open that happened during the transition.
+      if (!isLobbySettingsPopoverOpen()) {
+        $lobbySettingsPopover.hidden = true;
+      }
+    }, 180);
+  }
+
+  function toggleLobbySettingsPopover() {
+    if (isLobbySettingsPopoverOpen()) {
+      closeLobbySettingsPopover();
+    } else {
+      openLobbySettingsPopover();
+    }
   }
 
   // ==========================================================================
@@ -1049,11 +1131,41 @@
     $lobbyStartBtn._wired = true;
     $lobbyStartBtn.addEventListener('click', dismissLobbyAndStart);
 
+    if ($lobbyGearBtn && !$lobbyGearBtn._wired) {
+      $lobbyGearBtn._wired = true;
+      $lobbyGearBtn.addEventListener('click', (evt) => {
+        // Stop the click from bubbling to the document outside-tap
+        // listener below — otherwise the same tap would immediately
+        // re-close the popover that just opened.
+        evt.stopPropagation();
+        toggleLobbySettingsPopover();
+      });
+    }
+
     if ($lobbyTreatmentRow) {
       $lobbyTreatmentRow.addEventListener('click', (evt) => {
         const btn = evt.target.closest('button[data-value]');
         if (!btn) return;
+        // Same stopPropagation guard as the gear — clicks inside the
+        // popover must not register as "outside" the popover.
+        evt.stopPropagation();
         onTreatmentClick(btn.getAttribute('data-value'));
+      });
+    }
+
+    // Outside-tap dismissal — wire ONCE at the document level so we
+    // don't multiply listeners on subsequent showLobby() calls. The
+    // capture-phase guard stops the listener firing while the popover
+    // is closed.
+    if (!document._lobbySettingsOutsideTapWired) {
+      document._lobbySettingsOutsideTapWired = true;
+      document.addEventListener('click', (evt) => {
+        if (!$lobbySettingsPopover || !isLobbySettingsPopoverOpen()) return;
+        const inside = evt.target.closest && (
+          evt.target.closest('#lobby-settings-popover') ||
+          evt.target.closest('#lobby-gear-btn')
+        );
+        if (!inside) closeLobbySettingsPopover();
       });
     }
 
@@ -1094,8 +1206,17 @@
     }
 
     document.addEventListener('keydown', (evt) => {
-      if (!$selfGrantModal || $selfGrantModal.hidden) return;
-      if (evt.key === 'Escape') closeSelfGrantModal();
+      if (evt.key !== 'Escape') return;
+      // Self-grant modal first (it's the more-front element when both
+      // are open — but in Round 4 they're mutually exclusive by design).
+      if ($selfGrantModal && !$selfGrantModal.hidden) {
+        closeSelfGrantModal();
+        return;
+      }
+      // Then the lobby settings popover.
+      if (isLobbySettingsPopoverOpen()) {
+        closeLobbySettingsPopover();
+      }
     });
   }
 
