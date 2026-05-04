@@ -90,10 +90,15 @@
         <h1 class="lobby-meta-headline" id="lobby-meta-headline"></h1>
         <p class="lobby-meta-sub" id="lobby-meta-sub"></p>
         <span class="lobby-meta-stamp" id="lobby-meta-stamp" aria-hidden="true"></span>
-        <!-- Build marker — populated by lobby.js: "{PLAYER_VERSION} · sw {cache}".
-             Tells QA at a glance whether the loaded bundle matches the
-             active SW cache. If the two diverge, the browser is on a
-             stale shell; hard-refresh or clear caches.            -->
+        <!-- Build marker — populated by lobby.js with three segments:
+             "plan v{N} · web-player {PLAYER_VERSION} · cache {SW cache}".
+             The plan segment shows the live `plans.version` integer
+             (incremented on every Publish), giving the practitioner a
+             cheap signal that the client is on the latest republish.
+             If `plans.version` is null on a legacy row the plan segment
+             drops out cleanly. The web-player and cache values diverge
+             when the browser is on a stale shell; hard-refresh or clear
+             caches.                                                -->
         <span class="lobby-meta-version" id="lobby-meta-version" aria-hidden="true"></span>
       </div>
 

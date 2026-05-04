@@ -197,10 +197,14 @@
       $lobbyMetaStamp.textContent = last ? formatStamp(last) : '';
     }
 
-    // Build marker: "{PLAYER_VERSION} · sw {active cache}". PLAYER_VERSION
-    // is the bundle's compile-time string (mirrors sw.js cache name by
-    // convention). The cache name is read live from the SW so a stale
-    // browser shell shows up as a divergence between the two values.
+    // Build marker: "plan v{N} · web-player {PLAYER_VERSION} · cache {active cache}".
+    // The plan segment surfaces `plans.version` (incremented on every
+    // Publish) so a freshly-republished plan is distinguishable from a
+    // stale tab on the same URL. PLAYER_VERSION is the bundle's
+    // compile-time string (mirrors sw.js cache name by convention). The
+    // cache name is read live from the SW so a stale browser shell shows
+    // up as a divergence between the bundle and cache values. Legacy
+    // plans whose `plans.version` is null drop the plan segment entirely.
     populateVersionChip();
   }
 
@@ -208,18 +212,26 @@
     if (!$lobbyMetaVersion) return;
     const playerVersion =
       typeof PLAYER_VERSION === 'string' ? PLAYER_VERSION : '?';
+    const planVersion =
+      plan && plan.version != null ? `plan v${plan.version}` : null;
+    const compose = (cacheLabel) => [
+      planVersion,
+      `web-player ${playerVersion}`,
+      `cache ${cacheLabel}`,
+    ].filter(Boolean).join(' · ');
+
     // Set the bundle version immediately so we don't block on the SW.
-    $lobbyMetaVersion.textContent = `${playerVersion} · sw …`;
+    $lobbyMetaVersion.textContent = compose('…');
     if (!('caches' in window)) {
-      $lobbyMetaVersion.textContent = `${playerVersion} · sw n/a`;
+      $lobbyMetaVersion.textContent = compose('n/a');
       return;
     }
     caches.keys().then((keys) => {
       const active = keys.find((k) => k.startsWith('homefit-player-'));
       const swLabel = active ? active.replace(/^homefit-player-/, '') : 'none';
-      $lobbyMetaVersion.textContent = `${playerVersion} · sw ${swLabel}`;
+      $lobbyMetaVersion.textContent = compose(swLabel);
     }).catch(() => {
-      $lobbyMetaVersion.textContent = `${playerVersion} · sw ?`;
+      $lobbyMetaVersion.textContent = compose('?');
     });
   }
 
