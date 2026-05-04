@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v32-vertical-weight-chip';
+const CACHE_NAME = 'homefit-player-v33-fractional-seconds-fix';
 
 // App shell files — always cached
 const APP_SHELL = [

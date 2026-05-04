@@ -1717,8 +1717,11 @@ function updateProgressMatrix() {
       fillPct = frac * 100;
       // Active pill counts down in seconds — `NNs` keeps the digit width
       // predictable against the gradient clip.
+      // Bug fix 2026-05-04: floor remainingSeconds even though the source
+      // is now integer — defends against any future fractional path
+      // landing here.
       const showSecs = isWorkoutActive
-        ? Math.max(0, remainingSeconds)
+        ? Math.max(0, Math.floor(remainingSeconds))
         : (Number(pill.getAttribute('data-estimate')) || 0);
       durText = `${showSecs}s`;
     } else {
@@ -2399,20 +2402,10 @@ function paintActiveRepBlock() {
     }
   }
 
-  // Bug fix 2026-05-03 (B): gate the "End of exercise" badge so it
-  // only appears once the workout has actually reached the rest
-  // phase of the last set. Pre-Start-Workout (isWorkoutMode false)
-  // and prep-phase + mid-flight slides keep the badge hidden via
-  // `.is-pending` (display:none in CSS).
-  const endMarker = $repStackColumn.querySelector('.end-marker[data-end-marker="true"]');
-  if (endMarker) {
-    const isLastSetIdx = currentSetIndex >= (totalSetsForSlide - 1);
-    const showEnd = isWorkoutMode
-      && !isPrepPhase
-      && isLastSetIdx
-      && setPhase === 'rest';
-    endMarker.classList.toggle('is-pending', !showEnd);
-  }
+  // 2026-05-04 — End-of-exercise badge retired (Carl: "serves no
+  // purpose"). The previous gating block toggled `.is-pending` on the
+  // badge to reveal it during the final rest phase; both the badge and
+  // its CSS rules are gone, so the gating is dead code.
 
   const setSections = $repStackColumn.querySelectorAll('.rep-stack-section--set');
   setSections.forEach((section) => {
@@ -2960,8 +2953,13 @@ function getInterSetRestSeconds(slide) {
  * Format seconds as m:ss
  */
 function formatTime(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  // Bug fix 2026-05-04: floor at the display layer as belt-and-braces.
+  // The source-fix in jumpToRep ensures integer remainingSeconds, but
+  // any future fractional source upstream would otherwise leak into the
+  // matrix as `23:54.6666...`. Coerce to a non-negative integer first.
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
@@ -4239,13 +4237,14 @@ function updateRepStack() {
   $repStack.setAttribute('data-stack-key', key);
 
   // Wave 41 — interleave per-set + per-set breather. The trailing
-  // rest after the FINAL set carries an "End of exercise" marker
-  // instead of an upcoming-weight chip.
+  // rest after the FINAL set has an empty aside (2026-05-04 — Carl
+  // dropped the green "End of exercise" badge that used to live
+  // there); non-final rests show a forward-look weight chip.
   // Bug fix 2026-05-03 (A): the LAST set's trailing rest block was
   // conditional on `breather_seconds_after > 0`, so a set with zero
-  // breather (common for the final set) silently dropped its R block
-  // and the End-of-exercise badge along with it. The last set ALWAYS
-  // gets a trailing rest section (CLAUDE.md: "Trailing rest after
+  // breather (common for the final set) silently dropped its R block.
+  // The last set ALWAYS gets a trailing rest section (CLAUDE.md:
+  // "Trailing rest after
   // EVERY set, incl. last"); middle sets stay conditional since a
   // zero-breather middle slot is meaningfully empty.
   const sections = [];
@@ -4306,20 +4305,13 @@ function updateRepStack() {
               </div>`;
     }
     // Rest section — sage divider plus a forward-look chip (next
-    // set's weight) OR an "End of exercise" marker on the final
-    // breather. Per Wave 41 spec the rest pill itself has NO text.
-    // Bug fix 2026-05-03 (B): the End-of-exercise marker now starts
-    // hidden via the `is-pending` class. paintActiveRepBlock() toggles
-    // it on once the workout has actually reached the rest phase of
-    // the last set (post-Start-Workout, last rep landed). Render-time
-    // it's never visible because we don't yet know whether the user
-    // has tapped Start Workout (the cached fast-path can keep the same
-    // DOM across state transitions).
+    // set's weight). Non-final rests show a forward-look weight chip;
+    // the FINAL rest now shows nothing (no aside) — Carl 2026-05-04
+    // dropped the green "End of exercise" badge ("serves no purpose").
+    // The final rest section keeps its sage rest block + the breather
+    // chip that lives in the matrix overlay.
     const aside = sec.isFinal
-      ? `<span class="end-marker is-pending" data-end-marker="true">
-           <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 7.5l3 3 5-7"/></svg>
-           End of exercise
-         </span>`
+      ? '' // 2026-05-04 — End-of-exercise badge retired.
       : renderWeightChipHtml({
           weightKg: sec.nextWeight,
           urgent: sec.nextWeight !== sec.prevWeight,
@@ -4932,7 +4924,13 @@ function jumpToRep(setIdx, repIdx) {
   const breatherForTarget = targetSet.breather_seconds_after || 0;
   // Physical (rep-fill) seconds within this set, minus baked-in breather.
   const physicalSet = Math.max(1, targetPerSet - breatherForTarget);
-  const elapsedInPhysical = (repIdx / targetReps) * physicalSet;
+  // Bug fix 2026-05-04: round to integer at the source. (repIdx/targetReps)
+  // * physicalSet is fractional whenever physicalSet doesn't divide evenly
+  // by targetReps (e.g. 121s / 12 reps = 10.083). Without this floor,
+  // setPhaseRemaining + remainingSeconds inherit the fraction and the
+  // 1s decrement loop preserves it for the rest of the slide, leaking
+  // 23:54.6666... into the matrix display.
+  const elapsedInPhysical = Math.round((repIdx / targetReps) * physicalSet);
 
   currentSetIndex = setIdx;
   setPhase = 'set';
