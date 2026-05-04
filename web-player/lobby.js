@@ -1178,9 +1178,25 @@
       targetPill.classList.add('is-active');
       // Centre-on-active — scroll the matrix horizontally so the active
       // pill is centred. Parity with the deck's matrix behaviour.
-      try {
-        targetPill.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-      } catch (_) { /* older browsers */ }
+      //
+      // Hotfix: skip when the pill is already visible inside the matrix
+      // viewport, AND use instant scroll instead of smooth. iOS WKWebView's
+      // smooth-scroll on this element interacts badly with the lobby's
+      // rAF-throttled scroll handler — under sustained scrolling the
+      // smooth-scroll animation fires repeated scroll events that re-enter
+      // the handler chain, eventually pinning the JS event loop. Symptom:
+      // WebView appears to "go black" 5-8s after a scroll, with no JS
+      // errors and no network activity (heartbeat dies). Bypassing smooth
+      // here breaks that loop without losing the centre-on-active visual.
+      const matrixRect = $lobbyMatrixInner.getBoundingClientRect();
+      const pillRect = targetPill.getBoundingClientRect();
+      const pillVisible =
+        pillRect.left >= matrixRect.left && pillRect.right <= matrixRect.right;
+      if (!pillVisible) {
+        try {
+          targetPill.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'auto' });
+        } catch (_) { /* older browsers */ }
+      }
     }
     // Lazy-load video heroes for current ± 1.
     lazyKickVideosNear(idx);
