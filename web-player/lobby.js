@@ -36,6 +36,7 @@
   const $lobbyMetaHeadline = document.getElementById('lobby-meta-headline');
   const $lobbyMetaSub = document.getElementById('lobby-meta-sub');
   const $lobbyMetaStamp = document.getElementById('lobby-meta-stamp');
+  const $lobbyMetaVersion = document.getElementById('lobby-meta-version');
   const $lobbyMatrix = document.getElementById('lobby-matrix');
   const $lobbyMatrixInner = document.getElementById('lobby-matrix-inner');
   const $lobbyList = document.getElementById('lobby-list');
@@ -195,6 +196,31 @@
       const last = plan.last_published_at || plan.updated_at || null;
       $lobbyMetaStamp.textContent = last ? formatStamp(last) : '';
     }
+
+    // Build marker: "{PLAYER_VERSION} · sw {active cache}". PLAYER_VERSION
+    // is the bundle's compile-time string (mirrors sw.js cache name by
+    // convention). The cache name is read live from the SW so a stale
+    // browser shell shows up as a divergence between the two values.
+    populateVersionChip();
+  }
+
+  function populateVersionChip() {
+    if (!$lobbyMetaVersion) return;
+    const playerVersion =
+      typeof PLAYER_VERSION === 'string' ? PLAYER_VERSION : '?';
+    // Set the bundle version immediately so we don't block on the SW.
+    $lobbyMetaVersion.textContent = `${playerVersion} · sw …`;
+    if (!('caches' in window)) {
+      $lobbyMetaVersion.textContent = `${playerVersion} · sw n/a`;
+      return;
+    }
+    caches.keys().then((keys) => {
+      const active = keys.find((k) => k.startsWith('homefit-player-'));
+      const swLabel = active ? active.replace(/^homefit-player-/, '') : 'none';
+      $lobbyMetaVersion.textContent = `${playerVersion} · sw ${swLabel}`;
+    }).catch(() => {
+      $lobbyMetaVersion.textContent = `${playerVersion} · sw ?`;
+    });
   }
 
   function countExercises(slides) {

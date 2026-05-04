@@ -2708,6 +2708,21 @@ body.is-fullscreen .playpause-toggle {
   letter-spacing: 0.02em;
 }
 
+/* Tiny build marker beneath the date stamp. Surfaces both the bundle
+   version (compile-time string) and the active SW cache label, so QA
+   can spot a stale browser shell at a glance. Both values match in
+   normal operation; divergence means the SW is on a different cache
+   than the JS that just rendered. */
+.lobby-meta-version {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--c-ink-muted);
+  opacity: 0.55;
+  letter-spacing: 0.02em;
+}
+
 /* Pill matrix coupling ---------------------------------------------------- */
 .lobby-matrix {
   position: sticky;
