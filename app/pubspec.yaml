@@ -116,4 +116,5 @@ flutter:
     - assets/web-player/index.html
     - assets/web-player/app.js
     - assets/web-player/api.js
+    - assets/web-player/lobby.js
     - assets/web-player/styles.css
