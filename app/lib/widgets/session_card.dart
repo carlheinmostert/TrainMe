@@ -11,6 +11,7 @@ import '../services/api_client.dart' show PlanAnalyticsSummary;
 import '../services/conversion_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
+import '../utils/hero_crop_alignment.dart';
 import 'conversion_error_log_sheet.dart';
 
 /// Greyscale colour matrix — zeroes saturation while preserving luminance.
@@ -933,9 +934,17 @@ class _FilmstripCell extends StatelessWidget {
         child: ColoredBox(color: AppColors.surfaceBase),
       );
     }
+    // Wave Lobby — apply the per-exercise practitioner-authored 1:1
+    // crop window. The filmstrip cell is non-square (card height ×
+    // card-width / N), but BoxFit.cover + alignment still slides the
+    // visible window along the source's free axis (X for landscape, Y
+    // for portrait). Defaults to centred for legacy / un-authored
+    // exercises so prior renders stay pixel-stable.
+    final align = heroCropAlignment(exercise);
     Widget image = Image.file(
       file,
       fit: BoxFit.cover,
+      alignment: align,
       // 240 = practical max retina decode for a ~120px-tall card cell.
       // Bigger doesn't read; smaller goes mushy on 3x.
       cacheWidth: 240,

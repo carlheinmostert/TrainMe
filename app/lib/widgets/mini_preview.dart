@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
 import '../theme.dart';
+import '../utils/hero_crop_alignment.dart';
 import 'hero_star_badge.dart';
 
 /// Greyscale matrix used by [ColorFiltered] for the B&W treatment.
@@ -475,9 +476,12 @@ class _PhotoFrame extends StatelessWidget {
     if (path == null || !File(path).existsSync()) {
       return const _PhotoFallback();
     }
+    // Wave Lobby — practitioner-authored 1:1 crop window.
+    final align = heroCropAlignment(exercise);
     final image = Image.file(
       File(path),
       fit: BoxFit.cover,
+      alignment: align,
       errorBuilder: (_, e, s) => const _PhotoFallback(),
     );
     if (treatment == Treatment.grayscale) {
@@ -534,8 +538,13 @@ class _VideoFrame extends StatelessWidget {
       return _PhotoFrame(exercise: fallbackExercise, treatment: treatment);
     }
     final size = controller!.value.size;
+    // Wave Lobby — practitioner-authored 1:1 crop window. FittedBox
+    // accepts an [alignment] which controls which part of the child
+    // is visible after BoxFit.cover scaling.
+    final align = heroCropAlignment(fallbackExercise);
     final video = FittedBox(
       fit: BoxFit.cover,
+      alignment: align,
       clipBehavior: Clip.hardEdge,
       child: SizedBox(
         width: size.width == 0 ? 1 : size.width,
@@ -608,10 +617,14 @@ class _HeroFrameImage extends StatelessWidget {
     final useFile = thumbFile.existsSync() ? thumbFile : fallbackFile;
     if (!useFile.existsSync()) return const _PhotoFallback();
     final offset = exercise.focusFrameOffsetMs ?? 0;
+    // Wave Lobby — practitioner-authored 1:1 crop window. Defaults to
+    // centred for legacy / un-authored exercises so the existing pixel
+    // output is preserved.
+    final align = heroCropAlignment(exercise);
     return Image(
       image: _HeroFileImage(useFile, offset),
       fit: BoxFit.cover,
-      alignment: _alignmentFor(),
+      alignment: align,
       errorBuilder: (_, e, s) => const _PhotoFallback(),
     );
   }
@@ -619,29 +632,6 @@ class _HeroFrameImage extends StatelessWidget {
   /// Wave Lobby PR 2 — map the practitioner's normalised offset onto
   /// an [Alignment]. The free axis follows the source's
   /// `aspectRatio`:
-  ///
-  ///   * Landscape source (`aspect >= 1`) → drag X. Alignment.x maps
-  ///     the offset to `[-1, +1]` (0 = -1, 0.5 = 0, 1 = +1).
-  ///   * Portrait source (`aspect < 1`) → drag Y, same mapping on the
-  ///     vertical axis.
-  ///
-  /// Null cropOffset OR null aspectRatio → return [Alignment.center]
-  /// so legacy rows render unchanged.
-  Alignment _alignmentFor() {
-    final v = cropOffset;
-    if (v == null) return Alignment.center;
-    final aspect = exercise.aspectRatio;
-    if (aspect == null || aspect <= 0) return Alignment.center;
-    final clamped = v.clamp(0.0, 1.0);
-    // Map [0..1] → [-1..+1].
-    final axis = (clamped * 2.0) - 1.0;
-    if (aspect >= 1.0) {
-      // Landscape → free axis is X. Vertical stays centred.
-      return Alignment(axis, 0.0);
-    }
-    // Portrait → free axis is Y. Horizontal stays centred.
-    return Alignment(0.0, axis);
-  }
 }
 
 /// `FileImage` whose cache identity includes the practitioner-picked

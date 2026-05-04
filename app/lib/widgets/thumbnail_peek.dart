@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
+import '../utils/hero_crop_alignment.dart';
 import 'capture_thumbnail.dart';
 
 /// Thumbnail Peek — long-press on an exercise-card thumbnail opens an
@@ -222,8 +223,13 @@ class _PeekPreviewState extends State<_PeekPreview> {
           showChrome: false,
         ),
         if (_isVideo && _initialized && _controller != null)
+          // Wave Lobby — apply the practitioner-authored 1:1 crop
+          // window so the long-press peek video matches the still
+          // CaptureThumbnail underneath instead of jumping to a
+          // centred crop the moment the controller is ready.
           FittedBox(
             fit: BoxFit.cover,
+            alignment: heroCropAlignment(widget.exercise),
             child: SizedBox(
               width: _controller!.value.size.width,
               height: _controller!.value.size.height,
