@@ -310,6 +310,43 @@ class ExerciseCapture {
   /// (schema_wave_hero_focus_frame.sql).
   final int? focusFrameOffsetMs;
 
+  /// Practitioner-authored 1:1 Hero crop offset (Wave Lobby).
+  ///
+  /// Normalized scalar in `[0.0, 1.0]` along the source media's *free
+  /// axis*. The free axis is determined by orientation (Wave 28
+  /// `aspectRatio` / `rotationQuarters`):
+  ///
+  ///   * Landscape source (effective aspect > 1) — free axis is X.
+  ///     0.0 = crop hugs the left edge, 0.5 = centred, 1.0 = right.
+  ///   * Portrait source (effective aspect < 1) — free axis is Y.
+  ///     0.0 = crop hugs the top edge, 0.5 = centred, 1.0 = bottom.
+  ///   * Square source (effective aspect == 1) — value is ignored;
+  ///     the editor disables the picker.
+  ///
+  /// The constrained axis spans the full short edge of the source and
+  /// is not stored. Cropping happens at consumption time via Flutter
+  /// `Alignment` / CSS `object-position`, NOT at storage time — the
+  /// existing Hero JPG at [thumbnailPath] is rendered as-is and the
+  /// consumer picks the visible 1:1 window.
+  ///
+  /// Drives the web-player lobby (PR 4) AND every practitioner-facing
+  /// thumbnail surface (Studio cards filmstrip, Home, ClientSessions,
+  /// Camera peek; PR 3). The editor UI that authors this value is
+  /// PR 2.
+  ///
+  /// Semantics:
+  ///   * `null` → unset (legacy / pre-migration row, OR a fresh
+  ///     capture the practitioner hasn't touched). Consumers fall
+  ///     through to 0.5 (centred crop) so legacy rows render exactly
+  ///     as today.
+  ///   * `0.0..1.0` → practitioner override picked via the editor's
+  ///     Hero tab.
+  ///
+  /// Persistence: local SQLite `exercises.hero_crop_offset` (schema
+  /// v38, REAL) + Supabase `exercises.hero_crop_offset`
+  /// (schema_wave_hero_crop.sql, NUMERIC).
+  final double? heroCropOffset;
+
   const ExerciseCapture({
     required this.id,
     required this.position,
@@ -344,6 +381,7 @@ class ExerciseCapture {
     this.rotationQuarters,
     this.bodyFocus,
     this.focusFrameOffsetMs,
+    this.heroCropOffset,
   });
 
   /// Create a new capture with a generated UUID.
@@ -457,6 +495,7 @@ class ExerciseCapture {
           ? (map['body_focus'] as int) == 1
           : null,
       focusFrameOffsetMs: map['focus_frame_offset_ms'] as int?,
+      heroCropOffset: (map['hero_crop_offset'] as num?)?.toDouble(),
     );
   }
 
@@ -493,6 +532,7 @@ class ExerciseCapture {
       'rotation_quarters': rotationQuarters,
       'body_focus': bodyFocus == null ? null : (bodyFocus! ? 1 : 0),
       'focus_frame_offset_ms': focusFrameOffsetMs,
+      'hero_crop_offset': heroCropOffset,
     };
   }
 
@@ -554,6 +594,8 @@ class ExerciseCapture {
     bool clearBodyFocus = false,
     int? focusFrameOffsetMs,
     bool clearFocusFrameOffsetMs = false,
+    double? heroCropOffset,
+    bool clearHeroCropOffset = false,
   }) {
     return ExerciseCapture(
       id: id,
@@ -617,6 +659,9 @@ class ExerciseCapture {
       focusFrameOffsetMs: clearFocusFrameOffsetMs
           ? null
           : (focusFrameOffsetMs ?? this.focusFrameOffsetMs),
+      heroCropOffset: clearHeroCropOffset
+          ? null
+          : (heroCropOffset ?? this.heroCropOffset),
     );
   }
 

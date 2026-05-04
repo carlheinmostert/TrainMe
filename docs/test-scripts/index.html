@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./lobby-schema.html">
+          <div class="row">
+            <div>
+              <div class="name">0 · Wave Lobby PR 1/N &mdash; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">hero_crop_offset</code> column + RPC plumbing</div>
+              <div class="scope">Schema-only. Adds <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">exercises.hero_crop_offset</code> (NUMERIC nullable; SQLite REAL), wires it through <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">replace_plan_exercises</code> + the publish payload + offline pull mapper + scheme bridge. Foundation for the practitioner-authored 1:1 Hero crop &mdash; subsequent PRs land the editor (PR 2), thumbnail consumers (PR 3), and the web-player lobby (PR 4). NULL = unset; consumers default to 0.5 (centred), so this PR is byte-stable on every existing surface. Surprise found mid-PR: backfilled the Wave Hero <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">focus_frame_offset_ms</code> pull-branch that was missed in the original Wave Hero migration. SQLite v37 &rarr; v38. Supabase migration written but unapplied (Carl reviews). <strong>8 items in 3 sections.</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-04-fractional-seconds-end-marker.html">
           <div class="row">
             <div>
