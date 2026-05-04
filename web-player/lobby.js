@@ -316,10 +316,27 @@
       seenIds.add(idKey);
 
       if (s.media_type === 'rest') {
-        // Close any open circuit group first. Plan-level rest rows are
-        // 1-to-1 with `media_type === 'rest'` exercises only — never
-        // synthesised from per-set inter-set breathers (which already
-        // surface inside the dose-line as "30s rest").
+        // Hotfix round 2 — Fix 2(c) — duplicate-header root cause.
+        //
+        // Previously a rest slide unconditionally CLOSED the open
+        // `circuitGroup`. When a rest sat INSIDE a circuit (between two
+        // exercises in the same circuit_id), the close-and-reopen dance
+        // emitted TWO `.lobby-circuit-group` <li>s with the same id —
+        // hence the duplicate coral header Carl reported on the first
+        // circuit of his published session.
+        //
+        // Fix: a rest whose `circuit_id` matches the open group's id
+        // belongs INSIDE that group's row stream — append it to
+        // `circuitGroup.rows` instead of closing the group. The plain
+        // exerciseRowHTML doesn't know how to render a rest, so we
+        // mark these rows with `kind: 'rest-in-circuit'` and
+        // `circuitGroupHTML` interleaves the rest row HTML.
+        if (circuitGroup && s.circuit_id && circuitGroup.circuitId === s.circuit_id) {
+          circuitGroup.rows.push({ slide: s, slideIndex: i, isRest: true });
+          continue;
+        }
+        // Plan-level rest (or a rest after a different circuit) — close
+        // the open group cleanly.
         if (circuitGroup) { items.push(circuitGroup); circuitGroup = null; }
         items.push({ kind: 'rest', slide: s, slideIndex: i });
         continue;
@@ -356,31 +373,24 @@
     }
     if (circuitGroup) items.push(circuitGroup);
 
-    // Pre-compute row index numbers (1, 2, 3, …) — non-rest rows only.
-    // Numbering follows plan-display order; circuits stay grouped so
-    // each circuit-row gets its own number (e.g. a 4-exercise circuit
-    // emits numbers 4, 5, 6, 7 regardless of how many rounds it'll
-    // repeat — the matrix conveys round count).
-    let runningIndex = 0;
-    const numberFor = (slide) => {
-      if (!slide || slide.media_type === 'rest') return null;
-      runningIndex += 1;
-      return runningIndex;
-    };
-
-    $lobbyList.innerHTML = items.map((it) => itemToHTML(it, numberFor)).join('');
+    $lobbyList.innerHTML = items.map(itemToHTML).join('');
   }
 
-  function itemToHTML(item, numberFor) {
+  function itemToHTML(item) {
     if (item.kind === 'rest') return restRowHTML(item.slide, item.slideIndex);
-    if (item.kind === 'single') {
-      return exerciseRowHTML(item.slide, item.slideIndex, numberFor(item.slide));
-    }
-    if (item.kind === 'circuit') return circuitGroupHTML(item, numberFor);
+    if (item.kind === 'single') return exerciseRowHTML(item.slide, item.slideIndex);
+    if (item.kind === 'circuit') return circuitGroupHTML(item);
     return '';
   }
 
-  function exerciseRowHTML(slide, slideIndex, rowNumber) {
+  // Hotfix round 2 — Fix 3 — row index numerals removed. Studio's
+  // auto-naming gives default-named exercises labels like "Exercise 1",
+  // "Exercise 2" so the position is already part of the name when the
+  // practitioner hasn't renamed; when they have renamed (e.g. "Goblet
+  // squat") the label is just the name and we don't second-guess the
+  // practitioner. The `numberFor` closure + `.lobby-info-num` /
+  // `.lobby-info-titlebar` chrome from PR 234 are gone.
+  function exerciseRowHTML(slide, slideIndex, _opts) {
     const escape = api.escapeHTML;
     const name = escape(slide.name || `Exercise`);
     const dose = buildDoseLine(slide);
@@ -396,24 +406,20 @@
     // use grayscale_url / original_url). Photos always render as <img>.
     const heroHTML = renderHeroHTML(slide, objPos);
 
-    // Row index numeral (e.g. "3.") — left of the exercise name in the
-    // info column. Rest rows pass null and render no numeral.
-    const numberHTML = (rowNumber != null)
-      ? `<span class="lobby-info-num">${rowNumber}.</span>`
-      : '';
+    // `last` flag is supplied by `circuitGroupHTML` for the final in-
+    // circuit row so the rail piece can clamp at 50% to form an L corner.
+    const isLast = !!(_opts && _opts.last);
+    const lastClass = isLast ? ' last' : '';
 
     return `
-      <li class="lobby-row" role="listitem"
+      <li class="lobby-row${lastClass}" role="listitem"
           data-slide-index="${slideIndex}"
           data-id="${escape(slide.id || '')}">
         <div class="lobby-hero" data-hero-target>
           ${heroHTML}
         </div>
         <div class="lobby-info">
-          <div class="lobby-info-titlebar">
-            ${numberHTML}
-            <h3 class="lobby-info-name">${name}</h3>
-          </div>
+          <h3 class="lobby-info-name">${name}</h3>
           ${dose ? `<p class="lobby-info-dose">${escape(dose)}</p>` : ''}
           ${notes ? `<button type="button" class="lobby-info-notes" aria-expanded="false" data-notes-toggle>${escape(notes)}</button>` : ''}
         </div>
@@ -435,25 +441,51 @@
     `;
   }
 
-  function circuitGroupHTML(group, numberFor) {
+  function circuitGroupHTML(group) {
     const escape = api.escapeHTML;
-    // Wave 5 lobby fixes — rename "ROUNDS" → "rounds" + Studio-style
-    // header chrome: practitioner-set name on the left, ×N cycles chip
-    // on the right (mirrors `_buildCircuitHeaderRow` in
-    // `app/lib/screens/studio_mode_screen.dart`).
+    // Hotfix round 2 — Fix 2 — circuit chrome.
+    //
+    // Container: now transparent (no coral backdrop / no border). All
+    // grouping is conveyed visually by the coral tree-branch rail —
+    // header rail piece + per-row connectors that concatenate into a
+    // single continuous line, with an └ corner closing the last row.
+    //
+    // Cycles chip: `×3` only — no "ROUNDS" suffix.
+    //
+    // The rail itself is composed in CSS via pseudo-elements:
+    //   .circuit-header::before   vertical rail piece (centre → bottom)
+    //   .circuit-header::after    horizontal stub (left:8 → label)
+    //   .ex-row.in-circuit::before   vertical rail piece (top → bottom)
+    //   .ex-row.in-circuit::after    horizontal connector (left:8 → row)
+    //   .ex-row.in-circuit.last::before clamps at 50% → L corner
+    //
+    // The container has NO rail of its own, so the rail naturally ends
+    // at the last row's centre without any JS measurement.
     const labelText = group.circuitName
       ? group.circuitName
       : 'Circuit';
     const cyclesText = `×${group.rounds || 1}`;
-    const rows = group.rows.map((r) => {
-      const html = exerciseRowHTML(r.slide, r.slideIndex, numberFor(r.slide));
-      // Add `is-circuit` to the row.
-      return html.replace('class="lobby-row"', 'class="lobby-row is-circuit"');
+    const lastIdx = group.rows.length - 1;
+    const rows = group.rows.map((r, i) => {
+      const isLast = i === lastIdx;
+      // Rest-inside-circuit rows render as a rest <li>, but still get
+      // the rail treatment + `last` flag so the └ corner lands cleanly
+      // when a circuit ends on a rest (uncommon, but possible).
+      const html = r.isRest
+        ? restRowHTML(r.slide, r.slideIndex)
+        : exerciseRowHTML(r.slide, r.slideIndex, { last: isLast });
+      // Mark every in-circuit row with `is-circuit` (legacy hook) AND
+      // `in-circuit` (mockup-spec alias). For rest rows, also append
+      // `last` directly (restRowHTML doesn't take an opts arg).
+      const lastMod = (isLast && r.isRest) ? ' last' : '';
+      return html.replace(
+        'class="lobby-row',
+        `class="lobby-row is-circuit in-circuit${lastMod}`
+      );
     }).join('');
     return `
       <li class="lobby-circuit-group" data-circuit="${escape(group.circuitId || '')}">
         <div class="lobby-circuit-header">
-          <span class="lobby-circuit-header-rail" aria-hidden="true"></span>
           <span class="lobby-circuit-header-label">${escape(labelText)}</span>
           <span class="lobby-circuit-header-cycles" aria-label="${escape(group.rounds || 1)} rounds">${escape(cyclesText)}</span>
         </div>
