@@ -453,6 +453,60 @@
   }
 
   /**
+   * `client_self_grant_consent(p_plan_id, p_kind)` — anon RPC that lets the
+   * web-player lobby's self-grant modal flip a single consent kind
+   * (`grayscale` or `original`) to true on the plan's linked client.
+   *
+   * The RPC emits a `client.consent.update` audit row tagged with
+   * `meta.source = 'client_self_grant'` so the practitioner can see who
+   * self-granted what. Schema in
+   * `supabase/schema_lobby_self_grant.sql`. Migration is NOT applied here
+   * — Carl applies after review.
+   *
+   * Skipped on the local surface (mobile preview WebView) — the
+   * practitioner's own rehearsal must never modify the client's consent
+   * state. Returns `{ ok: false, reason: 'local-surface' }` in that case.
+   *
+   * Returns `{ ok: true }` on success or `{ ok: false, reason: <string> }`
+   * otherwise. The caller (`app.js`) prefers the soft-failure shape
+   * because the modal flow doesn't need to discriminate error kinds —
+   * a failure simply means "leave the lock in place".
+   */
+  async function clientSelfGrantConsent(planId, kind) {
+    if (!planId) return { ok: false, reason: 'no-plan-id' };
+    if (kind !== 'grayscale' && kind !== 'original') {
+      return { ok: false, reason: 'invalid-kind' };
+    }
+    if (isLocalSurface()) return { ok: false, reason: 'local-surface' };
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/client_self_grant_consent`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_plan_id: planId,
+            p_kind: kind,
+          }),
+        },
+      );
+      if (!response.ok) {
+        let body = '';
+        try { body = await response.text(); } catch (_) { /* ignore */ }
+        return { ok: false, reason: `http-${response.status}`, detail: body };
+      }
+      return { ok: true };
+    } catch (err) {
+      try { console.warn('[homefit] client_self_grant_consent failed:', err); } catch (_) {}
+      return { ok: false, reason: 'network', detail: String(err && err.message || err) };
+    }
+  }
+
+  /**
    * `get_plan_sharing_context(p_plan_id)` — returns minimal practitioner +
    * practice + client context for the transparency page greeting.
    *
@@ -495,6 +549,7 @@
     setAnalyticsConsent,
     revokeAnalyticsConsent,
     getPlanSharingContext,
+    clientSelfGrantConsent,
     isLocalSurface,
     getLocalPlanId,
     SUPABASE_URL,
