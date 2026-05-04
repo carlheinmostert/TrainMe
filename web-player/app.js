@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v40-lobby-gear';
+const PLAYER_VERSION = 'v42-grammar-and-alignment';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -1179,14 +1179,77 @@ function buildPrepOverlay(slide) {
 }
 
 /**
+ * Round 6 — central reps-shape composer, shared between the lobby's
+ * row dose-line and the deck's active-slide-header grammar. Single
+ * source of truth for `N × R reps` (uniform) vs `R1/R2/R3 reps`
+ * (pyramid / drop / wave). The leading `× N` in the varying form is
+ * deliberately omitted — sequence length is implicit.
+ *
+ * Args: `playSets` — output of playSetsForSlide(); each entry has at
+ * least { reps }. Returns a string or '' for empty input.
+ */
+function formatReps(playSets) {
+  if (!Array.isArray(playSets) || !playSets.length) return '';
+  const repsList = playSets.map((s) => Number(s.reps) || 0);
+  const allSame = repsList.every((r) => r === repsList[0]);
+  if (allSame) return `${playSets.length} × ${repsList[0]} reps`;
+  return `${repsList.join('/')} reps`;
+}
+
+/**
+ * Round 6 — central hold-segment composer with Wave 43 three-mode
+ * parenthetical qualifiers. Returns the dose-line fragment for the
+ * hold (e.g. `30s hold`, `5s hold (each)`, `30s hold (end)`) or ''
+ * when no hold is configured.
+ *
+ * Mode wording (locked — Carl's grammar lock-in 2026-05-04):
+ *   per_rep         → `Ns hold (each)`
+ *   end_of_set      → `Ns hold` (no qualifier — keeps the line tidy
+ *                                for the common case)
+ *   end_of_exercise → `Ns hold (end)`
+ *
+ * If sets in an exercise carry mixed hold modes (data shape allows it
+ * but the editor enforces uniform-by-default), we use the FIRST set's
+ * `hold_position` as the canonical answer for the dose-line summary —
+ * matches the brief's call. Sets with mixed numeric `hold_seconds`
+ * collapse to `''` per the existing pickHoldSeconds() contract (ie a
+ * single uniform value or nothing).
+ *
+ * Args: `playSets` — output of playSetsForSlide(). Returns a string.
+ */
+function formatHold(playSets) {
+  if (!Array.isArray(playSets) || !playSets.length) return '';
+  const holds = playSets.map((s) => Number(s.hold_seconds) || 0);
+  const allSame = holds.every((h) => h === holds[0]);
+  if (!allSame) return '';
+  const sec = holds[0];
+  if (sec <= 0) return '';
+  // Wave 43 mode wording. Photos go through the same path: if the
+  // exercise is a photo with no `sets[]` (legacy fallback), the
+  // synthesised set from _coerceSet defaults hold_position to
+  // 'end_of_set', which renders without a qualifier — matches the
+  // brief's "fall back gracefully to the legacy holdSeconds scalar
+  // with no qualifier" requirement.
+  const mode = (playSets[0] && playSets[0].hold_position) || 'end_of_set';
+  if (mode === 'per_rep') return `${sec}s hold (each)`;
+  if (mode === 'end_of_exercise') return `${sec}s hold (end)`;
+  return `${sec}s hold`;
+}
+
+/**
  * Wave 41 — decoded grammar for the active slide. Reads `slide.sets[]`
  * (post per-set PLAN refactor) and produces a per-set summary:
- *   Uniform:           `3 × 10 @ 15 kg · 60 s rest`
- *   Pyramid (varied):  `10/8/6 @ 12.5/15/17.5 kg · 60 s rest`
- *   Bodyweight:        `3 × 10 · 30 s hold · 60 s rest`
+ *   Uniform:           `3 × 10 reps @ 15 kg · 60 s rest`
+ *   Pyramid (varied):  `10/8/6 reps @ 12.5/15/17.5 kg · 60 s rest`
+ *   Bodyweight:        `3 × 10 reps · 30 s hold · 60 s rest`
  *   Mixed breathers:   `3 sets · varied`
  *   Circuit (1 set):   `10 reps @ 15 kg · 30 s hold`  (round count owned by matrix)
  *   Rest:              `30 s rest`
+ *
+ * Round 6 — appended `reps` after `N × R` so the active-slide header
+ * matches the lobby grammar; the slash forms (`R1/R2/R3 reps`) and the
+ * hold-mode qualifiers `(each)` / `(end)` flow through the shared
+ * formatReps() / formatHold() composers.
  *
  * Returns a plain string (no HTML) — the caller sets textContent.
  */
@@ -1218,13 +1281,16 @@ function buildDecodedGrammar(slide) {
   const allBodyweight = weightsList.every((w) => w == null);
 
   // Circuit slides represent ONE set per round; the round count is
-  // surfaced by the matrix. Drop the `N ×` prefix.
+  // surfaced by the matrix. Drop the `N ×` prefix. Hold renders via
+  // the shared formatHold() so the (each) / (end) qualifiers stay in
+  // lockstep with the lobby and the rest of the deck. (Round 6.)
   if (isCircuit) {
     const set = playSets[0];
     const parts = [];
     parts.push(`${set.reps} reps`);
     if (set.weight_kg != null) parts.push(`@ ${formatWeightKg(set.weight_kg)}`);
-    if (set.hold_seconds > 0) parts.push(`${set.hold_seconds} s hold`);
+    const holdSeg = formatHold([set]);
+    if (holdSeg) parts.push(holdSeg);
     return parts.join(' · ');
   }
 
@@ -1234,30 +1300,41 @@ function buildDecodedGrammar(slide) {
     return `${playSets.length} sets · varied`;
   }
 
+  // Round 6 — the reps shape + count flows through the shared
+  // formatReps() composer (`N × R reps` / `R1/R2/R3 reps`). Weight
+  // formatting + breather aren't shared with the lobby, so they stay
+  // inline here.
   const parts = [];
+  const repsSeg = formatReps(playSets);
   if (repsUniform && weightsUniform) {
-    // Uniform shape — `N × R [@ W kg]`
-    let head = `${playSets.length} × ${repsList[0]}`;
-    if (!allBodyweight) head += ` @ ${formatWeightKg(weightsList[0])}`;
-    parts.push(head);
-  } else {
-    // Pyramid / varied reps or weights — emit slash-joined sequences.
-    const repsStr = repsList.join('/');
-    if (allBodyweight) {
-      parts.push(repsStr);
-    } else if (weightsUniform) {
-      parts.push(`${repsStr} @ ${formatWeightKg(weightsList[0])}`);
+    if (!allBodyweight) {
+      parts.push(`${repsSeg} @ ${formatWeightKg(weightsList[0])}`);
     } else {
-      const weightsStr = weightsList
-        .map((w) => (w == null ? 'BW' : formatWeightKg(w).replace(' kg', '')))
-        .join('/');
-      parts.push(`${repsStr} @ ${weightsStr} kg`);
+      parts.push(repsSeg);
     }
+  } else if (weightsUniform) {
+    if (allBodyweight) {
+      parts.push(repsSeg);
+    } else {
+      parts.push(`${repsSeg} @ ${formatWeightKg(weightsList[0])}`);
+    }
+  } else {
+    // Pyramid / varied reps or weights — slash-joined weight sequence.
+    const weightsStr = weightsList
+      .map((w) => (w == null ? 'BW' : formatWeightKg(w).replace(' kg', '')))
+      .join('/');
+    parts.push(`${repsSeg} @ ${weightsStr} kg`);
   }
 
-  if (holdsUniform && holdsList[0] > 0) {
-    parts.push(`${holdsList[0]} s hold`);
+  // Round 6 — hold flows through the shared formatHold() so the
+  // mode-aware parenthetical wording is identical across surfaces.
+  const holdSeg = formatHold(playSets);
+  if (holdSeg) {
+    parts.push(holdSeg);
   } else if (!holdsUniform && holdsList.some((h) => h > 0)) {
+    // Mixed holds across sets — fall back to the legacy "varied hold"
+    // collapse (formatHold() returns '' for non-uniform holds since
+    // the parenthetical can't represent a mix).
     parts.push('varied hold');
   }
 
@@ -5343,6 +5420,13 @@ async function init() {
           return total;
         },
         playSetsForSlide: playSetsForSlide,
+        // Round 6 — central reps + hold composers, shared so the
+        // lobby's row dose-line uses identical grammar to the deck's
+        // active-slide-header. Single source of truth for the
+        // pyramid-vs-uniform detection and the Wave 43 hold-mode
+        // parenthetical wording.
+        formatReps: formatReps,
+        formatHold: formatHold,
         getExerciseRotationDeg: getExerciseRotationDeg,
         resolveTreatmentUrl: resolveTreatmentUrl,
         escapeHTML: escapeHTML,

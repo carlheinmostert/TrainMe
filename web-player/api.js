@@ -151,24 +151,41 @@
 
   /**
    * Wave 41 per-set normaliser. The server sends each exercise with a
-   * `sets: [{position, reps, hold_seconds, weight_kg,
+   * `sets: [{position, reps, hold_seconds, hold_position, weight_kg,
    * breather_seconds_after}, ...]` array (empty for rest). We coerce
    * every numeric field and preserve `weight_kg`'s null-vs-number
    * distinction (null = bodyweight; number = kg).
+   *
+   * Wave 43 — `hold_position` ENUM ('per_rep' | 'end_of_set' |
+   * 'end_of_exercise'). Unknown / missing values fall through to
+   * 'end_of_set' (the new default — matches the v36 backfill choice for
+   * legacy rows whose hold_seconds was zero, and the wave43 backfill's
+   * choice for rows with hold_seconds > 0 that were already shipped
+   * under the legacy per_rep contract). Surfaced into the lobby's
+   * dose-line composer via the central `formatDose` helper in
+   * `app.js` so wording stays in lockstep across the workflow Preview,
+   * lobby, and active-slide header.
    */
   function _normaliseSets(rawSets) {
     if (!Array.isArray(rawSets)) return [];
     return rawSets
-      .map((s, i) => ({
-        position: _coerceNum(s && s.position, i),
-        reps: Math.max(0, _coerceNum(s && s.reps, 0)),
-        hold_seconds: Math.max(0, _coerceNum(s && s.hold_seconds, 0)),
-        weight_kg: _coerceNumOrNull(s && s.weight_kg),
-        breather_seconds_after: Math.max(
-          0,
-          _coerceNum(s && s.breather_seconds_after, 0),
-        ),
-      }))
+      .map((s, i) => {
+        const rawHp = s && s.hold_position;
+        const holdPosition = (rawHp === 'per_rep' || rawHp === 'end_of_set' || rawHp === 'end_of_exercise')
+          ? rawHp
+          : 'end_of_set';
+        return {
+          position: _coerceNum(s && s.position, i),
+          reps: Math.max(0, _coerceNum(s && s.reps, 0)),
+          hold_seconds: Math.max(0, _coerceNum(s && s.hold_seconds, 0)),
+          hold_position: holdPosition,
+          weight_kg: _coerceNumOrNull(s && s.weight_kg),
+          breather_seconds_after: Math.max(
+            0,
+            _coerceNum(s && s.breather_seconds_after, 0),
+          ),
+        };
+      })
       .sort((a, b) => a.position - b.position);
   }
 
