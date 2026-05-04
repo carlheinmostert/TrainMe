@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-04-set-rest-phase-sync.html">
+          <div class="row">
+            <div>
+              <div class="name">0 · Set/rest phase sync &mdash; web-player breather double-count fix</div>
+              <div class="scope">Web + mobile preview (R-10 parity, one bundle). The set/rest state machine in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/app.js</code> was double-counting each set's trailing breather: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">setPhaseRemaining</code> was being initialised from <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">calculatePerSetSeconds(...)</code> which BAKES IN the breather per the Wave 41 contract, so each non-final set spent <strong>physical + 2&times;breather</strong> in its <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">'set'</code> phase before falling into <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">'rest'</code>. New <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">calculatePhysicalSetSeconds</code> helper (perSet minus baked-in breather) now sizes every fresh <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">'set'</code>-phase init: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">beginSetMachineForCurrent</code>, both <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">advanceSetPhase</code> next-set transitions, the visibilitychange fast-forward's two next-set branches, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">jumpToRep</code>. Rep-stack painter elapsed math flips from <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">perSet - setPhaseRemaining</code> to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">physicalSet - setPhaseRemaining</code>. SW cache bumped to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v31-set-rest-phase-sync</code>. <strong>10 items in 6 sections.</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-04-session-card-filmstrip.html">
           <div class="row">
             <div>
