@@ -82,6 +82,16 @@
        the mobile Workflow Preview WebView (web-player/ is the shared bundle).
   -->
   <div id="lobby" hidden>
+    <!-- Hotfix round 3 — Fix D — build-marker chip relocated to a
+         top-left fixed corner overlay, OUT of .lobby-meta. The chip is
+         a sibling of .lobby-inner so it sits above the scroll content
+         without participating in the meta layout. CSS pins it to
+         top:6px / left:8px / z-index:51 (above .lobby-matrix's z=5).
+         #lobby itself is `position: fixed; inset: 0;` and hides when
+         Start is tapped, so the chip naturally disappears with the
+         lobby — no extra hide logic needed. -->
+    <span class="lobby-meta-version" id="lobby-meta-version" aria-hidden="true"></span>
+
     <div class="lobby-inner">
       <!-- Metadata strip — two-line greeting. JS picks layout based on whether
            the plan title matches the auto-format (default-named) or has
@@ -90,16 +100,6 @@
         <h1 class="lobby-meta-headline" id="lobby-meta-headline"></h1>
         <p class="lobby-meta-sub" id="lobby-meta-sub"></p>
         <span class="lobby-meta-stamp" id="lobby-meta-stamp" aria-hidden="true"></span>
-        <!-- Build marker — populated by lobby.js with three segments:
-             "plan v{N} · web-player {PLAYER_VERSION} · cache {SW cache}".
-             The plan segment shows the live `plans.version` integer
-             (incremented on every Publish), giving the practitioner a
-             cheap signal that the client is on the latest republish.
-             If `plans.version` is null on a legacy row the plan segment
-             drops out cleanly. The web-player and cache values diverge
-             when the browser is on a stale shell; hard-refresh or clear
-             caches.                                                -->
-        <span class="lobby-meta-version" id="lobby-meta-version" aria-hidden="true"></span>
       </div>
 
       <!-- Pill matrix — same matrix renderer as the deck. Wired to the
