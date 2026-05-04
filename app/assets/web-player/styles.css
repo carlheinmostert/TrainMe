@@ -1397,9 +1397,9 @@ video.is-prep-paused {
   gap: 3px;
   /* Bug fix 2026-05-03 (C): width 50px → 34px (~32% reduction) +
      tightened gap so the rep stack stops colliding with the centered
-     notes overlay. The aside chips ("45 kg", "End of exercise") still
-     bleed slightly past this width but render with smaller padding
-     (see .weight-chip / .end-marker below). */
+     notes overlay. The aside weight chips still bleed slightly past
+     this width but render with smaller padding (see .weight-chip
+     below). */
   width: 34px;
   z-index: 12;
   /* Carl 2026-04-24: blocks need to receive taps for navigable stack
@@ -1461,10 +1461,9 @@ video.is-prep-paused {
 
 /*
  * Wave 41 — sections become a horizontal split: rep-blocks column on
- * the LEFT, weight-chip / end-marker / hold-label column on the
- * RIGHT. The blocks subcolumn keeps the original column-reverse so
- * rep 1 sits at the bottom; the aside subcolumn is centered next to
- * its set group.
+ * the LEFT, weight-chip / hold-label column on the RIGHT. The blocks
+ * subcolumn keeps the original column-reverse so rep 1 sits at the
+ * bottom; the aside subcolumn is centered next to its set group.
  */
 .rep-stack-section {
   display: flex;
@@ -1526,8 +1525,8 @@ video.is-prep-paused {
    pill. The horizontal min-width / min-height swap so the chip's
    slim width matches the aside gutter and its height grows with the
    section it sits beside (the parent section's grow weight already
-   scales the aside). End-of-exercise badge is intentionally NOT
-   rotated — it stays a horizontal text-with-icon affordance. */
+   scales the aside). (End-of-exercise badge retired 2026-05-04 —
+   final rest section now renders no aside element at all.) */
 .rep-stack-section-aside .weight-chip {
   writing-mode: vertical-rl;
   transform: rotate(180deg);
@@ -1560,7 +1559,7 @@ video.is-prep-paused {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Weight chips + End-of-exercise marker (Wave 41)                   */
+/*  Weight chips (Wave 41; End-of-exercise marker retired 2026-05-04) */
 /* ------------------------------------------------------------------ */
 .weight-chip {
   display: inline-flex;
@@ -1617,39 +1616,9 @@ video.is-prep-paused {
   color: var(--c-ink-muted);
 }
 
-/* End-of-exercise marker — sage chip with a checkmark glyph that
-   sits to the right of the FINAL rest divider. Replaces the
-   forward-look weight chip on the trailing breather. */
-.end-marker {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: rgba(134, 239, 172, 0.10);
-  border: 1px solid var(--c-rest-tint-border);
-  font-family: var(--f-mono);
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--c-rest);
-  letter-spacing: 0.3px;
-  white-space: nowrap;
-}
-.end-marker svg {
-  width: 10px;
-  height: 10px;
-  stroke: var(--c-rest);
-  fill: none;
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-/* Bug fix 2026-05-03 (B): badge starts hidden; revealed by
-   paintActiveRepBlock() once the workout has reached the trailing
-   rest of the last set. */
-.end-marker.is-pending {
-  display: none;
-}
+/* End-of-exercise marker retired 2026-05-04 (Carl: "serves no
+   purpose"). All rules removed; final rest section now renders no
+   aside element at all. */
 
 .rep-stack-block {
   position: relative;

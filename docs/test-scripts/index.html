@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-04-fractional-seconds-end-marker.html">
+          <div class="row">
+            <div>
+              <div class="name">0 · Web player &mdash; clean integer timer + drop End-of-exercise pill</div>
+              <div class="scope">Mobile + web (R-10 parity, one bundle). Two follow-up bugs after PRs #225 + #226. <strong>Bug 1:</strong> matrix top-bar leaked <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">23:54.66666...</code> after a rep-block tap because <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">jumpToRep</code> computed <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">elapsedInPhysical = (repIdx / targetReps) * physicalSet</code> as a float (e.g. 121s &divide; 12 = 10.083). Fix: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Math.round(...)</code> at source + belt-and-braces <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Math.floor</code> on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">formatTime</code> input + active-pill <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">showSecs</code>. <strong>Bug 2:</strong> green sage &ldquo;&#10003; End of exercise&rdquo; badge on the rep stack retired (Carl: &ldquo;serves no purpose&rdquo;) &mdash; final rest section's aside is now empty, painter gating removed, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.end-marker</code> CSS deleted. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v33-fractional-seconds-fix</code>. <strong>10 items in 3 sections.</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-04-vertical-weight-chip.html">
           <div class="row">
             <div>

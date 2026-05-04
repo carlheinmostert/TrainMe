@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Device QA 2026-05-04 — Set/rest phase sync (web-player)</title>
+<title>Device QA 2026-05-04 — fractional seconds + end-of-exercise badge retired</title>
 <style>
   :root {
     --bg: #0F1117;
@@ -119,118 +119,109 @@
 </head>
 <body>
   <div class="wrap">
-    <div class="kicker">2026-05-04 · Set/rest phase sync (web-player)</div>
-    <h1>Device QA — Set/rest phase sync</h1>
+    <div class="kicker">2026-05-04 · fractional seconds + end-of-exercise badge retired</div>
+    <h1>Device QA — clean integer timer + drop the End-of-exercise pill</h1>
     <p class="lede">
-      <strong>Bug:</strong> the set/rest state machine in <code>web-player/app.js</code> was double-counting each set's trailing breather. Initialising <code>setPhaseRemaining</code> from <code>calculatePerSetSeconds(...)</code> (which BAKES IN the breather per Wave 41 contract) meant every non-final set spent <strong>physical + 2&times;breather</strong> seconds in its <code>'set'</code> phase before falling into <code>'rest'</code>. User-visible: &ldquo;set 1 ends and it doesn't go into its rest period; the pill at the top still keeps counting.&rdquo;
+      <strong>Scope:</strong> shared <code>web-player/</code> bundle — affects both <code>session.homefit.studio</code> and the embedded mobile workflow Preview WebView (R-10 parity).
       <br><br>
-      <strong>Fix:</strong> new <code>calculatePhysicalSetSeconds</code> helper (perSet minus baked-in breather). Every fresh <code>'set'</code>-phase initialisation site now uses it: <code>beginSetMachineForCurrent</code>, both <code>advanceSetPhase</code> next-set transitions, the visibilitychange fast-forward's two next-set branches, and <code>jumpToRep</code>. The rep-stack painter's elapsed-in-physical math also flips from <code>perSet - setPhaseRemaining</code> to <code>physicalSet - setPhaseRemaining</code> directly. <code>calculatePerSetSeconds</code> stays untouched (load-bearing for <code>calculateDuration</code>, cumulative-before-set, matrix-pill fill). Rest-phase initialisations (<code>= breatherForX</code>) untouched. <code>jumpToRest</code> untouched.
+      <strong>Bug 1 — fractional seconds bleeding into the matrix top bar.</strong> Carl saw <code>23:54.66666666666674</code> in the matrix time and <code>...6666666666666</code> in the active pill remaining. Root cause: <code>jumpToRep</code> computed <code>elapsedInPhysical = (repIdx / targetReps) * physicalSet</code>, which is fractional whenever the physical-set seconds don't divide evenly by reps (e.g. 121s / 12 reps = 10.083). The fraction propagated into <code>setPhaseRemaining</code> and <code>remainingSeconds</code>, and the 1-second decrement loop preserved it for the rest of the slide.
       <br><br>
-      <strong>R-10 parity:</strong> the public client web player at <code>session.homefit.studio</code> AND the mobile workflow Preview step (which embeds the same <code>web-player/</code> bundle) both pick up the fix from one edit.
+      <strong>Fix:</strong> <code>Math.round((repIdx / targetReps) * physicalSet)</code> at the source in <code>jumpToRep</code>. Belt-and-braces: <code>formatTime</code> now wraps its input in <code>Math.floor(Number(seconds) || 0)</code>, and the active-pill <code>showSecs</code> wraps <code>remainingSeconds</code> in <code>Math.floor</code>.
       <br><br>
-      <strong>Surfaces touched:</strong> <code>web-player/app.js</code> (helper + 6 call-site swaps), <code>web-player/sw.js</code> (cache name bump to <code>homefit-player-v31-set-rest-phase-sync</code>). No schema, no RPCs, no Flutter, no portal.
+      <strong>Bug 2 — End-of-exercise badge dropped.</strong> Carl: &ldquo;serves no purpose&rdquo;. The green sage &#10003; End-of-exercise pill that appeared on the rep stack during the final rest phase has been removed: the render-path aside is now empty for the final rest section, the <code>paintActiveRepBlock</code> gating is removed (dead code without the DOM element), and <code>.end-marker</code> CSS rules are deleted.
+      <br><br>
+      <strong>SW cache bumped:</strong> <code>homefit-player-v32-vertical-weight-chip</code> &rarr; <code>homefit-player-v33-fractional-seconds-fix</code>.
     </p>
 
     <div class="oos">
       <h3>Prerequisites</h3>
       <ul>
-        <li>Branch built and installed via <code>./install-device.sh</code> (this also reloads the web-player bundle on the iPhone via Vercel's auto-deploy &mdash; give it ~60s after merge before testing).</li>
-        <li>Hard-refresh <code>session.homefit.studio</code> in Safari (Cmd+Shift+R or pull-down-to-refresh) so the new SW cache name (<code>v31-set-rest-phase-sync</code>) wins over the previous v30.</li>
-        <li>Test plan: a session with at least <strong>one multi-set exercise</strong> &mdash; ideally 3 sets &times; 10 reps with 30&ndash;60s breather between sets. Plus, if convenient, a <strong>1-set exercise</strong> (no breather) to prove the no-regression case.</li>
+        <li>PR for branch <code>worktree-agent-a2650ad95eeb9e62d</code> merged + Vercel auto-deploy of <code>session.homefit.studio</code> live.</li>
+        <li>Mobile build picks up the bundle from <code>app/assets/web-player/</code> &mdash; re-run <code>./install-device.sh</code> if you want the embedded workflow Preview surface to reflect the change.</li>
+        <li>Hard-refresh / pull-to-refresh on session.homefit.studio so the new SW takes over (or kill + reopen Safari).</li>
+        <li>At least one published session with: a multi-rep exercise where physical seconds don't divide reps cleanly (e.g. 12 reps, video close to 9 s, 10 s hold &mdash; ~121 s &divide; 12 = 10.083 s/rep), and a multi-set exercise to walk through the final rest.</li>
       </ul>
     </div>
 
-    <h2>1 &middot; Core fix &mdash; rep stack flips into breather without a gap</h2>
+    <h2>1 &middot; Bug 1 &mdash; fractional seconds at the source</h2>
     <ul class="checklist">
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
         <span class="num">1.</span>
-        <span class="text"><strong>Set 1 &rarr; rest 1 transition is instant.</strong> Pick a 3&times;10 multi-set exercise on the public web player. Hit Start Workout, watch set 1. <strong>Expected:</strong> the moment the rep-stack's last rep block fills (rep 10 lands at 100%), the sage rest block lights up immediately. No &ldquo;all reps done but pill still ticking&rdquo; zone. Pre-fix this had a <code>breather_seconds_after</code>-long stall.</span>
+        <span class="text"><strong>Worst-case rep tap renders integer matrix time.</strong> Open a multi-rep exercise where reps don't divide physical time evenly (e.g. 1 &times; 12 @ 55 kg with 10 s hold and a video close to 9 s &mdash; ~121 s physical &divide; 12 reps). Tap a rep block in the middle of the rep stack. <strong>Expected:</strong> the matrix top-bar time reads as a clean <code>MM:SS</code> with no <code>.6666...</code> tail, and the active pill counts down in whole seconds.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="2" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
         <span class="num">2.</span>
-        <span class="text"><strong>Pill, breather overlay, and rep stack stay in sync during rest.</strong> While set 1's rest phase is playing, glance at the matrix pill at the top of the screen, the big sage breather countdown overlay over the video, and the rest-block fill in the rep stack. <strong>Expected:</strong> all three advance proportionally &mdash; when the breather digits show 30 (halfway through a 60s breather), the pill and rest block are also ~halfway. No more than ~1s drift between any pair.</span>
+        <span class="text"><strong>Tap rep 8 of 12 (worst-case fraction).</strong> Same exercise as item 1, this time tap exactly the 8th rep block. <strong>Expected:</strong> integer display in both the matrix top time and the active pill remaining. No <code>.83333...</code>, no <code>.5</code>, no decimals at all.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Rest phase after a rep-tap jump stays integer.</strong> After tapping a rep mid-set (item 1 / 2 setup), let the workout play through to the trailing breather. <strong>Expected:</strong> the breather chip number is integer (always was), and the active pill duration that comes after the rest is also integer &mdash; no fraction reintroduced from the prior set's elapsed math.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
-    <h2>2 &middot; Multi-set walk-through</h2>
+    <h2>2 &middot; Bug 2 &mdash; End-of-exercise badge gone</h2>
     <ul class="checklist">
-      <li data-num="3" data-status="">
-        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
-        <span class="num">3.</span>
-        <span class="text"><strong>Rest 1 plays its full duration, then set 2 starts cleanly.</strong> Don't skip rest. <strong>Expected:</strong> the breather ticks 60&rarr;0 (or whatever the set's <code>breather_seconds_after</code> is), and at 0 the rep stack flips to set-2 active &mdash; rep 1 of set 2 starts filling.</span>
-        <div class="note-row"><input type="text" class="note" placeholder=""></div>
-      </li>
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
         <span class="num">4.</span>
-        <span class="text"><strong>Final set's trailing breather plays, then slide auto-advances.</strong> Walk all sets through to the last. <strong>Expected:</strong> the final set's reps fill, the trailing breather plays its full duration, and only then does the slide auto-advance to the next exercise. Total slide time (mental stopwatch from &ldquo;Start Workout&rdquo;) &asymp; the duration shown in the matrix pill.</span>
+        <span class="text"><strong>Multi-set exercise: last set's rest has no badge.</strong> Run a multi-set exercise (e.g. 3 &times; 10) through to the LAST set's rest phase. <strong>Expected:</strong> the rep stack on the right shows the sage rest block + breather chip in the matrix overlay, but <strong>NO &ldquo;End of exercise&rdquo; badge</strong> at the top of the stack at any moment during the final breather.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="5" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
         <span class="num">5.</span>
-        <span class="text"><strong>Final set's rest plays through with NO End-of-exercise badge.</strong> While the FINAL set's trailing breather is counting down, the rep stack should show the sage rest block + breather chip only &mdash; the green &ldquo;&#10003; End of exercise&rdquo; badge has been retired (Carl 2026-05-04, &ldquo;serves no purpose&rdquo;). <strong>Expected:</strong> no End-of-exercise badge appears anywhere on the rep stack at any point during the last set or its rest phase.</span>
+        <span class="text"><strong>Single-set exercise: trailing rest has no badge either.</strong> Run an exercise with a single set (e.g. 1 &times; 12). <strong>Expected:</strong> at the trailing rest, no End-of-exercise badge &mdash; same clean look as the multi-set case. The single-set rest section's aside is empty.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>3 &middot; Matrix peek + slide change</h2>
-    <ul class="checklist">
       <li data-num="6" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
         <span class="num">6.</span>
-        <span class="text"><strong>Matrix peek &rarr; drop on a different slide resets cleanly.</strong> Long-press the matrix at the top to enter peek mode, then drop on a different exercise slide. <strong>Expected:</strong> the new slide starts at set 1, rep stack at zero, no leftover &lsquo;rest&rsquo; state from the previous slide. Pill resets to the new slide's full duration.</span>
+        <span class="text"><strong>DevTools inspect: zero <code>.end-marker</code> elements in the DOM.</strong> Open Safari Web Inspector on the player, run <code>document.querySelectorAll('.end-marker').length</code> in the console. <strong>Expected:</strong> <code>0</code>. No orphan element in the rendered tree.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>4 &middot; Rep-stack jumps</h2>
-    <ul class="checklist">
       <li data-num="7" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
         <span class="num">7.</span>
-        <span class="text"><strong>Tap a rep block in the rep stack &mdash; jump lands cleanly.</strong> Mid-exercise, tap (e.g.) rep 5 of set 2. <strong>Expected:</strong> the active rep block becomes rep 5, the per-rep fill restarts cleanly from 0%, and when reps land at 10/10 the rest block lights immediately (no leftover gap). The matrix pill jumps to match.</span>
+        <span class="text"><strong>Visual scan: only sage rest blocks + weight chips on the right.</strong> Quickly scan the rep stack for any exercise (single-set, multi-set, pyramid, hold). <strong>Expected:</strong> the right column has only the per-set vertical weight chips and forward-look weight chips on non-final rests &mdash; no green &ldquo;End of exercise&rdquo; pill anywhere.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
+    </ul>
+
+    <h2>3 &middot; Stability &amp; regression checks</h2>
+    <ul class="checklist">
       <li data-num="8" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
         <span class="num">8.</span>
-        <span class="text"><strong>Tap a rest block in the rep stack &mdash; jumps straight into rest.</strong> Tap a rest block (the sage one between two sets). <strong>Expected:</strong> the player jumps straight into the breather phase, breather digits count down from full, and the next set begins cleanly when the breather ends.</span>
+        <span class="text"><strong>Background tab + resume keeps integer display.</strong> Mid-workout (after a rep-tap jump from items 1-3), background the Safari tab for ~2 minutes, then resume. The <code>visibilitychange</code> fast-forward path runs and adjusts <code>remainingSeconds</code>. <strong>Expected:</strong> matrix top-bar time + active pill stay integer &mdash; no fraction reintroduced by the wall-clock delta math.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>5 &middot; Background tab fast-forward</h2>
-    <ul class="checklist">
       <li data-num="9" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
         <span class="num">9.</span>
-        <span class="text"><strong>Background tab for ~2 minutes mid-set, then resume.</strong> Mid-set in a multi-set exercise, swipe back to the home screen for ~2 min (or lock the phone), then return to Safari. <strong>Expected:</strong> the rep stack, matrix pill, and breather overlay all jump forward to where they should be by wall-clock; no doubled breather at the end of the slide; total slide time still matches the pill duration.</span>
+        <span class="text"><strong>Long-press matrix peek + drop on different slide.</strong> Long-press the matrix to peek, drag to a different slide (with a different total duration), release. <strong>Expected:</strong> the new slide's matrix time + active-pill display are integer; previous slide's display state cleared cleanly &mdash; no leftover fractional digits.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>6 &middot; No-regression edge cases</h2>
-    <ul class="checklist">
       <li data-num="10" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
         <span class="num">10.</span>
-        <span class="text"><strong>Single-set exercise (or 0s breather) plays unchanged.</strong> Run a 1-set exercise (or any set with <code>breather_seconds_after = 0</code>). <strong>Expected:</strong> behaviour is identical to pre-fix &mdash; reps fill, slide ends, no orphan rest block, no extra wait. Total slide time matches the pill duration to the second.</span>
+        <span class="text"><strong>Happy path with no rep-tap stays integer throughout.</strong> Run a multi-set exercise from Start Workout to completion WITHOUT tapping any rep block. <strong>Expected:</strong> matrix top-bar time + active-pill remaining + breather chip all stay integer the whole way through &mdash; no regression on the happy path.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
     <footer>
-      Pass-notes with polish suggestions feed the next wave's backlog. Failed items spawn targeted fix briefs. The fix lives entirely in <code>web-player/app.js</code> + <code>web-player/sw.js</code>; no schema, no RPCs, no Flutter, no portal.
+      Pass-notes feed the next polish wave. Source-of-truth fix lives in <code>web-player/app.js</code> <code>jumpToRep</code> (line ~4935) plus belt-and-braces <code>Math.floor</code> in <code>formatTime</code> (line ~2962) and the active-pill <code>showSecs</code> in <code>updateProgressMatrix</code> (line ~1719). End-of-exercise badge removed from the render path, the painter gating, and the CSS.
     </footer>
   </div>
   <script>
     (function() {
-      var SLUG = '2026-05-04-set-rest-phase-sync.results.json';
+      var SLUG = '2026-05-04-fractional-seconds-end-marker.results.json';
       var ENDPOINT = '/api/test-results/' + SLUG;
       var LS_KEY = 'homefit-test-state::' + location.pathname;
 
@@ -259,7 +250,7 @@
         fetch(ENDPOINT, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({wave: 'set-rest-phase-sync', updatedAt: new Date().toISOString(), items: state})
+          body: JSON.stringify({wave: 'fractional-seconds-end-marker', updatedAt: new Date().toISOString(), items: state})
         }).catch(function() { /* offline - localStorage still holds */ });
       }
 
