@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
 import '../theme.dart';
+import '../utils/hero_crop_alignment.dart';
 import 'hero_star_badge.dart';
 
 /// Grayscale color matrix — zeroes the saturation while preserving
@@ -174,9 +175,15 @@ class CaptureThumbnail extends StatelessWidget {
         final thumbFile = File(thumbPath);
         final fallbackFile = File(basePath);
         final useFile = thumbFile.existsSync() ? thumbFile : fallbackFile;
+        // Wave Lobby — practitioner-authored 1:1 crop window.
+        // Defaults to centred (Alignment.center) for legacy /
+        // un-authored exercises; otherwise slides along the source's
+        // free axis per orientation.
+        final align = heroCropAlignment(exercise);
         Widget thumb = Image.file(
           useFile,
           fit: BoxFit.cover,
+          alignment: align,
           cacheWidth: cacheWidth,
           errorBuilder: (context, error, stackTrace) => Container(
             color: AppColors.surfaceRaised,
@@ -208,9 +215,12 @@ class CaptureThumbnail extends StatelessWidget {
 
     // Photo exercises. For B&W/Original, use the raw file; for Line,
     // use the converted (line-drawing) file.
+    // Wave Lobby — apply the practitioner-authored 1:1 crop window.
+    final align = heroCropAlignment(exercise);
     Widget image = Image.file(
       sourceFile,
       fit: BoxFit.cover,
+      alignment: align,
       cacheWidth: cacheWidth,
       errorBuilder: (context, error, stackTrace) => Container(
         color: AppColors.surfaceRaised,

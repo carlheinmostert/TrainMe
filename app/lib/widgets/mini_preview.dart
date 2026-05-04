@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
 import '../theme.dart';
+import '../utils/hero_crop_alignment.dart';
 import 'hero_star_badge.dart';
 
 /// Greyscale matrix used by [ColorFiltered] for the B&W treatment.
@@ -459,9 +460,12 @@ class _PhotoFrame extends StatelessWidget {
     if (path == null || !File(path).existsSync()) {
       return const _PhotoFallback();
     }
+    // Wave Lobby — practitioner-authored 1:1 crop window.
+    final align = heroCropAlignment(exercise);
     final image = Image.file(
       File(path),
       fit: BoxFit.cover,
+      alignment: align,
       errorBuilder: (_, e, s) => const _PhotoFallback(),
     );
     if (treatment == Treatment.grayscale) {
@@ -518,8 +522,13 @@ class _VideoFrame extends StatelessWidget {
       return _PhotoFrame(exercise: fallbackExercise, treatment: treatment);
     }
     final size = controller!.value.size;
+    // Wave Lobby — practitioner-authored 1:1 crop window. FittedBox
+    // accepts an [alignment] which controls which part of the child
+    // is visible after BoxFit.cover scaling.
+    final align = heroCropAlignment(fallbackExercise);
     final video = FittedBox(
       fit: BoxFit.cover,
+      alignment: align,
       clipBehavior: Clip.hardEdge,
       child: SizedBox(
         width: size.width == 0 ? 1 : size.width,
@@ -581,9 +590,14 @@ class _HeroFrameImage extends StatelessWidget {
     final useFile = thumbFile.existsSync() ? thumbFile : fallbackFile;
     if (!useFile.existsSync()) return const _PhotoFallback();
     final offset = exercise.focusFrameOffsetMs ?? 0;
+    // Wave Lobby — practitioner-authored 1:1 crop window. Defaults to
+    // centred for legacy / un-authored exercises so the existing pixel
+    // output is preserved.
+    final align = heroCropAlignment(exercise);
     return Image(
       image: _HeroFileImage(useFile, offset),
       fit: BoxFit.cover,
+      alignment: align,
       errorBuilder: (_, e, s) => const _PhotoFallback(),
     );
   }

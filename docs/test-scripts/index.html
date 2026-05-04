@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./lobby-mobile-consumers.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Wave Lobby PR 3/4 &mdash; hero crop alignment on Studio / ClientSessions / Camera peek / Preview</div>
+              <div class="scope">Practitioner-facing thumbnail consumers. Reads <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">hero_crop_offset</code> (PR 1) and applies it as a Flutter <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Alignment</code> on every <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">BoxFit.cover</code> surface that renders an exercise Hero: Studio card filmstrip + Hero flood-fill, ClientSessions list filmstrip cells, Camera peek box (still + long-press video), editor sheet header. Free axis is X for landscape sources (effective aspect &ge; 1) and Y for portrait. NULL falls through to 0.5 (centred) so legacy plans stay pixel-stable. Doesn't touch the editor sheet's Preview tab (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">MediaViewerBody</code> uses <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">BoxFit.contain</code> &mdash; full media is the right answer there). PR 4 mirrors the same alignment in the web-player lobby + workflow Preview. <strong>10 items in 3 sections.</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-04-preview-chrome-tight.html">
           <div class="row">
             <div>
