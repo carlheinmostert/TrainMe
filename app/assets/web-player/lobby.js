@@ -826,21 +826,27 @@
       `;
     }
 
-    // Video — Line / B&W / Colour all animate. preload="none" + poster;
-    // the scroll coupler metadata-loads on enter and pauses on leave.
+    // Video — render <img> as the static placeholder. swapToVideoOnActiveRow
+    // replaces the <img> with a freshly-created <video> when this row becomes
+    // active, and swaps it back to <img> when it loses focus. Structural
+    // single-video guarantee: only ONE <video> element ever exists in the
+    // DOM at any moment, so iOS WKWebView's HW decoder cap can't be tipped.
+    // (v47 tried to manage <video> per row via src on/off + load(); on iOS
+    // multiple decoders still ended up engaged. v48 sidesteps that by keeping
+    // inactive rows as plain <img>.)
     const videoSrc = url || fallbackPoster;
     const grayscale = (activeTreatment === 'bw') ? ' is-grayscale' : '';
     return `
-      <video class="lobby-hero-media${grayscale}"
-             data-src="${escape(videoSrc)}"
-             data-poster="${escape(fallbackPoster)}"
-             poster="${escape(fallbackPoster)}"
-             style="object-position: ${escape(objPos)};"
-             playsinline muted loop preload="none"
-             data-treatment="${activeTreatment}"
-             data-trim-start="${Number(slide.start_offset_ms) || 0}"
-             data-trim-end="${Number(slide.end_offset_ms) || 0}">
-      </video>
+      <img class="lobby-hero-media${grayscale}"
+           src="${escape(fallbackPoster)}"
+           alt="${escape(slide.name || 'Exercise')}"
+           style="object-position: ${escape(objPos)};"
+           loading="lazy"
+           data-treatment="${activeTreatment}"
+           data-video-src="${escape(videoSrc)}"
+           data-poster-src="${escape(fallbackPoster)}"
+           data-trim-start="${Number(slide.start_offset_ms) || 0}"
+           data-trim-end="${Number(slide.end_offset_ms) || 0}">
     `;
   }
 
@@ -904,9 +910,11 @@
         ? api.resolveTreatmentUrl(refreshed, treatment)
         : (refreshed.line_drawing_url || refreshed.thumbnail_url || null);
       if (!newUrl) return;
-      // Update both attributes so the scroll coupler (which reads
-      // data-src on viewport-enter) picks up the fresh URL too.
-      target.setAttribute('data-src', newUrl);
+      // Update data-video-src AND src on the live <video>. The data attr
+      // is what swapToVideoOnActiveRow reads when re-creating the element
+      // on next active-row enter, so a future swap-back-then-swap-in
+      // round-trip (e.g. user scrolls away and back) gets the fresh URL.
+      target.setAttribute('data-video-src', newUrl);
       target.setAttribute('src', newUrl);
       // Reload + resume. If the row isn't in the viewport the
       // playback will pause again on the next coupler tick, but the
@@ -1324,7 +1332,7 @@
     const targetIdx = idx;
     _lazyKickToken = setTimeout(() => {
       _lazyKickToken = null;
-      lazyKickVideosNear(targetIdx);
+      swapToVideoOnActiveRow(targetIdx);
     }, 150);
   }
 
@@ -1348,49 +1356,84 @@
    * MediaSource and free the decoder. The `poster=` attribute on the
    * <video> element keeps the static Hero frame visible during this
    * teardown so the user never sees a black box.
+   *
+   * v48 STRUCTURAL FIX: instead of trying to manage a long-lived <video>
+   * per row via src on/off + load(), we now ensure that ONLY the active
+   * row contains a <video> element at all. Inactive rows render <img>.
+   * Becoming active = swap <img> → <video> via parentNode.replaceChild;
+   * losing focus = swap <video> → <img>. The orphaned <video> is GC'd
+   * and its decoder slot fully reclaimed because the element no longer
+   * exists in the document tree. iOS WKWebView can't keep a ghost
+   * decoder alive on a node that isn't there.
    */
-  function lazyKickVideosNear(idx) {
+  function swapToVideoOnActiveRow(idx) {
     if (!cbBump('lazyKickVideosNear')) return;
     const rows = $lobbyList.querySelectorAll('.lobby-row[data-slide-index]');
     rows.forEach((row) => {
       const rIdx = parseInt(row.getAttribute('data-slide-index'), 10);
       const isActive = rIdx === idx;
-      const v = row.querySelector('video');
-      if (!v) return;
+      const hero = row.querySelector('.lobby-hero-media');
+      if (!hero) return;
+      // Skip photos — they were rendered as <img> already by the photo
+      // branch in renderHeroHTML; the absence of `data-video-src` is
+      // the marker.
+      if (!hero.dataset.videoSrc) return;
+
+      const isVideoTag = hero.tagName === 'VIDEO';
+
       if (isActive && !prefersReducedMotion()) {
-        // Active row — load on demand + start playback.
-        if (!v.src && v.dataset.src) {
-          v.src = v.dataset.src;
-        }
+        // Active row — must be a <video>. If currently an <img>, swap.
+        if (isVideoTag) return; // Already a video; nothing to do.
+        const v = document.createElement('video');
+        v.className = hero.className;
+        v.setAttribute('playsinline', '');
+        v.muted = true;
+        v.loop = true;
+        v.preload = 'auto';
+        v.style.cssText = hero.style.cssText;
+        // Carry data-* across so the swap-back path knows what to restore.
+        v.dataset.treatment = hero.dataset.treatment || '';
+        v.dataset.videoSrc = hero.dataset.videoSrc;
+        v.dataset.posterSrc = hero.dataset.posterSrc || '';
+        v.dataset.trimStart = hero.dataset.trimStart || '0';
+        v.dataset.trimEnd = hero.dataset.trimEnd || '0';
+        // Poster shows the static Hero frame while the video buffers; no
+        // black flash during the decoder warm-up.
+        if (v.dataset.posterSrc) v.setAttribute('poster', v.dataset.posterSrc);
+        v.setAttribute('src', v.dataset.videoSrc);
+        // Trim listeners — same loop semantics as before.
         const start = Number(v.dataset.trimStart) || 0;
+        v.addEventListener('loadedmetadata', () => {
+          if (start > 0) v.currentTime = Math.max(0, start / 1000);
+        });
+        v.addEventListener('timeupdate', () => {
+          const end = Number(v.dataset.trimEnd) || 0;
+          if (end > 0 && v.currentTime * 1000 >= end) {
+            v.currentTime = Math.max(0, start / 1000);
+          }
+        });
+        hero.parentNode.replaceChild(v, hero);
         const playPromise = v.play();
         if (playPromise && playPromise.catch) playPromise.catch(() => { /* autoplay blocked */ });
-        if (!v._lobbyTrimWired) {
-          v._lobbyTrimWired = true;
-          v.addEventListener('loadedmetadata', () => {
-            if (start > 0) v.currentTime = Math.max(0, start / 1000);
-          });
-          v.addEventListener('timeupdate', () => {
-            const end = Number(v.dataset.trimEnd) || 0;
-            if (end > 0 && v.currentTime * 1000 >= end) {
-              v.currentTime = Math.max(0, start / 1000);
-            }
-          });
-          // Soft fallback for signed-URL expiry — let app.js's global
-          // handler catch the error and refetch the plan.
-        }
       } else {
-        // Inactive row — fully release the HW decoder. Pause alone keeps
-        // the slot reserved; we MUST drop the src and call load() to
-        // tear down the MediaSource. The <video poster=…> attribute
-        // shows the static Hero frame while the element is "empty", so
-        // the user sees the same pretty thumbnail with no black flash.
-        if (!v.paused) try { v.pause(); } catch (_) {}
-        try { v.currentTime = 0; } catch (_) {}
-        if (v.src || v.getAttribute('src')) {
-          try { v.removeAttribute('src'); } catch (_) {}
-          try { v.load(); } catch (_) {}
-        }
+        // Inactive row — must be an <img>. If currently a <video>, swap back.
+        if (!isVideoTag) return; // Already an img; nothing to do.
+        // Best-effort tear-down; the orphaned video gets GC'd anyway, but
+        // pausing first stops audible playback if any.
+        try { hero.pause(); } catch (_) {}
+        const img = document.createElement('img');
+        img.className = hero.className;
+        img.setAttribute('alt', '');
+        img.setAttribute('loading', 'lazy');
+        img.style.cssText = hero.style.cssText;
+        img.dataset.treatment = hero.dataset.treatment || '';
+        img.dataset.videoSrc = hero.dataset.videoSrc || '';
+        img.dataset.posterSrc = hero.dataset.posterSrc || '';
+        img.dataset.trimStart = hero.dataset.trimStart || '0';
+        img.dataset.trimEnd = hero.dataset.trimEnd || '0';
+        const posterSrc = hero.dataset.posterSrc || hero.getAttribute('poster') || '';
+        if (posterSrc) img.setAttribute('src', posterSrc);
+        hero.parentNode.replaceChild(img, hero);
       }
     });
   }
