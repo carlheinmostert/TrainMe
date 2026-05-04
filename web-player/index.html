@@ -114,14 +114,13 @@
       <ul class="lobby-list" id="lobby-list" role="list"></ul>
     </div>
 
-    <!-- Sticky-bottom CTA bar. Backdrop-blur veil over the row beneath. -->
+    <!-- Sticky-bottom CTA bar. Backdrop-blur veil over the row beneath.
+         Round-4: treatment selector moved behind a settings gear button.
+         The practitioner has already set per-client `preferred_treatment`
+         per-exercise during plan setup, so 95% of clients never need to
+         override globally. Hide it behind a gear; reclaim the space. -->
     <div class="lobby-cta-bar" id="lobby-cta-bar">
       <div class="lobby-cta-inner">
-        <div class="lobby-treatment-row" id="lobby-treatment-row" role="radiogroup" aria-label="Treatment">
-          <button type="button" role="radio" aria-checked="false" data-value="line">Line</button>
-          <button type="button" role="radio" aria-checked="false" data-value="bw">B&amp;W</button>
-          <button type="button" role="radio" aria-checked="false" data-value="original">Colour</button>
-        </div>
         <button id="lobby-start-btn" class="lobby-start-btn" type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10"/>
@@ -129,6 +128,34 @@
           </svg>
           <span>Start workout</span>
         </button>
+        <button id="lobby-gear-btn" class="lobby-gear-btn" type="button"
+                aria-label="Playback settings"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="lobby-settings-popover">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Lobby settings popover — anchored to the viewport-bottom and
+           opens upward from the gear button. Only contains the treatment
+           selector for now; shaped to grow into a broader pre-workout
+           settings surface without needing new chrome. Distinct from the
+           deck's `#settings-popover` (post-Start, per-exercise overrides);
+           no shared state. -->
+      <div id="lobby-settings-popover" class="lobby-settings-popover"
+           role="dialog"
+           aria-labelledby="lobby-settings-title"
+           hidden>
+        <div class="lobby-settings-popover-title" id="lobby-settings-title">Show me</div>
+        <div class="lobby-treatment-row" id="lobby-treatment-row" role="radiogroup" aria-label="Treatment">
+          <button type="button" role="radio" aria-checked="false" data-value="line">Line</button>
+          <button type="button" role="radio" aria-checked="false" data-value="bw">B&amp;W</button>
+          <button type="button" role="radio" aria-checked="false" data-value="original">Colour</button>
+        </div>
       </div>
     </div>
   </div>
