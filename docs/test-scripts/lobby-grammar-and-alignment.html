@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-04 — pyramid grammar + hold modes + alignment + 403 recovery (round 6)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-04 · web-player round 6</div>
+    <h1>Device QA — pyramid grammar + hold modes + alignment + 403 recovery</h1>
+    <p class="lede">
+      <strong>Five fixes in one pass:</strong> three grammar/UI tweaks (apply to BOTH lobby + deck per R-10), one CSS alignment polish, one signed-URL hardening.
+      <br><br>
+      <strong>1) Pyramid grammar.</strong> The dose-line <code>3 × 8/10/12 · 30s rest</code> read as multiplication; replaced with a uniform-vs-varying detector. All sets same reps &rarr; <code>3 × 8 reps</code>; varying reps (pyramid / drop / wave) &rarr; <code>8/10/12 reps</code> &mdash; the count is implicit from sequence length.
+      <br>
+      <strong>2) Hold-mode wording.</strong> Wave 43&apos;s three modes get parenthetical qualifiers in the dose-line: <code>per_rep</code> &rarr; <code>5s hold (each)</code>; <code>end_of_set</code> (default) &rarr; <code>30s hold</code> (no qualifier &mdash; keeps the line tidy for the common case); <code>end_of_exercise</code> &rarr; <code>30s hold (end)</code>.
+      <br>
+      <strong>3) Standalone-row gutter parity.</strong> Every row now reserves the 22px gutter so standalone + circuit cards sit on one vertical line.
+      <br>
+      <strong>4) Matrix pill baseline.</strong> Zeroed vertical padding + <code>align-self: start</code> on <code>.lobby-matrix-inner .matrix-circuit</code> so circuit pills baseline-align with standalone pills.
+      <br>
+      <strong>5) Lobby hero 403 recovery.</strong> Delegated <code>error</code> listener (capture phase, since media <code>error</code> doesn&apos;t bubble) on <code>#lobby-list</code> &mdash; on expired signed URL: re-fetch plan via <code>HomefitLobbyHandoff.reFetchPlan()</code>, swap <code>data-src</code> + <code>src</code>, <code>.load()</code>, resume.
+      <br><br>
+      <strong>Bumps:</strong> <code>PLAYER_VERSION</code> &rarr; <code>v42-grammar-and-alignment</code>; <code>CACHE_NAME</code> &rarr; <code>homefit-player-v42-grammar-and-alignment</code>.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>This PR merged + Vercel auto-deploy of <code>session.homefit.studio</code> live.</li>
+        <li>Hard-refresh (kill + reopen Safari) on iPhone CHM so the new SW takes over and you load <code>v42-grammar-and-alignment</code> end-to-end.</li>
+        <li>Test plan options:
+          <ul>
+            <li>A &mdash; one with at least one exercise that has uniform reps across sets (e.g. 3&times;10) AND one with varying reps (pyramid 8/10/12 or drop 12/10/8).</li>
+            <li>B &mdash; one whose hold_position is <code>per_rep</code> on at least one set, <code>end_of_set</code> on another, and <code>end_of_exercise</code> on a third (Studio &rarr; Plan tab &rarr; the new 3-pill control under the Hold stepper, Wave 43).</li>
+            <li>C &mdash; one with both circuits and standalone exercises (so the alignment fixes can be observed on the same screen).</li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+
+    <h2>Pyramid grammar &mdash; lobby</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Uniform reps render as <code>N &times; R reps</code> on the lobby row.</strong> Open a plan with at least one uniform exercise (e.g. 3 sets of 10 reps each). The dose-line under that exercise&apos;s name should read <code>3 &times; 10 reps &middot; ~MM:SS</code> (plus any hold / rest segments if present). The trailing <code>reps</code> word is new &mdash; pre-Round-6 read just <code>3 &times; 10</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Varying reps render as <code>R1/R2/R3 reps</code> with NO leading <code>&times; N</code>.</strong> On a pyramid / drop / wave exercise (8/10/12 or 12/10/8), the dose-line reads <code>8/10/12 reps &middot; ...</code> &mdash; the slash-list IS the count, no leading multiplier. Pre-Round-6 was <code>3 &times; 8/10/12</code> which read as 3 multiplied by a fraction; now it&apos;s the slash-list alone.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Pyramid grammar &mdash; deck</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Active-slide header (deck) shows <code>N &times; R reps</code> for uniform.</strong> Tap Start workout. The single-line title row at the top of the deck reads <code>{Exercise} &middot; 3 &times; 10 reps &middot; {weight} &middot; ...</code>. Same wording as the lobby &mdash; that&apos;s the R-10 parity guarantee. Bodyweight uniform: <code>3 &times; 10 reps &middot; 30 s hold</code> (no <code>@ kg</code>).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Active-slide header shows slash-list for varying.</strong> Swipe to the pyramid exercise. Header reads <code>{Exercise} &middot; 8/10/12 reps &middot; ...</code>; if weights vary too, <code>8/10/12 reps @ 12.5/15/17.5 kg &middot; ...</code>. Mixed breathers fall back to <code>3 sets &middot; varied</code> as before (untouched).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Hold-mode wording</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong><code>per_rep</code> mode renders <code>Ns hold (each)</code>.</strong> In Studio, set an exercise to <code>Per rep</code> in the Wave-43 hold-mode control with hold = 5s. Publish. On the lobby row + deck active-slide header: dose-line includes <code>5s hold (each)</code>. The <code>(each)</code> qualifier disambiguates that the 5s applies per rep, not once per set.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong><code>end_of_set</code> mode (default) renders <code>Ns hold</code> with NO qualifier.</strong> An exercise with <code>End of set</code> mode + 30s hold renders the dose-line as <code>3 &times; 10 reps &middot; 30s hold &middot; ...</code> &mdash; no parens, no <code>(each)</code>, no <code>(end)</code>. This is the common case &mdash; keeping it tidy is intentional. Verify in BOTH lobby and deck.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong><code>end_of_exercise</code> mode renders <code>Ns hold (end)</code>.</strong> An exercise with <code>End</code> mode (Studio&apos;s third pill) + 30s hold renders the dose-line as <code>3 &times; 10 reps &middot; 30s hold (end) &middot; ...</code>. The <code>(end)</code> qualifier signals the hold accrues only at the final set. Verify in BOTH lobby and deck.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Photo with hold uses the same rules.</strong> A photo exercise with hold = 30s + <code>end_of_set</code> mode renders <code>30s hold</code> (no qualifier). Same exercise switched to <code>per_rep</code> in Studio &rarr; <code>30s hold (each)</code>. A photo with NO sets data (legacy fallback) gracefully renders the unqualified <code>30s hold</code> form &mdash; never crashes the lobby render. Photos with no hold render <code>Reference position</code> as before.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Standalone-vs-circuit row alignment</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Standalone rows align flush with circuit-row cards on the same vertical column.</strong> Open a plan that has BOTH circuits and standalone exercises. Inspect the left edge of every card &mdash; standalone, in-circuit, and rest. <strong>Expected:</strong> all cards start on the same X coordinate (screen-edge padding + 22px gutter). Pre-Round-6: standalone rows were 22px to the left of circuit-row cards, which Carl flagged as misaligned.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Circuit rail still sits OUTSIDE the cards&apos; left edge.</strong> Verify the coral tree-branch rail on a 3-round circuit hasn&apos;t regressed. The vertical line should run through the in-circuit gutter cells, terminate at <code>last</code> with the &#9492; corner, and never leak under a standalone card&apos;s background.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Matrix pill baseline</h2>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&#10003;</button><button class="fail" type="button" aria-label="Fail 11">&#10007;</button></div>
+        <span class="num">11.</span>
+        <span class="text"><strong>Matrix circuit pills baseline-align with standalone pills.</strong> Look at the lobby&apos;s sticky pill matrix at the top. On a plan with mixed standalones + circuits, the FIRST row of any circuit block&apos;s pills should sit at the same Y coordinate as the standalone pills next to it. Pre-Round-6: circuit blocks had <code>padding: 3px</code> on top, pushing their first row 3px below the standalone row &mdash; visible misalignment that Carl flagged.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&#10003;</button><button class="fail" type="button" aria-label="Fail 12">&#10007;</button></div>
+        <span class="num">12.</span>
+        <span class="text"><strong>Multi-row circuit (3 rounds) pills don&apos;t stretch to fill sibling height.</strong> A 3-round circuit&apos;s pill block is taller than the standalone-pill row next to it. With <code>align-self: start</code> on the circuit block, the circuit hugs the top of the matrix; standalone pills don&apos;t balloon to match its height. The matrix-inner row remains visually clean.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&#10003;</button><button class="fail" type="button" aria-label="Fail 13">&#10007;</button></div>
+        <span class="num">13.</span>
+        <span class="text"><strong>Deck pill matrix unchanged.</strong> Tap Start, drop into the deck. The progress-pill matrix at the top of the workout view (which uses <code>.matrix-circuit-row::before</code> for the coral tint band) should look IDENTICAL to pre-Round-6. The new alignment rules are scoped to <code>.lobby-matrix-inner</code>; the deck&apos;s matrix is untouched. No regression on the coral tint, the <code>::before</code> band, or pill heights.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Lobby hero 403 recovery</h2>
+    <ul class="checklist">
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&#10003;</button><button class="fail" type="button" aria-label="Fail 14">&#10007;</button></div>
+        <span class="num">14.</span>
+        <span class="text"><strong>Simulated 403 recovers the lobby hero gracefully.</strong> Open a plan with B&amp;W or Original consent. In Safari DevTools console (Mac with iPhone tethered), grab a hero <code>&lt;video&gt;</code> element and force-set its <code>src</code> to a known-bad URL: <code>document.querySelector(&apos;.lobby-hero-media[data-src*=&quot;raw-archive&quot;]&apos;).src = &apos;https://yrwcofhovrcydootivjx.supabase.co/storage/v1/object/sign/raw-archive/x?token=expired&apos;; el.load();</code>. The error fires &rarr; lobby re-fetches the plan &rarr; URL is swapped to a fresh signed URL &rarr; video reloads + plays. No black frame stays on screen.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="15" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 15">&#10003;</button><button class="fail" type="button" aria-label="Fail 15">&#10007;</button></div>
+        <span class="num">15.</span>
+        <span class="text"><strong>403 recovery does NOT loop &mdash; one retry per <code>&lt;video&gt;</code>.</strong> Force the bad URL twice on the same hero. The first error triggers a recovery; the second error (after recovery completes and a real failure happens, e.g. the file is genuinely missing) is silently ignored &mdash; no console spam, no infinite RPC hammering. The retry guard is keyed by <code>slide.id</code> so a different exercise hitting 403 still recovers normally.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="16" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 16">&#10003;</button><button class="fail" type="button" aria-label="Fail 16">&#10007;</button></div>
+        <span class="num">16.</span>
+        <span class="text"><strong>Long-idle scenario (real-world).</strong> If you&apos;re patient: open the lobby, leave the phone idle for 31&plus; minutes (the B&amp;W / Colour signed-URL TTL is 30 min). Wake screen, switch treatment in the gear popover. The lobby heroes that get touched recover their fresh URLs; nothing breaks; nothing requires a manual reload of the plan URL.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Build marker</h2>
+    <ul class="checklist">
+      <li data-num="17" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 17">&#10003;</button><button class="fail" type="button" aria-label="Fail 17">&#10007;</button></div>
+        <span class="num">17.</span>
+        <span class="text"><strong>Hard-refresh shows the chip read <code>plan v{N} &middot; web-player v42-grammar-and-alignment &middot; cache v42-grammar-and-alignment</code>.</strong> Kill + reopen Safari, open the lobby. Look at the dim line under the metadata strip. <strong>Expected:</strong> three segments; both the bundle and cache slugs read <code>v42-grammar-and-alignment</code>. If they diverge (e.g. cache lags on <code>v40-...</code>), do a second hard-refresh; both should converge after the SW reactivates.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Regression spot-checks</h2>
+    <ul class="checklist">
+      <li data-num="18" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 18">&#10003;</button><button class="fail" type="button" aria-label="Fail 18">&#10007;</button></div>
+        <span class="num">18.</span>
+        <span class="text"><strong>Studio Flutter table untouched.</strong> Open Studio in the mobile app. The per-set table stays as-is &mdash; full reps / hold / weight columns; the Wave 43 hold-mode 3-pill segmented control under the Hold stepper still works; the Plan-tab settings sheet still lays out as Round 5 left it. Round 6 is web-player only by design &mdash; the editor needs the rich columnar view, not a compressed dose-line.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Bug? Reply with the failing item number(s) plus any notes; I&apos;ll triage. <code>18 items</code> across 8 sections.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'lobby-grammar-and-alignment.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({items: state, ts: Date.now()})
+        }).catch(function() { /* offline; localStorage suffices */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'fail', note: noteInput.value || ''};
+          save();
+        });
+
+        noteInput.addEventListener('input', function() {
+          var entry = state[num];
+          if (!entry) return;
+          entry.note = noteInput.value;
+          save();
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -2813,7 +2813,21 @@ body.is-fullscreen .playpause-toggle {
      with no coloured backdrop; the pills' own coral is the only accent. */
   background: transparent;
   border-radius: var(--radius-md);
-  padding: 3px;
+  /* Round 6 — Fix 4: zero vertical padding so circuit pills share the
+     SAME top baseline as standalone pills. Pre-Round-6 rule was
+     `padding: 3px` which pushed circuit pills 3px down vs the
+     standalone-pill row, breaking the matrix's row baseline that Carl
+     reported on his device. Horizontal padding kept at 3px so the
+     circuit's grid still has breathing room at its left/right edges
+     (and the min/max width formulas below still hold).
+     `align-self: start` hugs the circuit block to the top of its flex
+     line so a multi-row circuit doesn't get stretched to its sibling's
+     max height; `align-items: start` on the grid keeps each pill at
+     the top of its track. Combined: first-row circuit pills now share
+     the matrix-inner baseline with standalone pills. */
+  padding: 0 3px;
+  align-self: start;
+  align-items: start;
   /* Mirror the matrix-col floor — 24px per circuit column — so each
      circuit pill is finger-tap-able even on long plans. */
   min-width: calc(24px * var(--circuit-cols, 1) + 3px * (var(--circuit-cols, 1) - 1) + 6px);
@@ -2873,10 +2887,30 @@ body.is-fullscreen .playpause-toggle {
   transition: none;
 }
 
-/* Standalone rows — gutter collapses to zero, content gets the card
-   chrome (background, border, padding). The card itself becomes the
-   focusable / active-state target. */
+/* Round 6 — Fix 3: standalone rows now share the in-circuit gutter
+   width so all cards sit on one vertical line. The gutter cell on a
+   standalone row stays empty (no rail, no connector — those are added
+   by the `.in-circuit` selector below) but reserves the same 22px so
+   the content column starts at the same X as circuit-row cards.
+   Carl's directive: "every row gets the same indent; standalone +
+   circuit rows shouldn't sit on different vertical columns".
+   Pre-Round-6: this rule used `display: none` to collapse the gutter
+   for standalones, which left them flush with the page padding while
+   circuit rows sat 56px in (Round 5 widened the circuit gutter to ~3×
+   the original 22px). All rows now reserve 56px so cards sit on one
+   vertical line regardless of in-circuit state. */
 .lobby-row > .lobby-row-gutter {
+  display: block;
+  flex: 0 0 56px;
+  position: relative;
+}
+
+/* Round 6 — Fix 3 — keep rail / connector children hidden by default.
+   They render inline empty <span>s in standalone rows otherwise; the
+   `.in-circuit` selectors below promote them to absolute-positioned
+   coral pieces only when the row is part of a circuit. */
+.lobby-row > .lobby-row-gutter > .lobby-row-gutter-rail,
+.lobby-row > .lobby-row-gutter > .lobby-row-gutter-connector {
   display: none;
 }
 .lobby-row > .lobby-row-content {

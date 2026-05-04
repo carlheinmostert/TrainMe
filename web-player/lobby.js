@@ -606,33 +606,45 @@
     `;
   }
 
+  /**
+   * Round 6 — compose the dose-line via the central formatReps() +
+   * formatHold() helpers exposed on `window.HomefitLobbyHandoff` (set
+   * up by app.js). Single source of truth so the lobby and the deck's
+   * active-slide-header always agree on:
+   *   - `N × R reps` (uniform) vs `R1/R2/R3 reps` (varying)
+   *   - hold-mode parenthetical: `Ns hold (each)` (per_rep) /
+   *     `Ns hold` (end_of_set, default — no qualifier) /
+   *     `Ns hold (end)` (end_of_exercise)
+   *
+   * Photos use the same hold rules; if the photo lacks a sets[] array
+   * (legacy fallback), playSetsForSlide() synthesises a default-mode
+   * single set so formatHold() emits the unqualified `Ns hold` form
+   * — matching the brief's "fall back gracefully to the legacy
+   * holdSeconds scalar with no qualifier" requirement.
+   */
   function buildDoseLine(slide) {
     if (!slide || slide.media_type === 'rest') return '';
     if (slide.media_type === 'photo' || slide.media_type === 'image') {
-      const hold = pickHoldSeconds(slide);
-      if (hold > 0) return `${hold}s hold`;
+      const playSets = (api.playSetsForSlide ? api.playSetsForSlide(slide) : []);
+      const hold = (api.formatHold && api.formatHold(playSets)) || '';
+      if (hold) return hold;
       return 'Reference position';
     }
     const playSets = (api.playSetsForSlide ? api.playSetsForSlide(slide) : []);
     if (!playSets.length) return '';
 
-    const repsList = playSets.map((s) => s.reps);
-    const repsUniform = repsList.every((r) => r === repsList[0]);
     const breathersList = playSets.map((s) => s.breather_seconds_after || 0);
     const breathersUniform = breathersList.every((b) => b === breathersList[0]);
 
     const parts = [];
 
-    // Reps shape.
-    if (repsUniform) {
-      parts.push(`${playSets.length} × ${repsList[0]}`);
-    } else {
-      parts.push(repsList.join('/'));
-    }
+    // Reps shape — `N × R reps` (uniform) / `R1/R2/R3 reps` (varying).
+    const repsSeg = (api.formatReps && api.formatReps(playSets)) || '';
+    if (repsSeg) parts.push(repsSeg);
 
-    // Hold.
-    const hold = pickHoldSeconds(slide);
-    if (hold > 0) parts.push(`${hold}s hold`);
+    // Hold (mode-aware via formatHold()).
+    const holdSeg = (api.formatHold && api.formatHold(playSets)) || '';
+    if (holdSeg) parts.push(holdSeg);
 
     // Inter-set rest.
     if (breathersUniform && breathersList[0] > 0) {
@@ -644,14 +656,6 @@
     if (dur > 0) parts.push(`~${formatDur(dur)}`);
 
     return parts.join(' · ');
-  }
-
-  function pickHoldSeconds(slide) {
-    const playSets = (api.playSetsForSlide ? api.playSetsForSlide(slide) : []);
-    if (!playSets.length) return 0;
-    const holds = playSets.map((s) => s.hold_seconds || 0);
-    const allSame = holds.every((h) => h === holds[0]);
-    return allSame ? holds[0] : 0;
   }
 
   function pickHeroOffset(slide) {
@@ -730,6 +734,80 @@
              data-trim-end="${Number(slide.end_offset_ms) || 0}">
       </video>
     `;
+  }
+
+  // ==========================================================================
+  // Round 6 — Fix 5: lobby hero signed-URL 403 recovery
+  // ==========================================================================
+  //
+  // Tracks <video> elements that already retried in this session so
+  // we don't hammer the RPC on a permanent black-frame condition (eg.
+  // the file genuinely 404s rather than the URL having expired). The
+  // Set is keyed by the slide id resolved off the row's
+  // `data-slide-index` attribute.
+  const _lobbyHeroRetried = new Set();
+  let _lobbyRefreshInFlight = false;
+
+  async function onLobbyHeroError(evt) {
+    const target = evt && evt.target;
+    if (!target || target.tagName !== 'VIDEO') return;
+    // The error fires for any non-fatal hiccup (eg. mid-fetch network
+    // blip) too. We only care when there's a `src` set — empty src
+    // means the scroll coupler hasn't lit this row yet.
+    const src = target.currentSrc || target.getAttribute('src') || '';
+    if (!src) return;
+    const row = target.closest('.lobby-row[data-slide-index]');
+    if (!row) return;
+    const slideIdx = parseInt(row.getAttribute('data-slide-index'), 10);
+    if (Number.isNaN(slideIdx)) return;
+    const slide = slides[slideIdx];
+    if (!slide || !slide.id) return;
+    if (_lobbyHeroRetried.has(slide.id)) return;
+    _lobbyHeroRetried.add(slide.id);
+
+    if (!api || !api.reFetchPlan) return;
+
+    try {
+      // Coalesce simultaneous errors across multiple visible heroes
+      // into ONE plan re-fetch.
+      if (!_lobbyRefreshInFlight) {
+        _lobbyRefreshInFlight = true;
+        const fresh = await api.reFetchPlan();
+        _lobbyRefreshInFlight = false;
+        if (fresh && fresh.slides) {
+          slides = fresh.slides;
+        }
+      } else {
+        // Another error already kicked off the re-fetch — wait a tick
+        // and re-read the (now-updated) `slides` reference.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      // Re-resolve the URL for THIS row's slide using whatever
+      // treatment the row was rendered for (data-treatment carries it).
+      const refreshed = slides[slideIdx];
+      if (!refreshed) return;
+      const treatment = target.getAttribute('data-treatment') || activeTreatment;
+      const newUrl = api.resolveTreatmentUrl
+        ? api.resolveTreatmentUrl(refreshed, treatment)
+        : (refreshed.line_drawing_url || refreshed.thumbnail_url || null);
+      if (!newUrl) return;
+      // Update both attributes so the scroll coupler (which reads
+      // data-src on viewport-enter) picks up the fresh URL too.
+      target.setAttribute('data-src', newUrl);
+      target.setAttribute('src', newUrl);
+      // Reload + resume. If the row isn't in the viewport the
+      // playback will pause again on the next coupler tick, but the
+      // URL is now fresh for the next enter.
+      try { target.load(); } catch (_) { /* best-effort */ }
+      const tryPlay = target.play();
+      if (tryPlay && typeof tryPlay.catch === 'function') {
+        tryPlay.catch(() => { /* autoplay denied — couplet will retry */ });
+      }
+    } catch (err) {
+      _lobbyRefreshInFlight = false;
+      try { console.warn('[homefit-lobby] hero refresh failed:', err); } catch (_) {}
+    }
   }
 
   // ==========================================================================
@@ -1130,6 +1208,23 @@
     if (!$lobbyStartBtn || $lobbyStartBtn._wired) return;
     $lobbyStartBtn._wired = true;
     $lobbyStartBtn.addEventListener('click', dismissLobbyAndStart);
+
+    // Round 6 — Fix 5: lobby hero <video> 403 / signed-URL-expiry
+    // recovery. The deck has its own delegated error handler on
+    // `$cardViewport` (Wave-79 hardening) but lobby hero videos live
+    // OUTSIDE that container, so a client who sits on the lobby past
+    // the 30-min B&W / Original signed-URL TTL was hitting permanent
+    // black frames. We listen for `error` events bubbling from the
+    // lobby root (capture phase, since media-element `error` events
+    // do NOT bubble through the normal phase). On error: re-fetch
+    // the plan via `api.reFetchPlan()`, locate the matching slide
+    // by id, swap `data-src` + `src` on the affected <video>, and
+    // call `.load()` so the next viewport-enter triggers playback.
+    // Idempotent — each <video> retries at most once per session.
+    if ($lobbyList && !$lobbyList._heroErrorWired) {
+      $lobbyList._heroErrorWired = true;
+      $lobbyList.addEventListener('error', onLobbyHeroError, true);
+    }
 
     if ($lobbyGearBtn && !$lobbyGearBtn._wired) {
       $lobbyGearBtn._wired = true;
