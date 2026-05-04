@@ -154,7 +154,7 @@
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
-      <h3 class="title">21 waves awaiting device QA</h3>
+      <h3 class="title">22 waves awaiting device QA</h3>
       <!-- Note: count includes the new 2026-05-03 hold-position wave (#0). -->
               </div>
             </div>
@@ -165,7 +165,7 @@
         </a>
       </li>
       <li>
-      <h3 class="title">21 waves awaiting device QA</h3>
+      <h3 class="title">22 waves awaiting device QA</h3>
       <p class="sub">
         <strong style="color: var(--text);">1. Install first:</strong> run <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--coral);">./install-device.sh</code> from the repo root. It pulls main, release-builds, installs to iPhone CHM.<br>
         <strong style="color: var(--text);">2. Hard-refresh</strong> <a href="https://manage.homefit.studio/network" target="_blank" style="color: var(--coral);">manage.homefit.studio</a> in Safari (Cmd+Shift+R) so Vercel's new portal build loads, then sign in.<br>
@@ -175,6 +175,19 @@
 
     <h2>Order · test these now</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./lobby-hotfix-round3.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Lobby hotfix round 3 &mdash; matrix backdrop (real fix), 2-col rail, default-name fallback, top-left chip, last-pill scroll-bottom</div>
+              <div class="scope">Web player lobby (shared bundle &rarr; mobile workflow Preview gets it free). Five follow-ups Carl surfaced after PRs 235 + 236. <strong>Fix A:</strong> the coral wash on the lobby's pill matrix is STILL there after PR 235 &mdash; root cause is <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.matrix-circuit-row::before</code> (the per-row coral tint band painter), not the parent <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.matrix-circuit</code> background that PR 235 zeroed. Real fix: explicitly disable that pseudo-element in the lobby context. <strong>Fix B:</strong> circuit rail rebuilt around a real two-column gutter layout (Carl's directive: rail must run OUTSIDE the cards' left edge). Rail pieces are real <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">&lt;span&gt;</code> children of <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.lobby-row-gutter</code>, NOT pseudo-elements on the row &mdash; so the active-row coral border (intentional UX) wraps just the inner card without covering the rail. Mockup at <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">docs/design/mockups/lobby-circuit-header.html</code> updated to match production architecture. <strong>Fix C:</strong> default-named exercises rendered as just &ldquo;Exercise&rdquo;. Investigation: Studio's create-exercise factory (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app/lib/models/exercise_capture.dart:416</code>) doesn't persist a name &mdash; arrives as <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">null</code>. Mobile UI's <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Exercise N</code> fallback only fires at display time. Fix: synthesise <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Exercise N</code> from a position counter in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">renderList</code>. <strong>Fix D:</strong> build-marker chip relocated from the metadata strip to a fixed top-left corner overlay inside <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">#lobby</code>. <strong>Fix E:</strong> last exercise's pill never highlighted at scroll-bottom (nearest-to-centre reducer can't bring last row's centre to viewport centre at <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">scrollTop ≈ maxScroll</code>). Special-case the scroll-bottom edge. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v38-version-chip-labels</code> &rarr; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v39-hotfix-round3</code>. <strong>16 items in 6 sections.</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./lobby-version-chip-v2.html">
           <div class="row">
