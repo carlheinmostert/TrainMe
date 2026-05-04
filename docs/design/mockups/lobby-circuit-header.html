@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lobby circuit header — canonical mockup (hotfix round 2)</title>
+<style>
+  /* Brand tokens — mirrors web-player/styles.css :root. */
+  :root {
+    --c-brand: #FF6B35;
+    --c-brand-tint-bg: rgba(255,107,53,0.12);
+    --c-brand-tint-border: rgba(255,107,53,0.30);
+    --c-coral-rail: rgba(255,107,53,0.85);
+    --c-surface-bg: #0F1117;
+    --c-surface-base: #1A1D27;
+    --c-surface-raised: #242733;
+    --c-surface-border: #2E3140;
+    --c-ink-primary: #F0F0F5;
+    --c-ink-secondary: #9CA3AF;
+    --c-ink-muted: #6B7280;
+    --c-rest: #86EFAC;
+    --c-rest-tint-bg: rgba(134,239,172,0.15);
+    --c-rest-tint-border: rgba(134,239,172,0.55);
+    --f-display: Montserrat, -apple-system, BlinkMacSystemFont, sans-serif;
+    --f-body: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+    --f-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: #0B0D11; color: var(--c-ink-primary);
+    font-family: var(--f-body);
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 26px; letter-spacing: -0.4px; margin: 0 0 8px;
+  }
+  h2 {
+    font-family: var(--f-display); font-weight: 600;
+    font-size: 16px; letter-spacing: -0.2px; margin: 28px 0 10px;
+    color: var(--c-ink-primary);
+  }
+  .kicker {
+    color: var(--c-brand); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--c-ink-secondary); font-size: 13.5px; margin: 0 0 24px;
+    padding: 14px 18px; background: var(--c-surface-base); border-radius: 10px;
+    border: 1px solid var(--c-surface-border); max-width: 760px;
+  }
+  .lede strong { color: var(--c-ink-primary); }
+  code {
+    background: var(--c-brand-tint-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: var(--f-mono); font-size: 12px;
+    color: var(--c-brand);
+  }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 6px; }
+  .panel {
+    background: var(--c-surface-bg);
+    border: 1px solid var(--c-surface-border);
+    border-radius: var(--radius-lg);
+    padding: 20px 16px;
+    min-height: 520px;
+  }
+  .panel-label {
+    font-family: var(--f-mono); font-size: 11px; font-weight: 600;
+    color: var(--c-ink-muted); text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+  }
+  .panel-label .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-ink-muted); }
+  .panel.is-bad .panel-label .dot { background: #EF4444; }
+  .panel.is-good .panel-label .dot { background: var(--c-brand); }
+  .panel.is-bad .panel-label { color: #EF4444; }
+  .panel.is-good .panel-label { color: var(--c-brand); }
+
+  .lobby-list {
+    list-style: none; margin: 0; padding: 0;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+
+  /* ============================================================
+     LEFT panel — broken state (PR 234 round 1)
+     - Coral backdrop on the .lobby-circuit-group container
+     - Coral backdrop on .lobby-row.is-circuit before override
+     - Numerals on each row
+     - Cycles chip says "× 3 ROUNDS"
+     - DUPLICATE header on first circuit (rest-inside-circuit closes group)
+     ============================================================ */
+  .bad .lobby-circuit-group {
+    border: 1px solid var(--c-brand-tint-border);
+    background: var(--c-brand-tint-bg);
+    border-radius: var(--radius-lg);
+    padding: 0 8px 8px;
+    list-style: none;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .bad .lobby-circuit-header {
+    display: flex; align-items: center; gap: 8px;
+    height: 36px; padding: 0 4px;
+    border-bottom: 1px solid var(--c-brand-tint-border);
+    margin-bottom: 4px;
+  }
+  .bad .lobby-circuit-header-rail {
+    flex: 0 0 auto; width: 4px; height: 16px;
+    background: var(--c-brand); border-radius: 2px;
+  }
+  .bad .lobby-circuit-header-label {
+    flex: 1 1 auto;
+    font-family: var(--f-body); font-size: 14px; font-weight: 600;
+    letter-spacing: 0.5px; color: var(--c-brand); text-transform: uppercase;
+  }
+  .bad .lobby-circuit-header-cycles {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 24px; padding: 0 10px;
+    background: var(--c-brand-tint-bg);
+    border: 1px solid var(--c-brand-tint-border);
+    border-radius: 9999px;
+    font-family: var(--f-mono); font-size: 12px; font-weight: 600;
+    color: var(--c-brand);
+  }
+  .bad .lobby-row {
+    display: flex; align-items: stretch; gap: 12px;
+    background: var(--c-surface-base);
+    border: 1px solid var(--c-surface-border);
+    border-radius: var(--radius-md);
+    padding: 10px;
+    list-style: none;
+  }
+  .bad .lobby-info-titlebar { display: flex; align-items: baseline; gap: 8px; }
+  .bad .lobby-info-num {
+    flex: 0 0 auto; min-width: 22px;
+    font-family: var(--f-body); font-size: 14px; font-weight: 600;
+    color: var(--c-ink-secondary); font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* ============================================================
+     RIGHT panel — corrected state (this PR)
+     - Container is transparent (no backdrop)
+     - Tree-branch rail at left:8px, 3px wide, coral 0.85
+     - Per-row pseudo-elements concatenate into a continuous rail
+     - Last row gets `last` class → height 50% to form L
+     - Header has its own rail piece + horizontal stub
+     - No row numerals
+     - Cycles chip just "×3"
+     ============================================================ */
+  .good .lobby-circuit-group {
+    border: none;
+    background: transparent;
+    border-radius: 0;
+    padding: 0;
+    list-style: none;
+    display: flex; flex-direction: column;
+    gap: 0;                /* rows abut so rail pieces concatenate */
+  }
+  .good .circuit-header {
+    position: relative;
+    display: flex; align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding-left: 26px;    /* clear rail (3px) + connector (14px) + breathing */
+    padding-right: 4px;
+  }
+  /* Vertical rail — top-segment for the header. Centre of header → bottom edge. */
+  .good .circuit-header::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    bottom: 0;
+    width: 3px;
+    background: var(--c-coral-rail);
+  }
+  /* Horizontal stub — at vertical centre, joining rail to label content. */
+  .good .circuit-header::after {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 3px;
+    background: var(--c-coral-rail);
+    border-radius: 0 2px 2px 0;
+  }
+  .good .circuit-header-label {
+    flex: 1 1 auto;
+    font-family: var(--f-body); font-size: 14px; font-weight: 600;
+    letter-spacing: 0.5px; color: var(--c-brand); text-transform: uppercase;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .good .circuit-header-cycles {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 22px; padding: 0 8px;
+    background: var(--c-brand-tint-bg);
+    border: 1px solid var(--c-brand-tint-border);
+    border-radius: 9999px;
+    font-family: var(--f-mono); font-size: 12px; font-weight: 600;
+    color: var(--c-brand);
+  }
+
+  /* In-circuit row — abuts neighbours, padded for rail clearance, neutral surface. */
+  .good .ex-row {
+    position: relative;
+    display: flex; align-items: stretch; gap: 12px;
+    background: var(--c-surface-base);
+    border: 1px solid var(--c-surface-border);
+    border-radius: var(--radius-md);
+    padding: 10px;
+    list-style: none;
+    margin-top: -1px;          /* collapse adjacent borders so rail looks continuous */
+  }
+  /* Rail piece — top→bottom for in-circuit rows. Last gets clamped to 50% (L corner). */
+  .good .ex-row.in-circuit::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--c-coral-rail);
+  }
+  .good .ex-row.in-circuit.last::before {
+    bottom: auto;
+    height: 50%;               /* terminate at vertical centre → L corner */
+  }
+  /* Per-row horizontal connector — joins rail to the row's content. */
+  .good .ex-row.in-circuit::after {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 3px;
+    background: var(--c-coral-rail);
+    border-radius: 0 2px 2px 0;
+  }
+  .good .ex-row.in-circuit { padding-left: 26px; }
+
+  /* Hero + info — same shape on both panels for visual parity. */
+  .hero {
+    flex: 0 0 96px; aspect-ratio: 1/1; border-radius: 8px;
+    background: linear-gradient(135deg, #2E3140 0%, #1A1D27 100%);
+    position: relative; overflow: hidden;
+  }
+  .hero::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% 60%, rgba(255,107,53,0.18) 0%, transparent 60%);
+  }
+  .info { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+  .name {
+    font-family: var(--f-display); font-size: 16px; font-weight: 700;
+    color: var(--c-ink-primary); margin: 0;
+  }
+  .dose {
+    font-family: var(--f-body); font-size: 12.5px; color: var(--c-ink-secondary);
+    margin: 0;
+  }
+
+  /* Plan-level row outside any circuit — same on both. */
+  .plain-row {
+    display: flex; align-items: stretch; gap: 12px;
+    background: var(--c-surface-base);
+    border: 1px solid var(--c-surface-border);
+    border-radius: var(--radius-md);
+    padding: 10px;
+    list-style: none;
+  }
+  .rest-row {
+    display: flex; align-items: center; justify-content: flex-start;
+    gap: 12px;
+    background: var(--c-rest-tint-bg);
+    border: 1px solid var(--c-rest-tint-border);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    list-style: none;
+    color: var(--c-rest);
+    font-family: var(--f-body); font-size: 14px; font-weight: 600;
+  }
+
+  .legend {
+    margin-top: 36px; padding: 16px 18px;
+    background: var(--c-surface-base); border: 1px solid var(--c-surface-border);
+    border-radius: 10px; color: var(--c-ink-secondary); font-size: 13px;
+  }
+  .legend h3 { margin: 0 0 8px; color: var(--c-ink-primary); font-family: var(--f-display); font-size: 15px; }
+  .legend ul { margin: 0; padding-left: 18px; }
+  .legend li { margin: 3px 0; }
+
+  /* ASCII art of the rail composition for inline reference. */
+  pre.rail-spec {
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--c-ink-muted); background: var(--c-surface-bg);
+    border: 1px solid var(--c-surface-border); border-radius: 8px;
+    padding: 12px 14px; margin: 14px 0 0;
+    line-height: 1.45; overflow-x: auto;
+  }
+
+  footer {
+    margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--c-surface-border);
+    color: var(--c-ink-muted); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">Web player lobby &middot; canonical visual spec</div>
+    <h1>Lobby circuit header &mdash; tree-branch rail</h1>
+    <p class="lede">
+      Side-by-side mockup for hotfix round 2. <strong>Left:</strong> the
+      broken state Carl saw on his iPhone after PR 234 merged &mdash; coral
+      backdrops on the matrix circuit blocks AND the circuit container
+      itself, a duplicate header on the first circuit (rest-inside-circuit
+      closes the group then the next exercise re-opens it), redundant row
+      numerals, and a verbose &ldquo;&times; 3 ROUNDS&rdquo; chip.
+      <strong>Right:</strong> the corrected geometry &mdash; container
+      transparent, group structure conveyed by a 3 px coral tree-branch
+      rail at <code>left: 8px</code>, per-row horizontal connectors, and
+      a clean L corner on the last row. No numerals. Cycles chip is just
+      <code>&times;3</code>.
+    </p>
+
+    <pre class="rail-spec">RAIL COMPOSITION (right panel)
+
+   ┌─ circuit-header (32px)
+   │     ::before    rail piece: centre → bottom            (3 px wide)
+   │     ::after     stub: left:8 → label                   (14 px wide × 3 px tall)
+   │
+   ├─ ex-row.in-circuit (first)
+   │     ::before    rail piece: top → bottom               (continuous with header)
+   │     ::after     connector: left:8 → row content        (14 × 3, at row centre)
+   │
+   ├─ ex-row.in-circuit (middle)   …same as first…
+   │
+   └─ ex-row.in-circuit.last
+         ::before    rail piece: top → 50% only             (terminates at centre → └)
+         ::after     connector: left:8 → row content        (14 × 3, at row centre)
+
+The container itself has NO rail. The rail is composed of header + per-row
+pieces, so the height of the rail naturally tracks the rendered rows
+without any JS measurement.
+    </pre>
+
+    <div class="pair">
+      <!-- LEFT — broken -->
+      <div class="panel is-bad">
+        <div class="panel-label"><span class="dot"></span> Broken (PR 234, today)</div>
+
+        <ul class="lobby-list bad">
+          <!-- DUPLICATE first header (the bug) — rest-inside-circuit closes group, next ex re-opens it -->
+          <li class="lobby-circuit-group">
+            <div class="lobby-circuit-header">
+              <span class="lobby-circuit-header-rail" aria-hidden="true"></span>
+              <span class="lobby-circuit-header-label">Lower body</span>
+              <span class="lobby-circuit-header-cycles">&times; 3 ROUNDS</span>
+            </div>
+            <li class="lobby-row">
+              <div class="hero"></div>
+              <div class="info">
+                <div class="lobby-info-titlebar">
+                  <span class="lobby-info-num">1.</span>
+                  <h3 class="name">Goblet squat</h3>
+                </div>
+                <p class="dose">3 &times; 8 &middot; 30s rest &middot; ~2:00</p>
+              </div>
+            </li>
+          </li>
+          <!-- Synthesised mid-circuit rest, closing the group -->
+          <li class="rest-row">Rest &middot; 60s</li>
+          <!-- DUPLICATE header (re-opens the same circuit) -->
+          <li class="lobby-circuit-group">
+            <div class="lobby-circuit-header">
+              <span class="lobby-circuit-header-rail" aria-hidden="true"></span>
+              <span class="lobby-circuit-header-label">Lower body</span>
+              <span class="lobby-circuit-header-cycles">&times; 3 ROUNDS</span>
+            </div>
+            <li class="lobby-row">
+              <div class="hero"></div>
+              <div class="info">
+                <div class="lobby-info-titlebar">
+                  <span class="lobby-info-num">2.</span>
+                  <h3 class="name">Romanian deadlift</h3>
+                </div>
+                <p class="dose">3 &times; 8 &middot; 45s rest &middot; ~2:30</p>
+              </div>
+            </li>
+            <li class="lobby-row">
+              <div class="hero"></div>
+              <div class="info">
+                <div class="lobby-info-titlebar">
+                  <span class="lobby-info-num">3.</span>
+                  <h3 class="name">Kettlebell swing</h3>
+                </div>
+                <p class="dose">3 &times; 12 &middot; 30s rest &middot; ~1:45</p>
+              </div>
+            </li>
+          </li>
+          <!-- Standalone after circuit -->
+          <li class="plain-row">
+            <div class="hero"></div>
+            <div class="info">
+              <div class="lobby-info-titlebar">
+                <span class="lobby-info-num">4.</span>
+                <h3 class="name">Plank hold</h3>
+              </div>
+              <p class="dose">3 &times; 30s hold &middot; ~2:00</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <!-- RIGHT — corrected -->
+      <div class="panel is-good">
+        <div class="panel-label"><span class="dot"></span> Corrected (this PR)</div>
+
+        <ul class="lobby-list good">
+          <li class="lobby-circuit-group">
+            <div class="circuit-header">
+              <span class="circuit-header-label">Lower body</span>
+              <span class="circuit-header-cycles">&times;3</span>
+            </div>
+            <li class="ex-row in-circuit">
+              <div class="hero"></div>
+              <div class="info">
+                <h3 class="name">Goblet squat</h3>
+                <p class="dose">3 &times; 8 &middot; 30s rest &middot; ~2:00</p>
+              </div>
+            </li>
+            <li class="ex-row in-circuit">
+              <div class="hero"></div>
+              <div class="info">
+                <h3 class="name">Romanian deadlift</h3>
+                <p class="dose">3 &times; 8 &middot; 45s rest &middot; ~2:30</p>
+              </div>
+            </li>
+            <li class="ex-row in-circuit last">
+              <div class="hero"></div>
+              <div class="info">
+                <h3 class="name">Kettlebell swing</h3>
+                <p class="dose">3 &times; 12 &middot; 30s rest &middot; ~1:45</p>
+              </div>
+            </li>
+          </li>
+          <li class="plain-row">
+            <div class="hero"></div>
+            <div class="info">
+              <h3 class="name">Plank hold</h3>
+              <p class="dose">3 &times; 30s hold &middot; ~2:00</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="legend">
+      <h3>What changed</h3>
+      <ul>
+        <li><strong>Container.</strong> <code>.lobby-circuit-group</code> goes from
+            coral-tint background + coral-tint border to fully transparent.
+            All visual grouping is conveyed by the rail.</li>
+        <li><strong>Rail tokens.</strong> 3 px wide, <code>left: 8px</code>,
+            colour <code>rgba(255,107,53,0.85)</code>
+            (use <code>--c-coral-rail</code>).</li>
+        <li><strong>Header rail piece.</strong>
+            <code>.circuit-header::before</code> = centre &rarr; bottom of
+            header (3 px). <code>::after</code> = 14 &times; 3 horizontal
+            stub at vertical centre, joining rail to label.</li>
+        <li><strong>Per-row connectors.</strong>
+            <code>.ex-row.in-circuit::before</code> = full-height vertical
+            piece. <code>::after</code> = 14 &times; 3 stub at row centre.
+            Rows abut (no <code>gap</code>) so the rail concatenates
+            seamlessly. <code>padding-left: 26px</code> clears the rail
+            and connector.</li>
+        <li><strong>Last-row L.</strong> <code>.ex-row.in-circuit.last::before</code>
+            sets <code>height: 50%</code> instead of <code>top:0; bottom:0</code>
+            so the rail terminates at the row centre &mdash; combined with the
+            connector at that centre line, it forms a clean &#x2514; corner.</li>
+        <li><strong>Numerals.</strong> Removed entirely. Default-named
+            exercises (&ldquo;Exercise 1&rdquo;, &ldquo;Exercise 2&rdquo;)
+            already convey their position via Studio's auto-naming;
+            renamed exercises trust the practitioner.</li>
+        <li><strong>Cycles chip.</strong> &ldquo;&times; 3 ROUNDS&rdquo;
+            &rarr; <code>&times;3</code>. Just the multiplier.</li>
+        <li><strong>Duplicate-header bug.</strong> Root cause: a rest
+            slide that lives inside a circuit closed the open
+            <code>circuitGroup</code> in the <code>renderList</code>
+            loop; the very next circuit-id slide then opened a NEW group
+            with the same id &mdash; rendering the same coral header
+            twice. Fix: rest slides whose <code>circuit_id</code> matches
+            the open group are appended to the group's rows instead of
+            closing it.</li>
+      </ul>
+    </div>
+
+    <footer>
+      Spec for <code>web-player/styles.css</code> +
+      <code>web-player/lobby.js</code> (<code>circuitGroupHTML</code>
+      + the <code>renderList</code> rest branch). Mirror copy at
+      <code>app/assets/web-player/</code> intentionally NOT touched in
+      this round (out of scope per brief).
+    </footer>
+  </div>
+</body>
+</html>
