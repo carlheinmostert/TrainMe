@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-04 — Set/rest phase sync (web-player)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-04 · Set/rest phase sync (web-player)</div>
+    <h1>Device QA — Set/rest phase sync</h1>
+    <p class="lede">
+      <strong>Bug:</strong> the set/rest state machine in <code>web-player/app.js</code> was double-counting each set's trailing breather. Initialising <code>setPhaseRemaining</code> from <code>calculatePerSetSeconds(...)</code> (which BAKES IN the breather per Wave 41 contract) meant every non-final set spent <strong>physical + 2&times;breather</strong> seconds in its <code>'set'</code> phase before falling into <code>'rest'</code>. User-visible: &ldquo;set 1 ends and it doesn't go into its rest period; the pill at the top still keeps counting.&rdquo;
+      <br><br>
+      <strong>Fix:</strong> new <code>calculatePhysicalSetSeconds</code> helper (perSet minus baked-in breather). Every fresh <code>'set'</code>-phase initialisation site now uses it: <code>beginSetMachineForCurrent</code>, both <code>advanceSetPhase</code> next-set transitions, the visibilitychange fast-forward's two next-set branches, and <code>jumpToRep</code>. The rep-stack painter's elapsed-in-physical math also flips from <code>perSet - setPhaseRemaining</code> to <code>physicalSet - setPhaseRemaining</code> directly. <code>calculatePerSetSeconds</code> stays untouched (load-bearing for <code>calculateDuration</code>, cumulative-before-set, matrix-pill fill). Rest-phase initialisations (<code>= breatherForX</code>) untouched. <code>jumpToRest</code> untouched.
+      <br><br>
+      <strong>R-10 parity:</strong> the public client web player at <code>session.homefit.studio</code> AND the mobile workflow Preview step (which embeds the same <code>web-player/</code> bundle) both pick up the fix from one edit.
+      <br><br>
+      <strong>Surfaces touched:</strong> <code>web-player/app.js</code> (helper + 6 call-site swaps), <code>web-player/sw.js</code> (cache name bump to <code>homefit-player-v31-set-rest-phase-sync</code>). No schema, no RPCs, no Flutter, no portal.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Branch built and installed via <code>./install-device.sh</code> (this also reloads the web-player bundle on the iPhone via Vercel's auto-deploy &mdash; give it ~60s after merge before testing).</li>
+        <li>Hard-refresh <code>session.homefit.studio</code> in Safari (Cmd+Shift+R or pull-down-to-refresh) so the new SW cache name (<code>v31-set-rest-phase-sync</code>) wins over the previous v30.</li>
+        <li>Test plan: a session with at least <strong>one multi-set exercise</strong> &mdash; ideally 3 sets &times; 10 reps with 30&ndash;60s breather between sets. Plus, if convenient, a <strong>1-set exercise</strong> (no breather) to prove the no-regression case.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Core fix &mdash; rep stack flips into breather without a gap</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Set 1 &rarr; rest 1 transition is instant.</strong> Pick a 3&times;10 multi-set exercise on the public web player. Hit Start Workout, watch set 1. <strong>Expected:</strong> the moment the rep-stack's last rep block fills (rep 10 lands at 100%), the sage rest block lights up immediately. No &ldquo;all reps done but pill still ticking&rdquo; zone. Pre-fix this had a <code>breather_seconds_after</code>-long stall.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Pill, breather overlay, and rep stack stay in sync during rest.</strong> While set 1's rest phase is playing, glance at the matrix pill at the top of the screen, the big sage breather countdown overlay over the video, and the rest-block fill in the rep stack. <strong>Expected:</strong> all three advance proportionally &mdash; when the breather digits show 30 (halfway through a 60s breather), the pill and rest block are also ~halfway. No more than ~1s drift between any pair.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Multi-set walk-through</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Rest 1 plays its full duration, then set 2 starts cleanly.</strong> Don't skip rest. <strong>Expected:</strong> the breather ticks 60&rarr;0 (or whatever the set's <code>breather_seconds_after</code> is), and at 0 the rep stack flips to set-2 active &mdash; rep 1 of set 2 starts filling.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Final set's trailing breather plays, then slide auto-advances.</strong> Walk all sets through to the last. <strong>Expected:</strong> the final set's reps fill, the trailing breather plays its full duration, and only then does the slide auto-advance to the next exercise. Total slide time (mental stopwatch from &ldquo;Start Workout&rdquo;) &asymp; the duration shown in the matrix pill.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>End-of-exercise badge appears during the last set's rest.</strong> While the FINAL set's trailing breather is counting down, the End-of-exercise marker on the rep stack should light up (the existing <code>setPhase === 'rest' &amp;&amp; isLastSet</code> gate). <strong>Expected:</strong> badge visible during the last breather, never earlier.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Matrix peek + slide change</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Matrix peek &rarr; drop on a different slide resets cleanly.</strong> Long-press the matrix at the top to enter peek mode, then drop on a different exercise slide. <strong>Expected:</strong> the new slide starts at set 1, rep stack at zero, no leftover &lsquo;rest&rsquo; state from the previous slide. Pill resets to the new slide's full duration.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; Rep-stack jumps</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Tap a rep block in the rep stack &mdash; jump lands cleanly.</strong> Mid-exercise, tap (e.g.) rep 5 of set 2. <strong>Expected:</strong> the active rep block becomes rep 5, the per-rep fill restarts cleanly from 0%, and when reps land at 10/10 the rest block lights immediately (no leftover gap). The matrix pill jumps to match.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Tap a rest block in the rep stack &mdash; jumps straight into rest.</strong> Tap a rest block (the sage one between two sets). <strong>Expected:</strong> the player jumps straight into the breather phase, breather digits count down from full, and the next set begins cleanly when the breather ends.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 &middot; Background tab fast-forward</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Background tab for ~2 minutes mid-set, then resume.</strong> Mid-set in a multi-set exercise, swipe back to the home screen for ~2 min (or lock the phone), then return to Safari. <strong>Expected:</strong> the rep stack, matrix pill, and breather overlay all jump forward to where they should be by wall-clock; no doubled breather at the end of the slide; total slide time still matches the pill duration.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>6 &middot; No-regression edge cases</h2>
+    <ul class="checklist">
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Single-set exercise (or 0s breather) plays unchanged.</strong> Run a 1-set exercise (or any set with <code>breather_seconds_after = 0</code>). <strong>Expected:</strong> behaviour is identical to pre-fix &mdash; reps fill, slide ends, no orphan rest block, no extra wait. Total slide time matches the pill duration to the second.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass-notes with polish suggestions feed the next wave's backlog. Failed items spawn targeted fix briefs. The fix lives entirely in <code>web-player/app.js</code> + <code>web-player/sw.js</code>; no schema, no RPCs, no Flutter, no portal.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-04-set-rest-phase-sync.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'set-rest-phase-sync', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>
