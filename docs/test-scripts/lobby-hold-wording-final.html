@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-04 — final hold-mode wording (round 7.1)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-04 · web-player + studio round 7.1</div>
+    <h1>Device QA — final hold-mode wording</h1>
+    <p class="lede">
+      <strong>Carl revised the round-7 hold-mode wording mid-flight.</strong> Round 7 shipped intermediate wording <code>(per set)</code> / <code>(after last rep)</code>; this PR lands the FINAL wording across BOTH surfaces (web player + Studio Flutter editor).
+      <br><br>
+      <strong>Web-player parens (all-lowercase qualifiers):</strong>
+      <br>
+      &nbsp;&nbsp;&bull; <code>per_rep</code> &rarr; <code>Ns hold (per rep)</code> (unchanged)<br>
+      &nbsp;&nbsp;&bull; <code>end_of_set</code> &rarr; <code>Ns hold (on last rep)</code> (was <code>(per set)</code>)<br>
+      &nbsp;&nbsp;&bull; <code>end_of_exercise</code> &rarr; <code>Ns hold (on last set rep)</code> (was <code>(after last rep)</code>)<br>
+      <br>
+      <strong>Studio segmented-control labels (sentence case):</strong>
+      <br>
+      &nbsp;&nbsp;&bull; <code>perRep</code> &rarr; <code>Per rep</code> (unchanged)<br>
+      &nbsp;&nbsp;&bull; <code>endOfSet</code> &rarr; <code>On last rep</code> (was <code>End of set</code>)<br>
+      &nbsp;&nbsp;&bull; <code>endOfExercise</code> &rarr; <code>On last set rep</code> (was <code>End</code>)<br>
+      <br>
+      <strong>Semantic distinction.</strong> &ldquo;Last rep&rdquo; = each set's last rep (<code>end_of_set</code>); &ldquo;last set rep&rdquo; = the last set's last rep (<code>end_of_exercise</code>). Different capitalisation by surface convention &mdash; Studio buttons are titles, web-player parens are addenda.
+      <br><br>
+      <strong>Bumps:</strong> <code>PLAYER_VERSION</code> &rarr; <code>v44-hold-wording-final</code>; <code>CACHE_NAME</code> &rarr; <code>homefit-player-v44-hold-wording-final</code>. Studio doesn't have a cache concept &mdash; the next <code>install-device.sh</code> picks up the new labels.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>This PR merged + Vercel auto-deploy of <code>session.homefit.studio</code> live.</li>
+        <li>Hard-refresh (kill + reopen Safari) on iPhone CHM so the new SW takes over and you load <code>v44-hold-wording-final</code> end-to-end.</li>
+        <li><code>./install-device.sh</code> for the Studio side &mdash; new labels are bundled into the Flutter binary.</li>
+        <li>Test plan: one with at least one exercise on each of the three hold modes (Studio &rarr; Plan tab &rarr; the Wave-43 3-pill control under the Hold stepper). Hold seconds &gt; 0 on all three so the dose-line surfaces the qualifier.</li>
+      </ul>
+    </div>
+
+    <h2>Web-player parens wording</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong><code>end_of_set</code> hold dose-line reads <code>Ns hold (on last rep)</code>.</strong> On the lobby + deck, an exercise with hold-mode <code>On last rep</code> + 30s hold renders the dose-line as <code>3 &times; 10 reps &middot; 30s hold (on last rep) &middot; ...</code>. Pre-7.1 was <code>(per set)</code>. Lowercase qualifier in parens.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong><code>end_of_exercise</code> hold dose-line reads <code>Ns hold (on last set rep)</code>.</strong> An exercise with hold-mode <code>On last set rep</code> + 30s hold renders the dose-line as <code>3 &times; 10 reps &middot; 30s hold (on last set rep) &middot; ...</code>. Pre-7.1 was <code>(after last rep)</code>. Verify on BOTH lobby and deck.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong><code>per_rep</code> hold unchanged: <code>Ns hold (per rep)</code>.</strong> An exercise with hold-mode <code>Per rep</code> + 5s hold still renders <code>5s hold (per rep)</code>. The lock-in from rounds 6 / 7 is preserved &mdash; the change is scoped to the OTHER two modes only.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Studio segmented-control labels</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Editor sheet hold-position toggle now shows <code>Per rep</code> / <code>On last rep</code> / <code>On last set rep</code>.</strong> Open the editor sheet for any exercise &rarr; Plan tab &rarr; scroll to the Hold stepper. The 3-pill segmented control beneath it should read these three labels left-to-right. Sentence case (capital first word, rest lowercase) &mdash; mirrors the existing <code>Per rep</code> convention.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Toggle works as before &mdash; tapping each pill switches the underlying <code>hold_position</code> value.</strong> Tap each of the three pills in turn. Selected pill flips to coral background + white text; unselected go muted. Previewing the same plan on the web-player updates the parenthetical (<code>(per rep)</code> / <code>(on last rep)</code> / <code>(on last set rep)</code>) accordingly. No semantic regression &mdash; just a label swap.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Dartdoc comment in <code>plan_table.dart</code> reflects the new labels.</strong> Open <code>app/lib/widgets/plan_table.dart</code>. The comment immediately above <code>_HoldPositionPills</code> (around line 885) now reads <code>[ Per rep ]  [ On last rep &#10003; ]  [ On last set rep ]</code>. Pre-7.1 was <code>[ Per rep ]  [ End of set &#10003; ]  [ End ]</code>. (This one is a code-review check &mdash; no device action needed.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Build chip + R-10 parity</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Build chip on lobby reads <code>... web-player v44-hold-wording-final &middot; cache v44-hold-wording-final</code>.</strong> Hard-refresh the lobby. Look at the dim line under the metadata strip. Both the bundle slug and the cache slug should converge on <code>v44-hold-wording-final</code>. If the cache lags, do a second hard-refresh; both should converge after the new SW reactivates.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>R-10 parity &mdash; deck active-slide header reads <code>(on last set rep)</code> on an <code>end_of_exercise</code> exercise.</strong> Tap Start on a published plan that has at least one <code>End_of_exercise</code> exercise (Studio label <code>On last set rep</code>). Swipe to that exercise. The active-slide header at the top of the deck (single-line title row) should read <code>{Exercise} &middot; ... &middot; 30s hold (on last set rep) &middot; ...</code>. Same wording as the lobby &mdash; that's the R-10 guarantee. Switching to a non-<code>end_of_exercise</code> exercise: header drops to <code>(on last rep)</code> or <code>(per rep)</code> per its own mode.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Bug? Reply with the failing item number(s) plus any notes; I&apos;ll triage. <code>8 items</code> across 3 sections.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'lobby-hold-wording-final.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({items: state, ts: Date.now()})
+        }).catch(function() { /* offline; localStorage suffices */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'fail', note: noteInput.value || ''};
+          save();
+        });
+
+        noteInput.addEventListener('input', function() {
+          var entry = state[num];
+          if (!entry) return;
+          entry.note = noteInput.value;
+          save();
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

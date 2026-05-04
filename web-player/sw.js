@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v43-grammar-revision-and-fixes';
+const CACHE_NAME = 'homefit-player-v44-hold-wording-final';
 
 // App shell files — always cached
 const APP_SHELL = [

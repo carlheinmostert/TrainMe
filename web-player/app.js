@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v43-grammar-revision-and-fixes';
+const PLAYER_VERSION = 'v44-hold-wording-final';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -1199,17 +1199,19 @@ function formatReps(playSets) {
 /**
  * Round 6 — central hold-segment composer with Wave 43 three-mode
  * parenthetical qualifiers. Returns the dose-line fragment for the
- * hold (e.g. `30s hold (per set)`, `5s hold (per rep)`,
- * `30s hold (after last rep)`) or '' when no hold is configured.
+ * hold (e.g. `30s hold (on last rep)`, `5s hold (per rep)`,
+ * `30s hold (on last set rep)`) or '' when no hold is configured.
  *
- * Mode wording (Round 7 revision — always-explicit; Carl 2026-05-04):
+ * Mode wording (Round 7.1 revision — final wording; Carl 2026-05-04):
  *   per_rep         → `Ns hold (per rep)`
- *   end_of_set      → `Ns hold (per set)`         (default)
- *   end_of_exercise → `Ns hold (after last rep)`
+ *   end_of_set      → `Ns hold (on last rep)`        (default)
+ *   end_of_exercise → `Ns hold (on last set rep)`
  *
- * Round 7 dropped the round-6 implicit-default convention (bare
- * `Ns hold` for end_of_set). Always showing the qualifier reads more
- * consistently and removes the "what does no qualifier mean?" guess.
+ * "Last rep" = each set's last rep (end_of_set). "Last set rep" =
+ * the last set's last rep (end_of_exercise). Round 7 shipped with
+ * `(per set)` / `(after last rep)`; Round 7.1 lands the canonical
+ * wording in lockstep with Studio's segmented-control labels (which
+ * use sentence-case `On last rep` / `On last set rep`).
  *
  * If sets in an exercise carry mixed hold modes (data shape allows it
  * but the editor enforces uniform-by-default), we use the FIRST set's
@@ -1228,14 +1230,14 @@ function formatHold(playSets) {
   if (!allSame) return '';
   const sec = holds[0];
   if (sec <= 0) return '';
-  // Wave 43 mode wording (Round 7 always-explicit revision). Photos go
+  // Wave 43 mode wording (Round 7.1 final-wording revision). Photos go
   // through the same path: if the exercise is a photo with no `sets[]`
   // (legacy fallback), the synthesised set from _coerceSet defaults
-  // hold_position to 'end_of_set' which renders `(per set)`.
+  // hold_position to 'end_of_set' which renders `(on last rep)`.
   const mode = (playSets[0] && playSets[0].hold_position) || 'end_of_set';
   if (mode === 'per_rep') return `${sec}s hold (per rep)`;
-  if (mode === 'end_of_exercise') return `${sec}s hold (after last rep)`;
-  return `${sec}s hold (per set)`;
+  if (mode === 'end_of_exercise') return `${sec}s hold (on last set rep)`;
+  return `${sec}s hold (on last rep)`;
 }
 
 /**
@@ -1284,9 +1286,9 @@ function buildDecodedGrammar(slide) {
 
   // Circuit slides represent ONE set per round; the round count is
   // surfaced by the matrix. Drop the `N ×` prefix. Hold renders via
-  // the shared formatHold() so the (per rep) / (per set) /
-  // (after last rep) qualifiers stay in lockstep with the lobby and
-  // the rest of the deck. (Round 6 / Round 7 grammar revision.)
+  // the shared formatHold() so the (per rep) / (on last rep) /
+  // (on last set rep) qualifiers stay in lockstep with the lobby and
+  // the rest of the deck. (Round 6 / Round 7.1 grammar revision.)
   if (isCircuit) {
     const set = playSets[0];
     const parts = [];
