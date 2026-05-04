@@ -2725,16 +2725,47 @@ body.is-fullscreen .playpause-toggle {
 
 .lobby-matrix-inner {
   display: flex;
-  gap: 4px;
+  /* Wave 5 lobby fixes — wider gap so neighbour pills don't capture
+     stray taps. Deck uses 4px (compact); lobby is the primary
+     navigation surface and benefits from 6px. */
+  gap: 6px;
   align-items: stretch;
   padding: 0 16px;
-  /* Matches the deck matrix sizing tier; pills carry their own height. */
+  /* When the matrix overflows the viewport (long plans), allow
+     horizontal scroll so individual pills retain their min-width
+     instead of being squashed below tap accuracy. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.lobby-matrix-inner::-webkit-scrollbar { display: none; }
+
+/* Wider lobby pill columns to keep tap accuracy on long plans. The
+   deck's .matrix-col floor is 6px (it scrolls). The lobby keeps a
+   24px floor so every pill is finger-tap-able even before the
+   horizontal scroll fallback kicks in. */
+.lobby-matrix-inner .matrix-col {
+  min-width: 24px;
+  max-width: 44px;
 }
 
-/* Make pills slightly bigger / more readable inside the lobby. */
+/* Wave 5 lobby fixes — pills sized closer to the Apple HIG 44px hit
+   target. The deck matrix uses 20-22px pills because they coexist with
+   a tight active-slide header; the lobby matrix sits at the top of the
+   screen with breathing room and is a primary jump-to control, so
+   bigger is better. We bump the lobby pill height to 36px and retain
+   touch-action: manipulation to suppress the iOS double-tap-zoom
+   delay. Combined with horizontal pseudo-element padding this gives a
+   ~36×(width + 4) hit zone with no cross-row bleed (the safe direction
+   to expand is intentionally vertical-INSIDE so circuit pill rounds
+   don't intercept each other's taps). */
 .lobby-matrix-inner .pill {
-  min-height: 22px;
+  min-height: 36px;
+  height: 36px;
   cursor: pointer;
+  -ms-touch-action: manipulation;
+  touch-action: manipulation;
+  /* Stop iOS Safari from delaying the click 300ms — keeps neighbour
+     activation rare and snaps tap → click. */
 }
 
 .lobby-matrix-inner .matrix-circuit {
@@ -2745,6 +2776,10 @@ body.is-fullscreen .playpause-toggle {
   background: var(--c-brand-tint-bg);
   border-radius: var(--radius-md);
   padding: 3px;
+  /* Mirror the matrix-col floor — 24px per circuit column — so each
+     circuit pill is finger-tap-able even on long plans. */
+  min-width: calc(24px * var(--circuit-cols, 1) + 3px * (var(--circuit-cols, 1) - 1) + 6px);
+  max-width: calc(44px * var(--circuit-cols, 1) + 3px * (var(--circuit-cols, 1) - 1) + 6px);
 }
 
 .lobby-matrix-inner .matrix-circuit-row {
@@ -2848,6 +2883,30 @@ body.is-fullscreen .playpause-toggle {
   min-width: 0;
 }
 
+/* Wave 5 lobby fixes — row index numeral (1. 2. 3. …) sits to the left
+   of the exercise name, baseline-aligned. Reserve ~22px so names align
+   across rows even when the numeral hits double digits. Rest rows pass
+   no numeral and render no number. */
+.lobby-info-titlebar {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lobby-info-num {
+  flex: 0 0 auto;
+  min-width: 22px;
+  font-family: var(--f-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-ink-secondary);
+  line-height: 1.2;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .lobby-info-name {
   font-family: var(--f-display);
   font-size: 18px;
@@ -2857,6 +2916,8 @@ body.is-fullscreen .playpause-toggle {
   color: var(--c-ink-primary);
   letter-spacing: -0.01em;
   word-break: break-word;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .lobby-info-dose {
@@ -2894,24 +2955,76 @@ body.is-fullscreen .playpause-toggle {
 }
 
 /* Circuit group --------------------------------------------------------- */
+/* Wave 5 lobby fixes — visual parity with Studio's circuit container
+   (mirrors `_buildCircuitHeaderRow` + the surrounding circuit body in
+   `app/lib/screens/studio_mode_screen.dart`).
+   Layout:
+     ┌─ header row (32px) ───────────────────────────┐
+     │ ▮ rail   CIRCUIT NAME                  ×3     │
+     ├──────────────────────────────────────────────┤
+     │   [exercise card]                             │
+     │   [exercise card]                             │
+     │   [exercise card]                             │
+     └──────────────────────────────────────────────┘
+   Brand-tint background + brand-tint border (`brandTintBg` /
+   `brandTintBorder`); coral header label uppercase 14/600 with 0.5
+   letter-spacing; ×N cycles chip floats right with brand-tint pill
+   chrome + JetBrainsMono font. */
 .lobby-circuit-group {
   border: 1px solid var(--c-brand-tint-border);
   background: var(--c-brand-tint-bg);
   border-radius: var(--radius-lg);
-  padding: 10px 10px 12px;
+  padding: 0 8px 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .lobby-circuit-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--c-brand-tint-border);
+  margin-bottom: 4px;
+}
+
+.lobby-circuit-header-rail {
+  flex: 0 0 auto;
+  width: 4px;
+  height: 16px;
+  background: var(--c-brand);
+  border-radius: 2px;
+}
+
+.lobby-circuit-header-label {
+  flex: 1 1 auto;
   font-family: var(--f-body);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
   color: var(--c-brand);
   text-transform: uppercase;
-  padding: 0 6px 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lobby-circuit-header-cycles {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 10px;
+  background: var(--c-brand-tint-bg);
+  border: 1px solid var(--c-brand-tint-border);
+  border-radius: 9999px;
+  font-family: "JetBrains Mono", ui-monospace, Menlo, Courier, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-brand);
 }
 
 .lobby-circuit-group .lobby-row {
