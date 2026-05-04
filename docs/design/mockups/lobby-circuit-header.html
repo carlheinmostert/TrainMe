@@ -140,12 +140,16 @@
   }
 
   /* ============================================================
-     RIGHT panel — corrected state (this PR)
+     RIGHT panel — corrected state (hotfix round 3)
      - Container is transparent (no backdrop)
-     - Tree-branch rail at left:8px, 3px wide, coral 0.85
-     - Per-row pseudo-elements concatenate into a continuous rail
-     - Last row gets `last` class → height 50% to form L
-     - Header has its own rail piece + horizontal stub
+     - Two-column gutter layout per row: fixed-width rail column +
+       flex content card (the existing hero + info)
+     - Rail pieces are REAL <span> children of the gutter, NOT
+       pseudo-elements — so the rail sits OUTSIDE the card's
+       bounding box and can never be covered by the active-row
+       coral border or any other stacking context above the card
+     - Last row's vertical rail clamps at 50% to form an L corner
+     - Header has its own gutter with the upper rail piece
      - No row numerals
      - Cycles chip just "×3"
      ============================================================ */
@@ -158,35 +162,44 @@
     display: flex; flex-direction: column;
     gap: 0;                /* rows abut so rail pieces concatenate */
   }
+  /* Header — two columns: gutter (rail piece) + content (label + cycles). */
   .good .circuit-header {
-    position: relative;
-    display: flex; align-items: center;
-    gap: 8px;
+    display: flex; align-items: stretch;
+    gap: 0;
     height: 32px;
-    padding-left: 26px;    /* clear rail (3px) + connector (14px) + breathing */
-    padding-right: 4px;
   }
-  /* Vertical rail — top-segment for the header. Centre of header → bottom edge. */
-  .good .circuit-header::before {
-    content: '';
+  .good .circuit-header-gutter {
+    flex: 0 0 22px;
+    position: relative;
+  }
+  /* Vertical rail piece — header centre → bottom of header. Sits at
+     the gutter's right edge so the line lands just outside the
+     content card. */
+  .good .circuit-header-gutter-rail {
     position: absolute;
-    left: 8px;
+    left: 11px;
     top: 50%;
     bottom: 0;
     width: 3px;
     background: var(--c-coral-rail);
   }
-  /* Horizontal stub — at vertical centre, joining rail to label content. */
-  .good .circuit-header::after {
-    content: '';
+  /* Horizontal stub — joins rail to label content. */
+  .good .circuit-header-gutter-connector {
     position: absolute;
-    left: 8px;
+    left: 11px;
     top: 50%;
     transform: translateY(-50%);
-    width: 14px;
+    width: 11px;
     height: 3px;
     background: var(--c-coral-rail);
     border-radius: 0 2px 2px 0;
+  }
+  .good .circuit-header-content {
+    flex: 1 1 auto;
+    display: flex; align-items: center;
+    gap: 8px;
+    padding: 0 4px;
+    min-width: 0;
   }
   .good .circuit-header-label {
     flex: 1 1 auto;
@@ -205,44 +218,63 @@
     color: var(--c-brand);
   }
 
-  /* In-circuit row — abuts neighbours, padded for rail clearance, neutral surface. */
+  /* In-circuit row — also two columns: gutter (rail + connector) +
+     content (the existing hero + info card). The card's chrome lives
+     on `.ex-row-content`; the rail sits OUTSIDE the card so the
+     active-row coral border (intentional UX) can't cover it. */
   .good .ex-row {
-    position: relative;
-    display: flex; align-items: stretch; gap: 12px;
-    background: var(--c-surface-base);
-    border: 1px solid var(--c-surface-border);
-    border-radius: var(--radius-md);
-    padding: 10px;
+    display: flex; align-items: stretch; gap: 0;
     list-style: none;
-    margin-top: -1px;          /* collapse adjacent borders so rail looks continuous */
+    background: transparent;
+    border: 0;
+    padding: 0;
   }
-  /* Rail piece — top→bottom for in-circuit rows. Last gets clamped to 50% (L corner). */
-  .good .ex-row.in-circuit::before {
-    content: '';
+  .good .ex-row-gutter {
+    flex: 0 0 22px;
+    position: relative;
+  }
+  /* Vertical rail piece — top → bottom for in-circuit rows. Last
+     gets clamped to 50% to form an L corner. Pinned to gutter's
+     right edge so the line sits OUTSIDE the card's left edge. */
+  .good .ex-row.in-circuit .ex-row-gutter-rail {
     position: absolute;
-    left: 8px;
+    left: 11px;
     top: 0;
     bottom: 0;
     width: 3px;
     background: var(--c-coral-rail);
   }
-  .good .ex-row.in-circuit.last::before {
+  .good .ex-row.in-circuit.last .ex-row-gutter-rail {
     bottom: auto;
     height: 50%;               /* terminate at vertical centre → L corner */
   }
-  /* Per-row horizontal connector — joins rail to the row's content. */
-  .good .ex-row.in-circuit::after {
-    content: '';
+  /* Horizontal connector — joins rail to the content card's left edge. */
+  .good .ex-row.in-circuit .ex-row-gutter-connector {
     position: absolute;
-    left: 8px;
+    left: 11px;
     top: 50%;
     transform: translateY(-50%);
-    width: 14px;
+    width: 11px;
     height: 3px;
     background: var(--c-coral-rail);
     border-radius: 0 2px 2px 0;
   }
-  .good .ex-row.in-circuit { padding-left: 26px; }
+  /* Content card — the existing hero + info column. All chrome
+     (background, border, padding, radius) moves here from `.ex-row`. */
+  .good .ex-row-content {
+    flex: 1 1 auto;
+    display: flex; align-items: stretch; gap: 12px;
+    background: var(--c-surface-base);
+    border: 1px solid var(--c-surface-border);
+    border-radius: var(--radius-md);
+    padding: 10px;
+    min-width: 0;
+  }
+  /* Adjacent in-circuit cards collapse top borders so the rail
+     reads as one continuous coral line. */
+  .good .ex-row.in-circuit + .ex-row.in-circuit .ex-row-content {
+    margin-top: -1px;
+  }
 
   /* Hero + info — same shape on both panels for visual parity. */
   .hero {
@@ -328,25 +360,40 @@
       <code>&times;3</code>.
     </p>
 
-    <pre class="rail-spec">RAIL COMPOSITION (right panel)
+    <pre class="rail-spec">RAIL COMPOSITION (right panel — hotfix round 3 architecture)
 
-   ┌─ circuit-header (32px)
-   │     ::before    rail piece: centre → bottom            (3 px wide)
-   │     ::after     stub: left:8 → label                   (14 px wide × 3 px tall)
+   ┌─ circuit-header (32px, 2-column flex)
+   │   ┌── circuit-header-gutter           (flex: 0 0 22px)
+   │   │     .gutter-rail        rail piece: centre → bottom    (3px wide)
+   │   │     .gutter-connector   stub: rail edge → content      (11 × 3)
+   │   └── circuit-header-content          (flex: 1 1 auto)
+   │           label (uppercase coral) + cycles chip (×3)
    │
-   ├─ ex-row.in-circuit (first)
-   │     ::before    rail piece: top → bottom               (continuous with header)
-   │     ::after     connector: left:8 → row content        (14 × 3, at row centre)
+   ├─ ex-row.in-circuit (first, 2-column flex)
+   │   ┌── ex-row-gutter                   (flex: 0 0 22px)
+   │   │     .gutter-rail        rail piece: top → bottom       (3px wide)
+   │   │     .gutter-connector   connector: rail edge → card    (11 × 3)
+   │   └── ex-row-content                  (flex: 1 1 auto)
+   │           hero + info (the card; gets the active-row border)
    │
-   ├─ ex-row.in-circuit (middle)   …same as first…
+   ├─ ex-row.in-circuit (middle)   …same shape…
    │
    └─ ex-row.in-circuit.last
-         ::before    rail piece: top → 50% only             (terminates at centre → └)
-         ::after     connector: left:8 → row content        (14 × 3, at row centre)
+       ┌── ex-row-gutter
+       │     .gutter-rail        rail: top → 50% only           (forms └ corner)
+       │     .gutter-connector   connector at row centre
+       └── ex-row-content
+               hero + info
 
-The container itself has NO rail. The rail is composed of header + per-row
-pieces, so the height of the rail naturally tracks the rendered rows
-without any JS measurement.
+KEY ARCHITECTURAL DIFFERENCE vs hotfix round 2:
+The rail pieces are REAL elements inside `.ex-row-gutter`, NOT pseudo-
+elements on `.ex-row`. The gutter is a real flex column outside the
+card's bounding box. This means the active-row coral border (intentional
+UX — focused row gets a coral outline) sits on the CONTENT card and
+naturally wraps around just the card; the rail in the gutter column is
+unaffected. With pseudo-elements at `left: 8px`, the rail was rendered
+INSIDE the row's box and got covered by the card border / any z-stacking
+of overlay layers.
     </pre>
 
     <div class="pair">
@@ -417,35 +464,59 @@ without any JS measurement.
         </ul>
       </div>
 
-      <!-- RIGHT — corrected -->
+      <!-- RIGHT — corrected (hotfix round 3 architecture) -->
       <div class="panel is-good">
-        <div class="panel-label"><span class="dot"></span> Corrected (this PR)</div>
+        <div class="panel-label"><span class="dot"></span> Corrected (hotfix round 3)</div>
 
         <ul class="lobby-list good">
           <li class="lobby-circuit-group">
             <div class="circuit-header">
-              <span class="circuit-header-label">Lower body</span>
-              <span class="circuit-header-cycles">&times;3</span>
+              <div class="circuit-header-gutter" aria-hidden="true">
+                <span class="circuit-header-gutter-rail"></span>
+                <span class="circuit-header-gutter-connector"></span>
+              </div>
+              <div class="circuit-header-content">
+                <span class="circuit-header-label">Lower body</span>
+                <span class="circuit-header-cycles">&times;3</span>
+              </div>
             </div>
             <li class="ex-row in-circuit">
-              <div class="hero"></div>
-              <div class="info">
-                <h3 class="name">Goblet squat</h3>
-                <p class="dose">3 &times; 8 &middot; 30s rest &middot; ~2:00</p>
+              <div class="ex-row-gutter" aria-hidden="true">
+                <span class="ex-row-gutter-rail"></span>
+                <span class="ex-row-gutter-connector"></span>
+              </div>
+              <div class="ex-row-content">
+                <div class="hero"></div>
+                <div class="info">
+                  <h3 class="name">Goblet squat</h3>
+                  <p class="dose">3 &times; 8 &middot; 30s rest &middot; ~2:00</p>
+                </div>
               </div>
             </li>
             <li class="ex-row in-circuit">
-              <div class="hero"></div>
-              <div class="info">
-                <h3 class="name">Romanian deadlift</h3>
-                <p class="dose">3 &times; 8 &middot; 45s rest &middot; ~2:30</p>
+              <div class="ex-row-gutter" aria-hidden="true">
+                <span class="ex-row-gutter-rail"></span>
+                <span class="ex-row-gutter-connector"></span>
+              </div>
+              <div class="ex-row-content">
+                <div class="hero"></div>
+                <div class="info">
+                  <h3 class="name">Romanian deadlift</h3>
+                  <p class="dose">3 &times; 8 &middot; 45s rest &middot; ~2:30</p>
+                </div>
               </div>
             </li>
             <li class="ex-row in-circuit last">
-              <div class="hero"></div>
-              <div class="info">
-                <h3 class="name">Kettlebell swing</h3>
-                <p class="dose">3 &times; 12 &middot; 30s rest &middot; ~1:45</p>
+              <div class="ex-row-gutter" aria-hidden="true">
+                <span class="ex-row-gutter-rail"></span>
+                <span class="ex-row-gutter-connector"></span>
+              </div>
+              <div class="ex-row-content">
+                <div class="hero"></div>
+                <div class="info">
+                  <h3 class="name">Kettlebell swing</h3>
+                  <p class="dose">3 &times; 12 &middot; 30s rest &middot; ~1:45</p>
+                </div>
               </div>
             </li>
           </li>
@@ -461,49 +532,56 @@ without any JS measurement.
     </div>
 
     <div class="legend">
-      <h3>What changed</h3>
+      <h3>What changed (hotfix round 3)</h3>
       <ul>
-        <li><strong>Container.</strong> <code>.lobby-circuit-group</code> goes from
-            coral-tint background + coral-tint border to fully transparent.
-            All visual grouping is conveyed by the rail.</li>
-        <li><strong>Rail tokens.</strong> 3 px wide, <code>left: 8px</code>,
-            colour <code>rgba(255,107,53,0.85)</code>
+        <li><strong>Two-column rows.</strong> Each row is now a real
+            flex container with a fixed 22 px gutter column on the left
+            and a flex content column on the right. The rail pieces are
+            real <code>&lt;span&gt;</code> children of the gutter, NOT
+            absolutely-positioned pseudo-elements on the row. Result: the
+            rail sits in its own layout slot OUTSIDE the card's bounding
+            box, so the active-row coral border (intentional UX) wraps
+            around just the card and the rail is unaffected.</li>
+        <li><strong>Container.</strong> <code>.lobby-circuit-group</code>
+            stays transparent (no backdrop, no border). All grouping is
+            conveyed by the rail.</li>
+        <li><strong>Rail tokens.</strong> 3 px wide, pinned to
+            <code>left: 11px</code> within the 22 px gutter (sits at
+            the gutter's right edge so the line lands just outside
+            the card column). Colour
+            <code>rgba(255,107,53,0.85)</code>
             (use <code>--c-coral-rail</code>).</li>
         <li><strong>Header rail piece.</strong>
-            <code>.circuit-header::before</code> = centre &rarr; bottom of
-            header (3 px). <code>::after</code> = 14 &times; 3 horizontal
-            stub at vertical centre, joining rail to label.</li>
+            <code>.circuit-header-gutter-rail</code> = centre &rarr;
+            bottom of header. <code>.circuit-header-gutter-connector</code>
+            = 11 &times; 3 horizontal stub at vertical centre, joining
+            rail to label.</li>
         <li><strong>Per-row connectors.</strong>
-            <code>.ex-row.in-circuit::before</code> = full-height vertical
-            piece. <code>::after</code> = 14 &times; 3 stub at row centre.
-            Rows abut (no <code>gap</code>) so the rail concatenates
-            seamlessly. <code>padding-left: 26px</code> clears the rail
-            and connector.</li>
-        <li><strong>Last-row L.</strong> <code>.ex-row.in-circuit.last::before</code>
+            <code>.ex-row-gutter-rail</code> = full-height vertical
+            piece. <code>.ex-row-gutter-connector</code> = 11 &times; 3
+            stub at row centre. Adjacent in-circuit cards collapse top
+            borders (<code>margin-top: -1px</code>) so the rail reads
+            as one continuous coral line.</li>
+        <li><strong>Last-row L.</strong>
+            <code>.ex-row.in-circuit.last .ex-row-gutter-rail</code>
             sets <code>height: 50%</code> instead of <code>top:0; bottom:0</code>
             so the rail terminates at the row centre &mdash; combined with the
             connector at that centre line, it forms a clean &#x2514; corner.</li>
         <li><strong>Numerals.</strong> Removed entirely. Default-named
-            exercises (&ldquo;Exercise 1&rdquo;, &ldquo;Exercise 2&rdquo;)
-            already convey their position via Studio's auto-naming;
-            renamed exercises trust the practitioner.</li>
+            exercises now have a fallback <code>&ldquo;Exercise N&rdquo;</code>
+            label generated in <code>lobby.js</code> from a position
+            counter, since Studio doesn&rsquo;t persist the auto-name to
+            the cloud row. Renamed exercises trust the practitioner.</li>
         <li><strong>Cycles chip.</strong> &ldquo;&times; 3 ROUNDS&rdquo;
             &rarr; <code>&times;3</code>. Just the multiplier.</li>
-        <li><strong>Duplicate-header bug.</strong> Root cause: a rest
-            slide that lives inside a circuit closed the open
-            <code>circuitGroup</code> in the <code>renderList</code>
-            loop; the very next circuit-id slide then opened a NEW group
-            with the same id &mdash; rendering the same coral header
-            twice. Fix: rest slides whose <code>circuit_id</code> matches
-            the open group are appended to the group's rows instead of
-            closing it.</li>
       </ul>
     </div>
 
     <footer>
       Spec for <code>web-player/styles.css</code> +
-      <code>web-player/lobby.js</code> (<code>circuitGroupHTML</code>
-      + the <code>renderList</code> rest branch). Mirror copy at
+      <code>web-player/lobby.js</code> (<code>circuitGroupHTML</code>,
+      <code>exerciseRowHTML</code>, <code>restRowHTML</code>,
+      <code>renderList</code>). Mirror copy at
       <code>app/assets/web-player/</code> intentionally NOT touched in
       this round (out of scope per brief).
     </footer>

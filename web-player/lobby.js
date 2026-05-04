@@ -300,9 +300,21 @@
     // once per round, e.g. 3 "Rest" rows for a 3-round circuit with one
     // rest in it — the bug Carl reported as 3 synthesised "Breather" rows
     // for a single plan-level rest).
+    //
+    // Hotfix round 3 — Fix C — default-name fallback position counter.
+    // Studio's create-exercise factory (app/lib/models/exercise_capture.dart)
+    // does NOT persist a default name — `name` arrives as null from
+    // `get_plan_full` for any exercise the practitioner hasn't renamed.
+    // The mobile UI's `Exercise N` fallback only fires at display time
+    // (progress_pill_matrix.dart). So the lobby has to synthesise its own
+    // position-numeric fallback. We increment `exercisePosition` for each
+    // de-duped non-rest exercise and pass it through to exerciseRowHTML
+    // so a null/empty `slide.name` becomes "Exercise 1", "Exercise 2", …
+    // Custom-named exercises render their name as-is (no number).
     const items = [];
     const seenIds = new Set();
     let circuitGroup = null;
+    let exercisePosition = 0;
 
     for (let i = 0; i < slides.length; i++) {
       const s = slides[i];
@@ -342,6 +354,11 @@
         continue;
       }
 
+      // Non-rest exercise — bump the position counter for the default-name
+      // fallback (rests are excluded so the numbering matches what a client
+      // expects: "Exercise 1, Exercise 2" through the workout's actual moves).
+      exercisePosition += 1;
+
       // Circuit slide — group them. The dedupe above already keeps only
       // the first-round occurrence of each circuit exercise.
       if (s.circuit_id && s.circuitRound != null) {
@@ -363,13 +380,13 @@
             rows: [],
           };
         }
-        circuitGroup.rows.push({ slide: s, slideIndex: i });
+        circuitGroup.rows.push({ slide: s, slideIndex: i, position: exercisePosition });
         continue;
       }
 
       // Standalone exercise — emit a single row.
       if (circuitGroup) { items.push(circuitGroup); circuitGroup = null; }
-      items.push({ kind: 'single', slide: s, slideIndex: i });
+      items.push({ kind: 'single', slide: s, slideIndex: i, position: exercisePosition });
     }
     if (circuitGroup) items.push(circuitGroup);
 
@@ -378,21 +395,45 @@
 
   function itemToHTML(item) {
     if (item.kind === 'rest') return restRowHTML(item.slide, item.slideIndex);
-    if (item.kind === 'single') return exerciseRowHTML(item.slide, item.slideIndex);
+    if (item.kind === 'single') {
+      return exerciseRowHTML(item.slide, item.slideIndex, { position: item.position });
+    }
     if (item.kind === 'circuit') return circuitGroupHTML(item);
     return '';
   }
 
-  // Hotfix round 2 — Fix 3 — row index numerals removed. Studio's
-  // auto-naming gives default-named exercises labels like "Exercise 1",
-  // "Exercise 2" so the position is already part of the name when the
-  // practitioner hasn't renamed; when they have renamed (e.g. "Goblet
-  // squat") the label is just the name and we don't second-guess the
-  // practitioner. The `numberFor` closure + `.lobby-info-num` /
-  // `.lobby-info-titlebar` chrome from PR 234 are gone.
+  // Hotfix round 3 — Fix B — two-column gutter layout for in-circuit
+  // rows. PR 235 used absolute-positioned `::before` / `::after` pseudo-
+  // elements at `left: 8px` which got covered by the active-row coral
+  // border (correct UX — coral border on focused row is intentional)
+  // AND by stacking-context bugs that caused the rail to vanish after
+  // the first row. Replacement: real two-column flex layout per row,
+  // with a fixed-width `.lobby-row-gutter` column that owns the rail
+  // pieces and a `.lobby-row-content` column that carries the existing
+  // hero + info card. The rail is rendered as <span> children of the
+  // gutter (not pseudo-elements) so it sits OUTSIDE the card's border
+  // and can never be covered by a stacking context above it.
+  //
+  // Hotfix round 3 — Fix C — default-name fallback. Studio doesn't
+  // persist a default name (the factory at exercise_capture.dart:416
+  // leaves `name` as null). When `slide.name` is null/empty, synthesise
+  // "Exercise N" from the position counter the renderList loop
+  // maintains. Custom-named exercises render their name as-is (no
+  // number; trust the practitioner). Position counts de-duplicated
+  // non-rest exercises and is shared across standalones + circuits.
   function exerciseRowHTML(slide, slideIndex, _opts) {
     const escape = api.escapeHTML;
-    const name = escape(slide.name || `Exercise`);
+    const opts = _opts || {};
+
+    // Default-name fallback: if the practitioner didn't rename the
+    // exercise, the cloud row has `name: null` (Studio never persists
+    // an "Exercise N" string). Synthesise one from the position.
+    const rawName = (slide.name || '').trim();
+    const displayName = rawName
+      ? rawName
+      : (opts.position ? `Exercise ${opts.position}` : 'Exercise');
+    const name = escape(displayName);
+
     const dose = buildDoseLine(slide);
     const notes = (slide.notes || '').trim();
     const heroOffset = pickHeroOffset(slide);
@@ -408,20 +449,32 @@
 
     // `last` flag is supplied by `circuitGroupHTML` for the final in-
     // circuit row so the rail piece can clamp at 50% to form an L corner.
-    const isLast = !!(_opts && _opts.last);
+    const isLast = !!opts.last;
     const lastClass = isLast ? ' last' : '';
 
+    // Two-column structure: gutter on the left for the rail (only
+    // rendered for in-circuit rows; circuitGroupHTML rewrites the
+    // outer <li> class to add `in-circuit`, then CSS wakes up the
+    // gutter children). Standalone rows still render the gutter span
+    // markup but CSS hides it; this keeps the row HTML uniform so
+    // promotion to in-circuit is a class-only swap.
     return `
       <li class="lobby-row${lastClass}" role="listitem"
           data-slide-index="${slideIndex}"
           data-id="${escape(slide.id || '')}">
-        <div class="lobby-hero" data-hero-target>
-          ${heroHTML}
+        <div class="lobby-row-gutter" aria-hidden="true">
+          <span class="lobby-row-gutter-rail"></span>
+          <span class="lobby-row-gutter-connector"></span>
         </div>
-        <div class="lobby-info">
-          <h3 class="lobby-info-name">${name}</h3>
-          ${dose ? `<p class="lobby-info-dose">${escape(dose)}</p>` : ''}
-          ${notes ? `<button type="button" class="lobby-info-notes" aria-expanded="false" data-notes-toggle>${escape(notes)}</button>` : ''}
+        <div class="lobby-row-content">
+          <div class="lobby-hero" data-hero-target>
+            ${heroHTML}
+          </div>
+          <div class="lobby-info">
+            <h3 class="lobby-info-name">${name}</h3>
+            ${dose ? `<p class="lobby-info-dose">${escape(dose)}</p>` : ''}
+            ${notes ? `<button type="button" class="lobby-info-notes" aria-expanded="false" data-notes-toggle>${escape(notes)}</button>` : ''}
+          </div>
         </div>
       </li>
     `;
@@ -432,35 +485,49 @@
     // Wave 5 lobby fixes — rename "Breather" → "Rest" (Carl): plan-level
     // rests are explicit "Rest" exercises, distinct from per-set
     // breathers that appear in the dose-line as "30s rest".
+    //
+    // Hotfix round 3 — Fix B — same two-column shape as exerciseRowHTML
+    // so a rest-inside-circuit row gets a rail piece in the gutter and
+    // the label in the content column. Standalone rests collapse the
+    // gutter via CSS (no `in-circuit` class).
     return `
       <li class="lobby-row is-rest" role="listitem"
           data-slide-index="${slideIndex}"
           data-id="${api.escapeHTML(slide.id || '')}">
-        <span class="lobby-rest-label">Rest · ${seconds}s</span>
+        <div class="lobby-row-gutter" aria-hidden="true">
+          <span class="lobby-row-gutter-rail"></span>
+          <span class="lobby-row-gutter-connector"></span>
+        </div>
+        <div class="lobby-row-content">
+          <span class="lobby-rest-label">Rest · ${seconds}s</span>
+        </div>
       </li>
     `;
   }
 
   function circuitGroupHTML(group) {
     const escape = api.escapeHTML;
-    // Hotfix round 2 — Fix 2 — circuit chrome.
+    // Hotfix round 3 — Fix B — circuit chrome rebuilt around a real
+    // two-column layout per row. The rail now lives in a dedicated
+    // `.lobby-row-gutter` column (a real flex child) instead of an
+    // absolutely-positioned `::before` pseudo-element.
     //
-    // Container: now transparent (no coral backdrop / no border). All
+    // Why: PR 235's pseudo-element rail was being covered by the
+    // active-row's coral border (intentional UX — coral border on the
+    // focused row is correct) AND vanished after the first row due to
+    // a stacking-context bug. With a real column, the rail sits in its
+    // own layout slot OUTSIDE the card's bounding box, so the active
+    // row's border simply wraps around its content; nothing covers
+    // the rail.
+    //
+    // Container: still transparent (no coral backdrop / no border). All
     // grouping is conveyed visually by the coral tree-branch rail —
     // header rail piece + per-row connectors that concatenate into a
     // single continuous line, with an └ corner closing the last row.
     //
+    // The header gets the same two-column treatment (gutter + content).
+    //
     // Cycles chip: `×3` only — no "ROUNDS" suffix.
-    //
-    // The rail itself is composed in CSS via pseudo-elements:
-    //   .circuit-header::before   vertical rail piece (centre → bottom)
-    //   .circuit-header::after    horizontal stub (left:8 → label)
-    //   .ex-row.in-circuit::before   vertical rail piece (top → bottom)
-    //   .ex-row.in-circuit::after    horizontal connector (left:8 → row)
-    //   .ex-row.in-circuit.last::before clamps at 50% → L corner
-    //
-    // The container has NO rail of its own, so the rail naturally ends
-    // at the last row's centre without any JS measurement.
     const labelText = group.circuitName
       ? group.circuitName
       : 'Circuit';
@@ -473,7 +540,7 @@
       // when a circuit ends on a rest (uncommon, but possible).
       const html = r.isRest
         ? restRowHTML(r.slide, r.slideIndex)
-        : exerciseRowHTML(r.slide, r.slideIndex, { last: isLast });
+        : exerciseRowHTML(r.slide, r.slideIndex, { last: isLast, position: r.position });
       // Mark every in-circuit row with `is-circuit` (legacy hook) AND
       // `in-circuit` (mockup-spec alias). For rest rows, also append
       // `last` directly (restRowHTML doesn't take an opts arg).
@@ -486,8 +553,14 @@
     return `
       <li class="lobby-circuit-group" data-circuit="${escape(group.circuitId || '')}">
         <div class="lobby-circuit-header">
-          <span class="lobby-circuit-header-label">${escape(labelText)}</span>
-          <span class="lobby-circuit-header-cycles" aria-label="${escape(group.rounds || 1)} rounds">${escape(cyclesText)}</span>
+          <div class="lobby-circuit-header-gutter" aria-hidden="true">
+            <span class="lobby-circuit-header-gutter-rail"></span>
+            <span class="lobby-circuit-header-gutter-connector"></span>
+          </div>
+          <div class="lobby-circuit-header-content">
+            <span class="lobby-circuit-header-label">${escape(labelText)}</span>
+            <span class="lobby-circuit-header-cycles" aria-label="${escape(group.rounds || 1)} rounds">${escape(cyclesText)}</span>
+          </div>
         </div>
         ${rows}
       </li>
@@ -811,6 +884,34 @@
     if (!scrollContainer) return;
     const rows = $lobbyList.querySelectorAll('.lobby-row[data-slide-index]');
     if (!rows.length) return;
+
+    // Hotfix round 3 — Fix E — scroll-bottom edge case for the last
+    // row. The nearest-to-centre reducer below works for every row
+    // except the last: at scroll-bottom there's no more scroll left
+    // to bring the last row's centre up to viewport centre, so its
+    // distance to centre stays > some interior row's distance and the
+    // last pill never lights up. Detection: scroll position is within
+    // ~4px of maxScrollTop (the floor).
+    const atBottom = (scrollContainer.scrollTop + scrollContainer.clientHeight)
+                     >= (scrollContainer.scrollHeight - 4);
+    if (atBottom) {
+      // Pick the last row that's at all visible (any vertical overlap
+      // with the container). Falls back to the very last row in the
+      // list if nothing intersects (degenerate empty-scroll case).
+      const rootRectBottom = scrollContainer.getBoundingClientRect();
+      let lastVisible = null;
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const rect = rows[i].getBoundingClientRect();
+        if (rect.bottom < rootRectBottom.top || rect.top > rootRectBottom.bottom) {
+          continue;
+        }
+        lastVisible = rows[i];
+        break;
+      }
+      const target = lastVisible || rows[rows.length - 1];
+      if (target) setActiveRow(target);
+      return;
+    }
 
     // Viewport centre of the scroll container, in viewport coordinates.
     // getBoundingClientRect is robust against sticky / fixed offsets.

@@ -2713,19 +2713,32 @@ body.is-fullscreen .playpause-toggle {
   letter-spacing: 0.02em;
 }
 
-/* Tiny build marker beneath the date stamp. Surfaces both the bundle
-   version (compile-time string) and the active SW cache label, so QA
-   can spot a stale browser shell at a glance. Both values match in
-   normal operation; divergence means the SW is on a different cache
-   than the JS that just rendered. */
+/* Hotfix round 3 — Fix D — build-marker chip relocated to top-left
+   fixed corner. Surfaces plan version + bundle version + active SW
+   cache label so QA can spot a stale browser shell at a glance. Pinned
+   absolutely to #lobby (which is itself position: fixed, inset: 0).
+   z-index 51 sits above .lobby-matrix's z-index 5 (sticky strip)
+   without competing with #lobby's own z-index 50 surface. The chip is
+   a sibling of .lobby-inner so it never participates in the meta
+   layout's vertical flow. When Start is tapped #lobby is hidden, so
+   the chip disappears with it — no extra hide logic needed.
+   text-decoration: none + pointer-events: none keeps it visually
+   present but inert (it's a marker, not a control). */
 .lobby-meta-version {
-  display: block;
-  margin-top: 4px;
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  z-index: 51;
   font-family: var(--f-mono);
   font-size: 10px;
   color: var(--c-ink-muted);
   opacity: 0.55;
   letter-spacing: 0.02em;
+  pointer-events: none;
+  /* Respect notched-device safe area — push down by the device's safe
+     top inset. #lobby already adds padding-top: var(--safe-top), so
+     the chip would otherwise overlap the status bar on landscape iOS. */
+  padding-top: var(--safe-top);
 }
 
 /* Pill matrix coupling ---------------------------------------------------- */
@@ -2811,6 +2824,25 @@ body.is-fullscreen .playpause-toggle {
   display: contents;
 }
 
+/* Hotfix round 3 — Fix A — REAL strip of the coral backdrop on the
+   lobby pill matrix.
+   ROOT CAUSE of the still-visible coral wash on Carl's iPhone screenshot
+   after PR 235: the deck's `.matrix-circuit-row::before` rule (line ~429)
+   paints a coral-tint band behind every circuit row via an absolutely-
+   positioned pseudo-element. PR 235 only zeroed the parent `.matrix-circuit`
+   background — it never touched the per-row `::before` painter.
+   Even with `display: contents` on the row, Safari still renders the
+   row's `::before` pseudo (the spec leaves contents-element pseudos
+   underspecified; iOS Safari paints them). Explicitly disable the
+   pseudo in the lobby context so the matrix sits on the dark surface
+   with only the pills themselves carrying coral. */
+.lobby-matrix-inner .matrix-circuit-row::before,
+.lobby-matrix-inner .matrix-circuit-row::after {
+  content: none;
+  background: transparent;
+  display: none;
+}
+
 /* Hero list --------------------------------------------------------------- */
 .lobby-list {
   list-style: none;
@@ -2822,6 +2854,33 @@ body.is-fullscreen .playpause-toggle {
 }
 
 .lobby-row {
+  /* Hotfix round 3 — Fix B — two-column gutter layout. The row is now
+     a flex container with a fixed-width left gutter (rail column) and
+     a flex-1 content column. For STANDALONE rows the gutter has zero
+     width (CSS rule below collapses it) so the row visually looks
+     identical to the pre-fix v3 design. For IN-CIRCUIT rows the
+     gutter expands to 22px and renders the rail piece + horizontal
+     connector — both as real children, NOT pseudo-elements, so they
+     sit OUTSIDE the row's bounding box and can never be covered by
+     the active-row coral border or any other stacking context. */
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  transition: none;
+}
+
+/* Standalone rows — gutter collapses to zero, content gets the card
+   chrome (background, border, padding). The card itself becomes the
+   focusable / active-state target. */
+.lobby-row > .lobby-row-gutter {
+  display: none;
+}
+.lobby-row > .lobby-row-content {
+  flex: 1 1 auto;
   display: flex;
   align-items: stretch;
   gap: 12px;
@@ -2829,31 +2888,35 @@ body.is-fullscreen .playpause-toggle {
   border: 1px solid var(--c-surface-border);
   border-radius: var(--radius-lg);
   padding: 10px;
+  min-width: 0;
   transition: border-color var(--dur-fast) var(--ease-standard);
 }
 
 /* Hotfix round 2 — Fix 2(a) — strip the coral backdrop on circuit
    rows. The visual grouping is conveyed by the coral tree-branch rail
-   (see `.ex-row.in-circuit::before` / `::after` further down), not a
-   tinted row background. The legacy `.lobby-row.is-circuit` selector
-   stays no-op'd here for clarity; the rail-rendering hooks live on
-   the alias `.in-circuit` so both classes can be present without any
-   coral fill leaking back. */
-.lobby-row.is-circuit {
+   (the gutter column on each in-circuit row), not a tinted row
+   background. The legacy `.lobby-row.is-circuit` selector stays
+   no-op'd here for clarity; the rail-rendering hooks live on the
+   alias `.in-circuit` so both classes can be present without any
+   coral fill leaking back.
+   Hotfix round 3 — Fix B — chrome moved from `.lobby-row` to
+   `.lobby-row-content` (the inner card). All visual states
+   (active-pill border, rest tint) target the content column. */
+.lobby-row.is-circuit > .lobby-row-content {
   background: var(--c-surface-base);
   border-color: var(--c-surface-border);
 }
 
-.lobby-row.is-rest {
+.lobby-row.is-rest > .lobby-row-content {
   background: var(--c-rest-tint-bg);
   border-color: var(--c-rest-tint-border);
   align-items: center;
   padding: 14px 16px;
 }
 
-.lobby-row.is-active-pill {
+.lobby-row.is-active-pill > .lobby-row-content {
   /* Visual coupling — lifts when the matched pill becomes the matrix
-     "active" pill via IntersectionObserver. */
+     "active" pill via the scroll reducer. */
   border-color: var(--c-brand);
   box-shadow: 0 0 0 1px var(--c-brand);
 }
@@ -3004,45 +3067,62 @@ body.is-fullscreen .playpause-toggle {
   list-style: none;
 }
 
+/* Hotfix round 3 — Fix B — circuit header now uses the same two-column
+   structure as in-circuit rows. The gutter column owns the rail piece
+   (header centre → bottom) + horizontal connector. The content column
+   carries the label + cycles chip. This keeps the rail OUTSIDE the
+   label's bounding box so it can never be covered by a stacking
+   context above the header. */
 .lobby-circuit-header {
-  position: relative;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: stretch;
+  gap: 0;
   height: 32px;
-  /* Clear the rail (3 px at left:8) + the 14 px horizontal stub +
-     breathing room before the label. */
-  padding: 0 4px 0 26px;
   margin-bottom: 0;
   border: 0;
   background: transparent;
 }
 
-/* Vertical rail piece — top half from header centre → bottom edge,
-   so it concatenates with the first in-circuit row's full-height
-   piece below. */
-.lobby-circuit-header::before {
-  content: '';
+.lobby-circuit-header-gutter {
+  flex: 0 0 22px;
+  position: relative;
+}
+
+/* Vertical rail piece — header centre → bottom edge, so it concatenates
+   with the first in-circuit row's full-height piece below. Pinned to
+   the gutter's RIGHT edge (left: 11px = 22 - 8 - 3 ≈ centre-right) so
+   the rail sits just OUTSIDE the card column's left edge. */
+.lobby-circuit-header-gutter-rail {
   position: absolute;
-  left: 8px;
+  left: 11px;
   top: 50%;
   bottom: 0;
   width: 3px;
   background: var(--c-coral-rail);
+  pointer-events: none;
 }
 
-/* Horizontal stub — joins the rail to the label content. 14 × 3,
-   tucked at the row's vertical centre. */
-.lobby-circuit-header::after {
-  content: '';
+/* Horizontal stub — joins the rail to the label content (header
+   bridges from rail right-edge into the content column). */
+.lobby-circuit-header-gutter-connector {
   position: absolute;
-  left: 8px;
+  left: 11px;
   top: 50%;
   transform: translateY(-50%);
-  width: 14px;
+  width: 11px;
   height: 3px;
   background: var(--c-coral-rail);
   border-radius: 0 2px 2px 0;
+  pointer-events: none;
+}
+
+.lobby-circuit-header-content {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  min-width: 0;
 }
 
 .lobby-circuit-header-label {
@@ -3074,51 +3154,62 @@ body.is-fullscreen .playpause-toggle {
   color: var(--c-brand);
 }
 
-/* In-circuit row — neutral surface, padded to clear the rail. The
-   `is-circuit` class is the legacy hook (kept for backward compat);
-   `in-circuit` is the alias the mockup uses. Both apply the same
-   chrome here. */
-.lobby-circuit-group .lobby-row,
-.lobby-row.in-circuit {
+/* Hotfix round 3 — Fix B — in-circuit rows: the rail-rendering hooks
+   are now real elements inside `.lobby-row-gutter`, NOT pseudo-elements
+   on `.lobby-row`. CSS reveals the gutter column on `.in-circuit` rows
+   and renders the rail pieces. The `is-circuit` class is the legacy
+   hook (kept for backward compat); `in-circuit` is the alias the
+   mockup uses. Both apply the same chrome here. */
+.lobby-row.in-circuit > .lobby-row-gutter,
+.lobby-row.is-circuit > .lobby-row-gutter {
+  display: block;
+  flex: 0 0 22px;
   position: relative;
-  background: var(--c-surface-base);
-  border-color: var(--c-surface-border);
-  padding-left: 26px;
-  /* Collapse adjacent borders so the vertical rail reads as one
-     continuous coral line through the group. */
-  margin-top: -1px;
 }
-.lobby-circuit-group .lobby-row:first-child,
-.lobby-row.in-circuit:first-child {
-  margin-top: 0;
+
+/* Collapse adjacent borders on the inner content card so the rail reads
+   as one continuous coral line through the group. The `:first-child`
+   exception keeps the top edge clean against the header. */
+.lobby-row.in-circuit + .lobby-row.in-circuit > .lobby-row-content,
+.lobby-row.is-circuit + .lobby-row.is-circuit > .lobby-row-content {
+  margin-top: -1px;
 }
 
 /* Vertical rail piece for in-circuit rows — top → bottom by default;
    `last` clamps to 50% so the rail terminates at the row's centre,
-   forming a clean └ corner with the horizontal connector. */
-.lobby-row.in-circuit::before {
-  content: '';
+   forming a clean └ corner with the horizontal connector. Pinned to
+   the gutter's right edge (left: 11px) so the line sits just OUTSIDE
+   the content card's left edge — Carl's directive: "the vertical line
+   must run outside the left edge of the exercise cards". */
+.lobby-row.in-circuit > .lobby-row-gutter > .lobby-row-gutter-rail,
+.lobby-row.is-circuit > .lobby-row-gutter > .lobby-row-gutter-rail {
+  display: block;
   position: absolute;
-  left: 8px;
+  left: 11px;
   top: 0;
   bottom: 0;
   width: 3px;
   background: var(--c-coral-rail);
   pointer-events: none;
 }
-.lobby-row.in-circuit.last::before {
+.lobby-row.in-circuit.last > .lobby-row-gutter > .lobby-row-gutter-rail,
+.lobby-row.is-circuit.last > .lobby-row-gutter > .lobby-row-gutter-rail {
   bottom: auto;
   height: 50%;
 }
 
-/* Horizontal connector — 14 × 3 stub at the row's vertical centre. */
-.lobby-row.in-circuit::after {
-  content: '';
+/* Horizontal connector — 11 × 3 stub at the row's vertical centre,
+   bridging from the rail's right edge into the content card's left
+   edge. Width 11 = gutter width 22 − rail offset 11 so it lands flush
+   at the card border. */
+.lobby-row.in-circuit > .lobby-row-gutter > .lobby-row-gutter-connector,
+.lobby-row.is-circuit > .lobby-row-gutter > .lobby-row-gutter-connector {
+  display: block;
   position: absolute;
-  left: 8px;
+  left: 11px;
   top: 50%;
   transform: translateY(-50%);
-  width: 14px;
+  width: 11px;
   height: 3px;
   background: var(--c-coral-rail);
   border-radius: 0 2px 2px 0;
@@ -3344,7 +3435,7 @@ body.is-fullscreen .playpause-toggle {
 
 /* Reduced motion — disable shimmer + transitions on hover/border. */
 @media (prefers-reduced-motion: reduce) {
-  .lobby-row,
+  .lobby-row > .lobby-row-content,
   .lobby-treatment-row > button,
   .lobby-start-btn,
   .lobby-self-grant-btn { transition: none; }
