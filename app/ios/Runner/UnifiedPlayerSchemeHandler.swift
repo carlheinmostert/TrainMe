@@ -12,6 +12,7 @@ import WebKit
 ///   `homefit-local://plan/`                       → index.html (Flutter asset)
 ///   `homefit-local://plan/app.js`                 → app.js     (Flutter asset)
 ///   `homefit-local://plan/api.js`                 → api.js     (Flutter asset)
+///   `homefit-local://plan/lobby.js`               → lobby.js   (Flutter asset)
 ///   `homefit-local://plan/styles.css`             → styles.css (Flutter asset)
 ///   `homefit-local://plan/api/plan/<planId>`      → plan JSON  (Dart method channel)
 ///   `homefit-local://plan/local/<exerciseId>/line`    → converted / raw file
@@ -103,6 +104,10 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
     }
     if path == "api.js" {
       respondWithAsset(urlSchemeTask, assetName: "api.js", contentType: "application/javascript; charset=utf-8")
+      return
+    }
+    if path == "lobby.js" {
+      respondWithAsset(urlSchemeTask, assetName: "lobby.js", contentType: "application/javascript; charset=utf-8")
       return
     }
     if path == "styles.css" {
