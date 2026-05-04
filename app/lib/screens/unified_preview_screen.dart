@@ -303,30 +303,30 @@ class _UnifiedPreviewScreenState extends State<UnifiedPreviewScreen> {
             const SizedBox.expand(),
           // Top-left back-out chip. Same circular dark-pill styling as
           // the in-WebView right-rail chrome so the practitioner reads
-          // it as preview chrome, not a system bar.
+          // it as preview chrome, not a system bar. Flush in the
+          // top-left corner against the status-bar inset — no extra
+          // padding (SafeArea was previously doubling the inset).
           Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            left: 8,
-            child: SafeArea(
-              child: Material(
-                color: Colors.black.withValues(alpha: 0.55),
-                shape: const CircleBorder(),
-                clipBehavior: Clip.antiAlias,
-                child: IconButton(
-                  iconSize: 20,
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.all(8),
-                  constraints: const BoxConstraints.tightFor(
-                    width: 40,
-                    height: 40,
-                  ),
-                  tooltip: 'Close preview',
-                  icon: const Icon(
-                    Icons.close_rounded,
-                    color: AppColors.primary,
-                  ),
-                  onPressed: () => Navigator.of(context).maybePop(),
+            top: MediaQuery.of(context).padding.top,
+            left: 0,
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.55),
+              shape: const CircleBorder(),
+              clipBehavior: Clip.antiAlias,
+              child: IconButton(
+                iconSize: 20,
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(8),
+                constraints: const BoxConstraints.tightFor(
+                  width: 40,
+                  height: 40,
                 ),
+                tooltip: 'Close preview',
+                icon: const Icon(
+                  Icons.close_rounded,
+                  color: AppColors.primary,
+                ),
+                onPressed: () => Navigator.of(context).maybePop(),
               ),
             ),
           ),
