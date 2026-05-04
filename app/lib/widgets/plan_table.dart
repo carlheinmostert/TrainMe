@@ -882,7 +882,7 @@ class _PlanTableState extends State<PlanTable> {
 ///
 /// Renders a horizontal row of 3 pills:
 ///
-///   `[ Per rep ]  [ End of set ✓ ]  [ End ]`
+///   `[ Per rep ]  [ On last rep ✓ ]  [ On last set rep ]`
 ///
 /// Selected pill: coral background (`AppColors.primary`) + white text.
 /// Unselected: `AppColors.surfaceRaised` + muted text + thin border.
@@ -894,6 +894,12 @@ class _PlanTableState extends State<PlanTable> {
 /// signal that the choice doesn't currently affect duration.
 ///
 /// Wraps to a second line on narrow widths via [Wrap].
+///
+/// Round 7.1 wording revision (Carl 2026-05-04): sentence-case labels
+/// `On last rep` (each set's last rep) and `On last set rep` (the last
+/// set's last rep) — mirrors the web-player's all-lowercase parens
+/// `(on last rep)` / `(on last set rep)`. Prior labels `End of set` /
+/// `End` were ambiguous about which "end" was meant.
 class _HoldPositionPills extends StatelessWidget {
   final HoldPosition value;
   final bool isDimmed;
@@ -909,8 +915,8 @@ class _HoldPositionPills extends StatelessWidget {
   Widget build(BuildContext context) {
     final pills = const [
       (HoldPosition.perRep, 'Per rep'),
-      (HoldPosition.endOfSet, 'End of set'),
-      (HoldPosition.endOfExercise, 'End'),
+      (HoldPosition.endOfSet, 'On last rep'),
+      (HoldPosition.endOfExercise, 'On last set rep'),
     ];
     return Opacity(
       opacity: isDimmed ? 0.5 : 1.0,
