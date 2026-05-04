@@ -152,7 +152,18 @@
         while (arr.length && now - arr[0] > 1000) arr.shift();
         if (arr.length > 0) summary[name] = arr.length;
       });
-      // Only log when there's activity to surface.
+      // v49 — include the live <video> element count in the lobby. Under
+      // the v48 structural fix, this should always be 0 or 1. If it's
+      // ever 2+, the swap path leaked a ghost video element somewhere.
+      try {
+        if ($lobbyList) {
+          const videoCount = $lobbyList.querySelectorAll('video').length;
+          summary.videos = videoCount;
+        }
+      } catch (_) {}
+      // Only log when there's activity to surface OR when the video
+      // count is non-zero (so we always have a video-count signal when
+      // the lobby is active).
       const keys = Object.keys(summary);
       if (keys.length === 0) return;
       try {
