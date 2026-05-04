@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-04 — lobby name fallback + rail bleed + wider gutter (round 5)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-04 · web-player lobby polish round 5</div>
+    <h1>Device QA — circuit name fallback + rail bleed + wider gutter</h1>
+    <p class="lede">
+      <strong>Scope:</strong> three follow-ups Carl surfaced after rounds 3 + 4.
+      <br><br>
+      <strong>Fix 1 — circuit name fallback.</strong> Round 3 fixed exercise default-name display (synthesises <code>Exercise N</code> when <code>name</code> is null). The same root cause exists for circuit names: when the practitioner hasn&apos;t customised, <code>plan.circuit_names[circuit_id]</code> is null and the lobby fell back to a generic &ldquo;Circuit&rdquo; label. Studio synthesises <code>Circuit A</code> / <code>Circuit B</code> by letter via <code>_circuitLetter(circuitId)</code> &mdash; mirror that in the lobby.
+      <br><br>
+      <strong>Fix 2 — rail bleed.</strong> The vertical rail had a sub-pixel break at row boundaries. Each rail piece now extends ~5px above and below its own row box so adjacent pieces overlap into the gap; the last row&apos;s rail still terminates at vertical centre to form the L corner.
+      <br><br>
+      <strong>Fix 3 — wider gutter.</strong> Gutter column 22px &rarr; <strong>56px</strong> (~3&times;), rail moved from <code>left:11px</code> to <code>left:24px</code> within the gutter, and the connector tip stops <strong>~6px before the card border</strong> (~16px breathing once you count card padding). Net effect: rail+connector cluster sits indented from the page edge with clear breathing space on both sides &mdash; nothing touches the card.
+      <br><br>
+      <strong>Bumps:</strong> <code>PLAYER_VERSION</code> &rarr; <code>v41-lobby-name-and-rail-polish</code>; <code>CACHE_NAME</code> &rarr; <code>homefit-player-v41-lobby-name-and-rail-polish</code>.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>This PR merged to main + Vercel auto-deploy of <code>session.homefit.studio</code> live.</li>
+        <li>Hard-refresh (kill + reopen Safari) on iPhone CHM so the new SW takes over.</li>
+        <li>Test plan A &mdash; one circuit, no custom name (just Studio defaults).</li>
+        <li>Test plan B &mdash; two circuits, neither custom-named.</li>
+        <li>Test plan C &mdash; one circuit with a custom name like &ldquo;Lower body&rdquo;.</li>
+      </ul>
+    </div>
+
+    <h2>Fix 1 — circuit name fallback</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>One circuit, no custom name &rarr; <code>CIRCUIT A</code>.</strong> Open Plan A in the lobby. <strong>Expected:</strong> the circuit header reads <code>CIRCUIT A</code> (uppercase coral, same chrome as before). No generic &ldquo;CIRCUIT&rdquo; without a letter.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Two circuits, neither named &rarr; <code>CIRCUIT A</code> + <code>CIRCUIT B</code>.</strong> Open Plan B. <strong>Expected:</strong> the FIRST circuit (in plan order, top-down) is <code>CIRCUIT A</code>, the SECOND is <code>CIRCUIT B</code>. The letters mirror Studio&apos;s editor.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Custom name &ldquo;Lower body&rdquo; preserved.</strong> Open Plan C. <strong>Expected:</strong> the circuit header reads <code>LOWER BODY</code> (uppercased like before). Custom names are honoured as-is &mdash; the letter fallback only fires when the practitioner has NOT customised.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Mixed plan: custom + default keep their respective values.</strong> Use a plan with two circuits where ONE is custom-named (&ldquo;Lower body&rdquo;) and the OTHER is left default. <strong>Expected:</strong> the custom one renders <code>LOWER BODY</code>; the default one renders <code>CIRCUIT B</code> (the second by appearance order, since the named one is first). Letters always reflect appearance order, not custom-name presence.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Fix 2 — rail bleed (no gaps at row boundaries)</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Vertical rail is visually continuous through every in-circuit row.</strong> Open any plan with a circuit of 3+ exercises. Run your eye down the coral rail from the header to the last row. <strong>Expected:</strong> one unbroken coral line. No tiny breaks / sub-pixel gaps where one row ends and the next begins.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Last row&apos;s rail still forms a clean L at vertical centre.</strong> The very last in-circuit row terminates at its row centre &mdash; the rail stops there, and the horizontal connector lands at that same height to form the &#x2514; corner. No rail extending past the centre on the last row.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Fix 3 — wider gutter geometry</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Gutter is visibly wider than rounds 3 + 4.</strong> Compare to the round-3 / round-4 lobby (you can use the round-3 test script&apos;s screenshots / your memory). <strong>Expected:</strong> the rail+connector cluster sits noticeably indented from the page&apos;s left edge &mdash; not crammed against it. Card width still feels reasonable, no obvious narrowing of the card content.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Connector tip doesn&apos;t touch the card &mdash; visible breathing.</strong> On any in-circuit row, look at the horizontal connector that joins the vertical rail to the card. <strong>Expected:</strong> there&apos;s a clearly visible gap between the connector&apos;s right tip and the card&apos;s left edge. Not flush; not touching.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Build chip + regression</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Build chip reads the new slug.</strong> The top-left fixed chip on the lobby reads (as a published plan) <code>plan v{N} &middot; web-player v41-lobby-name-and-rail-polish &middot; cache v41-lobby-name-and-rail-polish</code>. Bundle and cache slugs converge after the new SW takes over.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Standalone (non-circuit) rows render unchanged.</strong> A plan-level standalone exercise row (NOT inside any circuit) is byte-stable vs. round 3: gutter column collapsed (no rail / no connector visible), card chrome the same, hero + info layout unchanged. Plan-level rest rows (between circuits) likewise unchanged.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Bug? Reply with the failing item number(s) plus any notes; I&apos;ll triage. <code>10 items</code> across 4 sections.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'lobby-name-and-rail.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({items: state, ts: Date.now()})
+        }).catch(function() { /* offline; localStorage suffices */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+          }
+          save();
+        });
+
+        if (noteInput) {
+          noteInput.addEventListener('input', function() {
+            var status = li.getAttribute('data-status') || '';
+            if (!status) return;
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
