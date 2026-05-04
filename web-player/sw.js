@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v49-lobby-video-count-hb';
+const CACHE_NAME = 'homefit-player-v50-deck-no-preload-on-lobby';
 
 // App shell files — always cached
 const APP_SHELL = [
