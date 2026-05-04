@@ -518,7 +518,8 @@ function onVisibilityChange() {
               setPhase = 'set';
               const nextSet = playSets[currentSetIndex];
               const nextIsLast = currentSetIndex >= playSets.length - 1;
-              setPhaseRemaining = calculatePerSetSeconds(nextSet, slide, nextIsLast);
+              // Wave 41 fix — physical-only; breather lives in 'rest' phase.
+              setPhaseRemaining = calculatePhysicalSetSeconds(nextSet, slide, nextIsLast);
             } else {
               // Exhausted all sets — clamp
               setPhaseRemaining = 0;
@@ -531,7 +532,8 @@ function onVisibilityChange() {
               currentSetIndex++;
               const nextSet = playSets[currentSetIndex];
               const nextIsLast = currentSetIndex >= playSets.length - 1;
-              setPhaseRemaining = calculatePerSetSeconds(nextSet, slide, nextIsLast);
+              // Wave 41 fix — physical-only; breather lives in 'rest' phase.
+              setPhaseRemaining = calculatePhysicalSetSeconds(nextSet, slide, nextIsLast);
             } else {
               break;
             }
@@ -2386,8 +2388,10 @@ function paintActiveRepBlock() {
     const breatherForActive = activeSet ? (activeSet.breather_seconds_after || 0) : 0;
     const physicalSet = Math.max(1, perSet - breatherForActive);
     if (totalReps > 0 && physicalSet > 0) {
-      const elapsedInSet = Math.max(0, perSet - setPhaseRemaining);
-      const elapsedInPhysical = Math.min(physicalSet, elapsedInSet);
+      // Wave 41 fix — setPhaseRemaining now counts the physical window
+      // only (breather lives in the 'rest' phase). Elapsed-in-physical
+      // is therefore physicalSet - setPhaseRemaining directly.
+      const elapsedInPhysical = Math.max(0, Math.min(physicalSet, physicalSet - setPhaseRemaining));
       const perRep = physicalSet / totalReps;
       repsInSet = Math.min(totalReps, Math.floor(elapsedInPhysical / perRep));
       const intraRep = elapsedInPhysical - (repsInSet * perRep);
@@ -2871,6 +2875,39 @@ function calculatePerSetSeconds(setOrSlide, maybeSlide, isLastSetInExercise) {
 }
 
 /**
+ * Wave 41 — physical (rep-fill) portion of a set, excluding the trailing
+ * breather. Used by the set/rest state machine to size the 'set' phase
+ * correctly; the breather gets its own 'rest' phase via advanceSetPhase.
+ *
+ * Pre-this-fix: setPhaseRemaining was initialised to the full perSet
+ * (which includes the breather), causing each non-final set to spend
+ * physical + 2×breather in its 'set' phase. Symptom: rep stack fills
+ * to "all reps done" then sits idle for `breather` seconds before the
+ * sage rest block lit up.
+ */
+function calculatePhysicalSetSeconds(setOrSlide, maybeSlide, isLastSetInExercise) {
+  const total = calculatePerSetSeconds(setOrSlide, maybeSlide, isLastSetInExercise);
+  // Resolve the breather the same way calculatePerSetSeconds resolves
+  // the set object — handle both two-arg and single-arg signatures.
+  let set;
+  if (
+    setOrSlide
+    && typeof setOrSlide === 'object'
+    && 'media_type' in setOrSlide
+    && !('breather_seconds_after' in setOrSlide)
+  ) {
+    const slide = setOrSlide;
+    const playSets = playSetsForSlide(slide);
+    const activeIdx = Math.max(0, Math.min(currentSetIndex || 0, playSets.length - 1));
+    set = playSets[activeIdx];
+  } else {
+    set = setOrSlide;
+  }
+  const breather = Math.max(0, (set && set.breather_seconds_after) || 0);
+  return Math.max(1, total - breather);
+}
+
+/**
  * Wave 41 — total duration in seconds for an exercise slide.
  *
  * Rest slides: `slide.rest_seconds` (with sensible 30s fallback when
@@ -3237,7 +3274,10 @@ function beginSetMachineForCurrent() {
   // Wave 43 — the first set is also the last when there's only one
   // play-set on this slide (circuit slides always; pyramids only when
   // they happen to authour a single set).
-  setPhaseRemaining = calculatePerSetSeconds(
+  // Wave 41 fix — setPhaseRemaining sizes the 'set' phase only; the
+  // trailing breather is counted in the subsequent 'rest' phase via
+  // advanceSetPhase. Use physical-only here (perSet minus breather).
+  setPhaseRemaining = calculatePhysicalSetSeconds(
     playSets[0],
     slide,
     playSets.length <= 1,
@@ -3438,7 +3478,8 @@ function advanceSetPhase() {
       setPhase = 'set';
       const nextSet = playSets[currentSetIndex];
       const nextIsLast = currentSetIndex >= playSets.length - 1;
-      setPhaseRemaining = calculatePerSetSeconds(nextSet, slide, nextIsLast);
+      // Wave 41 fix — physical-only; breather is counted in next 'rest' phase.
+      setPhaseRemaining = calculatePhysicalSetSeconds(nextSet, slide, nextIsLast);
       interSetRestForSlide = nextSet.breather_seconds_after || 0;
     }
   } else {
@@ -3450,7 +3491,8 @@ function advanceSetPhase() {
     setPhase = 'set';
     const nextSet = playSets[currentSetIndex];
     const nextIsLast = currentSetIndex >= playSets.length - 1;
-    setPhaseRemaining = calculatePerSetSeconds(nextSet, slide, nextIsLast);
+    // Wave 41 fix — physical-only; breather is counted in next 'rest' phase.
+    setPhaseRemaining = calculatePhysicalSetSeconds(nextSet, slide, nextIsLast);
     interSetRestForSlide = nextSet.breather_seconds_after || 0;
     resumeActiveVideoAfterBreather();
   }
@@ -4885,7 +4927,9 @@ function jumpToRep(setIdx, repIdx) {
 
   currentSetIndex = setIdx;
   setPhase = 'set';
-  setPhaseRemaining = Math.max(0, targetPerSet - elapsedInPhysical);
+  // Wave 41 fix — setPhaseRemaining sizes the 'set' phase only (physical
+  // window). Breather is counted by the subsequent 'rest' phase.
+  setPhaseRemaining = Math.max(0, physicalSet - elapsedInPhysical);
   interSetRestForSlide = breatherForTarget;
 
   const elapsedTotal = _cumulativeSecondsBeforeSet(slide, playSets, setIdx) + elapsedInPhysical;
