@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v49-lobby-video-count-hb';
+const PLAYER_VERSION = 'v50-deck-no-preload-on-lobby';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -1062,10 +1062,19 @@ function renderPlan() {
   // top-stack renderer updateActiveSlideHeader() + updateCardNotes().
   $cardTrack.innerHTML = slides.map((slide, i) => buildCard(slide, i)).join('');
 
-  // Lazy-load videos for the first slide + neighbours. Videos are built
-  // with data-src (not src) to prevent Safari crashing on 46 simultaneous
-  // preload="auto" elements.
-  lazyLoadNearbyVideos(currentIndex);
+  // v50 — DO NOT preload videos at plan-load time. The deck's DOM is
+  // built up-front (every slide gets a <video data-src>) but the user
+  // sees the LOBBY first, not the deck. Preloading current ± 2 here
+  // allocates 3-4 HW decoders before the user has even tapped Start
+  // Workout — and on iOS WKWebView that pushes the deck against the
+  // ~3-4 concurrent-decoder cap, which freezes the WebView mid-scroll
+  // on the lobby. (Diagnostic confirmed: lobby shows 0 videos via the
+  // structural fix, but document.querySelectorAll('video') showed 30
+  // elements with 4 src-loaded — all in deck DOM behind the lobby.)
+  // autoPlayCurrentVideo() calls lazyLoadNearbyVideos() itself when
+  // the workout actually starts, so the first card is ready then.
+  // Videos are still built with data-src + preload="none", so 0 decoders
+  // are allocated until lazyLoadNearbyVideos eventually runs.
 
   // Prime the top-stack header + notes overlay for the first slide.
   updateActiveSlideHeader();
