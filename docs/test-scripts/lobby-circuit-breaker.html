@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA &middot; lobby circuit-breaker diagnostic (v46)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 32px; height: 32px; border-radius: 6px;
+    background: var(--raised); border: 1px solid var(--border);
+    color: var(--text-mute); font-size: 14px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background 120ms, color 120ms, border-color 120ms;
+  }
+  .checklist li .vote button.pass:hover { background: var(--coral-bg); color: var(--coral); border-color: var(--coral); }
+  .checklist li .vote button.fail:hover { background: rgba(239,68,68,0.10); color: #EF4444; border-color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass { background: var(--coral); color: #0B0D11; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .vote button.fail { background: #EF4444; color: #0B0D11; border-color: #EF4444; }
+  .checklist li .num {
+    position: absolute; left: 86px; top: 12px;
+    color: var(--text-dim); font-variant-numeric: tabular-nums;
+    font-weight: 600; font-size: 13px;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .text strong { color: var(--text); }
+  .checklist li .note-row { margin-top: 8px; }
+  .checklist li input.note {
+    width: 100%; background: var(--raised); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; color: var(--text);
+    font: inherit; font-size: 13px;
+  }
+  .checklist li input.note::placeholder { color: var(--text-dim); }
+  .oos {
+    margin-top: 28px; padding: 14px 18px;
+    background: var(--raised); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-mute); font-size: 13px;
+  }
+  .oos h3 {
+    margin: 0 0 6px; color: var(--text); font-size: 14px;
+    font-family: Montserrat, sans-serif; font-weight: 600;
+  }
+  .oos ul { margin: 0; padding-left: 20px; }
+  .oos li { margin: 2px 0; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px;
+    color: var(--coral);
+  }
+  footer {
+    margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">Device QA &middot; iPhone &middot; Lobby circuit-breaker diagnostic (v46)</div>
+    <h1>Lobby circuit-breaker &mdash; surface the rAF / scroll runaway behind the WebView freeze</h1>
+    <p class="lede">
+      PR #249's smooth-scroll fix did NOT resolve the iOS WKWebView lobby
+      freeze. After ~5&ndash;8s of sustained scrolling the WebView still
+      "goes black", the heartbeat console.log dies, no JS errors, no
+      network. A profiler attempt OOM'd. This wave ships a per-callsite
+      <strong>circuit breaker</strong> that aborts + logs whenever an
+      instrumented rAF / setTimeout / scroll-coupled callback exceeds
+      <code>60 calls / 1000ms</code>.
+      <br><br>
+      <strong>9 sites instrumented in <code>web-player/lobby.js</code>:</strong>
+      <code>recomputeActiveRow</code>, <code>setActiveRow</code>,
+      <code>lazyKickVideosNear</code>, <code>scrollRaf</code>,
+      <code>treatmentRaf</code>, <code>popoverOpenRaf</code>,
+      <code>selfGrantRaf</code>, <code>popoverCloseTimeout</code>,
+      <code>heroErrorRetry</code>.
+      <br><br>
+      <strong>Heartbeat:</strong> every 2 seconds the breaker logs
+      <code>[CB-hb] {name1: count, name2: count}</code> for any
+      instrumented name with &gt; 0 calls in the trailing 1s. Visible in
+      Safari Web Inspector even when nothing trips. Wired exactly once
+      inside <code>showLobby()</code>.
+      <br><br>
+      <strong>Trip behaviour:</strong> first call past 60/sec logs
+      <code>[CB] &lt;name&gt; runaway: N calls in last 1000ms &mdash;
+      aborting</code> and bails out. Subsequent dropped calls log once
+      with <code>[CB] &lt;name&gt; suppressed (already tripped)</code>.
+      Auto-rearm clears the trip flag after 5s.
+      <br><br>
+      <strong>SW cache bumped:</strong>
+      <code>homefit-player-v45-lobby-scroll-freeze-hotfix</code> &rarr;
+      <code>homefit-player-v46-lobby-circuit-breaker</code>. Build chip
+      should read <code>web-player v46-lobby-circuit-breaker &middot; cache
+      v46-lobby-circuit-breaker</code> once the new SW takes over.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Pull / hard-refresh <code>session.homefit.studio</code> in mobile Safari (kill app + relaunch) so the new SW activates. Confirm the build-marker chip reads <code>v46-lobby-circuit-breaker</code> on both bundle + cache (divergence = stale SW).</li>
+        <li>Connect iPhone to Mac via USB. Open Safari (desktop) &rarr; Develop &rarr; [Your iPhone] &rarr; <code>session.homefit.studio</code>. Switch to the <strong>Console</strong> tab. This is the only way to see <code>[CB-hb]</code> + <code>[CB] runaway</code> on device.</li>
+        <li>For the WebView path (Workflow Preview): open the Flutter app on your iPhone, drive a session into Workflow Preview, then in desktop Safari Develop &rarr; [iPhone] choose the WebView entry under the Flutter app process.</li>
+        <li>Plan should have at least 8&ndash;10 rows so there's enough scroll runway to provoke the freeze.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Heartbeat is alive</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Lobby loads + heartbeat appears in console.</strong> Open the published session URL (or Workflow Preview) on iPhone and watch the desktop Safari Web Inspector console. <strong>Expected:</strong> within 4 seconds of the lobby rendering, a line of the form <code>[CB-hb] {"recomputeActiveRow":1,"setActiveRow":1,"lazyKickVideosNear":1}</code> (or similar &mdash; exact contents depend on which sites fired during the activation animation). Subsequent <code>[CB-hb]</code> lines appear every ~2s. <strong>Failure mode:</strong> no <code>[CB-hb]</code> at all means either the heartbeat never wired (showLobby didn't run) or the SW is stale (still on v45).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Heartbeat goes silent when nothing is happening.</strong> Let the lobby sit untouched for ~6 seconds. <strong>Expected:</strong> after the activation flurry, the heartbeat stops printing &mdash; the breaker only logs when at least one name has &gt; 0 calls in the last second. NO baseline noise. (If the heartbeat keeps printing every 2s with non-zero counts while you're not touching the screen, something is firing in a background loop and that itself is interesting data &mdash; record what's in the summary in the note.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Normal scroll &mdash; no trip</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>10 seconds of normal scrolling produces sane counts.</strong> Scroll the lobby up and down with normal-paced finger flicks for ~10 seconds. <strong>Expected:</strong> <code>[CB-hb]</code> lines report non-zero counts for at least <code>scrollRaf</code>, <code>recomputeActiveRow</code>, and <code>setActiveRow</code>. Counts should stay <strong>under ~30 per second per name</strong> in normal scroll. <code>lazyKickVideosNear</code> should also tick whenever <code>setActiveRow</code> picks a new row. NO <code>[CB] runaway</code> messages during normal scroll.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Scroll feels identical to v45.</strong> Lobby chrome and scroll behaviour shouldn't have changed &mdash; only diagnostic instrumentation was added. <strong>Expected:</strong> matrix pill tracking, active-row coral border, hero video lazy-load, smooth feel &mdash; all unchanged from v45. (If anything feels different, note it &mdash; the breaker should be invisible to UX when not tripping.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Trigger the freeze &mdash; runaway lands in console</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Sustain a scroll long enough to provoke the freeze.</strong> Hold a finger on the lobby and drag continuously up and down with NO release for ~5&ndash;8 seconds (that's the freeze pattern Carl confirmed on PR #249). <strong>Expected at the moment of (or just before) the freeze symptom:</strong> ONE OR MORE <code>[CB] &lt;name&gt; runaway: N calls in last 1000ms &mdash; aborting</code> messages in the console. The name in that message is THE bug. Possible candidates: <code>recomputeActiveRow</code>, <code>setActiveRow</code>, <code>lazyKickVideosNear</code>, <code>scrollRaf</code>. Record the EXACT name + count in the note &mdash; that's the single most important data point of this whole wave.</span>
+        <div class="note-row"><input type="text" class="note" placeholder="Name and count from [CB] line, e.g. 'setActiveRow: 142'"></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>WebView remains responsive (the abort breaks the freeze).</strong> When the breaker trips it short-circuits the runaway callback. <strong>Expected:</strong> the screen does NOT go black this time &mdash; or, if it briefly stutters, recovers cleanly. Active pill may stop tracking momentarily (the breaker is suppressing <code>recomputeActiveRow</code> / <code>setActiveRow</code> for 5s). <strong>Failure mode:</strong> screen still goes fully black &amp; heartbeat dies after a runaway message &mdash; means the abort isn't on the right callsite (the freeze is downstream of every instrumented site, or it's something we haven't instrumented).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Auto-rearm fires after 5 seconds.</strong> After the runaway message lands, leave the screen alone. <strong>Expected:</strong> ~5 seconds later the heartbeat resumes, with the previously-tripped name no longer suppressed. (You may see a single <code>[CB] &lt;name&gt; suppressed (already tripped)</code> line during the cool-off if anything tried to call the tripped path.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; Non-scroll callsites are silent in normal use</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Open / close the gear &mdash; popover counters tick, none trip.</strong> Tap the gear icon in the sticky CTA bar to open the lobby settings popover, then tap outside to close it. <strong>Expected:</strong> next <code>[CB-hb]</code> shows <code>popoverOpenRaf</code> + <code>popoverCloseTimeout</code> with counts of 1 each. NO runaway. If you toggle rapidly, counts climb but stay well under 60 unless you're spamming.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Switch treatment &mdash; <code>treatmentRaf</code> ticks once.</strong> Open the gear and tap a different (unlocked) treatment pill (Line / B&amp;W / Colour). <strong>Expected:</strong> next <code>[CB-hb]</code> shows <code>treatmentRaf</code> with count 1. Heroes re-render. NO runaway. Active treatment changes globally as before.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Self-grant flow &mdash; <code>selfGrantRaf</code> ticks once.</strong> Tap a LOCKED treatment pill, then tap Allow in the modal. <strong>Expected:</strong> next <code>[CB-hb]</code> shows <code>selfGrantRaf</code> with count 1 after the consent grant lands. Plan re-fetches; heroes update. NO runaway. (Skip if you don't have a session whose practitioner-set consent excludes one of B&amp;W / Colour.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 &middot; Regression sanity</h2>
+    <ul class="checklist">
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&#10003;</button><button class="fail" type="button" aria-label="Fail 11">&#10007;</button></div>
+        <span class="num">11.</span>
+        <span class="text"><strong>Start Workout still hands off cleanly.</strong> Tap the coral Start Workout CTA. <strong>Expected:</strong> lobby dismisses, deck takes over, prep countdown fires, first exercise plays. The breaker continues to count any deferred lobby callbacks (none should fire post-handoff) but produces no further heartbeats once the lobby is gone (the heartbeat itself uses a setInterval that survives dismissal &mdash; that's by design so we still see late stragglers).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&#10003;</button><button class="fail" type="button" aria-label="Fail 12">&#10007;</button></div>
+        <span class="num">12.</span>
+        <span class="text"><strong>Build chip on the lobby reads v46.</strong> Cosmetic check before you finish &mdash; the top-left chip in the lobby reads <code>web-player v46-lobby-circuit-breaker &middot; cache v46-lobby-circuit-breaker</code> on both bundle + cache values. Divergence = stale SW didn't activate; reload after killing Safari from the app switcher.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass-notes feed the next polish wave. The single most important
+      data point is the name + count from item 5 &mdash; that tells us
+      which callsite is the runaway. Scope:
+      <code>web-player/lobby.js</code> (new circuit-breaker module +
+      9 instrumented sites + heartbeat),
+      <code>web-player/app.js</code> + <code>web-player/sw.js</code>
+      (version bump v45 &rarr; v46).
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'lobby-circuit-breaker.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'lobby-circuit-breaker', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = noteInput.placeholder || 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

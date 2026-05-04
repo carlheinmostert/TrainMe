@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./lobby-circuit-breaker.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Lobby circuit-breaker diagnostic (v46) &mdash; surface the rAF / scroll runaway</div>
+              <div class="scope">Web player lobby (shared bundle &rarr; mobile workflow Preview gets it free). PR #249's smooth-scroll fix did NOT resolve the iOS WKWebView ~5&ndash;8s scroll freeze. This wave ships a per-callsite circuit breaker that aborts + logs whenever any instrumented rAF / setTimeout / scroll-coupled callback exceeds <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">60 calls / 1000ms</code>. <strong>9 sites instrumented:</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">recomputeActiveRow</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">setActiveRow</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">lazyKickVideosNear</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">scrollRaf</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">treatmentRaf</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">popoverOpenRaf</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">selfGrantRaf</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">popoverCloseTimeout</code>, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">heroErrorRetry</code>. <strong>2s heartbeat</strong> dumps live counts (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[CB-hb] {name: count}</code>) so Safari Web Inspector shows what's busy even when nothing trips. Runaway logs <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">[CB] &lt;name&gt; runaway</code> + bails; auto-rearms after 5s. <strong>Read item 5's note</strong> &mdash; that's the actual answer this wave is hunting for. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v45-lobby-scroll-freeze-hotfix</code> &rarr; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">v46-lobby-circuit-breaker</code>. <strong>12 items in 5 sections.</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./sync-script-generic.html">
           <div class="row">
             <div>
