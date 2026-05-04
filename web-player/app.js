@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v37-lobby-hotfix-round2';
+const PLAYER_VERSION = 'v38-version-chip-labels';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
