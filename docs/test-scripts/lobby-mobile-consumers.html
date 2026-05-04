@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mobile thumbnail consumers QA &mdash; Wave Lobby PR 3 (hero crop alignment)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  pre {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; margin: 8px 0; font-size: 12px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    color: var(--text); overflow-x: auto;
+  }
+  .oos {
+    margin-top: 32px; padding: 16px 20px; background: var(--raised);
+    border: 1px solid var(--border); border-radius: 10px;
+  }
+  .oos h3 {
+    margin: 0 0 8px; font-size: 13px; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--text-dim);
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  footer {
+    margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">Wave Lobby &middot; PR 3/4 &middot; mobile thumbnail consumers</div>
+    <h1>Mobile QA &mdash; hero crop alignment on Studio / ClientSessions / Camera peek / Preview</h1>
+    <p class="lede">
+      <strong>Scope:</strong> consume the <code>hero_crop_offset</code> column shipped in PR 1 across every practitioner-facing thumbnail surface. The same data drives the web-player lobby in PR 4. Math: <code>offset</code> in <code>[0..1]</code> &rarr; Flutter <code>Alignment(x, y)</code> on <code>BoxFit.cover</code>; landscape sources slide the crop along X, portrait sources slide it along Y, square sources ignore the value.
+      <br><br>
+      <strong>Behaviour contract:</strong> NULL <code>hero_crop_offset</code> (every legacy row + every fresh capture until PR 2 ships and the practitioner authors a value) falls through to <code>0.5</code> &mdash; the existing centred crop. So all of these surfaces should be <strong>pixel-stable</strong> against pre-PR-3 builds for any plan whose exercises are still NULL. Visible differences only appear once PR 2 lands and a practitioner authors a non-centred crop.
+      <br><br>
+      <strong>Pre-condition for items 1&ndash;5:</strong> at least one published plan with at least one video exercise whose <code>hero_crop_offset</code> is set to a non-default value. Until PR 2 ships the editor, the cleanest way to do this is via the Supabase SQL editor: <code>UPDATE public.exercises SET hero_crop_offset = 0.10 WHERE id = '&lt;exercise-id&gt;';</code> then force a mobile sync (kill + reopen).
+    </p>
+
+    <div class="oos">
+      <h3>Pre-flight</h3>
+      <ul>
+        <li>PR 1 (<code>hero_crop_offset</code> schema + plumbing) is on main + the migration is applied.</li>
+        <li>Mobile re-install via <code>./install-device.sh</code> picks up the PR 3 consumer changes.</li>
+        <li>For non-default-crop testing: at least one published plan with at least one video exercise whose <code>hero_crop_offset</code> is set to a clearly non-centred value (e.g. <code>0.10</code> or <code>0.85</code>). PR 2's editor is the eventual authoring path; until it ships, set the value via SQL editor + force sync.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Practitioner-authored crops appear on every consumer surface</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Studio card filmstrip honours the authored crop.</strong> Open the per-client sessions list (<code>ClientSessionsScreen</code>); locate the published plan whose video has a non-default <code>hero_crop_offset</code>. The session card's filmstrip background renders up to 4 cells &mdash; the cell for that exercise should crop to the authored window (e.g. for <code>0.10</code> on a landscape source the cell shows the left edge; for <code>0.85</code> it shows the right edge). The B&amp;W treatment, hairline cell separators, and 30% veil are unchanged.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Studio exercise card (Hero frame) honours the authored crop.</strong> Tap the session card to open Studio mode. The list of exercise cards renders the static Hero frame as a flood-fill background. The card for the authored exercise crops to the authored window &mdash; verify it visually matches the filmstrip cell from item 1. The bottom-up scrim, name overlay, and chevrons stay where they are.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Editor sheet header honours the authored crop.</strong> From Studio, tap an exercise card to open the editor sheet. The 168&times;110 header thumbnail (top-left of the sheet) renders the same Hero frame; verify the visible window matches items 1&ndash;2. Switch to a different exercise via the chevrons &mdash; each one's thumbnail honours its own offset (or the centred default for un-authored rows).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Editor sheet Preview tab is unchanged (full media is shown).</strong> Inside the editor sheet, switch to the Preview tab. <code>MediaViewerBody</code> uses <code>BoxFit.contain</code> &mdash; the full source video is visible (letterboxed if needed). The Hero crop window doesn't apply here; this is the practitioner's "show me the whole exercise" surface. Confirm playback, rotation pill, and treatment chip behave as before.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Camera peek box honours the authored crop.</strong> Open the same session and swipe to Camera mode (or open a fresh client + new session and capture a video on a portrait device, then republish &mdash; same setup, different source orientation). The bottom-left peek box (just above the lens-pill rail) renders the latest exercise's thumbnail. After a sync that pulls a non-centred <code>hero_crop_offset</code> for that exercise, the peek crop matches the offset. Long-press the peek for the larger preview &mdash; the still and the looping video both render with the same crop window.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Pixel-stable on legacy / un-authored exercises</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Pre-publish exercise (NULL <code>hero_crop_offset</code>) renders centred &mdash; no crash.</strong> Capture a fresh video on the device. Before publishing (so the cloud row doesn't yet exist and the local row's <code>hero_crop_offset</code> is null), confirm the Studio card, exercise editor sheet header, and Camera peek all render the centred crop without exception. No red error screens, no broken-image glyph.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Legacy plan (every exercise <code>hero_crop_offset = NULL</code>) is byte-stable.</strong> Open a published plan that pre-dates this PR &mdash; every exercise's offset is null. Walk Studio &rarr; ClientSessions filmstrip &rarr; Camera peek; every thumbnail renders identically to a build from before this PR. (Spot-check: take a screenshot, install the prior build via Carl's normal device flow if a quick rollback is available; otherwise eye-ball it.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Orientation handling (landscape vs portrait sources)</h2>
+    <ul class="checklist">
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Landscape source &mdash; offset slides along X.</strong> Pick / capture a landscape exercise (camera rotated, wider than tall after rotation). Set <code>hero_crop_offset = 0.0</code> via SQL &amp; sync. The Studio card, filmstrip cell, and editor header should all show the LEFT edge of the source (its widest crop). Set to <code>1.0</code>, sync &mdash; same surfaces show the RIGHT edge. The Y axis stays centred (the constrained axis hugs the full short edge).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Portrait source &mdash; offset slides along Y.</strong> Pick a portrait exercise (taller than wide, the most common iPhone capture). Set <code>hero_crop_offset = 0.0</code> via SQL &amp; sync. The Studio card, filmstrip cell, and editor header should all show the TOP edge of the source. Set to <code>1.0</code>, sync &mdash; same surfaces show the BOTTOM edge. The X axis stays centred. Visually: a portrait exercise where the practitioner squats then stands &mdash; <code>0.0</code> shows the head/standing pose, <code>1.0</code> shows the feet/squat pose.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Unknown aspect (<code>aspect_ratio = NULL</code>) falls through to centred.</strong> Find / fabricate a row whose <code>aspect_ratio</code> is null (extremely rare &mdash; only failed-conversion-probe rows). Even with a non-default <code>hero_crop_offset</code>, the consumer surfaces render centred (we can't pick an axis without orientation). No crash; no warning. (If no such row exists in the wild, this item is a "n/a &amp; pass" by inspection of <code>heroCropAlignment()</code> in <code>app/lib/utils/hero_crop_alignment.dart</code>.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Implementation: <code>app/lib/utils/hero_crop_alignment.dart</code> (helper) &middot; <code>app/lib/widgets/capture_thumbnail.dart</code> (Camera peek + ThumbnailPeek still) &middot; <code>app/lib/widgets/mini_preview.dart</code> (Studio card Hero + editor header + photo / video / static branches) &middot; <code>app/lib/widgets/session_card.dart</code> (ClientSessions filmstrip cells) &middot; <code>app/lib/widgets/thumbnail_peek.dart</code> (long-press peek video). PR 4 mirrors this on the web player.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'lobby-mobile-consumers.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function persist() {
+        try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) {}
+        try {
+          fetch(ENDPOINT, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({items: state, updatedAt: new Date().toISOString()}),
+          }).catch(function() {});
+        } catch (e) {}
+      }
+
+      function apply() {
+        var items = document.querySelectorAll('.checklist li[data-num]');
+        items.forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) return;
+          li.setAttribute('data-status', entry.status || '');
+          var note = li.querySelector('.note');
+          if (note) note.value = entry.note || '';
+        });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        li.querySelectorAll('.vote button').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var newStatus = btn.classList.contains('pass') ? 'pass' : 'fail';
+            var current = li.getAttribute('data-status');
+            // Clicking the same status toggles it off.
+            var status = current === newStatus ? '' : newStatus;
+            li.setAttribute('data-status', status);
+            state[num] = state[num] || {};
+            state[num].status = status;
+            if (!status) delete state[num].status;
+            persist();
+          });
+        });
+        var note = li.querySelector('.note');
+        if (note) {
+          note.addEventListener('input', function() {
+            state[num] = state[num] || {};
+            state[num].note = note.value;
+            persist();
+          });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
