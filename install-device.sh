@@ -8,7 +8,7 @@
 # is all that's needed. If device-tunnel ever regresses after a NordVPN
 # update, the historic workaround was "VPN off for the install window";
 # see memory/vpn_api_constraint.md.
-set -e
+set -euo pipefail   # pipefail so `cmd | tail` doesn't mask cmd's failure
 
 DEVICE=00008150-001A31D40E88401C   # iPhone CHM
 BUNDLE=studio.homefit.app
