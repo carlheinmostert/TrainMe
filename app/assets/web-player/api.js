@@ -151,24 +151,41 @@
 
   /**
    * Wave 41 per-set normaliser. The server sends each exercise with a
-   * `sets: [{position, reps, hold_seconds, weight_kg,
+   * `sets: [{position, reps, hold_seconds, hold_position, weight_kg,
    * breather_seconds_after}, ...]` array (empty for rest). We coerce
    * every numeric field and preserve `weight_kg`'s null-vs-number
    * distinction (null = bodyweight; number = kg).
+   *
+   * Wave 43 — `hold_position` ENUM ('per_rep' | 'end_of_set' |
+   * 'end_of_exercise'). Unknown / missing values fall through to
+   * 'end_of_set' (the new default — matches the v36 backfill choice for
+   * legacy rows whose hold_seconds was zero, and the wave43 backfill's
+   * choice for rows with hold_seconds > 0 that were already shipped
+   * under the legacy per_rep contract). Surfaced into the lobby's
+   * dose-line composer via the central `formatDose` helper in
+   * `app.js` so wording stays in lockstep across the workflow Preview,
+   * lobby, and active-slide header.
    */
   function _normaliseSets(rawSets) {
     if (!Array.isArray(rawSets)) return [];
     return rawSets
-      .map((s, i) => ({
-        position: _coerceNum(s && s.position, i),
-        reps: Math.max(0, _coerceNum(s && s.reps, 0)),
-        hold_seconds: Math.max(0, _coerceNum(s && s.hold_seconds, 0)),
-        weight_kg: _coerceNumOrNull(s && s.weight_kg),
-        breather_seconds_after: Math.max(
-          0,
-          _coerceNum(s && s.breather_seconds_after, 0),
-        ),
-      }))
+      .map((s, i) => {
+        const rawHp = s && s.hold_position;
+        const holdPosition = (rawHp === 'per_rep' || rawHp === 'end_of_set' || rawHp === 'end_of_exercise')
+          ? rawHp
+          : 'end_of_set';
+        return {
+          position: _coerceNum(s && s.position, i),
+          reps: Math.max(0, _coerceNum(s && s.reps, 0)),
+          hold_seconds: Math.max(0, _coerceNum(s && s.hold_seconds, 0)),
+          hold_position: holdPosition,
+          weight_kg: _coerceNumOrNull(s && s.weight_kg),
+          breather_seconds_after: Math.max(
+            0,
+            _coerceNum(s && s.breather_seconds_after, 0),
+          ),
+        };
+      })
       .sort((a, b) => a.position - b.position);
   }
 
@@ -453,6 +470,60 @@
   }
 
   /**
+   * `client_self_grant_consent(p_plan_id, p_kind)` — anon RPC that lets the
+   * web-player lobby's self-grant modal flip a single consent kind
+   * (`grayscale` or `original`) to true on the plan's linked client.
+   *
+   * The RPC emits a `client.consent.update` audit row tagged with
+   * `meta.source = 'client_self_grant'` so the practitioner can see who
+   * self-granted what. Schema in
+   * `supabase/schema_lobby_self_grant.sql`. Migration is NOT applied here
+   * — Carl applies after review.
+   *
+   * Skipped on the local surface (mobile preview WebView) — the
+   * practitioner's own rehearsal must never modify the client's consent
+   * state. Returns `{ ok: false, reason: 'local-surface' }` in that case.
+   *
+   * Returns `{ ok: true }` on success or `{ ok: false, reason: <string> }`
+   * otherwise. The caller (`app.js`) prefers the soft-failure shape
+   * because the modal flow doesn't need to discriminate error kinds —
+   * a failure simply means "leave the lock in place".
+   */
+  async function clientSelfGrantConsent(planId, kind) {
+    if (!planId) return { ok: false, reason: 'no-plan-id' };
+    if (kind !== 'grayscale' && kind !== 'original') {
+      return { ok: false, reason: 'invalid-kind' };
+    }
+    if (isLocalSurface()) return { ok: false, reason: 'local-surface' };
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/rpc/client_self_grant_consent`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            p_plan_id: planId,
+            p_kind: kind,
+          }),
+        },
+      );
+      if (!response.ok) {
+        let body = '';
+        try { body = await response.text(); } catch (_) { /* ignore */ }
+        return { ok: false, reason: `http-${response.status}`, detail: body };
+      }
+      return { ok: true };
+    } catch (err) {
+      try { console.warn('[homefit] client_self_grant_consent failed:', err); } catch (_) {}
+      return { ok: false, reason: 'network', detail: String(err && err.message || err) };
+    }
+  }
+
+  /**
    * `get_plan_sharing_context(p_plan_id)` — returns minimal practitioner +
    * practice + client context for the transparency page greeting.
    *
@@ -495,6 +566,7 @@
     setAnalyticsConsent,
     revokeAnalyticsConsent,
     getPlanSharingContext,
+    clientSelfGrantConsent,
     isLocalSurface,
     getLocalPlanId,
     SUPABASE_URL,
