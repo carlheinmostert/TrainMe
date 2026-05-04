@@ -73,6 +73,77 @@
     </div>
   </noscript>
 
+  <!-- Lobby ==================================================================
+       Pre-workout vertical hero menu (PR 4/4 of the lobby train, 2026-05-04).
+       Replaces the old "first card + Start button" entry. Shows a vertical
+       list of hero frames so the client previews the session before
+       committing. Hidden once Start is tapped — one-way door per session.
+       Reload returns here. R-10 parity: this same DOM also renders inside
+       the mobile Workflow Preview WebView (web-player/ is the shared bundle).
+  -->
+  <div id="lobby" hidden>
+    <div class="lobby-inner">
+      <!-- Metadata strip — two-line greeting. JS picks layout based on whether
+           the plan title matches the auto-format (default-named) or has
+           been customised by the practitioner. -->
+      <div class="lobby-meta" id="lobby-meta">
+        <h1 class="lobby-meta-headline" id="lobby-meta-headline"></h1>
+        <p class="lobby-meta-sub" id="lobby-meta-sub"></p>
+        <span class="lobby-meta-stamp" id="lobby-meta-stamp" aria-hidden="true"></span>
+      </div>
+
+      <!-- Pill matrix — same matrix renderer as the deck. Wired to the
+           hero list below via a two-way IntersectionObserver coupling
+           in app.js. The matrix's existing centre-on-active-pill logic
+           applies here too. -->
+      <div class="lobby-matrix" id="lobby-matrix">
+        <div class="lobby-matrix-inner" id="lobby-matrix-inner"></div>
+      </div>
+
+      <!-- Hero list — vertical scroll. Built by app.js's buildLobbyList(). -->
+      <ul class="lobby-list" id="lobby-list" role="list"></ul>
+    </div>
+
+    <!-- Sticky-bottom CTA bar. Backdrop-blur veil over the row beneath. -->
+    <div class="lobby-cta-bar" id="lobby-cta-bar">
+      <div class="lobby-cta-inner">
+        <div class="lobby-treatment-row" id="lobby-treatment-row" role="radiogroup" aria-label="Treatment">
+          <button type="button" role="radio" aria-checked="false" data-value="line">Line</button>
+          <button type="button" role="radio" aria-checked="false" data-value="bw">B&amp;W</button>
+          <button type="button" role="radio" aria-checked="false" data-value="original">Colour</button>
+        </div>
+        <button id="lobby-start-btn" class="lobby-start-btn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+          <span>Start workout</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Self-grant modal — opens when a locked treatment pill is tapped on
+       the lobby. Asks the client to identify themselves, explains the
+       practitioner-default state, then offers Allow / Cancel. Allow calls
+       `client_self_grant_consent(planId, kind)` via api.js. Hidden by
+       default; JS toggles `hidden`. -->
+  <div id="lobby-self-grant-modal" class="lobby-self-grant-modal" role="dialog" aria-modal="true" aria-labelledby="lobby-self-grant-title" hidden>
+    <div class="lobby-self-grant-backdrop" data-dismiss="self-grant"></div>
+    <div class="lobby-self-grant-card" role="document">
+      <h2 class="lobby-self-grant-title" id="lobby-self-grant-title">Allow B&amp;W playback?</h2>
+      <p class="lobby-self-grant-identity">
+        I am <strong id="lobby-self-grant-name"></strong>
+      </p>
+      <p class="lobby-self-grant-body" id="lobby-self-grant-body"></p>
+      <div class="lobby-self-grant-error" id="lobby-self-grant-error" hidden></div>
+      <div class="lobby-self-grant-actions">
+        <button type="button" class="lobby-self-grant-btn lobby-self-grant-cancel" data-dismiss="self-grant">Cancel</button>
+        <button type="button" class="lobby-self-grant-btn lobby-self-grant-allow" id="lobby-self-grant-allow">Allow</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Main app ===============================================================
        Top-stack v2.2 layout (Wave 19.3 — 2026-04-22):
          Row 1  plan-bar                 (plan-title + header-client)
@@ -343,5 +414,6 @@
        fetch('.../rest/v1/...') directly. See docs/DATA_ACCESS_LAYER.md. -->
   <script src="/api.js"></script>
   <script src="/app.js"></script>
+  <script src="/lobby.js"></script>
 </body>
 </html>

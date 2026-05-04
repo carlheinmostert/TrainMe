@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v34-island-clamp';
+const CACHE_NAME = 'homefit-player-v35-lobby';
 
 // App shell files — always cached
 const APP_SHELL = [
@@ -14,6 +14,7 @@ const APP_SHELL = [
   '/styles.css',
   '/app.js',
   '/api.js',
+  '/lobby.js',
 ];
 
 // ============================================================

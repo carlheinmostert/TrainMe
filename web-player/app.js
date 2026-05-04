@@ -277,6 +277,19 @@ async function initAnalytics() {
   var ctx = await window.HomefitApi.getPlanSharingContext(planId);
   if (ctx && ctx.practitioner_name) {
     analyticsTrainerName = ctx.practitioner_name;
+    // Lobby was rendered with "your practitioner" as fallback before this
+    // async resolved. Patch its sub-line in place if the lobby is still
+    // visible. Cheap: textContent swap, no full re-render.
+    try {
+      var $lobbyMeta = document.getElementById('lobby-meta-sub');
+      var $lobbyMetaHeadline = document.getElementById('lobby-meta-headline');
+      if ($lobbyMeta && $lobbyMeta.textContent && $lobbyMeta.textContent.indexOf('your practitioner') !== -1) {
+        $lobbyMeta.textContent = $lobbyMeta.textContent.replace(
+          /From your practitioner/g,
+          'From ' + analyticsTrainerName,
+        );
+      }
+    } catch (_) {}
   }
 
   // Fire plan_opened regardless of consent (per design doc).
@@ -772,6 +785,41 @@ function setOverride(exId, prop, value, defaultValue) {
   }
   const planId = (plan && plan.id) || getPlanIdFromURL();
   saveClientOverrides(planId);
+}
+
+/**
+ * Lobby helper — apply a treatment value as a per-exercise override across
+ * the entire plan. Mirrors what setOverride does for one exercise but
+ * walks every loaded slide so a single lobby tap propagates everywhere.
+ *
+ * Skips locked treatments per-exercise (consent absent → fall back to
+ * 'line' for that one). Saves once at the end. Re-binds video sources
+ * so deck videos pick up the new src on the next render. Used by
+ * lobby.js's `applyTreatmentOverrideToAllExercises` handoff.
+ */
+function applyTreatmentOverrideToAllExercises(treatment) {
+  if (treatment !== 'line' && treatment !== 'bw' && treatment !== 'original') return;
+  if (!plan || !slides) return;
+  for (let i = 0; i < slides.length; i++) {
+    const ex = slides[i];
+    if (!ex || ex.media_type === 'rest' || !ex.id) continue;
+    let target = treatment;
+    // Don't write an override that points at an unconsented treatment.
+    if (target === 'bw' && !planHasGrayscaleConsent) target = 'line';
+    if (target === 'original' && !planHasOriginalConsent) target = 'line';
+    const def = practitionerDefaultFor(ex, 'treatment');
+    if (target === def) {
+      // Clear the override (matches the default).
+      if (clientOverrides[ex.id]) delete clientOverrides[ex.id].treatment;
+    } else {
+      if (!clientOverrides[ex.id]) clientOverrides[ex.id] = {};
+      clientOverrides[ex.id].treatment = target;
+    }
+  }
+  saveClientOverrides(plan && plan.id);
+  // Re-render the deck with new src URLs so post-handoff playback picks
+  // up the new treatment.
+  try { rebindVideoSources(); } catch (_) { /* deck not yet primed */ }
 }
 
 // Timing constants (from config.dart)
@@ -3998,6 +4046,13 @@ function onGearTreatmentClick(value) {
     const fromWire = previousEffective === 'bw' ? 'grayscale' : previousEffective;
     const toWire = value === 'bw' ? 'grayscale' : value;
     emitAnalyticsEvent('treatment_switched', slide.id, { from: fromWire, to: toWire });
+    // Lobby PR 4 — also emit `treatment_changed` with `source: 'gear'`
+    // so the lobby's `source: 'lobby'` events sit on the same event
+    // channel for downstream analytics. Existing `treatment_switched`
+    // remains for backward-compat consumers.
+    emitAnalyticsEvent('treatment_changed', slide.id, {
+      from: fromWire, to: toWire, source: 'gear',
+    });
   }
 
   const def = practitionerDefaultFor(slide, 'treatment');
@@ -5259,13 +5314,131 @@ async function init() {
       });
     }
 
-    // Try to autoplay the first slide's video on initial load. The fetchPlan
-    // click that opened the URL should have unlocked autoplay on iOS Safari,
-    // but we swallow the rejection defensively if the browser blocks it.
-    autoPlayCurrentVideo();
+    // PR 4 — Lobby surface. The lobby is the pre-workout entry point: a
+    // vertical menu of hero frames + sticky Start CTA. The deck (#app)
+    // stays hidden underneath until Start is tapped. Autoplay + the
+    // legacy in-deck "Start Workout" button stay suppressed while the
+    // lobby owns the foreground.
+    //
+    // The lobby calls `window.HomefitLobbyHandoff.startWorkout()` to hand
+    // off control. That handoff:
+    //   1. unhides #app + autoPlayCurrentVideo()
+    //   2. invokes startWorkout() (which fires its own state machine).
+    // analytics workout_started is emitted by the LOBBY at Start tap (not
+    // here on first prep frame any longer — re-anchored per spec).
+    if (window.HomefitLobby && typeof window.HomefitLobby.showLobby === 'function') {
+      // Expose the helpers the lobby needs. Frozen so lobby code can't
+      // mutate app state through this surface — only read/call.
+      window.HomefitLobbyHandoff = Object.freeze({
+        calculateDuration: calculateDuration,
+        sumTotalDurationSeconds: function () {
+          let total = 0;
+          for (let i = 0; i < slides.length; i++) total += calculateDuration(slides[i]);
+          return total;
+        },
+        playSetsForSlide: playSetsForSlide,
+        getExerciseRotationDeg: getExerciseRotationDeg,
+        resolveTreatmentUrl: resolveTreatmentUrl,
+        escapeHTML: escapeHTML,
+        emitAnalyticsEvent: emitAnalyticsEvent,
+        planHasGrayscaleConsent: function () { return planHasGrayscaleConsent; },
+        planHasOriginalConsent: function () { return planHasOriginalConsent; },
+        applyTreatmentOverrideToAllExercises: applyTreatmentOverrideToAllExercises,
+        getDefaultTreatment: function () {
+          // Pick the first exercise's effective treatment as the
+          // global default. Falls back to 'line' for empty/rest-only
+          // plans (impossible at this point but cheap defence).
+          for (let i = 0; i < slides.length; i++) {
+            const s = slides[i];
+            if (s && s.media_type !== 'rest') {
+              const t = getEffective(s, 'treatment');
+              if (t === 'bw' && !planHasGrayscaleConsent) return 'line';
+              if (t === 'original' && !planHasOriginalConsent) return 'line';
+              return t || 'line';
+            }
+          }
+          return 'line';
+        },
+        getPractitionerName: function () { return analyticsTrainerName; },
+        rebindVideoSources: rebindVideoSources,
+        startWorkout: function () {
+          // Reveal the deck, autoplay, and let the legacy startWorkout
+          // path take over (timer, fullscreen, prep countdown, etc.).
+          if ($app) $app.hidden = false;
+          autoPlayCurrentVideo();
+          startWorkout();
+        },
+        reFetchPlan: async function () {
+          // Re-fetch the plan after a self-grant so signed URLs for the
+          // newly-granted treatment land in the cached state.
+          const planId = (plan && plan.id) || getPlanIdFromURL();
+          if (!planId) return null;
+          const fresh = await fetchPlan(planId);
+          if (!fresh) return null;
+          plan = fresh;
+          plan.exercises.sort((a, b) => a.position - b.position);
+          slides = unrollExercises(plan);
+          recomputePlanConsent();
+          // Re-render the deck so post-handoff playback has fresh src.
+          try { renderPlan(); } catch (_) { /* defer to first goTo */ }
+          return { plan: plan, slides: slides };
+        },
+        // Build a matrix HTML string for the lobby — re-uses the deck's
+        // pill builder shape but emits clickable <button>s and skips the
+        // active-slide auto-fill (lobby is pre-workout).
+        buildLobbyMatrix: function (slidesArg) {
+          // Use the existing buildMatrixBlocks() output for circuit
+          // grouping fidelity, but with simple flat pills.
+          const blocks = (typeof buildMatrixBlocks === 'function') ? buildMatrixBlocks() : null;
+          if (!blocks) {
+            return slidesArg.map((s, i) => {
+              const isRest = s.media_type === 'rest';
+              return `<div class="pill size-medium${isRest ? ' is-rest' : ''}" data-slide="${i}" role="button" tabindex="0"><span class="pill-fill"></span></div>`;
+            }).join('');
+          }
+          const pillHTML = (slideIdx) => {
+            const slide = slidesArg[slideIdx];
+            const isRest = slide && slide.media_type === 'rest';
+            const dur = calculateDuration(slide);
+            return `<div class="pill size-medium${isRest ? ' is-rest' : ''}" data-slide="${slideIdx}" data-estimate="${dur}" role="button" tabindex="0">
+                      <span class="pill-fill"></span>
+                    </div>`;
+          };
+          return blocks.map((block) => {
+            if (block.kind === 'single') {
+              const dur = calculateDuration(slidesArg[block.slideIndex]) || 1;
+              return `<div class="matrix-col" style="--pill-weight: ${dur};">${pillHTML(block.slideIndex)}</div>`;
+            }
+            const { rounds, groupSize } = block;
+            const firstRow = rounds[0] || [];
+            const rowDurations = firstRow.map((idx) => calculateDuration(slidesArg[idx]) || 1);
+            const circuitWeight = rowDurations.reduce((a, b) => a + b, 0) || 1;
+            const rowTemplate = rowDurations.map((d) => `${d}fr`).join(' ');
+            const roundsHTML = rounds.map((row, ri) => {
+              const rowPills = row.map((slideIdx) => pillHTML(slideIdx)).join('');
+              return `<div class="matrix-circuit-row" data-round="${ri + 1}" style="--row-template-fs: ${rowTemplate};">${rowPills}</div>`;
+            }).join('');
+            return `<div class="matrix-circuit" data-circuit="${block.circuitId}" style="--circuit-cols: ${groupSize}; --circuit-weight: ${circuitWeight};">${roundsHTML}</div>`;
+          }).join('');
+        },
+      });
 
-    // Show the Start Workout button
-    $startWorkoutBtn.hidden = false;
+      // Hide #app until lobby hands off, suppress autoplay + the legacy
+      // start-workout button.
+      $startWorkoutBtn.hidden = true;
+      if ($app) $app.hidden = true;
+
+      window.HomefitLobby.showLobby({
+        plan: plan,
+        slides: slides,
+        helpers: window.HomefitLobbyHandoff,
+      });
+    } else {
+      // Lobby script unavailable — fall back to legacy entry. Safe
+      // backstop for older bundle versions still in service worker.
+      autoPlayCurrentVideo();
+      $startWorkoutBtn.hidden = false;
+    }
 
     // -- Wave 17: initialise analytics + wire close handler. --
     // Fire-and-forget — analytics init is async but must never block the

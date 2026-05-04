@@ -2638,3 +2638,508 @@ body.is-fullscreen .playpause-toggle {
   pointer-events: none;
   z-index: 20;
 }
+
+/* ===========================================================================
+   Lobby (PR 4/4 of the lobby train, 2026-05-04)
+   =========================================================================== */
+
+#lobby {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-surface-bg);
+  color: var(--c-ink-primary);
+  z-index: 50;
+  overflow: hidden;
+  padding-top: var(--safe-top);
+}
+
+.lobby-inner {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Padding-bottom = sticky CTA bar height (~140px) + safe-area + breath. */
+  padding-bottom: calc(160px + var(--safe-bottom));
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+/* Metadata strip ----------------------------------------------------------- */
+.lobby-meta {
+  padding: 24px 4px 16px;
+}
+
+.lobby-meta-headline {
+  font-family: var(--f-body);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0 0 4px;
+  color: var(--c-ink-primary);
+  letter-spacing: -0.01em;
+}
+
+.lobby-meta-headline.is-custom-title {
+  font-family: var(--f-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.lobby-meta-sub {
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--c-ink-secondary);
+  margin: 0;
+}
+
+.lobby-meta-stamp {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--c-ink-muted);
+  letter-spacing: 0.02em;
+}
+
+/* Pill matrix coupling ---------------------------------------------------- */
+.lobby-matrix {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: linear-gradient(
+    to bottom,
+    var(--c-surface-bg) 0%,
+    var(--c-surface-bg) 80%,
+    transparent 100%
+  );
+  padding: 8px 0 12px;
+  margin: 0 -16px;
+}
+
+.lobby-matrix-inner {
+  display: flex;
+  gap: 4px;
+  align-items: stretch;
+  padding: 0 16px;
+  /* Matches the deck matrix sizing tier; pills carry their own height. */
+}
+
+/* Make pills slightly bigger / more readable inside the lobby. */
+.lobby-matrix-inner .pill {
+  min-height: 22px;
+  cursor: pointer;
+}
+
+.lobby-matrix-inner .matrix-circuit {
+  display: grid;
+  grid-template-columns: repeat(var(--circuit-cols, 1), 1fr);
+  gap: 3px;
+  flex: var(--circuit-weight, 1) 1 0;
+  background: var(--c-brand-tint-bg);
+  border-radius: var(--radius-md);
+  padding: 3px;
+}
+
+.lobby-matrix-inner .matrix-circuit-row {
+  display: contents;
+}
+
+/* Hero list --------------------------------------------------------------- */
+.lobby-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lobby-row {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-lg);
+  padding: 10px;
+  transition: border-color var(--dur-fast) var(--ease-standard);
+}
+
+.lobby-row.is-circuit {
+  background: var(--c-brand-tint-bg);
+  border-color: var(--c-brand-tint-border);
+}
+
+.lobby-row.is-rest {
+  background: var(--c-rest-tint-bg);
+  border-color: var(--c-rest-tint-border);
+  align-items: center;
+  padding: 14px 16px;
+}
+
+.lobby-row.is-active-pill {
+  /* Visual coupling — lifts when the matched pill becomes the matrix
+     "active" pill via IntersectionObserver. */
+  border-color: var(--c-brand);
+  box-shadow: 0 0 0 1px var(--c-brand);
+}
+
+/* Hero ------------------------------------------------------------------- */
+.lobby-hero {
+  flex: 0 0 40%;
+  aspect-ratio: 1 / 1;
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--c-surface-raised);
+}
+
+.lobby-hero-media,
+.lobby-hero-skeleton {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.lobby-hero-media {
+  object-fit: cover;
+  display: block;
+}
+
+.lobby-hero-media.is-grayscale {
+  filter: grayscale(1) contrast(1.05);
+}
+
+.lobby-hero-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--c-surface-raised) 0%,
+    var(--c-surface-border) 50%,
+    var(--c-surface-raised) 100%
+  );
+  background-size: 200% 100%;
+  animation: lobby-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes lobby-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lobby-hero-skeleton { animation: none; }
+}
+
+/* Info column ----------------------------------------------------------- */
+.lobby-info {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lobby-info-name {
+  font-family: var(--f-display);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0;
+  color: var(--c-ink-primary);
+  letter-spacing: -0.01em;
+  word-break: break-word;
+}
+
+.lobby-info-dose {
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--c-ink-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.lobby-info-notes {
+  margin: 4px 0 0;
+  font-family: var(--f-body);
+  font-size: 12px;
+  font-style: italic;
+  color: var(--c-ink-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.lobby-info-notes.is-expanded {
+  -webkit-line-clamp: unset;
+  display: block;
+  overflow: visible;
+}
+
+/* Circuit group --------------------------------------------------------- */
+.lobby-circuit-group {
+  border: 1px solid var(--c-brand-tint-border);
+  background: var(--c-brand-tint-bg);
+  border-radius: var(--radius-lg);
+  padding: 10px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lobby-circuit-header {
+  font-family: var(--f-body);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--c-brand);
+  text-transform: uppercase;
+  padding: 0 6px 2px;
+}
+
+.lobby-circuit-group .lobby-row {
+  background: var(--c-surface-base);
+  border-color: var(--c-surface-border);
+}
+
+/* Rest row -------------------------------------------------------------- */
+.lobby-row.is-rest .lobby-rest-label {
+  font-family: var(--f-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-rest);
+  letter-spacing: 0.01em;
+}
+
+/* Sticky CTA bar ------------------------------------------------------- */
+.lobby-cta-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: rgba(15, 17, 23, 0.92);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--c-surface-border);
+  padding: 12px 16px calc(12px + var(--safe-bottom));
+}
+
+.lobby-cta-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lobby-treatment-row {
+  display: flex;
+  gap: 6px;
+  height: 36px;
+  background: var(--c-surface-base);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  border: 1px solid var(--c-surface-border);
+}
+
+.lobby-treatment-row > button {
+  flex: 1 1 0;
+  background: transparent;
+  border: 0;
+  color: var(--c-ink-secondary);
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard),
+              color var(--dur-fast) var(--ease-standard);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  position: relative;
+}
+
+.lobby-treatment-row > button[aria-checked="true"] {
+  background: var(--c-brand);
+  color: #0F1117;
+}
+
+.lobby-treatment-row > button[data-locked="true"] {
+  color: var(--c-ink-muted);
+}
+
+.lobby-treatment-row > button[data-locked="true"] .lobby-lock {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+
+.lobby-treatment-row > button:not([data-locked="true"]) .lobby-lock {
+  display: none;
+}
+
+.lobby-start-btn {
+  width: 100%;
+  height: 50px;
+  background: var(--c-brand);
+  color: #0F1117;
+  border: 0;
+  border-radius: var(--radius-md);
+  font-family: var(--f-body);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+
+.lobby-start-btn:hover { background: var(--c-brand-dark); }
+
+.lobby-start-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Self-grant modal ----------------------------------------------------- */
+.lobby-self-grant-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.lobby-self-grant-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.lobby-self-grant-card {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-top-left-radius: var(--radius-xl);
+  border-top-right-radius: var(--radius-xl);
+  padding: 24px 20px calc(24px + var(--safe-bottom));
+  margin: 0 auto;
+}
+
+.lobby-self-grant-title {
+  font-family: var(--f-display);
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: var(--c-ink-primary);
+  letter-spacing: -0.01em;
+}
+
+.lobby-self-grant-identity {
+  font-family: var(--f-body);
+  font-size: 14px;
+  color: var(--c-ink-secondary);
+  margin: 0 0 12px;
+}
+
+.lobby-self-grant-identity strong {
+  color: var(--c-ink-primary);
+  font-weight: 700;
+}
+
+.lobby-self-grant-body {
+  font-family: var(--f-body);
+  font-size: 14px;
+  color: var(--c-ink-secondary);
+  line-height: 1.5;
+  margin: 0 0 18px;
+}
+
+.lobby-self-grant-error {
+  font-family: var(--f-body);
+  font-size: 13px;
+  color: var(--c-error);
+  margin: 0 0 12px;
+}
+
+.lobby-self-grant-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.lobby-self-grant-btn {
+  flex: 1 1 0;
+  height: 44px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--c-surface-border);
+  background: transparent;
+  color: var(--c-ink-primary);
+  font-family: var(--f-body);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+
+.lobby-self-grant-cancel:hover {
+  background: var(--c-surface-raised);
+}
+
+.lobby-self-grant-allow {
+  background: var(--c-brand);
+  border-color: var(--c-brand);
+  color: #0F1117;
+}
+
+.lobby-self-grant-allow:hover {
+  background: var(--c-brand-dark);
+  border-color: var(--c-brand-dark);
+}
+
+.lobby-self-grant-allow:disabled,
+.lobby-self-grant-allow[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Wider screens — same max-width 720, centred. */
+@media (min-width: 600px) {
+  .lobby-meta { padding: 28px 4px 16px; }
+}
+
+/* Reduced motion — disable shimmer + transitions on hover/border. */
+@media (prefers-reduced-motion: reduce) {
+  .lobby-row,
+  .lobby-treatment-row > button,
+  .lobby-start-btn,
+  .lobby-self-grant-btn { transition: none; }
+}
