@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v82-wave42-overrides';
+const PLAYER_VERSION = 'v36-lobby-fixes';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -792,6 +792,15 @@ function setOverride(exId, prop, value, defaultValue) {
  * the entire plan. Mirrors what setOverride does for one exercise but
  * walks every loaded slide so a single lobby tap propagates everywhere.
  *
+ * Wave 5 lobby fixes (Carl device QA): always WRITE the global pick as
+ * an explicit override on every exercise, regardless of the
+ * practitioner's per-exercise default. The earlier "clear when matches
+ * default" branch was wrong — if the practitioner default for an
+ * exercise was B&W and the user picked Line globally, clearing meant
+ * the row fell back to B&W (the default) instead of staying on Line.
+ * Per-exercise gear popover (post-handoff in the deck) can still
+ * individually override.
+ *
  * Skips locked treatments per-exercise (consent absent → fall back to
  * 'line' for that one). Saves once at the end. Re-binds video sources
  * so deck videos pick up the new src on the next render. Used by
@@ -807,14 +816,11 @@ function applyTreatmentOverrideToAllExercises(treatment) {
     // Don't write an override that points at an unconsented treatment.
     if (target === 'bw' && !planHasGrayscaleConsent) target = 'line';
     if (target === 'original' && !planHasOriginalConsent) target = 'line';
-    const def = practitionerDefaultFor(ex, 'treatment');
-    if (target === def) {
-      // Clear the override (matches the default).
-      if (clientOverrides[ex.id]) delete clientOverrides[ex.id].treatment;
-    } else {
-      if (!clientOverrides[ex.id]) clientOverrides[ex.id] = {};
-      clientOverrides[ex.id].treatment = target;
-    }
+    // ALWAYS write — never clear-on-match. The user picked this
+    // treatment globally; per-exercise practitioner defaults must not
+    // win.
+    if (!clientOverrides[ex.id]) clientOverrides[ex.id] = {};
+    clientOverrides[ex.id].treatment = target;
   }
   saveClientOverrides(plan && plan.id);
   // Re-render the deck with new src URLs so post-handoff playback picks

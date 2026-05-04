@@ -36,6 +36,7 @@
   const $lobbyMetaHeadline = document.getElementById('lobby-meta-headline');
   const $lobbyMetaSub = document.getElementById('lobby-meta-sub');
   const $lobbyMetaStamp = document.getElementById('lobby-meta-stamp');
+  const $lobbyMetaVersion = document.getElementById('lobby-meta-version');
   const $lobbyMatrix = document.getElementById('lobby-matrix');
   const $lobbyMatrixInner = document.getElementById('lobby-matrix-inner');
   const $lobbyList = document.getElementById('lobby-list');
@@ -57,8 +58,10 @@
   let slides = [];
   let activeTreatment = 'line';
   let pendingGrantKind = null;     // 'grayscale' | 'original'
-  let intersectionObserver = null;
-  let activeRowIndex = 0;
+  let activeRowIndex = -1;          // -1 = nothing active yet (sentinel)
+  let scrollRafToken = null;        // rAF-throttled scroll handler
+  let scrollListenerWired = false;
+  let scrollContainer = null;       // .lobby-inner — the scroll root
 
   // Default plan title format used to detect default-named plans:
   // "{DD MMM YYYY HH:MM}" e.g. "04 May 2026 14:30".
@@ -115,9 +118,15 @@
     $lobby.hidden = false;
     document.body.classList.add('is-lobby-mode');
 
-    // Set up the IntersectionObserver coupling AFTER first paint so
-    // measured offsets are accurate.
-    requestAnimationFrame(() => setupRowMatrixCoupling());
+    // Wire scroll-driven row↔matrix coupling AFTER first paint so
+    // measured offsets are accurate. Default the first non-rest row to
+    // active immediately (no scroll yet — the IntersectionObserver
+    // approach left the matrix unhighlighted at scroll-top because
+    // viewport-centre crossed nothing).
+    requestAnimationFrame(() => {
+      activateInitialRow();
+      setupScrollCoupling();
+    });
   }
 
   /**
@@ -187,6 +196,31 @@
       const last = plan.last_published_at || plan.updated_at || null;
       $lobbyMetaStamp.textContent = last ? formatStamp(last) : '';
     }
+
+    // Build marker: "{PLAYER_VERSION} · sw {active cache}". PLAYER_VERSION
+    // is the bundle's compile-time string (mirrors sw.js cache name by
+    // convention). The cache name is read live from the SW so a stale
+    // browser shell shows up as a divergence between the two values.
+    populateVersionChip();
+  }
+
+  function populateVersionChip() {
+    if (!$lobbyMetaVersion) return;
+    const playerVersion =
+      typeof PLAYER_VERSION === 'string' ? PLAYER_VERSION : '?';
+    // Set the bundle version immediately so we don't block on the SW.
+    $lobbyMetaVersion.textContent = `${playerVersion} · sw …`;
+    if (!('caches' in window)) {
+      $lobbyMetaVersion.textContent = `${playerVersion} · sw n/a`;
+      return;
+    }
+    caches.keys().then((keys) => {
+      const active = keys.find((k) => k.startsWith('homefit-player-'));
+      const swLabel = active ? active.replace(/^homefit-player-/, '') : 'none';
+      $lobbyMetaVersion.textContent = `${playerVersion} · sw ${swLabel}`;
+    }).catch(() => {
+      $lobbyMetaVersion.textContent = `${playerVersion} · sw ?`;
+    });
   }
 
   function countExercises(slides) {
@@ -249,36 +283,53 @@
     // Build up an array of "row groups" where consecutive circuit-id slides
     // collapse to one circuit group with a header. Circuit slides are
     // unrolled in the deck (1 slide per round) — for the lobby we want
-    // ONE row per exercise instance, so we de-dupe.
+    // ONE row per exercise instance (de-dupe by id). Same dedupe applies
+    // to rest slides that sit inside a circuit (would otherwise be emitted
+    // once per round, e.g. 3 "Rest" rows for a 3-round circuit with one
+    // rest in it — the bug Carl reported as 3 synthesised "Breather" rows
+    // for a single plan-level rest).
     const items = [];
-    const seenCircuitIds = new Set();
-    let lastWasCircuitOpen = false;
+    const seenIds = new Set();
     let circuitGroup = null;
 
     for (let i = 0; i < slides.length; i++) {
       const s = slides[i];
       if (!s) continue;
 
+      // Dedupe by exercise id — circuit unroll multiplies a single
+      // exercise (or rest) into N rounds. The lobby groups circuits, so
+      // each underlying exercise must appear exactly once.
+      const idKey = s.id != null ? String(s.id) : `_idx_${i}`;
+      if (seenIds.has(idKey)) continue;
+      seenIds.add(idKey);
+
       if (s.media_type === 'rest') {
-        // Close any open circuit group first.
+        // Close any open circuit group first. Plan-level rest rows are
+        // 1-to-1 with `media_type === 'rest'` exercises only — never
+        // synthesised from per-set inter-set breathers (which already
+        // surface inside the dose-line as "30s rest").
         if (circuitGroup) { items.push(circuitGroup); circuitGroup = null; }
         items.push({ kind: 'rest', slide: s, slideIndex: i });
         continue;
       }
 
-      // Circuit slide — group them. Only emit the first round per exercise.
+      // Circuit slide — group them. The dedupe above already keeps only
+      // the first-round occurrence of each circuit exercise.
       if (s.circuit_id && s.circuitRound != null) {
-        const seenKey = `${s.circuit_id}::${s.id}`;
-        const isFirstRoundOfThisExercise = !seenCircuitIds.has(seenKey);
-        if (!isFirstRoundOfThisExercise) continue;
-        seenCircuitIds.add(seenKey);
-
         if (!circuitGroup || circuitGroup.circuitId !== s.circuit_id) {
           if (circuitGroup) items.push(circuitGroup);
+          // Resolve the circuit's display name. Source of truth (ordered):
+          //   1. plan.circuit_names[circuit_id] (Wave Circuit-Names) — the
+          //      practitioner-set custom label; already mirrored onto each
+          //      circuit slide as `circuitName` by `unrollExercises`.
+          //   2. fall back to "Circuit".
+          const circuitName = (s.circuitName && String(s.circuitName).trim())
+            || (plan && plan.circuit_names && plan.circuit_names[s.circuit_id])
+            || null;
           circuitGroup = {
             kind: 'circuit',
             circuitId: s.circuit_id,
-            circuitName: s.circuitName || null,
+            circuitName: circuitName,
             rounds: s.circuitTotalRounds || 1,
             rows: [],
           };
@@ -293,17 +344,31 @@
     }
     if (circuitGroup) items.push(circuitGroup);
 
-    $lobbyList.innerHTML = items.map(itemToHTML).join('');
+    // Pre-compute row index numbers (1, 2, 3, …) — non-rest rows only.
+    // Numbering follows plan-display order; circuits stay grouped so
+    // each circuit-row gets its own number (e.g. a 4-exercise circuit
+    // emits numbers 4, 5, 6, 7 regardless of how many rounds it'll
+    // repeat — the matrix conveys round count).
+    let runningIndex = 0;
+    const numberFor = (slide) => {
+      if (!slide || slide.media_type === 'rest') return null;
+      runningIndex += 1;
+      return runningIndex;
+    };
+
+    $lobbyList.innerHTML = items.map((it) => itemToHTML(it, numberFor)).join('');
   }
 
-  function itemToHTML(item) {
+  function itemToHTML(item, numberFor) {
     if (item.kind === 'rest') return restRowHTML(item.slide, item.slideIndex);
-    if (item.kind === 'single') return exerciseRowHTML(item.slide, item.slideIndex);
-    if (item.kind === 'circuit') return circuitGroupHTML(item);
+    if (item.kind === 'single') {
+      return exerciseRowHTML(item.slide, item.slideIndex, numberFor(item.slide));
+    }
+    if (item.kind === 'circuit') return circuitGroupHTML(item, numberFor);
     return '';
   }
 
-  function exerciseRowHTML(slide, slideIndex) {
+  function exerciseRowHTML(slide, slideIndex, rowNumber) {
     const escape = api.escapeHTML;
     const name = escape(slide.name || `Exercise`);
     const dose = buildDoseLine(slide);
@@ -314,9 +379,16 @@
       ? `${heroOffset * 100}% center`
       : `center ${heroOffset * 100}%`;
 
-    // Hero element — picked per active treatment. For Line + photos we
-    // render <img>; for B&W/Colour videos we render <video> with poster.
+    // Hero element — picked per active treatment. For Line + B&W/Colour
+    // videos we render <video> (Line uses line_drawing_url, B&W/Colour
+    // use grayscale_url / original_url). Photos always render as <img>.
     const heroHTML = renderHeroHTML(slide, objPos);
+
+    // Row index numeral (e.g. "3.") — left of the exercise name in the
+    // info column. Rest rows pass null and render no numeral.
+    const numberHTML = (rowNumber != null)
+      ? `<span class="lobby-info-num">${rowNumber}.</span>`
+      : '';
 
     return `
       <li class="lobby-row" role="listitem"
@@ -326,7 +398,10 @@
           ${heroHTML}
         </div>
         <div class="lobby-info">
-          <h3 class="lobby-info-name">${name}</h3>
+          <div class="lobby-info-titlebar">
+            ${numberHTML}
+            <h3 class="lobby-info-name">${name}</h3>
+          </div>
           ${dose ? `<p class="lobby-info-dose">${escape(dose)}</p>` : ''}
           ${notes ? `<button type="button" class="lobby-info-notes" aria-expanded="false" data-notes-toggle>${escape(notes)}</button>` : ''}
         </div>
@@ -336,28 +411,40 @@
 
   function restRowHTML(slide, slideIndex) {
     const seconds = Math.max(1, Math.round(Number(slide.rest_seconds) || 30));
+    // Wave 5 lobby fixes — rename "Breather" → "Rest" (Carl): plan-level
+    // rests are explicit "Rest" exercises, distinct from per-set
+    // breathers that appear in the dose-line as "30s rest".
     return `
       <li class="lobby-row is-rest" role="listitem"
           data-slide-index="${slideIndex}"
           data-id="${api.escapeHTML(slide.id || '')}">
-        <span class="lobby-rest-label">Breather · ${seconds}s</span>
+        <span class="lobby-rest-label">Rest · ${seconds}s</span>
       </li>
     `;
   }
 
-  function circuitGroupHTML(group) {
+  function circuitGroupHTML(group, numberFor) {
     const escape = api.escapeHTML;
-    const headerLabel = group.circuitName
-      ? `${group.circuitName} — ${group.rounds} ROUNDS`
-      : `CIRCUIT — ${group.rounds} ROUNDS`;
+    // Wave 5 lobby fixes — rename "ROUNDS" → "rounds" + Studio-style
+    // header chrome: practitioner-set name on the left, ×N cycles chip
+    // on the right (mirrors `_buildCircuitHeaderRow` in
+    // `app/lib/screens/studio_mode_screen.dart`).
+    const labelText = group.circuitName
+      ? group.circuitName
+      : 'Circuit';
+    const cyclesText = `×${group.rounds || 1}`;
     const rows = group.rows.map((r) => {
-      const html = exerciseRowHTML(r.slide, r.slideIndex);
+      const html = exerciseRowHTML(r.slide, r.slideIndex, numberFor(r.slide));
       // Add `is-circuit` to the row.
       return html.replace('class="lobby-row"', 'class="lobby-row is-circuit"');
     }).join('');
     return `
       <li class="lobby-circuit-group" data-circuit="${escape(group.circuitId || '')}">
-        <div class="lobby-circuit-header">${escape(headerLabel)}</div>
+        <div class="lobby-circuit-header">
+          <span class="lobby-circuit-header-rail" aria-hidden="true"></span>
+          <span class="lobby-circuit-header-label">${escape(labelText)}</span>
+          <span class="lobby-circuit-header-cycles" aria-label="${escape(group.rounds || 1)} rounds">${escape(cyclesText)}</span>
+        </div>
         ${rows}
       </li>
     `;
@@ -430,33 +517,40 @@
   /**
    * Render the hero element (img or video) for a slide based on the
    * current `activeTreatment`. Photos always render as <img>. Videos
-   * render as <video> with `preload="none"` + poster — the IntersectionObserver
-   * lazy-loads when the row enters the viewport. For Line treatment the
-   * hero is the thumbnail JPG; for B&W/Colour it's the segmented video
-   * (with CSS grayscale filter for B&W when applicable).
+   * (incl. Line — Wave 5 fix per Q7 of the spec) render as <video> with
+   * `preload="none"` + poster; the scroll-driven row coupler lazy-loads
+   * when the row enters the viewport (current ± 1) and pauses others.
+   *
+   * Treatment URLs (resolveTreatmentUrl from app.js):
+   *   - line     → line_drawing_url (the actual line-drawing video; falls
+   *                back to legacy media_url via the api.js normaliser).
+   *   - bw       → grayscale_url (consent-gated; segmented body-pop variant
+   *                preferred over the untouched original).
+   *   - original → original_url.
+   * Photos: line_drawing_url / grayscale_url / original_url all point at
+   * a JPG; we render a static <img> and apply the B&W CSS filter when
+   * applicable. (Wave 22 photo three-treatment parity.)
    */
   function renderHeroHTML(slide, objPos) {
     const escape = api.escapeHTML;
     const isPhoto = slide.media_type === 'photo' || slide.media_type === 'image';
     const url = api.resolveTreatmentUrl
       ? api.resolveTreatmentUrl(slide, activeTreatment)
-      : (slide.thumbnail_url || slide.line_drawing_url || null);
+      : (slide.line_drawing_url || slide.thumbnail_url || null);
     const fallbackPoster = slide.thumbnail_url || slide.line_drawing_url || '';
 
     if (!url && !fallbackPoster) {
       return `<div class="lobby-hero-skeleton" aria-hidden="true"></div>`;
     }
 
-    if (isPhoto || activeTreatment === 'line') {
-      // Static <img>. For Line + B&W the same JPG is used; CSS grayscale
-      // filter is the only difference.
-      const src = (activeTreatment === 'line')
-        ? (slide.thumbnail_url || slide.line_drawing_url || url)
-        : url || slide.thumbnail_url;
+    if (isPhoto) {
+      // Photos are always static. CSS grayscale filter handles the B&W
+      // treatment off the same source JPG.
+      const src = url || fallbackPoster;
       const grayscale = (activeTreatment === 'bw') ? ' is-grayscale' : '';
       return `
         <img class="lobby-hero-media${grayscale}"
-             src="${escape(src || fallbackPoster || '')}"
+             src="${escape(src || '')}"
              alt="${escape(slide.name || 'Exercise')}"
              style="object-position: ${escape(objPos)};"
              loading="lazy"
@@ -464,12 +558,13 @@
       `;
     }
 
-    // Video — B&W or Colour. preload="none" + poster; the observer
-    // metadata-loads on enter and pauses on leave.
+    // Video — Line / B&W / Colour all animate. preload="none" + poster;
+    // the scroll coupler metadata-loads on enter and pauses on leave.
+    const videoSrc = url || fallbackPoster;
     const grayscale = (activeTreatment === 'bw') ? ' is-grayscale' : '';
     return `
       <video class="lobby-hero-media${grayscale}"
-             data-src="${escape(url)}"
+             data-src="${escape(videoSrc)}"
              data-poster="${escape(fallbackPoster)}"
              poster="${escape(fallbackPoster)}"
              style="object-position: ${escape(objPos)};"
@@ -533,7 +628,16 @@
     }
     renderTreatmentRow();
     renderList();
-    requestAnimationFrame(() => setupRowMatrixCoupling());
+    // Reset active sentinel so the post-render reducer paints a fresh
+    // active state (the previous DOM is gone, so the cached idx is
+    // stale). recomputeActiveRow() picks the row whose centre is closest
+    // to the viewport centre — same row in practice, but the highlight
+    // gets re-applied to the new DOM nodes.
+    activeRowIndex = -1;
+    requestAnimationFrame(() => {
+      activateInitialRow();
+      recomputeActiveRow();
+    });
   }
 
   // ==========================================================================
@@ -597,59 +701,115 @@
     }
     renderTreatmentRow();
     renderList();
-    requestAnimationFrame(() => setupRowMatrixCoupling());
+    activeRowIndex = -1;
+    requestAnimationFrame(() => {
+      activateInitialRow();
+      recomputeActiveRow();
+    });
     closeSelfGrantModal();
   }
 
   // ==========================================================================
-  // Row ↔ matrix coupling (IntersectionObserver)
+  // Row ↔ matrix coupling (scroll-driven, single-active-row reducer)
   // ==========================================================================
+  //
+  // The first cut used IntersectionObserver with a rootMargin pulling the
+  // crossing line down 40% of the viewport. Two real bugs surfaced on
+  // device QA:
+  //
+  //   1. At scroll-top, the first row sits ABOVE the artificial
+  //      crossing line — so the observer never fires for it and the
+  //      matrix renders unhighlighted until the user scrolls past row 1.
+  //
+  //   2. Multiple rows can cross the line simultaneously (or near-tie on
+  //      ratio), causing the active pill to flicker between neighbours.
+  //
+  // Replacement: rAF-throttled scroll handler + a deterministic reducer
+  // that picks the row whose VERTICAL CENTRE is closest to the scroll
+  // container's vertical centre. Single winner per scroll frame, no
+  // threshold ambiguity. Plus we activate the first non-rest row at
+  // mount so something is always highlighted before the first scroll.
 
-  function setupRowMatrixCoupling() {
-    if (intersectionObserver) {
-      try { intersectionObserver.disconnect(); } catch (_) {}
-      intersectionObserver = null;
+  function setupScrollCoupling() {
+    scrollContainer = document.querySelector('.lobby-inner');
+    if (!scrollContainer) return;
+    if (scrollListenerWired) return;
+    scrollListenerWired = true;
+
+    const onScroll = () => {
+      if (scrollRafToken != null) return;
+      scrollRafToken = requestAnimationFrame(() => {
+        scrollRafToken = null;
+        recomputeActiveRow();
+      });
+    };
+    scrollContainer.addEventListener('scroll', onScroll, { passive: true });
+    // Resize / orientation changes also shift centres.
+    window.addEventListener('resize', onScroll, { passive: true });
+  }
+
+  function activateInitialRow() {
+    // Pick the first non-rest row as the default active row. Falls
+    // through to whatever row is at the top of the list if everything is
+    // rest (impossible in real plans, cheap defence). This fires before
+    // the user's first scroll so the matrix is never unhighlighted.
+    const rows = $lobbyList.querySelectorAll('.lobby-row[data-slide-index]');
+    if (!rows.length) return;
+    let target = null;
+    for (let i = 0; i < rows.length; i++) {
+      if (!rows[i].classList.contains('is-rest')) { target = rows[i]; break; }
     }
-    if (!('IntersectionObserver' in window)) return;
+    if (!target) target = rows[0];
+    setActiveRow(target);
+  }
 
+  function recomputeActiveRow() {
+    if (!scrollContainer) return;
     const rows = $lobbyList.querySelectorAll('.lobby-row[data-slide-index]');
     if (!rows.length) return;
 
-    // Use the lobby-inner scroller as root so threshold math works inside
-    // the scroll container.
-    const root = document.querySelector('.lobby-inner') || null;
-    intersectionObserver = new IntersectionObserver((entries) => {
-      // Pick the entry with the highest intersection ratio currently visible.
-      let bestRatio = 0;
-      let bestRow = null;
-      entries.forEach((entry) => {
-        if (entry.isIntersecting && entry.intersectionRatio > bestRatio) {
-          bestRatio = entry.intersectionRatio;
-          bestRow = entry.target;
-        }
-      });
-      if (!bestRow) return;
-      const idx = parseInt(bestRow.getAttribute('data-slide-index'), 10);
-      if (Number.isNaN(idx) || idx === activeRowIndex) return;
-      activeRowIndex = idx;
-      // Highlight the row + the matching pill.
-      $lobbyList.querySelectorAll('.lobby-row.is-active-pill').forEach((el) => el.classList.remove('is-active-pill'));
-      bestRow.classList.add('is-active-pill');
-      $lobbyMatrixInner.querySelectorAll('.pill.is-active').forEach((el) => el.classList.remove('is-active'));
-      const targetPill = $lobbyMatrixInner.querySelector(`.pill[data-slide="${idx}"]`);
-      if (targetPill) {
-        targetPill.classList.add('is-active');
-        // Centre-on-active behaviour parity with the deck — scroll the
-        // matrix horizontally so the active pill is centred.
-        try {
-          targetPill.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-        } catch (_) { /* older browsers */ }
-      }
-      // Lazy-load video heroes for current ± 1.
-      lazyKickVideosNear(idx);
-    }, { root, rootMargin: '0px 0px -40% 0px', threshold: [0.25, 0.5, 0.75] });
+    // Viewport centre of the scroll container, in viewport coordinates.
+    // getBoundingClientRect is robust against sticky / fixed offsets.
+    const rootRect = scrollContainer.getBoundingClientRect();
+    const viewportCentre = rootRect.top + rootRect.height / 2;
 
-    rows.forEach((row) => intersectionObserver.observe(row));
+    let bestRow = null;
+    let bestDist = Infinity;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const rect = r.getBoundingClientRect();
+      // Skip rows that are fully outside the container (above OR below).
+      if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) continue;
+      const rowCentre = rect.top + rect.height / 2;
+      const dist = Math.abs(rowCentre - viewportCentre);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestRow = r;
+      }
+    }
+    if (bestRow) setActiveRow(bestRow);
+  }
+
+  function setActiveRow(row) {
+    const idx = parseInt(row.getAttribute('data-slide-index'), 10);
+    if (Number.isNaN(idx) || idx === activeRowIndex) return;
+    activeRowIndex = idx;
+
+    // Highlight the row + the matching pill.
+    $lobbyList.querySelectorAll('.lobby-row.is-active-pill').forEach((el) => el.classList.remove('is-active-pill'));
+    row.classList.add('is-active-pill');
+    $lobbyMatrixInner.querySelectorAll('.pill.is-active').forEach((el) => el.classList.remove('is-active'));
+    const targetPill = $lobbyMatrixInner.querySelector(`.pill[data-slide="${idx}"]`);
+    if (targetPill) {
+      targetPill.classList.add('is-active');
+      // Centre-on-active — scroll the matrix horizontally so the active
+      // pill is centred. Parity with the deck's matrix behaviour.
+      try {
+        targetPill.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+      } catch (_) { /* older browsers */ }
+    }
+    // Lazy-load video heroes for current ± 1.
+    lazyKickVideosNear(idx);
   }
 
   /**
