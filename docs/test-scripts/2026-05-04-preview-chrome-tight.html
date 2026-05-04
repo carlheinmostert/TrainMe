@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-04 — preview close button + Dynamic Island clamp</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 32px; height: 32px; border-radius: 6px;
+    background: var(--raised); border: 1px solid var(--border);
+    color: var(--text-mute); font-size: 14px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background 120ms, color 120ms, border-color 120ms;
+  }
+  .checklist li .vote button.pass:hover { background: var(--coral-bg); color: var(--coral); border-color: var(--coral); }
+  .checklist li .vote button.fail:hover { background: rgba(239,68,68,0.10); color: #EF4444; border-color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass { background: var(--coral); color: #0B0D11; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .vote button.fail { background: #EF4444; color: #0B0D11; border-color: #EF4444; }
+  .checklist li .num {
+    position: absolute; left: 86px; top: 12px;
+    color: var(--text-dim); font-variant-numeric: tabular-nums;
+    font-weight: 600; font-size: 13px;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .text strong { color: var(--text); }
+  .checklist li .note-row { margin-top: 8px; }
+  .checklist li input.note {
+    width: 100%; background: var(--raised); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; color: var(--text);
+    font: inherit; font-size: 13px;
+  }
+  .checklist li input.note::placeholder { color: var(--text-dim); }
+  .oos {
+    margin-top: 28px; padding: 14px 18px;
+    background: var(--raised); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-mute); font-size: 13px;
+  }
+  .oos h3 {
+    margin: 0 0 6px; color: var(--text); font-size: 14px;
+    font-family: Montserrat, sans-serif; font-weight: 600;
+  }
+  .oos ul { margin: 0; padding-left: 20px; }
+  .oos li { margin: 2px 0; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px;
+    color: var(--coral);
+  }
+  footer {
+    margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">Device QA &middot; iPhone</div>
+    <h1>Preview chrome tight &mdash; close button + Dynamic Island clamp</h1>
+    <p class="lede">
+      Two iPhone-only chrome fixes on the workflow Preview surface.
+      <br><br>
+      <strong>Bug A &mdash; preview close (X) button.</strong> The top-left close button on the Flutter Preview screen sat ~8 px below the safe-area top + ~8 px in from the left, AND was wrapped in a <code>SafeArea</code> inside an already-safe-area-aware <code>Positioned</code> &mdash; so the inset was being doubled. Carl: &ldquo;needs to move to top left corner, tight.&rdquo; Fix: drop the redundant <code>SafeArea</code> wrap and zero the offsets so the chip sits flush against the status-bar inset, against the left edge.
+      <br><br>
+      <strong>Bug B &mdash; fullscreen mode under the Dynamic Island.</strong> When the player goes fullscreen on iPhone, <code>body.is-fullscreen #app { padding-top: 0 }</code> stripped the safe-area top inset, so matrix pills + the active-pill clock slipped under the Dynamic Island. Fix: <code>padding-top: var(--safe-top)</code> in the same rule keeps the existing <code>env(safe-area-inset-top)</code> token so content stops below the island. Phones without an island still report 0 here &mdash; no-op for them.
+      <br><br>
+      <strong>SW cache bumped:</strong> <code>homefit-player-v33-fractional-seconds-fix</code> &rarr; <code>homefit-player-v34-island-clamp</code>.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Re-run <code>./install-device.sh</code> so the Flutter X-button change lands on iPhone CHM.</li>
+        <li>Hard-refresh / pull-to-refresh on session.homefit.studio so the new SW takes over (or kill + reopen Safari) for the island clamp.</li>
+        <li>Open a published session and tap Preview from the Studio toolbar.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Bug A &mdash; close button flush in the corner</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>X button is tight against the top-left corner.</strong> Open Preview from any session. <strong>Expected:</strong> the dark circular X chip sits flush against the status-bar inset on top, and against the left screen edge &mdash; no gap, no doubled padding. Looks &ldquo;tight in the corner&rdquo; rather than floating ~16 px in.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>X tap still closes the preview.</strong> Tap the chip. <strong>Expected:</strong> Preview pops back to the Studio screen as before. Hit area didn't shrink &mdash; the chip is still 40&times;40 and the touch target is comfortable.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Landscape rotation: still tight against the corner.</strong> Rotate the iPhone to landscape mid-preview. <strong>Expected:</strong> the chip stays flush against the new top-left corner using the rotated safe-area inset (the iOS notch / island moves to the side; the inset Flutter reads in landscape stays correct).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Bug B &mdash; fullscreen content stops below the Dynamic Island</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Fullscreen: matrix pills sit below the island.</strong> Open the player on iPhone, tap the fullscreen toggle on the right rail. <strong>Expected:</strong> the matrix pills + active-pill clock are clearly below the Dynamic Island &mdash; no overlap, no clipping, the island doesn't eat the pill text or fill bar.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Fullscreen toggle round-trips cleanly.</strong> Tap the fullscreen button to exit fullscreen, then tap again to re-enter. <strong>Expected:</strong> on every entry the top inset is preserved (matrix below island); on exit the player returns to its normal layout with no leftover visible padding.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Bottom edge unchanged.</strong> In fullscreen, scan the bottom of the screen. <strong>Expected:</strong> the &ldquo;powered by homefit.studio&rdquo; mark + bottom gradient still sit flush against the bottom (no new padding introduced) &mdash; only the top inset changed.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass-notes feed the next polish wave. X-button fix in <code>app/lib/screens/unified_preview_screen.dart</code> (line ~307); island clamp in <code>web-player/styles.css</code> (line ~2146, <code>body.is-fullscreen #app</code>) plus mirror in <code>app/assets/web-player/styles.css</code>.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-04-preview-chrome-tight.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'preview-chrome-tight', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

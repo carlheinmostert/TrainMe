@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import '../models/exercise_capture.dart';
 import '../models/treatment.dart';
 import '../theme.dart';
+import '../utils/hero_crop_alignment.dart';
 import 'hero_star_badge.dart';
 
 /// Greyscale matrix used by [ColorFiltered] for the B&W treatment.
@@ -84,6 +85,17 @@ class MiniPreview extends StatefulWidget {
   /// static content.
   final bool staticHero;
 
+  /// Wave Lobby PR 2 — when set, the static-Hero branch maps this
+  /// normalised offset (`[0.0, 1.0]` along the source's free axis) onto
+  /// an [Alignment] so the editor sheet's header thumbnail re-renders
+  /// in lock-step with the practitioner's drag on [HeroCropViewport].
+  ///
+  /// Other consumer surfaces (Studio cards, ClientSessions cards, etc.)
+  /// pass null — those land in PR 3 and at that point will read the
+  /// offset off the exercise model directly. Default null preserves
+  /// today's `BoxFit.cover` centred render exactly.
+  final double? cropOffset;
+
   const MiniPreview({
     super.key,
     required this.exercise,
@@ -93,6 +105,7 @@ class MiniPreview extends StatefulWidget {
     this.overlay,
     this.respectGlobalPause = false,
     this.staticHero = false,
+    this.cropOffset,
   });
 
   @override
@@ -381,7 +394,11 @@ class _MiniPreviewState extends State<MiniPreview> {
     // a playing video. The Preview tab inside the editor sheet still
     // gets motion via [MediaViewerBody] (a different widget).
     if (widget.staticHero) {
-      return _HeroFrameImage(exercise: ex, treatment: treatment);
+      return _HeroFrameImage(
+        exercise: ex,
+        treatment: treatment,
+        cropOffset: widget.cropOffset,
+      );
     }
     return _VideoFrame(
       controller: _controller,
@@ -459,9 +476,12 @@ class _PhotoFrame extends StatelessWidget {
     if (path == null || !File(path).existsSync()) {
       return const _PhotoFallback();
     }
+    // Wave Lobby — practitioner-authored 1:1 crop window.
+    final align = heroCropAlignment(exercise);
     final image = Image.file(
       File(path),
       fit: BoxFit.cover,
+      alignment: align,
       errorBuilder: (_, e, s) => const _PhotoFallback(),
     );
     if (treatment == Treatment.grayscale) {
@@ -518,8 +538,13 @@ class _VideoFrame extends StatelessWidget {
       return _PhotoFrame(exercise: fallbackExercise, treatment: treatment);
     }
     final size = controller!.value.size;
+    // Wave Lobby — practitioner-authored 1:1 crop window. FittedBox
+    // accepts an [alignment] which controls which part of the child
+    // is visible after BoxFit.cover scaling.
+    final align = heroCropAlignment(fallbackExercise);
     final video = FittedBox(
       fit: BoxFit.cover,
+      alignment: align,
       clipBehavior: Clip.hardEdge,
       child: SizedBox(
         width: size.width == 0 ? 1 : size.width,
@@ -556,7 +581,18 @@ class _HeroFrameImage extends StatelessWidget {
   final ExerciseCapture exercise;
   final Treatment treatment;
 
-  const _HeroFrameImage({required this.exercise, required this.treatment});
+  /// Wave Lobby PR 2 — practitioner-authored crop offset for the
+  /// editor-sheet header live preview. Null = render at default
+  /// `Alignment.center` (the legacy behaviour). When non-null we
+  /// project the value onto the source's free axis based on the
+  /// exercise's `aspectRatio`.
+  final double? cropOffset;
+
+  const _HeroFrameImage({
+    required this.exercise,
+    required this.treatment,
+    this.cropOffset,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -581,12 +617,21 @@ class _HeroFrameImage extends StatelessWidget {
     final useFile = thumbFile.existsSync() ? thumbFile : fallbackFile;
     if (!useFile.existsSync()) return const _PhotoFallback();
     final offset = exercise.focusFrameOffsetMs ?? 0;
+    // Wave Lobby — practitioner-authored 1:1 crop window. Defaults to
+    // centred for legacy / un-authored exercises so the existing pixel
+    // output is preserved.
+    final align = heroCropAlignment(exercise);
     return Image(
       image: _HeroFileImage(useFile, offset),
       fit: BoxFit.cover,
+      alignment: align,
       errorBuilder: (_, e, s) => const _PhotoFallback(),
     );
   }
+
+  /// Wave Lobby PR 2 — map the practitioner's normalised offset onto
+  /// an [Alignment]. The free axis follows the source's
+  /// `aspectRatio`:
 }
 
 /// `FileImage` whose cache identity includes the practitioner-picked

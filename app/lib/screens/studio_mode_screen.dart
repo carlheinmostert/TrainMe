@@ -29,6 +29,7 @@ import '../widgets/circuit_control_sheet.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/download_original_sheet.dart';
 import '../widgets/gutter_rail.dart';
+import '../widgets/hero_crop_viewport.dart';
 import '../widgets/inline_action_tray.dart';
 import '../widgets/inline_editable_text.dart';
 import '../widgets/preset_chip_row.dart';
@@ -3547,6 +3548,15 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// the regen idle until the practitioner stops scrubbing.
   Timer? _heroSaveTimer;
 
+  /// Wave Lobby PR 2 — debounce for the 1:1 hero-crop SQLite write.
+  /// The drag callback (`HeroCropViewport.onChanged`) bubbles a fresh
+  /// value via `widget.onExerciseUpdate` on every gesture tick so the
+  /// editor sheet header thumbnail re-renders in lock-step; the SQLite
+  /// write is coalesced to one shot per ~200 ms during long drags.
+  /// `onChangeEnd` flushes immediately on release so a quick release
+  /// doesn't lose the final value to the debounce.
+  Timer? _heroCropSaveTimer;
+
   /// 2026-05-03 — currently-selected trim-panel handle. Drives the
   /// white→coral fill swap + tooltip on the chosen handle. Cleared
   /// on tap-on-video and on play/resume so the panel reverts to the
@@ -4004,6 +4014,7 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
     _controlsIdleTimer?.cancel();
     _trimSaveTimer?.cancel();
     _heroSaveTimer?.cancel();
+    _heroCropSaveTimer?.cancel();
     _crossfadePersistTimer?.cancel();
     _rotationPersistTimer?.cancel();
     final listenerA = _videoListenerA;
@@ -4128,6 +4139,55 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
         }),
       );
     });
+  }
+
+  /// Wave Lobby PR 2 — host-side wiring for [HeroCropViewport] in the
+  /// Preview (Hero) tab. Mirrors `_persistHero`: optimistic update of
+  /// the in-memory exercise + bubble to parent for header thumbnail
+  /// coherence + debounced SQLite write.
+  ///
+  /// `flush=true` is passed by the drag-end / reset paths so the final
+  /// value is persisted without waiting on the 200 ms debounce — a fast
+  /// release otherwise risks losing the value if the practitioner
+  /// closes the sheet before the next timer tick.
+  ///
+  /// No thumbnail regen: cropping happens at consumption time (Flutter
+  /// `Alignment` / CSS `object-position`), the underlying Hero JPG is
+  /// rendered as-is. So this path is dramatically lighter than
+  /// `_persistHero`.
+  void _persistHeroCrop(double offset, {required bool flush}) {
+    final exercise = _current;
+    final clamped = offset.clamp(0.0, 1.0);
+    if (exercise.heroCropOffset == clamped) {
+      // No-op when the value didn't actually change. Still flush a
+      // pending debounce on commit paths (the Timer fired-but-not-yet
+      // completed window).
+      if (flush) _heroCropSaveTimer?.cancel();
+      return;
+    }
+    final updated = exercise.copyWith(heroCropOffset: clamped);
+    setState(() {
+      _exercises[_currentIndex] = updated;
+    });
+    final cb = widget.onExerciseUpdate;
+    if (cb != null) cb(updated);
+    _heroCropSaveTimer?.cancel();
+    void persist() {
+      final idx = _exercises.indexWhere((e) => e.id == exercise.id);
+      if (idx < 0) return;
+      final fresh = _exercises[idx];
+      unawaited(
+        SyncService.instance.storage.saveExercise(fresh).catchError((e, _) {
+          debugPrint('MediaViewer: saveExercise(hero_crop_offset) failed: $e');
+        }),
+      );
+    }
+
+    if (flush) {
+      persist();
+    } else {
+      _heroCropSaveTimer = Timer(const Duration(milliseconds: 200), persist);
+    }
   }
 
   /// Selection swap on the trim panel. Stored in host state so a
@@ -4394,6 +4454,44 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
                       );
                     },
                   ),
+
+                  // Wave Lobby PR 2 — practitioner-facing 1:1 hero-crop
+                  // authoring overlay. Sits over the displayed media at
+                  // canvas size; the widget itself recreates the
+                  // letterbox math so the dim + viewport rectangles
+                  // align with the underlying video / photo. Hidden
+                  // for rest rows + while a video is initialising. The
+                  // photo branch runs the moment the page mounts since
+                  // there's no controller to wait on.
+                  //
+                  // Gated on `embeddedInSheet` so the full-screen
+                  // workflow Preview route (multiple exercises in a
+                  // pageable deck) doesn't show the overlay — that's a
+                  // consumption surface, not an authoring one. Plus
+                  // the horizontal pan gesture would race PageView
+                  // pagination on a landscape source.
+                  if (widget.embeddedInSheet &&
+                      !_current.isRest &&
+                      (_isVideo(_current) ? _videoInitialized : true))
+                    Positioned.fill(
+                      child: HeroCropViewport(
+                        // Effective aspect already accounts for any
+                        // practitioner rotation (Wave 28 column).
+                        aspectRatio: _effectiveAspectRatioForCrop(_current),
+                        cropOffset: _current.heroCropOffset,
+                        onChanged: (v) =>
+                            _persistHeroCrop(v, flush: false),
+                        onChangeEnd: (v) =>
+                            _persistHeroCrop(v, flush: true),
+                        onReset: () => _persistHeroCrop(0.5, flush: true),
+                        // Disable on the cloud-only / mid-init window —
+                        // dragging on a black canvas would commit a
+                        // value the practitioner can't visually verify.
+                        enabled: _isVideo(_current)
+                            ? _videoInitialized
+                            : true,
+                      ),
+                    ),
 
                   // Treatment segmented pill — vertical book-spine in
                   // portrait (mirrors the vertical-swipe gesture); flat
@@ -5050,6 +5148,43 @@ class _MediaViewerBodyState extends State<MediaViewerBody>
   /// file is missing (legacy photo, segmentation failed during conversion,
   /// etc.). Line treatment is unaffected — the line drawing already
   /// abstracts the body, body-focus is meaningless there.
+  /// Wave Lobby PR 2 — effective post-rotation aspect ratio for the
+  /// hero-crop viewport. Mirrors `_buildVideoFrame`'s aspect math:
+  /// odd-quarter rotations swap width/height, so the displayed media
+  /// reads natural after the [RotatedBox] inside the video frame.
+  ///
+  /// Source priority:
+  ///   1. Live `VideoPlayerController.value.aspectRatio` for videos
+  ///      (most accurate — exposes the true decoded dimensions).
+  ///   2. The `aspect_ratio` column on the exercise row (Wave 28; for
+  ///      photos this is the only source).
+  ///   3. Null fall-through → viewport behaves square (drag disabled).
+  ///
+  /// `rotation_quarters` swap applies to BOTH sources equally; the
+  /// stored `aspect_ratio` is supposed to already reflect rotation per
+  /// the model contract, but we re-derive defensively from the live
+  /// controller so a fresh capture pre-saveExercise still reads right.
+  double? _effectiveAspectRatioForCrop(ExerciseCapture ex) {
+    final quarters = (ex.rotationQuarters ?? 0) % 4;
+    if (_isVideo(ex)) {
+      final c = _videoControllerA;
+      if (c != null && c.value.isInitialized) {
+        final raw = c.value.aspectRatio;
+        if (raw <= 0) return null;
+        return quarters.isOdd ? 1 / raw : raw;
+      }
+    }
+    final stored = ex.aspectRatio;
+    if (stored == null || stored <= 0) return null;
+    // The model doc claims callers update `aspect_ratio` to match
+    // rotation. Older rows may not have done so — apply the same swap
+    // we use for video to be safe; idempotent when the stored value
+    // already reflects rotation (since on a square the swap is a
+    // no-op, and for non-square odd-rotation rows we'd get the same
+    // pre-rotation value either way given the model contract).
+    return stored;
+  }
+
   Widget _buildPhotoFrame(ExerciseCapture ex, {required bool isCurrent}) {
     String resolvedPath = ex.displayFilePath;
     if (isCurrent && _treatment != Treatment.line) {

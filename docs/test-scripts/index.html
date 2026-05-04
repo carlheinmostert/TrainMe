@@ -180,7 +180,7 @@
           <div class="row">
             <div>
               <div class="name">0 · Web player &mdash; pre-workout lobby surface (PR 4/4 of the lobby train)</div>
-              <div class="scope">Mobile + web. Brand-new pre-workout surface that replaces the legacy "first card + Start button" entry. Vertical menu of hero frames, two-way coupled to the pill matrix above (scroll list &harr; tap pill), with sticky-bottom CTA bar carrying the treatment selector (Line / B&amp;W / Colour) + coral Start workout button. Locked treatments (e.g. line-only consent) show a padlock and tap to a self-grant modal that calls a NEW <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">client_self_grant_consent</code> RPC (audit row tagged <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">source: 'client_self_grant'</code>). Migration <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">supabase/schema_lobby_self_grant.sql</code> NOT applied yet (Carl applies after review). Analytics: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">workout_started</code> re-anchored from first prep frame to Start tap (with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">source: 'lobby'</code>); <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">treatment_changed</code> now carries <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">source: 'lobby' | 'gear'</code>. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v34-lobby</code>. <strong>21 items in 7 sections.</strong></div>
+              <div class="scope">Mobile + web. Brand-new pre-workout surface that replaces the legacy "first card + Start button" entry. Vertical menu of hero frames, two-way coupled to the pill matrix above (scroll list &harr; tap pill), with sticky-bottom CTA bar carrying the treatment selector (Line / B&amp;W / Colour) + coral Start workout button. Locked treatments (e.g. line-only consent) show a padlock and tap to a self-grant modal that calls a NEW <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">client_self_grant_consent</code> RPC (audit row tagged <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">source: 'client_self_grant'</code>). Analytics: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">workout_started</code> re-anchored from first prep frame to Start tap (with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">source: 'lobby'</code>); <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">treatment_changed</code> now carries <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">source: 'lobby' | 'gear'</code>. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v35-lobby</code>. <strong>21 items in 7 sections.</strong></div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -189,11 +189,11 @@
         </a>
       </li>
       <li>
-        <a href="./2026-05-04-fractional-seconds-end-marker.html">
+        <a href="./lobby-editor-crop.html">
           <div class="row">
             <div>
-              <div class="name">0 · Web player &mdash; clean integer timer + drop End-of-exercise pill</div>
-              <div class="scope">Mobile + web (R-10 parity, one bundle). Two follow-up bugs after PRs #225 + #226. <strong>Bug 1:</strong> matrix top-bar leaked <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">23:54.66666...</code> after a rep-block tap because <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">jumpToRep</code> computed <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">elapsedInPhysical = (repIdx / targetReps) * physicalSet</code> as a float (e.g. 121s &divide; 12 = 10.083). Fix: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Math.round(...)</code> at source + belt-and-braces <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Math.floor</code> on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">formatTime</code> input + active-pill <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">showSecs</code>. <strong>Bug 2:</strong> green sage &ldquo;&#10003; End of exercise&rdquo; badge on the rep stack retired (Carl: &ldquo;serves no purpose&rdquo;) &mdash; final rest section's aside is now empty, painter gating removed, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">.end-marker</code> CSS deleted. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v33-fractional-seconds-fix</code>. <strong>10 items in 3 sections.</strong></div>
+              <div class="name">0 · Wave Lobby PR 2/4 &mdash; 1:1 hero-crop authoring UI on the Preview tab</div>
+              <div class="scope">Practitioner-facing UI. Drops a coral-bordered 1:1 viewport overlay on top of the displayed video / photo in the editor sheet's Preview (Hero) tab; outside the box is dimmed in translucent sage. Practitioner drags the box along the source's free axis (X for landscape, Y for portrait); on release the value lands in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">exercises.hero_crop_offset</code>. Double-tap inside the box resets to centre. Live header MiniPreview mirrors the drag in lock-step (new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">cropOffset</code> param feeds an [Alignment]). Gated on <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">embeddedInSheet</code> so the full-screen workflow Preview route stays unchanged. PR 3 (mobile thumbnail consumers) + PR 4 (web lobby) are parallel &mdash; their surfaces are still pixel-stable here. <strong>16 items in 5 sections.</strong></div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -202,11 +202,11 @@
         </a>
       </li>
       <li>
-        <a href="./2026-05-04-vertical-weight-chip.html">
+        <a href="./lobby-mobile-consumers.html">
           <div class="row">
             <div>
-              <div class="name">0 · Web player — vertical book-spine weight chip</div>
-              <div class="scope">Mobile + web. Rotates the per-set / forward-look weight chip in the rep-stack aside to a vertical book-spine orientation (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">writing-mode: vertical-rl</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">rotate(180deg)</code>) so digits read bottom-to-top alongside the rep blocks. Aside gutter narrows to a slim 22-px vertical strip, freeing horizontal space &mdash; rep blocks reclaim the room and render visibly wider / squarer. CSS-only flip; no HTML structure change. End-of-exercise badge intentionally untouched (stays horizontal text-with-icon). SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v32-vertical-weight-chip</code>. <strong>10 items in 5 sections.</strong></div>
+              <div class="name">0 &middot; Wave Lobby PR 3/4 &mdash; hero crop alignment on Studio / ClientSessions / Camera peek / Preview</div>
+              <div class="scope">Practitioner-facing thumbnail consumers. Reads <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">hero_crop_offset</code> (PR 1) and applies it as a Flutter <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Alignment</code> on every <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">BoxFit.cover</code> surface that renders an exercise Hero: Studio card filmstrip + Hero flood-fill, ClientSessions list filmstrip cells, Camera peek box (still + long-press video), editor sheet header. Free axis is X for landscape sources (effective aspect &ge; 1) and Y for portrait. NULL falls through to 0.5 (centred) so legacy plans stay pixel-stable. Doesn't touch the editor sheet's Preview tab (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">MediaViewerBody</code> uses <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">BoxFit.contain</code> &mdash; full media is the right answer there). PR 4 mirrors the same alignment in the web-player lobby + workflow Preview. <strong>10 items in 3 sections.</strong></div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -215,11 +215,24 @@
         </a>
       </li>
       <li>
-        <a href="./2026-05-04-set-rest-phase-sync.html">
+        <a href="./2026-05-04-preview-chrome-tight.html">
           <div class="row">
             <div>
-              <div class="name">0 · Set/rest phase sync &mdash; web-player breather double-count fix</div>
-              <div class="scope">Web + mobile preview (R-10 parity, one bundle). The set/rest state machine in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/app.js</code> was double-counting each set's trailing breather: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">setPhaseRemaining</code> was being initialised from <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">calculatePerSetSeconds(...)</code> which BAKES IN the breather per the Wave 41 contract, so each non-final set spent <strong>physical + 2&times;breather</strong> in its <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">'set'</code> phase before falling into <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">'rest'</code>. New <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">calculatePhysicalSetSeconds</code> helper (perSet minus baked-in breather) now sizes every fresh <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">'set'</code>-phase init: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">beginSetMachineForCurrent</code>, both <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">advanceSetPhase</code> next-set transitions, the visibilitychange fast-forward's two next-set branches, <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">jumpToRep</code>. Rep-stack painter elapsed math flips from <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">perSet - setPhaseRemaining</code> to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">physicalSet - setPhaseRemaining</code>. SW cache bumped to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v31-set-rest-phase-sync</code>. <strong>10 items in 6 sections.</strong></div>
+              <div class="name">0 · Preview chrome tight &mdash; close button + Dynamic Island clamp</div>
+              <div class="scope">iPhone-only chrome polish on the workflow Preview surface. <strong>Bug A:</strong> the top-left X close button on the Flutter Preview screen sat ~8px below safe-area top + ~8px in from the left, AND was wrapped in a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">SafeArea</code> inside an already-safe-area-aware <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Positioned</code> &mdash; doubled inset. Carl: &ldquo;needs to move to top left corner, tight.&rdquo; Fix: drop the redundant <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">SafeArea</code> wrap and zero the offsets so the chip sits flush. <strong>Bug B:</strong> fullscreen mode stripped the safe-area top via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">body.is-fullscreen #app { padding-top: 0 }</code>, so matrix pills slipped under the Dynamic Island. Fix: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">padding-top: var(--safe-top)</code> in the same rule. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v34-island-clamp</code>. <strong>6 items in 2 sections.</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
+        <a href="./lobby-schema.html">
+          <div class="row">
+            <div>
+              <div class="name">0 · Wave Lobby PR 1/N &mdash; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">hero_crop_offset</code> column + RPC plumbing</div>
+              <div class="scope">Schema-only. Adds <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">exercises.hero_crop_offset</code> (NUMERIC nullable; SQLite REAL), wires it through <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">replace_plan_exercises</code> + the publish payload + offline pull mapper + scheme bridge. Foundation for the practitioner-authored 1:1 Hero crop &mdash; subsequent PRs land the editor (PR 2), thumbnail consumers (PR 3), and the web-player lobby (PR 4). NULL = unset; consumers default to 0.5 (centred), so this PR is byte-stable on every existing surface. Surprise found mid-PR: backfilled the Wave Hero <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">focus_frame_offset_ms</code> pull-branch that was missed in the original Wave Hero migration. SQLite v37 &rarr; v38. Supabase migration written but unapplied (Carl reviews). <strong>8 items in 3 sections.</strong></div>
             </div>
             <div style="text-align: right;">
               <span class="chip active">Active</span>
@@ -601,6 +614,45 @@
 
     <h2 style="margin-top: 36px;">Past waves</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-05-04-fractional-seconds-end-marker.html">
+          <div class="row">
+            <div>
+              <div class="name">Web player &mdash; clean integer timer + drop End-of-exercise pill (#227)</div>
+              <div class="date">2026-05-04</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Done</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
+        <a href="./2026-05-04-vertical-weight-chip.html">
+          <div class="row">
+            <div>
+              <div class="name">Web player &mdash; vertical book-spine weight chip (#226)</div>
+              <div class="date">2026-05-04</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Done</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
+        <a href="./2026-05-04-set-rest-phase-sync.html">
+          <div class="row">
+            <div>
+              <div class="name">Set/rest phase sync &mdash; breather double-count fix (#225)</div>
+              <div class="date">2026-05-04</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip complete">Done</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-05-02-hero-cloud-prefetch.html">
           <div class="row">
