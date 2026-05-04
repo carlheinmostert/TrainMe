@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-04 — vertical weight chip (book-spine)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-04 · vertical book-spine weight chip</div>
+    <h1>Device QA — vertical weight chip in rep stack</h1>
+    <p class="lede">
+      <strong>Scope:</strong> shared <code>web-player/</code> bundle — affects both <code>session.homefit.studio</code> and the embedded mobile workflow Preview WebView (R-10 parity). Rotates the per-set / forward-look weight chip in the rep-stack aside to a vertical "book-spine" orientation so digits read bottom-to-top, freeing horizontal space for wider rep blocks.
+      <br><br>
+      <strong>What changed:</strong> CSS-only flip via <code>writing-mode: vertical-rl</code> + <code>transform: rotate(180deg)</code> scoped to <code>.rep-stack-section-aside .weight-chip</code>. <code>renderWeightChipHtml()</code> output is unchanged — bolt → digits → "kg" → "· N s" stays in document order; the rotation reads them bottom-up. Aside gutter narrowed to a slim 22-px vertical strip; chip min-width swapped for a min-height (~3 rep blocks tall) so single-digit weights don't collapse.
+      <br><br>
+      <strong>What did NOT change:</strong> the sage "End of exercise" badge stays horizontal · the rep-stack-labels gutter (S1/R/S2) stays horizontal · the bottom decoded grammar stays horizontal · HTML structure of rep-stack sections unchanged · no schema, no RPC.
+      <br><br>
+      <strong>SW cache bumped:</strong> <code>homefit-player-v30-circuit-names</code> → <code>homefit-player-v31-vertical-weight-chip</code>.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>PR for branch <code>worktree-agent-ae500776cd2c6e774</code> merged + Vercel auto-deploy of <code>session.homefit.studio</code> live.</li>
+        <li>Mobile build picks up the bundle from <code>app/assets/web-player/</code> — re-run <code>./install-device.sh</code> if you want the embedded workflow Preview surface to reflect the change.</li>
+        <li>Hard-refresh / pull-to-refresh on session.homefit.studio so the new SW takes over (or kill + reopen Safari).</li>
+        <li>At least one published session with a mix of: a uniform-weight 3-set exercise · a pyramid (varying weight per set) · an exercise with hold seconds · a single-set bodyweight exercise.</li>
+      </ul>
+    </div>
+
+    <h2>1 · Vertical orientation + readability</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>3 &times; 10 @ 15 kg renders three vertical chips.</strong> Open a Preview for a uniform 3-set exercise at 15 kg. The right edge of the rep stack shows three weight chips, each reading <code>15 kg</code> rotated vertically (bottom-to-top: <code>1</code> &rarr; <code>5</code> &rarr; space &rarr; <code>k</code> &rarr; <code>g</code>), each chip aligned with its set's rep blocks.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Rep blocks visibly wider than pre-fix.</strong> Compare against yesterday's build (or memory of the horizontal-chip layout). The rep blocks should look squarer / wider because the aside gutter is now a slim 22-px vertical strip instead of expanding to fit horizontal text.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 · Pyramid + hold variants</h2>
+    <ul class="checklist">
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Pyramid 10 / 8 / 6 @ 12.5 / 15 / 17.5 kg.</strong> Three different chips, each rotated vertically, all the same slim width. The pyramid still reads cleanly &mdash; you can scan from the bottom chip up and see the weight progression. The "weight up" coral-tint variant on sets 2 and 3 (because weight changed) still pops.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Set with hold (10 reps @ 15 kg, 12 s hold).</strong> Chip reads <code>15 kg &middot; 12 s</code> rotated vertically. The <code>&middot;</code> separator and the digits + units stay readable on their side. No line breaks &mdash; the whole string flows continuously bottom-to-top in one chip.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Single-set bodyweight exercise.</strong> A bodyweight exercise (e.g. push-ups, no kg specified) renders either an empty slim placeholder or hides cleanly without distorting the section's flex sizing. Match current behaviour for the "no weight" case &mdash; no broken / overflowing chip.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 · End-of-exercise badge stays horizontal</h2>
+    <ul class="checklist">
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Final rest still shows horizontal "End of exercise" badge.</strong> Run a multi-set exercise through to the last rest. The sage "&#10003; End of exercise" badge appears (post-Start-Workout) and reads HORIZONTALLY with the checkmark glyph beside the text &mdash; NOT rotated to vertical. Untouched by this change.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 · Animation + state stability</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Vertical chips stay stable during workout fill animation.</strong> Tap Start Workout. As rep blocks fill bottom-up, the vertical weight chips stay in place &mdash; no jitter, no flicker, no re-flow. The chip's vertical position stays anchored to its set group.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Slide-change peek + return.</strong> Long-press the matrix to peek at another slide, then release. The new slide's vertical chips render correctly; no leftover state / wrong-orientation glitch from the previous slide.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>5 · Responsive viewport widths</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Narrow viewport (mobile portrait) reads cleanly.</strong> On iPhone portrait, the vertical chips stay readable; the rep stack still fits the viewport without horizontal scroll. Aside gutter doesn't push the chip off the right edge.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Wide viewport (landscape / desktop) keeps chips slim + vertical.</strong> Rotate to landscape (or open <code>session.homefit.studio</code> on a desktop browser). The chips stay slim and vertical &mdash; they don't suddenly flip back to horizontal at any breakpoint.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Pass-notes feed the next polish wave. Implementation lives entirely in <code>web-player/app.js</code> (comment update only) + <code>web-player/styles.css</code> (CSS scope <code>.rep-stack-section-aside .weight-chip</code>) + <code>web-player/sw.js</code> (cache name bump). No HTML structure change, no new wrapper elements.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-04-vertical-weight-chip.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'vertical-weight-chip', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -4360,6 +4360,15 @@ function updateRepStack() {
  * rest divider. Bodyweight (null kg) renders as a muted "Bodyweight"
  * chip with no urgent styling. The `urgent` flag adds the brand-tint
  * background; `leadGlyph` adds a coral bolt before the value.
+ *
+ * 2026-05-04: chip is now CSS-rotated to a vertical "book-spine"
+ * orientation when it sits in a `.rep-stack-section-aside` slot
+ * (writing-mode: vertical-rl + rotate(180deg) — same pattern as the
+ * mobile _MediaViewer treatment pill). The HTML output is unchanged;
+ * only the CSS scoping `.rep-stack-section-aside .weight-chip` flips
+ * orientation. Document order remains glyph → label → hold-suffix so
+ * after the visual flip, bottom-up reads as bolt → "120" → "kg" →
+ * "· 12 s".
  */
 function renderWeightChipHtml({ weightKg, urgent, leadGlyph, holdSeconds }) {
   const isBodyweight = weightKg == null;

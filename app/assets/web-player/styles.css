@@ -1498,19 +1498,56 @@ video.is-prep-paused {
   /* 2026-05-03: anchored to the right edge of the section, OUTSIDE the
      rep-stack column. This frees the blocks column to use the full
      34px width and lets the chip render at its natural size in the
-     card-viewport gutter beside the stack. */
+     card-viewport gutter beside the stack.
+     2026-05-04: gutter narrowed from natural-width (used to grow with
+     "120 kg · 12 s" horizontal text) to a slim 22-px vertical strip,
+     because the chip inside now rotates to book-spine orientation. */
   position: absolute;
   left: calc(100% + 4px);
   top: 0;
   bottom: 0;
+  width: 22px;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   gap: 4px;
   /* Stay out of the rep-block tap zone — the aside is non-interactive
      visual annotation. */
   pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Vertical (book-spine) weight chip inside the rep-stack aside       */
+/* ------------------------------------------------------------------ */
+/* 2026-05-04: when the chip sits in a `.rep-stack-section-aside` it
+   rotates 90° anticlockwise so the text reads bottom-to-top alongside
+   the rep blocks. Same pattern as the mobile _MediaViewer treatment
+   pill. The horizontal min-width / min-height swap so the chip's
+   slim width matches the aside gutter and its height grows with the
+   section it sits beside (the parent section's grow weight already
+   scales the aside). End-of-exercise badge is intentionally NOT
+   rotated — it stays a horizontal text-with-icon affordance. */
+.rep-stack-section-aside .weight-chip {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  /* Slim vertical chip: width is fixed, height grows to fit content
+     with a min-height tall enough that a single-digit "5 kg" chip
+     doesn't visually collapse next to a "120 kg · 12 s" chip. */
+  min-width: 0;
+  min-height: 56px;
+  width: 18px;
+  padding: 6px 2px;
+  /* Letter-spacing in vertical writing-mode reads as inter-character
+     spacing along the text flow direction (i.e. vertical) — keep
+     the existing 0.3px so glyphs don't crowd each other. */
+}
+/* The bolt glyph is naturally rotated by the parent transform — its
+   margin-right (horizontal-mode) becomes a margin in the vertical
+   axis after the rotation. Tighten so the bolt sits flush against
+   the digits rather than floating above them. */
+.rep-stack-section-aside .weight-chip-bolt {
+  margin-right: 0;
 }
 
 .rep-stack-set-hold {

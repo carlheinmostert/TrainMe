@@ -154,7 +154,7 @@
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
-      <h3 class="title">20 waves awaiting device QA</h3>
+      <h3 class="title">21 waves awaiting device QA</h3>
       <!-- Note: count includes the new 2026-05-03 hold-position wave (#0). -->
               </div>
             </div>
@@ -165,7 +165,7 @@
         </a>
       </li>
       <li>
-      <h3 class="title">20 waves awaiting device QA</h3>
+      <h3 class="title">21 waves awaiting device QA</h3>
       <p class="sub">
         <strong style="color: var(--text);">1. Install first:</strong> run <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--coral);">./install-device.sh</code> from the repo root. It pulls main, release-builds, installs to iPhone CHM.<br>
         <strong style="color: var(--text);">2. Hard-refresh</strong> <a href="https://manage.homefit.studio/network" target="_blank" style="color: var(--coral);">manage.homefit.studio</a> in Safari (Cmd+Shift+R) so Vercel's new portal build loads, then sign in.<br>
@@ -175,6 +175,19 @@
 
     <h2>Order · test these now</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-05-04-vertical-weight-chip.html">
+          <div class="row">
+            <div>
+              <div class="name">0 · Web player — vertical book-spine weight chip</div>
+              <div class="scope">Mobile + web. Rotates the per-set / forward-look weight chip in the rep-stack aside to a vertical book-spine orientation (<code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">writing-mode: vertical-rl</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">rotate(180deg)</code>) so digits read bottom-to-top alongside the rep blocks. Aside gutter narrows to a slim 22-px vertical strip, freeing horizontal space &mdash; rep blocks reclaim the room and render visibly wider / squarer. CSS-only flip; no HTML structure change. End-of-exercise badge intentionally untouched (stays horizontal text-with-icon). SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v32-vertical-weight-chip</code>. <strong>10 items in 5 sections.</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./2026-05-04-set-rest-phase-sync.html">
           <div class="row">
