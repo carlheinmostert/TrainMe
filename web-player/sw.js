@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v46-lobby-circuit-breaker';
+const CACHE_NAME = 'homefit-player-v47-lobby-single-active-video';
 
 // App shell files — always cached
 const APP_SHELL = [

@@ -64,6 +64,7 @@
   let scrollRafToken = null;        // rAF-throttled scroll handler
   let scrollListenerWired = false;
   let scrollContainer = null;       // .lobby-inner — the scroll root
+  let _lazyKickToken = null;        // pending setTimeout for lazyKickVideosNear (debounce)
 
   // Default plan title format used to detect default-named plans:
   // "{DD MMM YYYY HH:MM}" e.g. "04 May 2026 14:30".
@@ -1309,24 +1310,55 @@
         } catch (_) { /* older browsers */ }
       }
     }
-    // Lazy-load video heroes for current ± 1.
-    lazyKickVideosNear(idx);
+    // Debounce video kick during fast scroll. Each active-row change
+    // means: pause + clear src + load() on the previous active video,
+    // then attach src + load() + play() on the new one. Under sustained
+    // scrolling `setActiveRow` fires repeatedly, churning HW decoder
+    // attach/detach. 150ms debounce: while the user keeps scrolling,
+    // the timeout never fires; once they settle on a row, the kick
+    // runs once for the settled row.
+    if (_lazyKickToken != null) {
+      clearTimeout(_lazyKickToken);
+      _lazyKickToken = null;
+    }
+    const targetIdx = idx;
+    _lazyKickToken = setTimeout(() => {
+      _lazyKickToken = null;
+      lazyKickVideosNear(targetIdx);
+    }, 150);
   }
 
   /**
-   * Load metadata + start playback for hero <video> elements within the
-   * current row range. Pause + reset others.
+   * Load metadata + start playback for the hero <video> element on the
+   * ACTIVE row only. Aggressively clear src + call load() on every other
+   * row's video to release HW H.264 decoders.
+   *
+   * Why single-active-video (was current ± 1, up to 3 simultaneously):
+   * iOS allocates ~3–4 concurrent HW decoders per device, and embedded
+   * WKWebView gets a stricter allocation than mobile Safari proper. The
+   * lobby + the OS + whatever else holds decoders pushes the cap, the
+   * media subsystem stalls, and the JS event loop dies with it (PR #250's
+   * circuit-breaker confirmed the freeze is host-side: heartbeat dies
+   * with no CB trip, JS counts stay low). Going single-active-video puts
+   * us well under the cap regardless of what else the OS is decoding.
+   *
+   * Pause alone is NOT enough to release the HW decoder — the element
+   * keeps the slot reserved until the source is dropped. We must clear
+   * the `src` attribute AND call `load()` to fully tear down the
+   * MediaSource and free the decoder. The `poster=` attribute on the
+   * <video> element keeps the static Hero frame visible during this
+   * teardown so the user never sees a black box.
    */
   function lazyKickVideosNear(idx) {
     if (!cbBump('lazyKickVideosNear')) return;
     const rows = $lobbyList.querySelectorAll('.lobby-row[data-slide-index]');
     rows.forEach((row) => {
       const rIdx = parseInt(row.getAttribute('data-slide-index'), 10);
-      const within = Math.abs(rIdx - idx) <= 1;
+      const isActive = rIdx === idx;
       const v = row.querySelector('video');
       if (!v) return;
-      if (within && !prefersReducedMotion()) {
-        // Load on demand.
+      if (isActive && !prefersReducedMotion()) {
+        // Active row — load on demand + start playback.
         if (!v.src && v.dataset.src) {
           v.src = v.dataset.src;
         }
@@ -1348,8 +1380,17 @@
           // handler catch the error and refetch the plan.
         }
       } else {
+        // Inactive row — fully release the HW decoder. Pause alone keeps
+        // the slot reserved; we MUST drop the src and call load() to
+        // tear down the MediaSource. The <video poster=…> attribute
+        // shows the static Hero frame while the element is "empty", so
+        // the user sees the same pretty thumbnail with no black flash.
         if (!v.paused) try { v.pause(); } catch (_) {}
         try { v.currentTime = 0; } catch (_) {}
+        if (v.src || v.getAttribute('src')) {
+          try { v.removeAttribute('src'); } catch (_) {}
+          try { v.load(); } catch (_) {}
+        }
       }
     });
   }
