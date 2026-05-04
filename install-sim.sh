@@ -3,7 +3,7 @@
 # Purpose: wipe Supabase session (so the app lands on the Sign-In screen),
 # rebuild, and relaunch on the iPhone 16e simulator. Useful for brand
 # screenshots and any time you want a "first launch" experience.
-set -e
+set -euo pipefail   # pipefail so `cmd | tail` doesn't mask cmd's failure
 
 DEVICE=E4285EC5-6210-4D27-B3AF-F63ADDE139D9
 BUNDLE=studio.homefit.app
@@ -15,6 +15,12 @@ open -a Simulator
 
 echo "▸ Uninstalling existing app (clears Supabase session → back to Sign-In)..."
 xcrun simctl uninstall "$DEVICE" "$BUNDLE" 2>/dev/null || true
+
+echo "▸ Syncing web-player bundle into Flutter assets (R-10 parity)..."
+# Without this, app/assets/web-player/* drifts behind web-player/* and
+# the simulator preview ships stale bytes. Same step as install-device.sh.
+cd /Users/chm/dev/TrainMe/app
+dart run tool/sync_web_player_bundle.dart
 
 echo "▸ Building Flutter app for simulator (first run ≈ 2-3 min)..."
 cd /Users/chm/dev/TrainMe/app

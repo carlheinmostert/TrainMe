@@ -107,14 +107,13 @@ flutter:
   uses-material-design: true
 
   # Wave 4 — embedded web-player bundle served by the homefit-local://
-  # WKURLSchemeHandler. Keep the listed files tight so we don't
-  # accidentally bundle sw.js, the Vercel middleware, or other
-  # server-side artefacts. Regenerate via
-  # `cd app && dart run tool/sync_web_player_bundle.dart` when web-player/
-  # changes.
+  # WKURLSchemeHandler. Directory include — Flutter bundles whatever's
+  # in assets/web-player/. The contents are written by
+  # `tool/sync_web_player_bundle.dart` (PR #246), which has its own
+  # explicit exclude list (sw.js, vercel.json, serve.json, middleware.js,
+  # *.results.json) so server-side artefacts never make it into the
+  # bundle. Single source of truth: the sync script's exclude list.
+  # Re-run via `cd app && dart run tool/sync_web_player_bundle.dart`
+  # when web-player/ changes; --check mode catches drift.
   assets:
-    - assets/web-player/index.html
-    - assets/web-player/app.js
-    - assets/web-player/api.js
-    - assets/web-player/lobby.js
-    - assets/web-player/styles.css
+    - assets/web-player/
