@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v42-grammar-and-alignment';
+const PLAYER_VERSION = 'v43-grammar-revision-and-fixes';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -1199,14 +1199,17 @@ function formatReps(playSets) {
 /**
  * Round 6 — central hold-segment composer with Wave 43 three-mode
  * parenthetical qualifiers. Returns the dose-line fragment for the
- * hold (e.g. `30s hold`, `5s hold (each)`, `30s hold (end)`) or ''
- * when no hold is configured.
+ * hold (e.g. `30s hold (per set)`, `5s hold (per rep)`,
+ * `30s hold (after last rep)`) or '' when no hold is configured.
  *
- * Mode wording (locked — Carl's grammar lock-in 2026-05-04):
- *   per_rep         → `Ns hold (each)`
- *   end_of_set      → `Ns hold` (no qualifier — keeps the line tidy
- *                                for the common case)
- *   end_of_exercise → `Ns hold (end)`
+ * Mode wording (Round 7 revision — always-explicit; Carl 2026-05-04):
+ *   per_rep         → `Ns hold (per rep)`
+ *   end_of_set      → `Ns hold (per set)`         (default)
+ *   end_of_exercise → `Ns hold (after last rep)`
+ *
+ * Round 7 dropped the round-6 implicit-default convention (bare
+ * `Ns hold` for end_of_set). Always showing the qualifier reads more
+ * consistently and removes the "what does no qualifier mean?" guess.
  *
  * If sets in an exercise carry mixed hold modes (data shape allows it
  * but the editor enforces uniform-by-default), we use the FIRST set's
@@ -1215,7 +1218,8 @@ function formatReps(playSets) {
  * collapse to `''` per the existing pickHoldSeconds() contract (ie a
  * single uniform value or nothing).
  *
- * Args: `playSets` — output of playSetsForSlide(). Returns a string.
+ * Args: `playSets` — output of playSetsForSlide() (deck) or
+ * allSetsForSlide() (lobby). Returns a string.
  */
 function formatHold(playSets) {
   if (!Array.isArray(playSets) || !playSets.length) return '';
@@ -1224,16 +1228,14 @@ function formatHold(playSets) {
   if (!allSame) return '';
   const sec = holds[0];
   if (sec <= 0) return '';
-  // Wave 43 mode wording. Photos go through the same path: if the
-  // exercise is a photo with no `sets[]` (legacy fallback), the
-  // synthesised set from _coerceSet defaults hold_position to
-  // 'end_of_set', which renders without a qualifier — matches the
-  // brief's "fall back gracefully to the legacy holdSeconds scalar
-  // with no qualifier" requirement.
+  // Wave 43 mode wording (Round 7 always-explicit revision). Photos go
+  // through the same path: if the exercise is a photo with no `sets[]`
+  // (legacy fallback), the synthesised set from _coerceSet defaults
+  // hold_position to 'end_of_set' which renders `(per set)`.
   const mode = (playSets[0] && playSets[0].hold_position) || 'end_of_set';
-  if (mode === 'per_rep') return `${sec}s hold (each)`;
-  if (mode === 'end_of_exercise') return `${sec}s hold (end)`;
-  return `${sec}s hold`;
+  if (mode === 'per_rep') return `${sec}s hold (per rep)`;
+  if (mode === 'end_of_exercise') return `${sec}s hold (after last rep)`;
+  return `${sec}s hold (per set)`;
 }
 
 /**
@@ -1282,8 +1284,9 @@ function buildDecodedGrammar(slide) {
 
   // Circuit slides represent ONE set per round; the round count is
   // surfaced by the matrix. Drop the `N ×` prefix. Hold renders via
-  // the shared formatHold() so the (each) / (end) qualifiers stay in
-  // lockstep with the lobby and the rest of the deck. (Round 6.)
+  // the shared formatHold() so the (per rep) / (per set) /
+  // (after last rep) qualifiers stay in lockstep with the lobby and
+  // the rest of the deck. (Round 6 / Round 7 grammar revision.)
   if (isCircuit) {
     const set = playSets[0];
     const parts = [];
@@ -2895,6 +2898,25 @@ function playSetsForSlide(slide) {
     return [_coerceSet(raw[idx])];
   }
 
+  if (raw.length === 0) return [_coerceSet(null)];
+  return raw.map(_coerceSet);
+}
+
+/**
+ * Round 7 — return EVERY authored set on a slide, ignoring `circuitRound`.
+ * Used by surfaces that summarise the whole exercise rather than a single
+ * round (i.e. the lobby's row dose-line where each circuit exercise is
+ * deduped to one row representing all rounds). The deck stays on
+ * `playSetsForSlide` because its per-round filtering is correct for an
+ * unrolled-deck slide.
+ *
+ * Always returns at least one set (mirrors `playSetsForSlide`'s
+ * fallback) so downstream `formatReps` / `formatHold` can't crash on
+ * legacy / partial data.
+ */
+function allSetsForSlide(slide) {
+  if (!slide) return [_coerceSet(null)];
+  const raw = Array.isArray(slide.sets) ? slide.sets : [];
   if (raw.length === 0) return [_coerceSet(null)];
   return raw.map(_coerceSet);
 }
@@ -5420,6 +5442,11 @@ async function init() {
           return total;
         },
         playSetsForSlide: playSetsForSlide,
+        // Round 7 — `allSetsForSlide` ignores circuitRound and returns
+        // every authored set, used by the lobby for the dose-line of a
+        // circuit-grouped row (one row representing all rounds). The
+        // deck keeps `playSetsForSlide` for its per-round filtering.
+        allSetsForSlide: allSetsForSlide,
         // Round 6 — central reps + hold composers, shared so the
         // lobby's row dose-line uses identical grammar to the deck's
         // active-slide-header. Single source of truth for the

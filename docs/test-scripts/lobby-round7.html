@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-04 — pyramid in circuits + always-explicit hold qualifier + scroll-top guard (round 7)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote { position: absolute; left: 10px; top: 8px; display: flex; gap: 4px; }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-04 · web-player round 7</div>
+    <h1>Device QA — pyramid in circuits + hold-qualifier revision + scroll-top guard</h1>
+    <p class="lede">
+      <strong>Three follow-ups on round 6.</strong> One is a real rendering bug Carl just hit live; the other two close gaps round 6 left behind.
+      <br><br>
+      <strong>1) Pyramid in circuits.</strong> Plan <code>5d24085b-2a3c-4b2f-9592-a842b4882090</code> has an exercise (position 2, in a circuit) with 3 sets <code>[12, 10, 8]</code>. The lobby was rendering it as <code>1 &times; 12 reps</code> instead of <code>12/10/8 reps</code>. Root cause: <code>buildDoseLine</code> used <code>playSetsForSlide()</code> which is deck-oriented &mdash; for a circuit slide it filters to ONE round&apos;s single set. The lobby groups circuits and renders one row per exercise (not per round), so it needs the FULL <code>sets[]</code> array. Fix: new <code>allSetsForSlide()</code> helper exposed on <code>HomefitLobbyHandoff</code> that ignores <code>circuitRound</code> and always returns every authored set.
+      <br>
+      <strong>2) Hold-qualifier grammar revision.</strong> Round 6 made <code>end_of_set</code> render bare (no qualifier). Carl wants the qualifier ALWAYS present: <code>per_rep</code> &rarr; <code>(per rep)</code>; <code>end_of_set</code> &rarr; <code>(per set)</code>; <code>end_of_exercise</code> &rarr; <code>(after last rep)</code>. All lowercase. Reads more consistently than the implicit-default convention.
+      <br>
+      <strong>3) Scroll-top guard.</strong> Round 3 added a scroll-bottom guard for the last row; symmetric guard never landed for scroll-top. Symptom: at <code>scrollTop = 0</code> the second row wins the nearest-to-centre reducer, so the first row&apos;s pill never highlights when the user scrolls back up to the top. Fix: mirror of the bottom guard, <code>scrollTop &le; 4</code> &rarr; activate first non-rest row.
+      <br><br>
+      <strong>Bumps:</strong> <code>PLAYER_VERSION</code> &rarr; <code>v43-grammar-revision-and-fixes</code>; <code>CACHE_NAME</code> &rarr; <code>homefit-player-v43-grammar-revision-and-fixes</code>.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>This PR merged + Vercel auto-deploy of <code>session.homefit.studio</code> live.</li>
+        <li>Hard-refresh (kill + reopen Safari) on iPhone CHM so the new SW takes over and you load <code>v43-grammar-revision-and-fixes</code> end-to-end.</li>
+        <li>Test plan options:
+          <ul>
+            <li>A &mdash; Carl&apos;s plan <code>5d24085b-2a3c-4b2f-9592-a842b4882090</code> for the pyramid-in-circuit regression.</li>
+            <li>B &mdash; one with a pyramid exercise NOT in a circuit (regression check) AND one with uniform sets in a circuit (regression check).</li>
+            <li>C &mdash; one whose hold modes cover all three: <code>per_rep</code>, <code>end_of_set</code>, <code>end_of_exercise</code> (Studio Plan tab Wave-43 control).</li>
+            <li>D &mdash; one tall enough for the lobby to actually scroll (8&plus; rows on iPhone CHM).</li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+
+    <h2>Pyramid in circuits</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Pyramid in a circuit renders <code>12/10/8 reps</code> on the lobby row.</strong> Open Carl&apos;s plan <code>https://session.homefit.studio/p/5d24085b-2a3c-4b2f-9592-a842b4882090</code>. Find the position-2 exercise (inside a circuit, 3 sets <code>[12, 10, 8]</code>). The dose-line under that row should read <code>12/10/8 reps &middot; ...</code>. <strong>Pre-Round-7 was <code>1 &times; 12 reps</code></strong> &mdash; the deck&apos;s circuit-round filter was leaking into the lobby surface. Bug fixed.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Pyramid NOT in a circuit also renders correctly (regression check).</strong> Open a plan with a standalone pyramid exercise (e.g. 8/10/12 with no circuit). The dose-line still reads <code>8/10/12 reps &middot; ...</code>. The Round 7 helper-rename is a no-op for non-circuit slides &mdash; <code>allSetsForSlide()</code> returns the same array <code>playSetsForSlide()</code> would have for them.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>Uniform sets in a circuit still render <code>3 &times; 8 reps</code>.</strong> An exercise inside a circuit with 3 sets all <code>{ reps: 8 }</code> renders the dose-line as <code>3 &times; 8 reps &middot; ...</code>. Pre-Round-7 was <code>1 &times; 8 reps</code>. Same root-cause as item 1; verify the same fix carries the uniform case too.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Hold-qualifier grammar revision (always-explicit)</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong><code>per_rep</code> mode renders <code>Ns hold (per rep)</code>.</strong> An exercise set to <code>Per rep</code> in Studio with hold = 5s. Lobby dose-line: <code>... &middot; 5s hold (per rep) &middot; ...</code>. Pre-Round-7 read <code>(each)</code>; Carl&apos;s revision is <code>(per rep)</code> for clearer disambiguation.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Default <code>end_of_set</code> is now explicit: <code>Ns hold (per set)</code>.</strong> An exercise with the default Wave-43 mode + 30s hold reads <code>30s hold (per set)</code> on both the lobby row and the deck active-slide header. <strong>No longer bare</strong> &mdash; pre-Round-7 was <code>30s hold</code> with no qualifier. The qualifier is always present now.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong><code>end_of_exercise</code> mode renders <code>Ns hold (after last rep)</code>.</strong> An exercise with <code>End</code> mode + 30s hold reads <code>30s hold (after last rep)</code>. Pre-Round-7 read <code>(end)</code>; Carl&apos;s revision is the more explicit <code>(after last rep)</code> wording. Verify in BOTH lobby and deck.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Deck (workout view) shows the new qualifiers (R-10 parity).</strong> Tap Start workout. Active-slide header at the top reads e.g. <code>{Exercise} &middot; 3 &times; 10 reps &middot; 30s hold (per set) &middot; ...</code>. Both the deck and the lobby flow through the SAME <code>formatHold()</code> &mdash; they must agree word-for-word.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Photo with hold uses the new qualifiers.</strong> A photo exercise with hold = 30s + default <code>end_of_set</code> reads <code>30s hold (per set)</code>. A legacy photo with no <code>sets[]</code> array still falls through to the synthesised default-mode set and renders <code>30s hold (per set)</code> &mdash; never crashes the lobby render. Photos with no hold render <code>Reference position</code> as before.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Scroll-top guard</h2>
+    <ul class="checklist">
+      <li data-num="9" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 9">&#10003;</button><button class="fail" type="button" aria-label="Fail 9">&#10007;</button></div>
+        <span class="num">9.</span>
+        <span class="text"><strong>Scroll all the way down, scroll back to top &mdash; first row&apos;s pill highlights.</strong> Open a plan with enough rows to scroll (8&plus; on iPhone CHM). Scroll to the bottom (last pill should activate &mdash; round-3 fix). Then scroll back to the very top. <strong>Expected:</strong> the first non-rest row&apos;s pill activates and stays active. Pre-Round-7: at <code>scrollTop = 0</code> the second row won the centre reducer and the first pill never lit up when the user scrolled back up.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text"><strong>Scroll-top guard skips a leading rest row (matches activate-initial-row semantics).</strong> A plan whose first row is a Rest (rare but supported). Scroll down then back to the top. Expected: the FIRST non-rest row&apos;s pill activates &mdash; same logic <code>activateInitialRow()</code> uses on page load. The leading rest row never wins the highlight even though it&apos;s closer to the top of the viewport.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&#10003;</button><button class="fail" type="button" aria-label="Fail 11">&#10007;</button></div>
+        <span class="num">11.</span>
+        <span class="text"><strong>Mid-scroll behaviour unchanged (regression).</strong> Scroll to the middle of the list. The nearest-to-centre reducer should still pick whichever row is closest to viewport centre &mdash; the new top guard ONLY fires within 4px of <code>scrollTop = 0</code>. Verify scrolling smoothly through the list still highlights pills as you pass each row.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>Build marker + regression spot-checks</h2>
+    <ul class="checklist">
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&#10003;</button><button class="fail" type="button" aria-label="Fail 12">&#10007;</button></div>
+        <span class="num">12.</span>
+        <span class="text"><strong>Build chip reads <code>... web-player v43-grammar-revision-and-fixes &middot; cache v43-grammar-revision-and-fixes</code>.</strong> Hard-refresh, open the lobby. Look at the dim chip at the bottom of the metadata strip. <strong>Expected:</strong> both bundle slug and cache slug read <code>v43-grammar-revision-and-fixes</code>. If they diverge (cache lags), do a second hard-refresh; should converge after the SW reactivates.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&#10003;</button><button class="fail" type="button" aria-label="Fail 13">&#10007;</button></div>
+        <span class="num">13.</span>
+        <span class="text"><strong>Per-exercise gear popover treatment switching still works.</strong> Tap the gear icon on any exercise card. The treatment selector (Drawn / B&amp;W / Original) toggles per-exercise as before. No shared-state contamination from the Round-7 grammar-helper refactor &mdash; <code>allSetsForSlide()</code> is a pure function with no side effects.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&#10003;</button><button class="fail" type="button" aria-label="Fail 14">&#10007;</button></div>
+        <span class="num">14.</span>
+        <span class="text"><strong>Last-pill scroll-bottom guard still works.</strong> Round 3&apos;s scroll-bottom fix is the reference pattern for the new top guard. Verify it hasn&apos;t regressed: scroll all the way down on a tall plan; the last row&apos;s pill should activate even though its centre never reaches viewport centre. The new top guard sits as a sibling above it &mdash; mirror shape; both should fire under their own conditions.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Bug? Reply with the failing item number(s) plus any notes; I&apos;ll triage. <code>14 items</code> across 4 sections.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'lobby-round7.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({items: state, ts: Date.now()})
+        }).catch(function() { /* offline; localStorage suffices */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'fail', note: noteInput.value || ''};
+          save();
+        });
+
+        noteInput.addEventListener('input', function() {
+          var entry = state[num];
+          if (!entry) return;
+          entry.note = noteInput.value;
+          save();
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
