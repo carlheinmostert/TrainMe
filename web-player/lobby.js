@@ -311,6 +311,29 @@
     // de-duped non-rest exercise and pass it through to exerciseRowHTML
     // so a null/empty `slide.name` becomes "Exercise 1", "Exercise 2", …
     // Custom-named exercises render their name as-is (no number).
+    // Round 5 — Fix 1 — circuit letter map for the default-name fallback.
+    // Studio's `_circuitLetter(circuitId)` (app/lib/screens/studio_mode_screen.dart)
+    // assigns A, B, C… by first-appearance order in the exercise list,
+    // wrapping with mod 26 if more than 26 distinct circuits exist. Mirror
+    // that algorithm here so lobby + Studio render the same letters when
+    // the practitioner hasn't customised. Walk slides in their natural
+    // order (which mirrors `plan.exercises`); each new circuit_id picks
+    // up the next letter index.
+    const circuitLetters = (() => {
+      const map = {};
+      let nextIdx = 0;
+      for (let i = 0; i < slides.length; i++) {
+        const s = slides[i];
+        if (!s || !s.circuit_id) continue;
+        if (Object.prototype.hasOwnProperty.call(map, s.circuit_id)) continue;
+        map[s.circuit_id] = String.fromCharCode(
+          'A'.charCodeAt(0) + (nextIdx % 26),
+        );
+        nextIdx += 1;
+      }
+      return map;
+    })();
+
     const items = [];
     const seenIds = new Set();
     let circuitGroup = null;
@@ -368,10 +391,20 @@
           //   1. plan.circuit_names[circuit_id] (Wave Circuit-Names) — the
           //      practitioner-set custom label; already mirrored onto each
           //      circuit slide as `circuitName` by `unrollExercises`.
-          //   2. fall back to "Circuit".
-          const circuitName = (s.circuitName && String(s.circuitName).trim())
-            || (plan && plan.circuit_names && plan.circuit_names[s.circuit_id])
-            || null;
+          //   2. Round 5 — Fix 1 — fall back to "Circuit {Letter}" using
+          //      the first-appearance-order map, mirroring Studio's
+          //      `_circuitLetter` helper (app/lib/screens/studio_mode_screen.dart).
+          //      Studio header inline-edits this same fallback shape, so
+          //      the lobby reads consistently with what the practitioner
+          //      sees in the editor.
+          const customName = (s.circuitName && String(s.circuitName).trim())
+            || (plan
+              && plan.circuit_names
+              && plan.circuit_names[s.circuit_id]
+              && String(plan.circuit_names[s.circuit_id]).trim())
+            || '';
+          const letter = circuitLetters[s.circuit_id] || 'A';
+          const circuitName = customName || `Circuit ${letter}`;
           circuitGroup = {
             kind: 'circuit',
             circuitId: s.circuit_id,
@@ -528,6 +561,10 @@
     // The header gets the same two-column treatment (gutter + content).
     //
     // Cycles chip: `×3` only — no "ROUNDS" suffix.
+    // Round 5 — Fix 1 — `group.circuitName` is now always non-null (the
+    // renderList loop substitutes "Circuit {Letter}" when neither
+    // `s.circuitName` nor `plan.circuit_names[circuit_id]` resolves).
+    // Keep the defensive 'Circuit' fallback as a final guard.
     const labelText = group.circuitName
       ? group.circuitName
       : 'Circuit';

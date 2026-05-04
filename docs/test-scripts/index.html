@@ -154,7 +154,7 @@
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
-      <h3 class="title">22 waves awaiting device QA</h3>
+      <h3 class="title">23 waves awaiting device QA</h3>
       <!-- Note: count includes the new 2026-05-03 hold-position wave (#0). -->
               </div>
             </div>
@@ -165,7 +165,7 @@
         </a>
       </li>
       <li>
-      <h3 class="title">22 waves awaiting device QA</h3>
+      <h3 class="title">23 waves awaiting device QA</h3>
       <p class="sub">
         <strong style="color: var(--text);">1. Install first:</strong> run <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--coral);">./install-device.sh</code> from the repo root. It pulls main, release-builds, installs to iPhone CHM.<br>
         <strong style="color: var(--text);">2. Hard-refresh</strong> <a href="https://manage.homefit.studio/network" target="_blank" style="color: var(--coral);">manage.homefit.studio</a> in Safari (Cmd+Shift+R) so Vercel's new portal build loads, then sign in.<br>
@@ -175,6 +175,19 @@
 
     <h2>Order · test these now</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./lobby-name-and-rail.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Lobby name fallback + rail bleed + wider gutter (round 5)</div>
+              <div class="scope">Web player lobby (shared bundle &rarr; mobile workflow Preview gets it free). Three round-5 follow-ups Carl surfaced after rounds 3 + 4. <strong>Fix 1:</strong> circuit-name fallback &mdash; round 3 fixed exercise-name display; same root cause exists for circuit names. Lobby builds a circuit-letter map by first-appearance order (mirrors Studio's <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_circuitLetter</code> in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">app/lib/screens/studio_mode_screen.dart</code>) and substitutes <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Circuit A</code> / <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Circuit B</code> when neither <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">slide.circuitName</code> nor <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">plan.circuit_names[id]</code> resolves. Custom names render as-is. <strong>Fix 2:</strong> rail-piece bleed &mdash; rail span gets <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">top:-5px; bottom:-5px</code> so adjacent pieces overlap into the inter-row gap, killing the sub-pixel break Carl reported between row boundaries. Last row keeps the L corner via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">height: calc(50% + 5px)</code> so the rail bottom still lands at the row's actual centre. <strong>Fix 3:</strong> gutter widened from 22px &rarr; <strong>56px</strong> (~3&times;); rail moved <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">left:11px</code> &rarr; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">left:24px</code>; connector width 11 &rarr; 26 so its tip lands ~6px before the card border (~16px breathing once the card's 10px padding is counted). Rail+connector cluster is indented from the page edge with breathing on both sides; nothing touches the card. SW cache <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v39-hotfix-round3</code> &rarr; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">homefit-player-v41-lobby-name-and-rail-polish</code>. <strong>10 items in 4 sections.</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./lobby-hotfix-round3.html">
           <div class="row">
