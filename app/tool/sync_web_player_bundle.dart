@@ -10,28 +10,154 @@
 //
 //     dart run tool/sync_web_player_bundle.dart
 //
+// Drift check (exit non-zero if dest is out of sync with source):
+//
+//     dart run tool/sync_web_player_bundle.dart --check
+//
 // The bundle is NOT generated at build time today; the copied files
 // are committed to git so reviewers can see the exact bytes that ship
 // in the iOS .app. If the web-player changes, re-run this script and
 // commit the updated assets in the same PR as the source edit — keeps
 // R-10 parity with the mobile surface.
 //
-// sw.js, vercel.json, serve.json, and middleware.js are deliberately
-// excluded. The embedded surface has no service worker (see
-// `web-player/app.js` SW-registration skip for `isLocalSurface()`) and
-// the Vercel-only files are server-config artefacts.
+// 2026-05-04 — generic walk + exclude list. Previously a hardcoded
+// `_filesToCopy` list meant every new web-player file required a
+// manual edit here, and we forgot lobby.js for several rounds (PR #243).
+// Now we walk top-level `web-player/` and copy everything except an
+// explicit exclude list. New files in the bundle get picked up
+// automatically.
+//
+// Excluded files:
+//   - sw.js               — embedded surface skips SW registration
+//                           (see `web-player/app.js` `isLocalSurface()`)
+//   - vercel.json         — Vercel server-config artefact
+//   - serve.json          — local `serve` config artefact
+//   - middleware.js       — Vercel Edge Middleware (OG meta for
+//                           WhatsApp); irrelevant to the embedded
+//                           WebView
+//   - any *.results.json  — test-script output sinks (gitignored
+//                           but defensive)
+//
+// Subdirectories under `web-player/` are ignored entirely — the bundle
+// is flat by design. If that ever changes (e.g. a `_results/` sink
+// directory is added or assets get nested), the walker needs updating
+// to recurse with an exclude-dirs filter.
 
 // ignore_for_file: avoid_print
 
 import 'dart:io';
 
-const _filesToCopy = <String>[
-  'index.html',
-  'app.js',
-  'api.js',
-  'lobby.js',
-  'styles.css',
-];
+const _excludeFiles = <String>{
+  'sw.js',
+  'vercel.json',
+  'serve.json',
+  'middleware.js',
+};
+
+bool _isExcluded(String name) {
+  if (_excludeFiles.contains(name)) return true;
+  if (name.endsWith('.results.json')) return true;
+  return false;
+}
+
+/// Returns the set of file names (basenames, no path) in [dir] that
+/// pass the exclude filter. Top-level only — subdirectories are
+/// ignored entirely (the bundle is flat by design; if that ever
+/// changes the walker needs updating).
+Set<String> _listSourceFiles(Directory dir) {
+  final out = <String>{};
+  for (final entity in dir.listSync(followLinks: false)) {
+    if (entity is! File) continue;
+    final name = entity.uri.pathSegments.last;
+    if (_isExcluded(name)) continue;
+    out.add(name);
+  }
+  return out;
+}
+
+/// Returns every file name in [dir] (top-level only). Used for the
+/// `--check` drift report — we want to surface files in the dest
+/// that don't belong, including ones that should have been excluded.
+Set<String> _listDestFiles(Directory dir) {
+  final out = <String>{};
+  if (!dir.existsSync()) return out;
+  for (final entity in dir.listSync(followLinks: false)) {
+    if (entity is! File) continue;
+    out.add(entity.uri.pathSegments.last);
+  }
+  return out;
+}
+
+void _copyBundle(Directory src, Directory dst) {
+  dst.createSync(recursive: true);
+  final names = _listSourceFiles(src).toList()..sort();
+  for (final name in names) {
+    final srcFile = File('${src.path}/$name');
+    final dstFile = File('${dst.path}/$name');
+    dstFile.writeAsBytesSync(srcFile.readAsBytesSync());
+    print('copied ${srcFile.path} -> ${dstFile.path}');
+  }
+  print('web-player bundle synced (${names.length} files)');
+}
+
+/// Returns 0 if perfectly in sync, 1 if any drift detected. Drift is:
+///   - source file (non-excluded) missing from dest
+///   - dest file missing from source (stale — even if it's in the
+///     exclude list, it shouldn't be sitting in the dest anymore)
+///   - source + dest both have a file but bytes differ
+int _checkBundle(Directory src, Directory dst) {
+  final srcNames = _listSourceFiles(src);
+  final dstNames = _listDestFiles(dst);
+
+  final missingFromDst = srcNames.difference(dstNames);
+  final extraInDst = dstNames.difference(srcNames);
+
+  // Byte-level comparison on the intersection.
+  final mismatched = <String>[];
+  for (final name in srcNames.intersection(dstNames)) {
+    final srcBytes = File('${src.path}/$name').readAsBytesSync();
+    final dstBytes = File('${dst.path}/$name').readAsBytesSync();
+    if (srcBytes.length != dstBytes.length) {
+      mismatched.add(name);
+      continue;
+    }
+    var differ = false;
+    for (var i = 0; i < srcBytes.length; i++) {
+      if (srcBytes[i] != dstBytes[i]) {
+        differ = true;
+        break;
+      }
+    }
+    if (differ) mismatched.add(name);
+  }
+
+  if (missingFromDst.isEmpty && extraInDst.isEmpty && mismatched.isEmpty) {
+    print('web-player bundle in sync (${srcNames.length} files)');
+    return 0;
+  }
+
+  stderr.writeln('web-player bundle DRIFT detected:');
+  if (missingFromDst.isNotEmpty) {
+    stderr.writeln('  missing from ${dst.path}:');
+    for (final name in (missingFromDst.toList()..sort())) {
+      stderr.writeln('    - $name');
+    }
+  }
+  if (extraInDst.isNotEmpty) {
+    stderr.writeln('  stale in ${dst.path} (not in source or excluded):');
+    for (final name in (extraInDst.toList()..sort())) {
+      stderr.writeln('    - $name');
+    }
+  }
+  if (mismatched.isNotEmpty) {
+    stderr.writeln('  byte mismatch:');
+    for (final name in (mismatched.toList()..sort())) {
+      stderr.writeln('    - $name');
+    }
+  }
+  stderr.writeln('run `dart run tool/sync_web_player_bundle.dart` to repair');
+  return 1;
+}
 
 void main(List<String> args) {
   final appDir = Directory.current; // assumed to be `app/`
@@ -43,17 +169,11 @@ void main(List<String> args) {
     stderr.writeln('source dir not found: ${src.path}');
     exit(1);
   }
-  dst.createSync(recursive: true);
 
-  for (final name in _filesToCopy) {
-    final srcFile = File('${src.path}/$name');
-    if (!srcFile.existsSync()) {
-      stderr.writeln('source file missing: ${srcFile.path}');
-      exit(1);
-    }
-    final dstFile = File('${dst.path}/$name');
-    dstFile.writeAsBytesSync(srcFile.readAsBytesSync());
-    print('copied ${srcFile.path} -> ${dstFile.path}');
+  final checkOnly = args.contains('--check');
+  if (checkOnly) {
+    exit(_checkBundle(src, dst));
   }
-  print('web-player bundle synced (${_filesToCopy.length} files)');
+
+  _copyBundle(src, dst);
 }
