@@ -756,6 +756,27 @@ class SyncService {
           bodyFocus: json['body_focus'] is bool
               ? json['body_focus'] as bool
               : null,
+          // Wave Hero — practitioner-picked Hero frame offset (ms into
+          // the raw video). Persisted to local SQLite on pull so the
+          // editor's Hero tab opens on the right frame after a fresh
+          // install. (Caught a parity gap during Wave Lobby PR 1: the
+          // earlier Wave Hero migration shipped the local-write path +
+          // upload payload + scheme bridge but never added the pull
+          // branch. Backfilling here so both Wave Hero and Wave Lobby
+          // round-trip cleanly through the offline cache.)
+          focusFrameOffsetMs: (json['focus_frame_offset_ms'] is num)
+              ? (json['focus_frame_offset_ms'] as num).toInt()
+              : null,
+          // Wave Lobby (PR 1/N) — practitioner-authored 1:1 Hero crop
+          // offset, normalized 0.0..1.0 along the source media's free
+          // axis (X for landscape, Y for portrait; see Wave 28
+          // aspect_ratio / rotation_quarters). NULL = unset (consumers
+          // default to 0.5 / centred). No consumer reads this yet —
+          // wired for round-trip parity ahead of the editor + lobby
+          // PRs.
+          heroCropOffset: (json['hero_crop_offset'] is num)
+              ? (json['hero_crop_offset'] as num).toDouble()
+              : null,
         ),
       );
     }

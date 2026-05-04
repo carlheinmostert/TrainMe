@@ -22,7 +22,7 @@ import 'path_resolver.dart';
 /// this database and re-queues any unconverted captures.
 class LocalStorageService {
   static const _dbName = 'raidme.db';
-  static const _dbVersion = 37;
+  static const _dbVersion = 38;
 
   Database? _db;
 
@@ -130,6 +130,7 @@ class LocalStorageService {
         rotation_quarters INTEGER,
         body_focus INTEGER,
         focus_frame_offset_ms INTEGER,
+        hero_crop_offset REAL,
         FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
       )
     ''');
@@ -950,6 +951,24 @@ class LocalStorageService {
       // Supabase mirror: schema_wave_circuit_names.sql.
       await db.execute(
         'ALTER TABLE sessions ADD COLUMN circuit_names TEXT',
+      );
+    }
+    if (oldVersion < 38) {
+      // Wave Lobby — practitioner-authored 1:1 Hero crop offset.
+      //
+      // Foundation for the web-player lobby (vertical menu of 1:1 hero
+      // frames) AND every practitioner-facing thumbnail surface (Studio
+      // cards filmstrip, Home, ClientSessions, Camera peek). Stored as
+      // a normalized scalar in [0.0, 1.0] along the source media's free
+      // axis: X for landscape (aspect_ratio > 1), Y for portrait
+      // (aspect_ratio < 1). The constrained axis spans the full short
+      // edge of the source and is not stored. NULL = unset; consumers
+      // default to 0.5 (centred) so legacy rows render exactly as
+      // today. SQLite stores it as REAL.
+      //
+      // Supabase mirror: schema_wave_hero_crop.sql.
+      await db.execute(
+        'ALTER TABLE exercises ADD COLUMN hero_crop_offset REAL',
       );
     }
   }

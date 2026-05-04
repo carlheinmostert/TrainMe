@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Schema QA — Wave Lobby PR 1 (hero_crop_offset)</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  pre {
+    background: var(--raised); padding: 12px 16px; border-radius: 8px;
+    border: 1px solid var(--border); overflow-x: auto;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--text-mute); line-height: 1.5;
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">Wave Lobby · PR 1/N · schema-only</div>
+    <h1>Schema QA &mdash; <code>hero_crop_offset</code> column + RPC plumbing</h1>
+    <p class="lede">
+      <strong>Scope:</strong> data plumbing only. Adds <code>exercises.hero_crop_offset</code> (NUMERIC nullable) on Supabase + the matching SQLite column (REAL nullable, schema v37 &rarr; v38), wires it through <code>replace_plan_exercises</code> + the upload payload + the offline pull mapper + the unified preview scheme bridge. <strong>No UI</strong> &mdash; no editor changes, no Studio-card consumers, no web-player surface. Those are PR 2 (editor), PR 3 (mobile thumbnail consumers), PR 4 (web-player lobby).
+      <br><br>
+      <strong>Behaviour contract:</strong> NULL <code>hero_crop_offset</code> (every legacy row + every fresh capture until a practitioner touches it) means &ldquo;consumer uses 0.5 (centred crop)&rdquo;. So this PR is intentionally byte-stable on the wire and pixel-stable on every existing surface.
+      <br><br>
+      <strong>Surprise found mid-PR:</strong> the prior Wave Hero migration (<code>focus_frame_offset_ms</code>) shipped the local-write path + upload payload + scheme bridge but never added the pull branch in <code>SyncService._exercisesFromPlanRpc</code>. Backfilled here so both Wave Hero and Wave Lobby round-trip cleanly through the offline cache &mdash; verify item 6 covers this.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>Carl applies the migration via <code>supabase db query --linked --file supabase/schema_wave_hero_crop.sql</code> after review.</li>
+        <li>Mobile re-install via <code>./install-device.sh</code> picks up SQLite v38 + the new column on the upload + sync paths.</li>
+        <li>At least one published plan with at least one video exercise on the device, so the round-trip can hit a real row.</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Cloud schema</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Migration applies cleanly.</strong> Run <code>supabase db query --linked --file supabase/schema_wave_hero_crop.sql</code>. No errors. Idempotent &mdash; rerunning it on top is also a no-op.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>Column visible in <code>information_schema</code>.</strong> Run:
+<pre>SELECT column_name, data_type, is_nullable
+  FROM information_schema.columns
+ WHERE table_schema = 'public'
+   AND table_name = 'exercises'
+   AND column_name = 'hero_crop_offset';</pre>
+Returns one row: <code>hero_crop_offset | numeric | YES</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong><code>replace_plan_exercises</code> accepts <code>hero_crop_offset</code>.</strong> Run:
+<pre>SELECT position('hero_crop_offset' IN pg_get_functiondef(
+         'public.replace_plan_exercises(uuid,jsonb)'::regprocedure)) > 0;</pre>
+Returns <code>t</code>. Belt-and-braces: a manual <code>replace_plan_exercises</code> call with <code>hero_crop_offset</code> in the row payload (e.g. <code>0.32</code>) persists the value &mdash; <code>SELECT hero_crop_offset FROM public.exercises WHERE id = '&lt;exercise-id&gt;'</code> returns <code>0.32</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong><code>get_plan_full</code> emits <code>hero_crop_offset</code> on each exercise.</strong> Run:
+<pre>SELECT jsonb_path_query(
+         public.get_plan_full('&lt;plan-id&gt;'::uuid),
+         '$.exercises[*] ? (@.id == &quot;&lt;exercise-id&gt;&quot;) . hero_crop_offset'
+       );</pre>
+Returns the value set in item 3 (e.g. <code>0.32</code>). For a fresh row that has never been touched the value is <code>null</code> &mdash; that's the expected legacy behaviour, NOT a fail.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; Mobile SQLite</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>SQLite migrates v37 &rarr; v38 without data loss.</strong> Re-install the app via <code>./install-device.sh</code> on top of an existing v37 install (do NOT wipe the app first). Open Home: every existing client + session is still there. Open one session: every exercise's title, position, thumbnail, sets, hold, prep are unchanged. (The migration is a single ALTER ADD COLUMN &mdash; data preservation is mechanical, but verifying the upgrade ladder ran end-to-end matters.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Round-trip: mobile &rarr; cloud &rarr; mobile preserves <code>hero_crop_offset</code>.</strong> Manually set <code>hero_crop_offset = 0.25</code> on a video exercise via the live Supabase SQL editor (<code>UPDATE public.exercises SET hero_crop_offset = 0.25 WHERE id = '&lt;exercise-id&gt;'</code>). On the device, force a sync (kill + reopen the app, or trigger a publish). Confirm via the device shell or the LocalStorageService log that the cached row carries <code>hero_crop_offset = 0.25</code>. Then republish the plan from the device and verify the cloud row is still <code>0.25</code> (i.e. the publish payload echoes the value back; doesn't silently NULL it). This also retro-validates the Wave Hero pull-branch fix bundled in this PR &mdash; the same sync path now also pulls <code>focus_frame_offset_ms</code>.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; Backwards compatibility</h2>
+    <ul class="checklist">
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Web player still loads existing plans pixel-stable.</strong> Open a published plan link in Safari (<code>session.homefit.studio/p/&lt;plan-id&gt;</code>). Every existing surface (lobby placeholder, exercise cards, prep overlay, video poster, rep stack) renders identically to before this PR &mdash; no consumer reads <code>hero_crop_offset</code> yet. The new key is on the wire (<code>get_plan_full</code> response) but the player ignores it.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="8" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
+        <span class="num">8.</span>
+        <span class="text"><strong>Studio cards + Home + ClientSessions + Camera peek are pixel-stable.</strong> Walk Home &rarr; ClientSessions &rarr; Studio &rarr; Camera. All thumbnail surfaces (filmstrip, list rows, peek box) render exactly as before &mdash; no PR-3 consumer reads the new column yet.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Implementation: <code>supabase/schema_wave_hero_crop.sql</code> (migration) &middot; <code>app/lib/services/local_storage_service.dart</code> (v37 &rarr; v38) &middot; <code>app/lib/models/exercise_capture.dart</code> (model + mappers) &middot; <code>app/lib/services/upload_service.dart</code> (publish payload) &middot; <code>app/lib/services/sync_service.dart</code> (pull mapper + Wave Hero backfill) &middot; <code>app/lib/services/unified_preview_scheme_bridge.dart</code> (mobile workflow Preview).
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = 'lobby-schema.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'lobby-schema', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional - lands in next wave backlog)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) delete state[num];
+          else state[num] = {status: 'pass', note: noteInput.value || ''};
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (!next) {
+            delete state[num];
+          } else {
+            state[num] = {status: 'fail', note: noteInput.value || ''};
+            setTimeout(function() { noteInput.focus(); }, 10);
+          }
+          save();
+        });
+
+        var debounce;
+        noteInput.addEventListener('input', function() {
+          var status = li.getAttribute('data-status');
+          if (status !== 'pass' && status !== 'fail') return;
+          clearTimeout(debounce);
+          debounce = setTimeout(function() {
+            state[num] = {status: status, note: noteInput.value || ''};
+            save();
+          }, 350);
+        });
+
+        setPlaceholder(li.getAttribute('data-status'));
+      });
+    })();
+  </script>
+</body>
+</html>
