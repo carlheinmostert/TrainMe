@@ -29,6 +29,7 @@ const _filesToCopy = <String>[
   'index.html',
   'app.js',
   'api.js',
+  'lobby.js',
   'styles.css',
 ];
 
