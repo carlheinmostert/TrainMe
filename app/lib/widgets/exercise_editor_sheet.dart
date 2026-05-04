@@ -548,6 +548,14 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
             // The Preview tab below uses MediaViewerBody (separate
             // widget) so motion still happens where it should.
             staticHero: true,
+            // Wave Lobby PR 2 — render the practitioner's live 1:1
+            // crop offset on the header thumbnail so the drag on the
+            // Hero tab's [HeroCropViewport] reflects up here in
+            // lock-step. Pulled straight off the in-memory
+            // `_exercise` mirror (which `_emit` updates on every
+            // viewport tick) — null on legacy rows preserves the
+            // pre-Lobby `BoxFit.cover` centred render.
+            cropOffset: _exercise.heroCropOffset,
             overlay: _ChevronNavOverlay(
               canPrev: canPrev,
               canNext: canNext,

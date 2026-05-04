@@ -84,6 +84,17 @@ class MiniPreview extends StatefulWidget {
   /// static content.
   final bool staticHero;
 
+  /// Wave Lobby PR 2 — when set, the static-Hero branch maps this
+  /// normalised offset (`[0.0, 1.0]` along the source's free axis) onto
+  /// an [Alignment] so the editor sheet's header thumbnail re-renders
+  /// in lock-step with the practitioner's drag on [HeroCropViewport].
+  ///
+  /// Other consumer surfaces (Studio cards, ClientSessions cards, etc.)
+  /// pass null — those land in PR 3 and at that point will read the
+  /// offset off the exercise model directly. Default null preserves
+  /// today's `BoxFit.cover` centred render exactly.
+  final double? cropOffset;
+
   const MiniPreview({
     super.key,
     required this.exercise,
@@ -93,6 +104,7 @@ class MiniPreview extends StatefulWidget {
     this.overlay,
     this.respectGlobalPause = false,
     this.staticHero = false,
+    this.cropOffset,
   });
 
   @override
@@ -381,7 +393,11 @@ class _MiniPreviewState extends State<MiniPreview> {
     // a playing video. The Preview tab inside the editor sheet still
     // gets motion via [MediaViewerBody] (a different widget).
     if (widget.staticHero) {
-      return _HeroFrameImage(exercise: ex, treatment: treatment);
+      return _HeroFrameImage(
+        exercise: ex,
+        treatment: treatment,
+        cropOffset: widget.cropOffset,
+      );
     }
     return _VideoFrame(
       controller: _controller,
@@ -556,7 +572,18 @@ class _HeroFrameImage extends StatelessWidget {
   final ExerciseCapture exercise;
   final Treatment treatment;
 
-  const _HeroFrameImage({required this.exercise, required this.treatment});
+  /// Wave Lobby PR 2 — practitioner-authored crop offset for the
+  /// editor-sheet header live preview. Null = render at default
+  /// `Alignment.center` (the legacy behaviour). When non-null we
+  /// project the value onto the source's free axis based on the
+  /// exercise's `aspectRatio`.
+  final double? cropOffset;
+
+  const _HeroFrameImage({
+    required this.exercise,
+    required this.treatment,
+    this.cropOffset,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -584,8 +611,36 @@ class _HeroFrameImage extends StatelessWidget {
     return Image(
       image: _HeroFileImage(useFile, offset),
       fit: BoxFit.cover,
+      alignment: _alignmentFor(),
       errorBuilder: (_, e, s) => const _PhotoFallback(),
     );
+  }
+
+  /// Wave Lobby PR 2 — map the practitioner's normalised offset onto
+  /// an [Alignment]. The free axis follows the source's
+  /// `aspectRatio`:
+  ///
+  ///   * Landscape source (`aspect >= 1`) → drag X. Alignment.x maps
+  ///     the offset to `[-1, +1]` (0 = -1, 0.5 = 0, 1 = +1).
+  ///   * Portrait source (`aspect < 1`) → drag Y, same mapping on the
+  ///     vertical axis.
+  ///
+  /// Null cropOffset OR null aspectRatio → return [Alignment.center]
+  /// so legacy rows render unchanged.
+  Alignment _alignmentFor() {
+    final v = cropOffset;
+    if (v == null) return Alignment.center;
+    final aspect = exercise.aspectRatio;
+    if (aspect == null || aspect <= 0) return Alignment.center;
+    final clamped = v.clamp(0.0, 1.0);
+    // Map [0..1] → [-1..+1].
+    final axis = (clamped * 2.0) - 1.0;
+    if (aspect >= 1.0) {
+      // Landscape → free axis is X. Vertical stays centred.
+      return Alignment(axis, 0.0);
+    }
+    // Portrait → free axis is Y. Horizontal stays centred.
+    return Alignment(0.0, axis);
   }
 }
 
