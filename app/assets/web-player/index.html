@@ -73,6 +73,114 @@
     </div>
   </noscript>
 
+  <!-- Lobby ==================================================================
+       Pre-workout vertical hero menu (PR 4/4 of the lobby train, 2026-05-04).
+       Replaces the old "first card + Start button" entry. Shows a vertical
+       list of hero frames so the client previews the session before
+       committing. Hidden once Start is tapped — one-way door per session.
+       Reload returns here. R-10 parity: this same DOM also renders inside
+       the mobile Workflow Preview WebView (web-player/ is the shared bundle).
+  -->
+  <div id="lobby" hidden>
+    <!-- Hotfix round 3 — Fix D — build-marker chip relocated to a
+         top-left fixed corner overlay, OUT of .lobby-meta. The chip is
+         a sibling of .lobby-inner so it sits above the scroll content
+         without participating in the meta layout. CSS pins it to
+         top:6px / left:8px / z-index:51 (above .lobby-matrix's z=5).
+         #lobby itself is `position: fixed; inset: 0;` and hides when
+         Start is tapped, so the chip naturally disappears with the
+         lobby — no extra hide logic needed. -->
+    <span class="lobby-meta-version" id="lobby-meta-version" aria-hidden="true"></span>
+
+    <div class="lobby-inner">
+      <!-- Metadata strip — two-line greeting. JS picks layout based on whether
+           the plan title matches the auto-format (default-named) or has
+           been customised by the practitioner. -->
+      <div class="lobby-meta" id="lobby-meta">
+        <h1 class="lobby-meta-headline" id="lobby-meta-headline"></h1>
+        <p class="lobby-meta-sub" id="lobby-meta-sub"></p>
+        <span class="lobby-meta-stamp" id="lobby-meta-stamp" aria-hidden="true"></span>
+      </div>
+
+      <!-- Pill matrix — same matrix renderer as the deck. Wired to the
+           hero list below via a two-way IntersectionObserver coupling
+           in app.js. The matrix's existing centre-on-active-pill logic
+           applies here too. -->
+      <div class="lobby-matrix" id="lobby-matrix">
+        <div class="lobby-matrix-inner" id="lobby-matrix-inner"></div>
+      </div>
+
+      <!-- Hero list — vertical scroll. Built by app.js's buildLobbyList(). -->
+      <ul class="lobby-list" id="lobby-list" role="list"></ul>
+    </div>
+
+    <!-- Sticky-bottom CTA bar. Backdrop-blur veil over the row beneath.
+         Round-4: treatment selector moved behind a settings gear button.
+         The practitioner has already set per-client `preferred_treatment`
+         per-exercise during plan setup, so 95% of clients never need to
+         override globally. Hide it behind a gear; reclaim the space. -->
+    <div class="lobby-cta-bar" id="lobby-cta-bar">
+      <div class="lobby-cta-inner">
+        <button id="lobby-start-btn" class="lobby-start-btn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+          <span>Start workout</span>
+        </button>
+        <button id="lobby-gear-btn" class="lobby-gear-btn" type="button"
+                aria-label="Playback settings"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="lobby-settings-popover">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Lobby settings popover — anchored to the viewport-bottom and
+           opens upward from the gear button. Only contains the treatment
+           selector for now; shaped to grow into a broader pre-workout
+           settings surface without needing new chrome. Distinct from the
+           deck's `#settings-popover` (post-Start, per-exercise overrides);
+           no shared state. -->
+      <div id="lobby-settings-popover" class="lobby-settings-popover"
+           role="dialog"
+           aria-labelledby="lobby-settings-title"
+           hidden>
+        <div class="lobby-settings-popover-title" id="lobby-settings-title">Show me</div>
+        <div class="lobby-treatment-row" id="lobby-treatment-row" role="radiogroup" aria-label="Treatment">
+          <button type="button" role="radio" aria-checked="false" data-value="line">Line</button>
+          <button type="button" role="radio" aria-checked="false" data-value="bw">B&amp;W</button>
+          <button type="button" role="radio" aria-checked="false" data-value="original">Colour</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Self-grant modal — opens when a locked treatment pill is tapped on
+       the lobby. Asks the client to identify themselves, explains the
+       practitioner-default state, then offers Allow / Cancel. Allow calls
+       `client_self_grant_consent(planId, kind)` via api.js. Hidden by
+       default; JS toggles `hidden`. -->
+  <div id="lobby-self-grant-modal" class="lobby-self-grant-modal" role="dialog" aria-modal="true" aria-labelledby="lobby-self-grant-title" hidden>
+    <div class="lobby-self-grant-backdrop" data-dismiss="self-grant"></div>
+    <div class="lobby-self-grant-card" role="document">
+      <h2 class="lobby-self-grant-title" id="lobby-self-grant-title">Allow B&amp;W playback?</h2>
+      <p class="lobby-self-grant-identity">
+        I am <strong id="lobby-self-grant-name"></strong>
+      </p>
+      <p class="lobby-self-grant-body" id="lobby-self-grant-body"></p>
+      <div class="lobby-self-grant-error" id="lobby-self-grant-error" hidden></div>
+      <div class="lobby-self-grant-actions">
+        <button type="button" class="lobby-self-grant-btn lobby-self-grant-cancel" data-dismiss="self-grant">Cancel</button>
+        <button type="button" class="lobby-self-grant-btn lobby-self-grant-allow" id="lobby-self-grant-allow">Allow</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Main app ===============================================================
        Top-stack v2.2 layout (Wave 19.3 — 2026-04-22):
          Row 1  plan-bar                 (plan-title + header-client)
@@ -343,5 +451,6 @@
        fetch('.../rest/v1/...') directly. See docs/DATA_ACCESS_LAYER.md. -->
   <script src="/api.js"></script>
   <script src="/app.js"></script>
+  <script src="/lobby.js"></script>
 </body>
 </html>

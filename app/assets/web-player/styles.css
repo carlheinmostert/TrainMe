@@ -22,6 +22,11 @@
   --c-brand-surface: #FFF3ED;
   --c-brand-tint-bg: rgba(255, 107, 53, 0.12);       /* D-10 */
   --c-brand-tint-border: rgba(255, 107, 53, 0.30);   /* D-10 */
+  /* Coral rail — used by the lobby's tree-branch circuit grouping
+     (3 px wide pseudo-element pieces concatenating across header +
+     rows). Slightly punchier than the tint-border so the line reads
+     as a positive piece of structure rather than a divider. */
+  --c-coral-rail: rgba(255, 107, 53, 0.85);
 
   /* ── Surfaces — dark (D-02 semantic names) ── */
   --c-surface-bg: #0F1117;
@@ -2637,4 +2642,985 @@ body.is-fullscreen .playpause-toggle {
   border-radius: var(--radius-sm);
   pointer-events: none;
   z-index: 20;
+}
+
+/* ===========================================================================
+   Lobby (PR 4/4 of the lobby train, 2026-05-04)
+   =========================================================================== */
+
+#lobby {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-surface-bg);
+  color: var(--c-ink-primary);
+  z-index: 50;
+  overflow: hidden;
+  padding-top: var(--safe-top);
+}
+
+.lobby-inner {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Padding-bottom = sticky CTA bar height (~140px) + safe-area + breath. */
+  padding-bottom: calc(160px + var(--safe-bottom));
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+/* Metadata strip ----------------------------------------------------------- */
+.lobby-meta {
+  padding: 24px 4px 16px;
+}
+
+.lobby-meta-headline {
+  font-family: var(--f-body);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0 0 4px;
+  color: var(--c-ink-primary);
+  letter-spacing: -0.01em;
+}
+
+.lobby-meta-headline.is-custom-title {
+  font-family: var(--f-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.lobby-meta-sub {
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--c-ink-secondary);
+  margin: 0;
+}
+
+.lobby-meta-stamp {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--c-ink-muted);
+  letter-spacing: 0.02em;
+}
+
+/* Hotfix round 3 — Fix D — build-marker chip relocated to top-left
+   fixed corner. Surfaces plan version + bundle version + active SW
+   cache label so QA can spot a stale browser shell at a glance. Pinned
+   absolutely to #lobby (which is itself position: fixed, inset: 0).
+   z-index 51 sits above .lobby-matrix's z-index 5 (sticky strip)
+   without competing with #lobby's own z-index 50 surface. The chip is
+   a sibling of .lobby-inner so it never participates in the meta
+   layout's vertical flow. When Start is tapped #lobby is hidden, so
+   the chip disappears with it — no extra hide logic needed.
+   text-decoration: none + pointer-events: none keeps it visually
+   present but inert (it's a marker, not a control). */
+.lobby-meta-version {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  z-index: 51;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--c-ink-muted);
+  opacity: 0.55;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  /* Respect notched-device safe area — push down by the device's safe
+     top inset. #lobby already adds padding-top: var(--safe-top), so
+     the chip would otherwise overlap the status bar on landscape iOS. */
+  padding-top: var(--safe-top);
+}
+
+/* Pill matrix coupling ---------------------------------------------------- */
+.lobby-matrix {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: linear-gradient(
+    to bottom,
+    var(--c-surface-bg) 0%,
+    var(--c-surface-bg) 80%,
+    transparent 100%
+  );
+  padding: 8px 0 12px;
+  margin: 0 -16px;
+}
+
+.lobby-matrix-inner {
+  display: flex;
+  /* Wave 5 lobby fixes — wider gap so neighbour pills don't capture
+     stray taps. Deck uses 4px (compact); lobby is the primary
+     navigation surface and benefits from 6px. */
+  gap: 6px;
+  align-items: stretch;
+  padding: 0 16px;
+  /* When the matrix overflows the viewport (long plans), allow
+     horizontal scroll so individual pills retain their min-width
+     instead of being squashed below tap accuracy. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.lobby-matrix-inner::-webkit-scrollbar { display: none; }
+
+/* Wider lobby pill columns to keep tap accuracy on long plans. The
+   deck's .matrix-col floor is 6px (it scrolls). The lobby keeps a
+   24px floor so every pill is finger-tap-able even before the
+   horizontal scroll fallback kicks in. */
+.lobby-matrix-inner .matrix-col {
+  min-width: 24px;
+  max-width: 44px;
+}
+
+/* Wave 5 lobby fixes — pills sized closer to the Apple HIG 44px hit
+   target. The deck matrix uses 20-22px pills because they coexist with
+   a tight active-slide header; the lobby matrix sits at the top of the
+   screen with breathing room and is a primary jump-to control, so
+   bigger is better. We bump the lobby pill height to 36px and retain
+   touch-action: manipulation to suppress the iOS double-tap-zoom
+   delay. Combined with horizontal pseudo-element padding this gives a
+   ~36×(width + 4) hit zone with no cross-row bleed (the safe direction
+   to expand is intentionally vertical-INSIDE so circuit pill rounds
+   don't intercept each other's taps). */
+.lobby-matrix-inner .pill {
+  min-height: 36px;
+  height: 36px;
+  cursor: pointer;
+  -ms-touch-action: manipulation;
+  touch-action: manipulation;
+  /* Stop iOS Safari from delaying the click 300ms — keeps neighbour
+     activation rare and snaps tap → click. */
+}
+
+.lobby-matrix-inner .matrix-circuit {
+  display: grid;
+  grid-template-columns: repeat(var(--circuit-cols, 1), 1fr);
+  gap: 3px;
+  flex: var(--circuit-weight, 1) 1 0;
+  /* Hotfix round 2 — Fix 1 — strip the coral backdrop on circuit
+     blocks in the lobby pill matrix. The deck still uses
+     `var(--c-brand-tint-bg)` here (deck CSS scoped under `#progress-matrix`)
+     but the lobby's pre-workout matrix should sit on the dark surface
+     with no coloured backdrop; the pills' own coral is the only accent. */
+  background: transparent;
+  border-radius: var(--radius-md);
+  /* Round 6 — Fix 4: zero vertical padding so circuit pills share the
+     SAME top baseline as standalone pills. Pre-Round-6 rule was
+     `padding: 3px` which pushed circuit pills 3px down vs the
+     standalone-pill row, breaking the matrix's row baseline that Carl
+     reported on his device. Horizontal padding kept at 3px so the
+     circuit's grid still has breathing room at its left/right edges
+     (and the min/max width formulas below still hold).
+     `align-self: start` hugs the circuit block to the top of its flex
+     line so a multi-row circuit doesn't get stretched to its sibling's
+     max height; `align-items: start` on the grid keeps each pill at
+     the top of its track. Combined: first-row circuit pills now share
+     the matrix-inner baseline with standalone pills. */
+  padding: 0 3px;
+  align-self: start;
+  align-items: start;
+  /* Mirror the matrix-col floor — 24px per circuit column — so each
+     circuit pill is finger-tap-able even on long plans. */
+  min-width: calc(24px * var(--circuit-cols, 1) + 3px * (var(--circuit-cols, 1) - 1) + 6px);
+  max-width: calc(44px * var(--circuit-cols, 1) + 3px * (var(--circuit-cols, 1) - 1) + 6px);
+}
+
+.lobby-matrix-inner .matrix-circuit-row {
+  display: contents;
+}
+
+/* Hotfix round 3 — Fix A — REAL strip of the coral backdrop on the
+   lobby pill matrix.
+   ROOT CAUSE of the still-visible coral wash on Carl's iPhone screenshot
+   after PR 235: the deck's `.matrix-circuit-row::before` rule (line ~429)
+   paints a coral-tint band behind every circuit row via an absolutely-
+   positioned pseudo-element. PR 235 only zeroed the parent `.matrix-circuit`
+   background — it never touched the per-row `::before` painter.
+   Even with `display: contents` on the row, Safari still renders the
+   row's `::before` pseudo (the spec leaves contents-element pseudos
+   underspecified; iOS Safari paints them). Explicitly disable the
+   pseudo in the lobby context so the matrix sits on the dark surface
+   with only the pills themselves carrying coral. */
+.lobby-matrix-inner .matrix-circuit-row::before,
+.lobby-matrix-inner .matrix-circuit-row::after {
+  content: none;
+  background: transparent;
+  display: none;
+}
+
+/* Hero list --------------------------------------------------------------- */
+.lobby-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lobby-row {
+  /* Hotfix round 3 — Fix B — two-column gutter layout. The row is now
+     a flex container with a fixed-width left gutter (rail column) and
+     a flex-1 content column. For STANDALONE rows the gutter has zero
+     width (CSS rule below collapses it) so the row visually looks
+     identical to the pre-fix v3 design. For IN-CIRCUIT rows the
+     gutter expands to 22px and renders the rail piece + horizontal
+     connector — both as real children, NOT pseudo-elements, so they
+     sit OUTSIDE the row's bounding box and can never be covered by
+     the active-row coral border or any other stacking context. */
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  transition: none;
+}
+
+/* Round 6 — Fix 3: standalone rows now share the in-circuit gutter
+   width so all cards sit on one vertical line. The gutter cell on a
+   standalone row stays empty (no rail, no connector — those are added
+   by the `.in-circuit` selector below) but reserves the same 22px so
+   the content column starts at the same X as circuit-row cards.
+   Carl's directive: "every row gets the same indent; standalone +
+   circuit rows shouldn't sit on different vertical columns".
+   Pre-Round-6: this rule used `display: none` to collapse the gutter
+   for standalones, which left them flush with the page padding while
+   circuit rows sat 56px in (Round 5 widened the circuit gutter to ~3×
+   the original 22px). All rows now reserve 56px so cards sit on one
+   vertical line regardless of in-circuit state. */
+.lobby-row > .lobby-row-gutter {
+  display: block;
+  flex: 0 0 56px;
+  position: relative;
+}
+
+/* Round 6 — Fix 3 — keep rail / connector children hidden by default.
+   They render inline empty <span>s in standalone rows otherwise; the
+   `.in-circuit` selectors below promote them to absolute-positioned
+   coral pieces only when the row is part of a circuit. */
+.lobby-row > .lobby-row-gutter > .lobby-row-gutter-rail,
+.lobby-row > .lobby-row-gutter > .lobby-row-gutter-connector {
+  display: none;
+}
+.lobby-row > .lobby-row-content {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-lg);
+  padding: 10px;
+  min-width: 0;
+  transition: border-color var(--dur-fast) var(--ease-standard);
+}
+
+/* Hotfix round 2 — Fix 2(a) — strip the coral backdrop on circuit
+   rows. The visual grouping is conveyed by the coral tree-branch rail
+   (the gutter column on each in-circuit row), not a tinted row
+   background. The legacy `.lobby-row.is-circuit` selector stays
+   no-op'd here for clarity; the rail-rendering hooks live on the
+   alias `.in-circuit` so both classes can be present without any
+   coral fill leaking back.
+   Hotfix round 3 — Fix B — chrome moved from `.lobby-row` to
+   `.lobby-row-content` (the inner card). All visual states
+   (active-pill border, rest tint) target the content column. */
+.lobby-row.is-circuit > .lobby-row-content {
+  background: var(--c-surface-base);
+  border-color: var(--c-surface-border);
+}
+
+.lobby-row.is-rest > .lobby-row-content {
+  background: var(--c-rest-tint-bg);
+  border-color: var(--c-rest-tint-border);
+  align-items: center;
+  padding: 14px 16px;
+}
+
+.lobby-row.is-active-pill > .lobby-row-content {
+  /* Visual coupling — lifts when the matched pill becomes the matrix
+     "active" pill via the scroll reducer. */
+  border-color: var(--c-brand);
+  box-shadow: 0 0 0 1px var(--c-brand);
+}
+
+/* Hero ------------------------------------------------------------------- */
+.lobby-hero {
+  flex: 0 0 40%;
+  aspect-ratio: 1 / 1;
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--c-surface-raised);
+}
+
+.lobby-hero-media,
+.lobby-hero-skeleton {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.lobby-hero-media {
+  object-fit: cover;
+  display: block;
+}
+
+.lobby-hero-media.is-grayscale {
+  filter: grayscale(1) contrast(1.05);
+}
+
+.lobby-hero-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--c-surface-raised) 0%,
+    var(--c-surface-border) 50%,
+    var(--c-surface-raised) 100%
+  );
+  background-size: 200% 100%;
+  animation: lobby-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes lobby-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lobby-hero-skeleton { animation: none; }
+}
+
+/* Info column ----------------------------------------------------------- */
+.lobby-info {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Hotfix round 2 — Fix 3 — row index numeral chrome removed.
+   The `.lobby-info-titlebar` flex container + `.lobby-info-num` numeral
+   are gone. Default-named exercises ("Exercise 1", "Exercise 2") already
+   convey position via Studio's auto-naming; renamed exercises trust the
+   practitioner. Net effect: `.lobby-info-name` is once again the sole
+   first child of `.lobby-info`. */
+
+.lobby-info-name {
+  font-family: var(--f-display);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0;
+  color: var(--c-ink-primary);
+  letter-spacing: -0.01em;
+  word-break: break-word;
+}
+
+.lobby-info-dose {
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--c-ink-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.lobby-info-notes {
+  margin: 4px 0 0;
+  font-family: var(--f-body);
+  font-size: 12px;
+  font-style: italic;
+  color: var(--c-ink-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.lobby-info-notes.is-expanded {
+  -webkit-line-clamp: unset;
+  display: block;
+  overflow: visible;
+}
+
+/* Circuit group --------------------------------------------------------- */
+/* Hotfix round 2 — Fix 2 — circuit chrome rebuilt around a coral
+   tree-branch rail (canonical mockup at
+   docs/design/mockups/lobby-circuit-header.html).
+   Layout:
+
+     ┌── circuit-header (no chrome — transparent)
+     │   ┃ ┝━ Lower body                    ×3
+     │   ┃
+     ├── ex-row.in-circuit (first)
+     │   ┃ ┝━ [card]
+     │   ┃
+     ├── ex-row.in-circuit (middle)
+     │   ┃ ┝━ [card]
+     │   ┃
+     └── ex-row.in-circuit.last
+         ┖ ┝━ [card]                ← rail clamps at 50% → L corner
+
+   The container `.lobby-circuit-group` itself has NO background and
+   NO border — all visual grouping is conveyed by the rail. The rail
+   is composed of pseudo-elements (`::before` = vertical piece,
+   `::after` = horizontal connector) on the header AND each in-circuit
+   row, so the rail naturally tracks the rendered rows without any
+   JS measurement and ends at the last row's centre. Rows abut (no
+   `gap`) so the vertical pieces concatenate seamlessly; their
+   borders collapse via `margin-top: -1px`. */
+.lobby-circuit-group {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;            /* rows abut — rail concatenates seamlessly */
+  list-style: none;
+}
+
+/* Hotfix round 3 — Fix B — circuit header now uses the same two-column
+   structure as in-circuit rows. The gutter column owns the rail piece
+   (header centre → bottom) + horizontal connector. The content column
+   carries the label + cycles chip. This keeps the rail OUTSIDE the
+   label's bounding box so it can never be covered by a stacking
+   context above the header. */
+.lobby-circuit-header {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  height: 32px;
+  margin-bottom: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* Round 5 — Fix 3 — header gutter widened to 56px, rail at left:24px
+   to match the in-circuit row gutter geometry. Header rail piece bleeds
+   downward by 5px (Round 5 Fix 2) so it joins the first in-circuit row's
+   rail across the row boundary with no visible break. */
+.lobby-circuit-header-gutter {
+  flex: 0 0 56px;
+  position: relative;
+}
+
+/* Vertical rail piece — header centre → 5px past bottom edge, so it
+   concatenates with the first in-circuit row's full-height piece below
+   without a sub-pixel gap. Pinned to left: 24px within the 56px gutter
+   so the rail sits well outside the card column's left edge AND well
+   inside the page edge. */
+.lobby-circuit-header-gutter-rail {
+  position: absolute;
+  left: 24px;
+  top: 50%;
+  bottom: -5px;
+  width: 3px;
+  background: var(--c-coral-rail);
+  pointer-events: none;
+}
+
+/* Horizontal stub — joins the rail to the label content. Round 5 Fix 3:
+   width 26 so the connector tip lands ~6px before the content column,
+   giving ~16px breathing once the column's own 4px padding is counted
+   plus the label's natural inset. */
+.lobby-circuit-header-gutter-connector {
+  position: absolute;
+  left: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 3px;
+  background: var(--c-coral-rail);
+  border-radius: 0 2px 2px 0;
+  pointer-events: none;
+}
+
+.lobby-circuit-header-content {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  min-width: 0;
+}
+
+.lobby-circuit-header-label {
+  flex: 1 1 auto;
+  font-family: var(--f-body);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--c-brand);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lobby-circuit-header-cycles {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 8px;
+  background: var(--c-brand-tint-bg);
+  border: 1px solid var(--c-brand-tint-border);
+  border-radius: 9999px;
+  font-family: "JetBrains Mono", ui-monospace, Menlo, Courier, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-brand);
+}
+
+/* Hotfix round 3 — Fix B — in-circuit rows: the rail-rendering hooks
+   are now real elements inside `.lobby-row-gutter`, NOT pseudo-elements
+   on `.lobby-row`. CSS reveals the gutter column on `.in-circuit` rows
+   and renders the rail pieces. The `is-circuit` class is the legacy
+   hook (kept for backward compat); `in-circuit` is the alias the
+   mockup uses. Both apply the same chrome here.
+
+   Round 5 — Fix 3 — gutter widened from 22px → 56px (~3×) so the rail +
+   connector cluster sits indented from the page edge with clear
+   breathing space on both sides. Rail position within the gutter moved
+   from left:11px to left:24px (the "wider rail-from-edge" geometry
+   Carl asked for). Connector width recomputed so its tip lands ~6px
+   before the card's left border — combined with the card's 10px
+   padding, that's the ~16px breathing gap between connector tip and
+   the card's actual content (hero / info column).
+
+   Round 5 — Fix 2 — rail-piece bleed. Each row's rail extends ~5px
+   above and below its own bounding box so adjacent rail pieces overlap
+   any sub-pixel / border-collapse gaps that otherwise show as a tiny
+   break in the vertical coral line at row boundaries. The last row's
+   rail still terminates at vertical centre (L corner) — see the .last
+   override below; we keep `top: -5px` on .last too (extends upward to
+   join the previous row's rail) but use `height: calc(50% + 5px)` so
+   the rail's bottom edge lands exactly at the row's actual vertical
+   centre, where the horizontal connector sits. */
+.lobby-row.in-circuit > .lobby-row-gutter,
+.lobby-row.is-circuit > .lobby-row-gutter {
+  display: block;
+  flex: 0 0 56px;
+  position: relative;
+}
+
+/* Collapse adjacent borders on the inner content card so the rail reads
+   as one continuous coral line through the group. The `:first-child`
+   exception keeps the top edge clean against the header. */
+.lobby-row.in-circuit + .lobby-row.in-circuit > .lobby-row-content,
+.lobby-row.is-circuit + .lobby-row.is-circuit > .lobby-row-content {
+  margin-top: -1px;
+}
+
+/* Vertical rail piece for in-circuit rows — top → bottom by default,
+   with a -5/+5 vertical bleed so adjacent pieces overlap into the
+   inter-row gap (Round 5 Fix 2). `last` clamps to 50% so the rail
+   terminates at the row's centre, forming a clean └ corner with the
+   horizontal connector. Pinned to left: 24px within the 56px gutter
+   (Round 5 Fix 3) so the line sits well outside the content card's
+   left edge AND well inside the page edge — Carl's directive: the
+   gutter must "open up" so the rail isn't crammed against either
+   edge. */
+.lobby-row.in-circuit > .lobby-row-gutter > .lobby-row-gutter-rail,
+.lobby-row.is-circuit > .lobby-row-gutter > .lobby-row-gutter-rail {
+  display: block;
+  position: absolute;
+  left: 24px;
+  top: -5px;
+  bottom: -5px;
+  width: 3px;
+  background: var(--c-coral-rail);
+  pointer-events: none;
+}
+.lobby-row.in-circuit.last > .lobby-row-gutter > .lobby-row-gutter-rail,
+.lobby-row.is-circuit.last > .lobby-row-gutter > .lobby-row-gutter-rail {
+  /* Last row: rail terminates at the row's vertical centre to form the
+     └ corner. Keep the upward bleed (top: -5px) so the rail joins the
+     previous row's piece cleanly across the boundary; height is
+     calc(50% + 5px) so the rail's bottom edge still lands exactly at
+     the row's actual centre (where the connector sits). */
+  bottom: auto;
+  height: calc(50% + 5px);
+}
+
+/* Horizontal connector — stub at the row's vertical centre, bridging
+   from the rail's right edge toward the content card. Round 5 Fix 3:
+   width recomputed from 11 → 26 so the connector tip lands 6px before
+   the card's left border. With the card's 10px padding-left, that's
+   ~16px of breathing between connector tip and the card's actual
+   content (hero / info). The visible coral does NOT touch the card,
+   per Carl's "indented from page edge, breathing on both sides"
+   directive. */
+.lobby-row.in-circuit > .lobby-row-gutter > .lobby-row-gutter-connector,
+.lobby-row.is-circuit > .lobby-row-gutter > .lobby-row-gutter-connector {
+  display: block;
+  position: absolute;
+  left: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 3px;
+  background: var(--c-coral-rail);
+  border-radius: 0 2px 2px 0;
+  pointer-events: none;
+}
+
+/* Rest row -------------------------------------------------------------- */
+.lobby-row.is-rest .lobby-rest-label {
+  font-family: var(--f-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-rest);
+  letter-spacing: 0.01em;
+}
+
+/* Sticky CTA bar ------------------------------------------------------- */
+/*
+ * Round 4 (2026-05-04) — treatment selector moved behind the gear.
+ * Bar is now Start + gear in a single row. The treatment row lives
+ * inside `#lobby-settings-popover` which is `position: absolute`
+ * inside `.lobby-cta-bar` and opens UPWARD from above the gear.
+ */
+.lobby-cta-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: rgba(15, 17, 23, 0.92);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--c-surface-border);
+  padding: 12px 16px calc(12px + var(--safe-bottom));
+}
+
+.lobby-cta-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.lobby-treatment-row {
+  display: flex;
+  gap: 6px;
+  height: 36px;
+  background: var(--c-surface-base);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  border: 1px solid var(--c-surface-border);
+}
+
+.lobby-treatment-row > button {
+  flex: 1 1 0;
+  background: transparent;
+  border: 0;
+  color: var(--c-ink-secondary);
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard),
+              color var(--dur-fast) var(--ease-standard);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  position: relative;
+}
+
+.lobby-treatment-row > button[aria-checked="true"] {
+  background: var(--c-brand);
+  color: #0F1117;
+}
+
+.lobby-treatment-row > button[data-locked="true"] {
+  color: var(--c-ink-muted);
+}
+
+.lobby-treatment-row > button[data-locked="true"] .lobby-lock {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+
+.lobby-treatment-row > button:not([data-locked="true"]) .lobby-lock {
+  display: none;
+}
+
+.lobby-start-btn {
+  flex: 1 1 auto;
+  height: 50px;
+  background: var(--c-brand);
+  color: #0F1117;
+  border: 0;
+  border-radius: var(--radius-md);
+  font-family: var(--f-body);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+
+.lobby-start-btn:hover { background: var(--c-brand-dark); }
+
+.lobby-start-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Lobby gear button — sits to the right of Start in the sticky CTA
+   bar. 48×48 hit target, transparent surface, dim icon at rest, coral
+   when the popover is open. Mirrors the deck's #btn-settings shape but
+   ships its own coords + colour because the chrome contexts differ
+   (deck = absolute on top of video; lobby = inline in the bar). */
+.lobby-gear-btn {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface-base);
+  color: var(--c-ink-secondary);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--dur-fast) var(--ease-standard),
+              color var(--dur-fast) var(--ease-standard),
+              border-color var(--dur-fast) var(--ease-standard);
+}
+.lobby-gear-btn:hover {
+  background: var(--c-surface-raised);
+  color: var(--c-ink-primary);
+}
+.lobby-gear-btn:active { transform: scale(0.96); }
+.lobby-gear-btn:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+.lobby-gear-btn[aria-expanded="true"] {
+  color: var(--c-brand);
+  border-color: var(--c-brand);
+}
+.lobby-gear-btn svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  stroke: currentColor;
+}
+
+/* Lobby settings popover — anchored to the viewport-bottom and opens
+   UPWARD from the gear. `position: absolute` inside `.lobby-cta-bar`
+   so it reads "stuck to the bar" rather than free-floating. The bar
+   has `z-index: 60`; this lives inside it, no conflict.
+
+   Anchored to the right edge of the bar's inner container (where the
+   gear sits). Width grows to a comfortable popover size on phone +
+   tablet; max-width clamps it on desktop. */
+.lobby-settings-popover {
+  position: absolute;
+  /* Float above the bar — bar's top padding is 12px; we sit just above
+     it with an 8px gap. `bottom: 100%` aligns the popover's bottom
+     edge to the bar's top edge; `+8px` lift comes from translateY. */
+  bottom: calc(100% + 8px);
+  right: 16px;
+  z-index: 70;
+  min-width: 240px;
+  max-width: calc(100vw - 32px);
+  background: rgba(26, 29, 39, 0.96);
+  border: 1px solid var(--c-brand);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  font-family: var(--f-body);
+  color: var(--c-ink-primary);
+  /* Animation on open — match the deck's settings-popover convention. */
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity 160ms var(--ease-standard),
+              transform 160ms var(--ease-standard);
+}
+.lobby-settings-popover[data-open="true"] {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+/* HTML `hidden` attribute — keep the element off the a11y tree until
+   it opens (popover starts hidden). When JS sets data-open + clears
+   `hidden`, the transition above runs. */
+.lobby-settings-popover[hidden] { display: none; }
+
+.lobby-settings-popover-title {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-ink-secondary);
+  margin-bottom: 8px;
+}
+
+/* When the popover IS the host of the treatment row, give the row a
+   little more breathing room so each pill is comfortably tappable
+   (≥44 px hit target on phones). The bar context squeezed it to 36px;
+   here we can afford 40. */
+.lobby-settings-popover .lobby-treatment-row {
+  height: 40px;
+}
+
+/* Self-grant modal ----------------------------------------------------- */
+.lobby-self-grant-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.lobby-self-grant-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.lobby-self-grant-card {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  background: var(--c-surface-base);
+  border: 1px solid var(--c-surface-border);
+  border-top-left-radius: var(--radius-xl);
+  border-top-right-radius: var(--radius-xl);
+  padding: 24px 20px calc(24px + var(--safe-bottom));
+  margin: 0 auto;
+}
+
+.lobby-self-grant-title {
+  font-family: var(--f-display);
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: var(--c-ink-primary);
+  letter-spacing: -0.01em;
+}
+
+.lobby-self-grant-identity {
+  font-family: var(--f-body);
+  font-size: 14px;
+  color: var(--c-ink-secondary);
+  margin: 0 0 12px;
+}
+
+.lobby-self-grant-identity strong {
+  color: var(--c-ink-primary);
+  font-weight: 700;
+}
+
+.lobby-self-grant-body {
+  font-family: var(--f-body);
+  font-size: 14px;
+  color: var(--c-ink-secondary);
+  line-height: 1.5;
+  margin: 0 0 18px;
+}
+
+.lobby-self-grant-error {
+  font-family: var(--f-body);
+  font-size: 13px;
+  color: var(--c-error);
+  margin: 0 0 12px;
+}
+
+.lobby-self-grant-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.lobby-self-grant-btn {
+  flex: 1 1 0;
+  height: 44px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--c-surface-border);
+  background: transparent;
+  color: var(--c-ink-primary);
+  font-family: var(--f-body);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+
+.lobby-self-grant-cancel:hover {
+  background: var(--c-surface-raised);
+}
+
+.lobby-self-grant-allow {
+  background: var(--c-brand);
+  border-color: var(--c-brand);
+  color: #0F1117;
+}
+
+.lobby-self-grant-allow:hover {
+  background: var(--c-brand-dark);
+  border-color: var(--c-brand-dark);
+}
+
+.lobby-self-grant-allow:disabled,
+.lobby-self-grant-allow[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Wider screens — same max-width 720, centred. */
+@media (min-width: 600px) {
+  .lobby-meta { padding: 28px 4px 16px; }
+}
+
+/* Reduced motion — disable shimmer + transitions on hover/border. */
+@media (prefers-reduced-motion: reduce) {
+  .lobby-row > .lobby-row-content,
+  .lobby-treatment-row > button,
+  .lobby-start-btn,
+  .lobby-self-grant-btn { transition: none; }
 }

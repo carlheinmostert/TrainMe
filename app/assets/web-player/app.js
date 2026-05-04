@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v82-wave42-overrides';
+const PLAYER_VERSION = 'v44-hold-wording-final';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -277,6 +277,19 @@ async function initAnalytics() {
   var ctx = await window.HomefitApi.getPlanSharingContext(planId);
   if (ctx && ctx.practitioner_name) {
     analyticsTrainerName = ctx.practitioner_name;
+    // Lobby was rendered with "your practitioner" as fallback before this
+    // async resolved. Patch its sub-line in place if the lobby is still
+    // visible. Cheap: textContent swap, no full re-render.
+    try {
+      var $lobbyMeta = document.getElementById('lobby-meta-sub');
+      var $lobbyMetaHeadline = document.getElementById('lobby-meta-headline');
+      if ($lobbyMeta && $lobbyMeta.textContent && $lobbyMeta.textContent.indexOf('your practitioner') !== -1) {
+        $lobbyMeta.textContent = $lobbyMeta.textContent.replace(
+          /From your practitioner/g,
+          'From ' + analyticsTrainerName,
+        );
+      }
+    } catch (_) {}
   }
 
   // Fire plan_opened regardless of consent (per design doc).
@@ -774,6 +787,47 @@ function setOverride(exId, prop, value, defaultValue) {
   saveClientOverrides(planId);
 }
 
+/**
+ * Lobby helper — apply a treatment value as a per-exercise override across
+ * the entire plan. Mirrors what setOverride does for one exercise but
+ * walks every loaded slide so a single lobby tap propagates everywhere.
+ *
+ * Wave 5 lobby fixes (Carl device QA): always WRITE the global pick as
+ * an explicit override on every exercise, regardless of the
+ * practitioner's per-exercise default. The earlier "clear when matches
+ * default" branch was wrong — if the practitioner default for an
+ * exercise was B&W and the user picked Line globally, clearing meant
+ * the row fell back to B&W (the default) instead of staying on Line.
+ * Per-exercise gear popover (post-handoff in the deck) can still
+ * individually override.
+ *
+ * Skips locked treatments per-exercise (consent absent → fall back to
+ * 'line' for that one). Saves once at the end. Re-binds video sources
+ * so deck videos pick up the new src on the next render. Used by
+ * lobby.js's `applyTreatmentOverrideToAllExercises` handoff.
+ */
+function applyTreatmentOverrideToAllExercises(treatment) {
+  if (treatment !== 'line' && treatment !== 'bw' && treatment !== 'original') return;
+  if (!plan || !slides) return;
+  for (let i = 0; i < slides.length; i++) {
+    const ex = slides[i];
+    if (!ex || ex.media_type === 'rest' || !ex.id) continue;
+    let target = treatment;
+    // Don't write an override that points at an unconsented treatment.
+    if (target === 'bw' && !planHasGrayscaleConsent) target = 'line';
+    if (target === 'original' && !planHasOriginalConsent) target = 'line';
+    // ALWAYS write — never clear-on-match. The user picked this
+    // treatment globally; per-exercise practitioner defaults must not
+    // win.
+    if (!clientOverrides[ex.id]) clientOverrides[ex.id] = {};
+    clientOverrides[ex.id].treatment = target;
+  }
+  saveClientOverrides(plan && plan.id);
+  // Re-render the deck with new src URLs so post-handoff playback picks
+  // up the new treatment.
+  try { rebindVideoSources(); } catch (_) { /* deck not yet primed */ }
+}
+
 // Timing constants (from config.dart)
 const SECONDS_PER_REP = 3;
 const REST_BETWEEN_SETS = 30;
@@ -1125,14 +1179,81 @@ function buildPrepOverlay(slide) {
 }
 
 /**
+ * Round 6 — central reps-shape composer, shared between the lobby's
+ * row dose-line and the deck's active-slide-header grammar. Single
+ * source of truth for `N × R reps` (uniform) vs `R1/R2/R3 reps`
+ * (pyramid / drop / wave). The leading `× N` in the varying form is
+ * deliberately omitted — sequence length is implicit.
+ *
+ * Args: `playSets` — output of playSetsForSlide(); each entry has at
+ * least { reps }. Returns a string or '' for empty input.
+ */
+function formatReps(playSets) {
+  if (!Array.isArray(playSets) || !playSets.length) return '';
+  const repsList = playSets.map((s) => Number(s.reps) || 0);
+  const allSame = repsList.every((r) => r === repsList[0]);
+  if (allSame) return `${playSets.length} × ${repsList[0]} reps`;
+  return `${repsList.join('/')} reps`;
+}
+
+/**
+ * Round 6 — central hold-segment composer with Wave 43 three-mode
+ * parenthetical qualifiers. Returns the dose-line fragment for the
+ * hold (e.g. `30s hold (on last rep)`, `5s hold (per rep)`,
+ * `30s hold (on last set rep)`) or '' when no hold is configured.
+ *
+ * Mode wording (Round 7.1 revision — final wording; Carl 2026-05-04):
+ *   per_rep         → `Ns hold (per rep)`
+ *   end_of_set      → `Ns hold (on last rep)`        (default)
+ *   end_of_exercise → `Ns hold (on last set rep)`
+ *
+ * "Last rep" = each set's last rep (end_of_set). "Last set rep" =
+ * the last set's last rep (end_of_exercise). Round 7 shipped with
+ * `(per set)` / `(after last rep)`; Round 7.1 lands the canonical
+ * wording in lockstep with Studio's segmented-control labels (which
+ * use sentence-case `On last rep` / `On last set rep`).
+ *
+ * If sets in an exercise carry mixed hold modes (data shape allows it
+ * but the editor enforces uniform-by-default), we use the FIRST set's
+ * `hold_position` as the canonical answer for the dose-line summary —
+ * matches the brief's call. Sets with mixed numeric `hold_seconds`
+ * collapse to `''` per the existing pickHoldSeconds() contract (ie a
+ * single uniform value or nothing).
+ *
+ * Args: `playSets` — output of playSetsForSlide() (deck) or
+ * allSetsForSlide() (lobby). Returns a string.
+ */
+function formatHold(playSets) {
+  if (!Array.isArray(playSets) || !playSets.length) return '';
+  const holds = playSets.map((s) => Number(s.hold_seconds) || 0);
+  const allSame = holds.every((h) => h === holds[0]);
+  if (!allSame) return '';
+  const sec = holds[0];
+  if (sec <= 0) return '';
+  // Wave 43 mode wording (Round 7.1 final-wording revision). Photos go
+  // through the same path: if the exercise is a photo with no `sets[]`
+  // (legacy fallback), the synthesised set from _coerceSet defaults
+  // hold_position to 'end_of_set' which renders `(on last rep)`.
+  const mode = (playSets[0] && playSets[0].hold_position) || 'end_of_set';
+  if (mode === 'per_rep') return `${sec}s hold (per rep)`;
+  if (mode === 'end_of_exercise') return `${sec}s hold (on last set rep)`;
+  return `${sec}s hold (on last rep)`;
+}
+
+/**
  * Wave 41 — decoded grammar for the active slide. Reads `slide.sets[]`
  * (post per-set PLAN refactor) and produces a per-set summary:
- *   Uniform:           `3 × 10 @ 15 kg · 60 s rest`
- *   Pyramid (varied):  `10/8/6 @ 12.5/15/17.5 kg · 60 s rest`
- *   Bodyweight:        `3 × 10 · 30 s hold · 60 s rest`
+ *   Uniform:           `3 × 10 reps @ 15 kg · 60 s rest`
+ *   Pyramid (varied):  `10/8/6 reps @ 12.5/15/17.5 kg · 60 s rest`
+ *   Bodyweight:        `3 × 10 reps · 30 s hold · 60 s rest`
  *   Mixed breathers:   `3 sets · varied`
  *   Circuit (1 set):   `10 reps @ 15 kg · 30 s hold`  (round count owned by matrix)
  *   Rest:              `30 s rest`
+ *
+ * Round 6 — appended `reps` after `N × R` so the active-slide header
+ * matches the lobby grammar; the slash forms (`R1/R2/R3 reps`) and the
+ * hold-mode qualifiers `(each)` / `(end)` flow through the shared
+ * formatReps() / formatHold() composers.
  *
  * Returns a plain string (no HTML) — the caller sets textContent.
  */
@@ -1164,13 +1285,17 @@ function buildDecodedGrammar(slide) {
   const allBodyweight = weightsList.every((w) => w == null);
 
   // Circuit slides represent ONE set per round; the round count is
-  // surfaced by the matrix. Drop the `N ×` prefix.
+  // surfaced by the matrix. Drop the `N ×` prefix. Hold renders via
+  // the shared formatHold() so the (per rep) / (on last rep) /
+  // (on last set rep) qualifiers stay in lockstep with the lobby and
+  // the rest of the deck. (Round 6 / Round 7.1 grammar revision.)
   if (isCircuit) {
     const set = playSets[0];
     const parts = [];
     parts.push(`${set.reps} reps`);
     if (set.weight_kg != null) parts.push(`@ ${formatWeightKg(set.weight_kg)}`);
-    if (set.hold_seconds > 0) parts.push(`${set.hold_seconds} s hold`);
+    const holdSeg = formatHold([set]);
+    if (holdSeg) parts.push(holdSeg);
     return parts.join(' · ');
   }
 
@@ -1180,30 +1305,41 @@ function buildDecodedGrammar(slide) {
     return `${playSets.length} sets · varied`;
   }
 
+  // Round 6 — the reps shape + count flows through the shared
+  // formatReps() composer (`N × R reps` / `R1/R2/R3 reps`). Weight
+  // formatting + breather aren't shared with the lobby, so they stay
+  // inline here.
   const parts = [];
+  const repsSeg = formatReps(playSets);
   if (repsUniform && weightsUniform) {
-    // Uniform shape — `N × R [@ W kg]`
-    let head = `${playSets.length} × ${repsList[0]}`;
-    if (!allBodyweight) head += ` @ ${formatWeightKg(weightsList[0])}`;
-    parts.push(head);
-  } else {
-    // Pyramid / varied reps or weights — emit slash-joined sequences.
-    const repsStr = repsList.join('/');
-    if (allBodyweight) {
-      parts.push(repsStr);
-    } else if (weightsUniform) {
-      parts.push(`${repsStr} @ ${formatWeightKg(weightsList[0])}`);
+    if (!allBodyweight) {
+      parts.push(`${repsSeg} @ ${formatWeightKg(weightsList[0])}`);
     } else {
-      const weightsStr = weightsList
-        .map((w) => (w == null ? 'BW' : formatWeightKg(w).replace(' kg', '')))
-        .join('/');
-      parts.push(`${repsStr} @ ${weightsStr} kg`);
+      parts.push(repsSeg);
     }
+  } else if (weightsUniform) {
+    if (allBodyweight) {
+      parts.push(repsSeg);
+    } else {
+      parts.push(`${repsSeg} @ ${formatWeightKg(weightsList[0])}`);
+    }
+  } else {
+    // Pyramid / varied reps or weights — slash-joined weight sequence.
+    const weightsStr = weightsList
+      .map((w) => (w == null ? 'BW' : formatWeightKg(w).replace(' kg', '')))
+      .join('/');
+    parts.push(`${repsSeg} @ ${weightsStr} kg`);
   }
 
-  if (holdsUniform && holdsList[0] > 0) {
-    parts.push(`${holdsList[0]} s hold`);
+  // Round 6 — hold flows through the shared formatHold() so the
+  // mode-aware parenthetical wording is identical across surfaces.
+  const holdSeg = formatHold(playSets);
+  if (holdSeg) {
+    parts.push(holdSeg);
   } else if (!holdsUniform && holdsList.some((h) => h > 0)) {
+    // Mixed holds across sets — fall back to the legacy "varied hold"
+    // collapse (formatHold() returns '' for non-uniform holds since
+    // the parenthetical can't represent a mix).
     parts.push('varied hold');
   }
 
@@ -2769,6 +2905,25 @@ function playSetsForSlide(slide) {
 }
 
 /**
+ * Round 7 — return EVERY authored set on a slide, ignoring `circuitRound`.
+ * Used by surfaces that summarise the whole exercise rather than a single
+ * round (i.e. the lobby's row dose-line where each circuit exercise is
+ * deduped to one row representing all rounds). The deck stays on
+ * `playSetsForSlide` because its per-round filtering is correct for an
+ * unrolled-deck slide.
+ *
+ * Always returns at least one set (mirrors `playSetsForSlide`'s
+ * fallback) so downstream `formatReps` / `formatHold` can't crash on
+ * legacy / partial data.
+ */
+function allSetsForSlide(slide) {
+  if (!slide) return [_coerceSet(null)];
+  const raw = Array.isArray(slide.sets) ? slide.sets : [];
+  if (raw.length === 0) return [_coerceSet(null)];
+  return raw.map(_coerceSet);
+}
+
+/**
  * Backwards-compat helper retained for call sites that just need the
  * count (matrix sizing, rep-stack key, jump math). Uses
  * playSetsForSlide() for circuit-aware truth.
@@ -3998,6 +4153,13 @@ function onGearTreatmentClick(value) {
     const fromWire = previousEffective === 'bw' ? 'grayscale' : previousEffective;
     const toWire = value === 'bw' ? 'grayscale' : value;
     emitAnalyticsEvent('treatment_switched', slide.id, { from: fromWire, to: toWire });
+    // Lobby PR 4 — also emit `treatment_changed` with `source: 'gear'`
+    // so the lobby's `source: 'lobby'` events sit on the same event
+    // channel for downstream analytics. Existing `treatment_switched`
+    // remains for backward-compat consumers.
+    emitAnalyticsEvent('treatment_changed', slide.id, {
+      from: fromWire, to: toWire, source: 'gear',
+    });
   }
 
   const def = practitionerDefaultFor(slide, 'treatment');
@@ -5259,13 +5421,143 @@ async function init() {
       });
     }
 
-    // Try to autoplay the first slide's video on initial load. The fetchPlan
-    // click that opened the URL should have unlocked autoplay on iOS Safari,
-    // but we swallow the rejection defensively if the browser blocks it.
-    autoPlayCurrentVideo();
+    // PR 4 — Lobby surface. The lobby is the pre-workout entry point: a
+    // vertical menu of hero frames + sticky Start CTA. The deck (#app)
+    // stays hidden underneath until Start is tapped. Autoplay + the
+    // legacy in-deck "Start Workout" button stay suppressed while the
+    // lobby owns the foreground.
+    //
+    // The lobby calls `window.HomefitLobbyHandoff.startWorkout()` to hand
+    // off control. That handoff:
+    //   1. unhides #app + autoPlayCurrentVideo()
+    //   2. invokes startWorkout() (which fires its own state machine).
+    // analytics workout_started is emitted by the LOBBY at Start tap (not
+    // here on first prep frame any longer — re-anchored per spec).
+    if (window.HomefitLobby && typeof window.HomefitLobby.showLobby === 'function') {
+      // Expose the helpers the lobby needs. Frozen so lobby code can't
+      // mutate app state through this surface — only read/call.
+      window.HomefitLobbyHandoff = Object.freeze({
+        calculateDuration: calculateDuration,
+        sumTotalDurationSeconds: function () {
+          let total = 0;
+          for (let i = 0; i < slides.length; i++) total += calculateDuration(slides[i]);
+          return total;
+        },
+        playSetsForSlide: playSetsForSlide,
+        // Round 7 — `allSetsForSlide` ignores circuitRound and returns
+        // every authored set, used by the lobby for the dose-line of a
+        // circuit-grouped row (one row representing all rounds). The
+        // deck keeps `playSetsForSlide` for its per-round filtering.
+        allSetsForSlide: allSetsForSlide,
+        // Round 6 — central reps + hold composers, shared so the
+        // lobby's row dose-line uses identical grammar to the deck's
+        // active-slide-header. Single source of truth for the
+        // pyramid-vs-uniform detection and the Wave 43 hold-mode
+        // parenthetical wording.
+        formatReps: formatReps,
+        formatHold: formatHold,
+        getExerciseRotationDeg: getExerciseRotationDeg,
+        resolveTreatmentUrl: resolveTreatmentUrl,
+        escapeHTML: escapeHTML,
+        emitAnalyticsEvent: emitAnalyticsEvent,
+        planHasGrayscaleConsent: function () { return planHasGrayscaleConsent; },
+        planHasOriginalConsent: function () { return planHasOriginalConsent; },
+        applyTreatmentOverrideToAllExercises: applyTreatmentOverrideToAllExercises,
+        getDefaultTreatment: function () {
+          // Pick the first exercise's effective treatment as the
+          // global default. Falls back to 'line' for empty/rest-only
+          // plans (impossible at this point but cheap defence).
+          for (let i = 0; i < slides.length; i++) {
+            const s = slides[i];
+            if (s && s.media_type !== 'rest') {
+              const t = getEffective(s, 'treatment');
+              if (t === 'bw' && !planHasGrayscaleConsent) return 'line';
+              if (t === 'original' && !planHasOriginalConsent) return 'line';
+              return t || 'line';
+            }
+          }
+          return 'line';
+        },
+        getPractitionerName: function () { return analyticsTrainerName; },
+        rebindVideoSources: rebindVideoSources,
+        startWorkout: function () {
+          // Reveal the deck, autoplay, and let the legacy startWorkout
+          // path take over (timer, fullscreen, prep countdown, etc.).
+          if ($app) $app.hidden = false;
+          autoPlayCurrentVideo();
+          startWorkout();
+        },
+        reFetchPlan: async function () {
+          // Re-fetch the plan after a self-grant so signed URLs for the
+          // newly-granted treatment land in the cached state.
+          const planId = (plan && plan.id) || getPlanIdFromURL();
+          if (!planId) return null;
+          const fresh = await fetchPlan(planId);
+          if (!fresh) return null;
+          plan = fresh;
+          plan.exercises.sort((a, b) => a.position - b.position);
+          slides = unrollExercises(plan);
+          recomputePlanConsent();
+          // Re-render the deck so post-handoff playback has fresh src.
+          try { renderPlan(); } catch (_) { /* defer to first goTo */ }
+          return { plan: plan, slides: slides };
+        },
+        // Build a matrix HTML string for the lobby — re-uses the deck's
+        // pill builder shape but emits clickable <button>s and skips the
+        // active-slide auto-fill (lobby is pre-workout).
+        buildLobbyMatrix: function (slidesArg) {
+          // Use the existing buildMatrixBlocks() output for circuit
+          // grouping fidelity, but with simple flat pills.
+          const blocks = (typeof buildMatrixBlocks === 'function') ? buildMatrixBlocks() : null;
+          if (!blocks) {
+            return slidesArg.map((s, i) => {
+              const isRest = s.media_type === 'rest';
+              return `<div class="pill size-medium${isRest ? ' is-rest' : ''}" data-slide="${i}" role="button" tabindex="0"><span class="pill-fill"></span></div>`;
+            }).join('');
+          }
+          const pillHTML = (slideIdx) => {
+            const slide = slidesArg[slideIdx];
+            const isRest = slide && slide.media_type === 'rest';
+            const dur = calculateDuration(slide);
+            return `<div class="pill size-medium${isRest ? ' is-rest' : ''}" data-slide="${slideIdx}" data-estimate="${dur}" role="button" tabindex="0">
+                      <span class="pill-fill"></span>
+                    </div>`;
+          };
+          return blocks.map((block) => {
+            if (block.kind === 'single') {
+              const dur = calculateDuration(slidesArg[block.slideIndex]) || 1;
+              return `<div class="matrix-col" style="--pill-weight: ${dur};">${pillHTML(block.slideIndex)}</div>`;
+            }
+            const { rounds, groupSize } = block;
+            const firstRow = rounds[0] || [];
+            const rowDurations = firstRow.map((idx) => calculateDuration(slidesArg[idx]) || 1);
+            const circuitWeight = rowDurations.reduce((a, b) => a + b, 0) || 1;
+            const rowTemplate = rowDurations.map((d) => `${d}fr`).join(' ');
+            const roundsHTML = rounds.map((row, ri) => {
+              const rowPills = row.map((slideIdx) => pillHTML(slideIdx)).join('');
+              return `<div class="matrix-circuit-row" data-round="${ri + 1}" style="--row-template-fs: ${rowTemplate};">${rowPills}</div>`;
+            }).join('');
+            return `<div class="matrix-circuit" data-circuit="${block.circuitId}" style="--circuit-cols: ${groupSize}; --circuit-weight: ${circuitWeight};">${roundsHTML}</div>`;
+          }).join('');
+        },
+      });
 
-    // Show the Start Workout button
-    $startWorkoutBtn.hidden = false;
+      // Hide #app until lobby hands off, suppress autoplay + the legacy
+      // start-workout button.
+      $startWorkoutBtn.hidden = true;
+      if ($app) $app.hidden = true;
+
+      window.HomefitLobby.showLobby({
+        plan: plan,
+        slides: slides,
+        helpers: window.HomefitLobbyHandoff,
+      });
+    } else {
+      // Lobby script unavailable — fall back to legacy entry. Safe
+      // backstop for older bundle versions still in service worker.
+      autoPlayCurrentVideo();
+      $startWorkoutBtn.hidden = false;
+    }
 
     // -- Wave 17: initialise analytics + wire close handler. --
     // Fire-and-forget — analytics init is async but must never block the
