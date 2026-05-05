@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v55-lanes-waapi-align';
+const PLAYER_VERSION = 'v56-lobby-weight-grammar';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)
@@ -4550,6 +4550,35 @@ function renderWeightChipHtml({ weightKg, urgent, leadGlyph, holdSeconds }) {
  * Wave 41 — format a kg value: integer like "15 kg", non-integer
  * rounded to one decimal like "12.5 kg".
  */
+/**
+ * Wave Lobby-Weight (2026-05-05) — central weight composer for any
+ * playSets array. Mirrors the deck's `buildDecodedGrammar` weight
+ * branching as a portable segment string that the lobby can join into
+ * its dose-line. Returns:
+ *
+ *   ''                       — all sets are bodyweight (weight_kg null)
+ *   '@ 15 kg'                — every set has the same numeric weight
+ *   '@ 12.5/15/17.5 kg'      — varying weights (slash-joined, BW = 'BW')
+ *
+ * Used in the active-slide-header (deck) and the lobby row dose-line so
+ * the grammar is identical across surfaces. Mirrored from
+ * buildDecodedGrammar's logic to avoid reimplementing the uniform /
+ * varying detection.
+ */
+function formatWeight(playSets) {
+  if (!Array.isArray(playSets) || playSets.length === 0) return '';
+  const weights = playSets.map((s) => s && s.weight_kg);
+  const allBodyweight = weights.every((w) => w == null);
+  if (allBodyweight) return '';
+  const uniform = weights.every((w) => w === weights[0]);
+  if (uniform) return `@ ${formatWeightKg(weights[0])}`;
+  // Varying — slash-joined, BW for null weights inside the sequence.
+  const seq = weights
+    .map((w) => (w == null ? 'BW' : formatWeightKg(w).replace(' kg', '')))
+    .join('/');
+  return `@ ${seq} kg`;
+}
+
 function formatWeightKg(kg) {
   if (kg == null) return 'Bodyweight';
   const n = Number(kg);
@@ -5465,6 +5494,7 @@ async function init() {
         // parenthetical wording.
         formatReps: formatReps,
         formatHold: formatHold,
+        formatWeight: formatWeight,
         getExerciseRotationDeg: getExerciseRotationDeg,
         resolveTreatmentUrl: resolveTreatmentUrl,
         escapeHTML: escapeHTML,
