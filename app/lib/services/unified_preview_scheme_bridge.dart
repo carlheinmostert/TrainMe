@@ -142,7 +142,7 @@ class UnifiedPreviewSchemeBridge {
     if (exerciseId == null || exerciseId.isEmpty) {
       throw PlatformException(code: 'BAD_ARGS', message: 'missing exerciseId');
     }
-    if (kind != 'line' && kind != 'archive' && kind != 'segmented') {
+    if (kind != 'line' && kind != 'archive' && kind != 'segmented' && kind != 'hero') {
       throw PlatformException(code: 'BAD_ARGS', message: 'unknown kind $kind');
     }
 
@@ -188,6 +188,12 @@ class UnifiedPreviewSchemeBridge {
         // Wave 36 — same column for video segmented mp4 and photo
         // segmented JPG; consumer derives content-type from extension.
         relative = exercise.segmentedRawFilePath;
+        break;
+      case 'hero':
+        // The on-device Hero JPG produced by Wave Hero Crop (PR #218).
+        // Used as the static <img src> poster for inactive lobby rows
+        // post-PR-#255 (which strictly forbids video URLs in <img src>).
+        relative = exercise.thumbnailPath;
         break;
     }
     if (relative == null || relative.isEmpty) {
@@ -280,7 +286,14 @@ class UnifiedPreviewSchemeBridge {
       'position': e.position,
       'name': e.name,
       'media_url': lineUrl,
-      'thumbnail_url': null,
+      // The on-device Hero JPG (Wave Hero Crop, PR #218). Wired post
+      // PR #255 — the lobby's <img src> must be a real image URL, never
+      // a video URL (iOS WKWebView animates mp4 in <img> and burns HW
+      // decoders invisibly). NULL when no thumbnail has been produced
+      // yet — the lobby falls back to a skeleton placeholder.
+      'thumbnail_url': (e.thumbnailPath != null && e.thumbnailPath!.isNotEmpty)
+          ? '/local/${e.id}/hero'
+          : null,
       'media_type': e.mediaType.name,
       'sets': setsJson,
       'notes': e.notes,

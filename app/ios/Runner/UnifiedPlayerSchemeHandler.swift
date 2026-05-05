@@ -456,10 +456,12 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
     return id.removingPercentEncoding ?? id
   }
 
-  /// Parses `local/<exerciseId>/(line|archive|segmented)`. Returns nil on
-  /// mismatch. `segmented` is the body-pop variant added in Wave 30 — the
+  /// Parses `local/<exerciseId>/(line|archive|segmented|hero)`. Returns nil
+  /// on mismatch. `segmented` is the body-pop variant added in Wave 30; the
   /// Dart bridge already accepts it, so the iOS guard had to follow or
-  /// every Body-Focus video request 404'd silently.
+  /// every Body-Focus video request 404'd silently. `hero` is the on-device
+  /// Hero JPG (Wave Hero Crop, PR #218), wired post PR #255 to give the
+  /// lobby a real image URL for the <img src> poster.
   private func parseLocalMediaPath(_ path: String) -> (String, String)? {
     guard path.hasPrefix("local/") else { return nil }
     let rest = path.dropFirst("local/".count)
@@ -468,7 +470,7 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
     let exerciseId = String(parts[0])
     let kind = String(parts[1])
     if exerciseId.isEmpty { return nil }
-    guard kind == "line" || kind == "archive" || kind == "segmented" else {
+    guard kind == "line" || kind == "archive" || kind == "segmented" || kind == "hero" else {
       NSLog("[UnifiedPreview] rejected unknown kind '\(kind)' for exercise \(exerciseId)")
       return nil
     }
