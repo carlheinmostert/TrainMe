@@ -4,19 +4,24 @@ import 'package:flutter/services.dart';
 import '../models/session.dart';
 import '../theme.dart';
 
-/// Wave 44 bottom-anchored Studio chrome.
+/// Wave 5 (CAPS) bottom-anchored Studio chrome.
 ///
-/// Stripped down to the workflow pill alone. Wave 38's stacked-row
-/// chrome (stats strip + subtitle + back + gear) moved upward into
-/// the Studio AppBar and into the new `Statistics` tab on the
-/// plan-settings sheet. The bottom bar is now JUST the pill:
+/// The bottom is a single fully-rounded workflow pill with five
+/// labelled cells:
 ///
-///   [ Camera | Refine | Preview | Publish | Share ]
+///   [ Capture | Adjust | Preview | Publish | Share ]   →  CAPS
 ///
-/// Five icons, coral triangles between them, with the Publish slot
-/// replaced by the Unlock pill when the plan is past its 14-day
-/// grace. Wave 5 (CAPS rename) will reshape the pill itself; this
-/// pass leaves icon names + glyphs untouched.
+/// Each cell is a small dark circle holding a glyph + a 10pt
+/// uppercase label below. Slim coral arrows sit between cells on the
+/// glyph row (above the label baseline). When the plan is past its
+/// 14-day grace, the Publish slot becomes a coral lock that opens the
+/// unlock sheet.
+///
+/// Wave 44 stripped the surrounding back/gear/stats chrome (it lives
+/// in the Studio AppBar + the Statistics tab on the plan-settings
+/// sheet). Wave 5 reshapes the pill itself: rename Camera → Capture
+/// + Refine → Adjust, fully-rounded geometry, per-cell labels, slim
+/// coral arrows, three-dot network share glyph.
 class StudioBottomBar extends StatelessWidget {
   final Session session;
   final bool isPublishing;
@@ -24,15 +29,15 @@ class StudioBottomBar extends StatelessWidget {
   final bool isPlanLocked;
   final String? publishError;
 
-  /// Wave 40 (M1) — first toolbar slot is now Camera (replaces the
-  /// retired Library slot). Tapping fires the same callback as the
+  /// Wave 40 (M1) — first toolbar slot is now Capture (was Camera /
+  /// before that, Library). Tapping fires the same callback as the
   /// shell's swipe-left-to-Capture pull tab. Library import has moved
   /// inside the camera viewfinder (M2).
-  final VoidCallback onCameraTap;
-  /// Refine — opens the per-exercise editor sheet for the topmost card
+  final VoidCallback onCaptureTap;
+  /// Adjust — opens the per-exercise editor sheet for the topmost card
   /// (most recent capture, skipping rest periods). Nullable so the host
   /// can disable it when there are no exercises captured yet.
-  final VoidCallback? onRefine;
+  final VoidCallback? onAdjust;
   final VoidCallback onPreview;
   final VoidCallback onPublish;
   final VoidCallback onShare;
@@ -47,8 +52,8 @@ class StudioBottomBar extends StatelessWidget {
     required this.canPublish,
     required this.isPlanLocked,
     required this.publishError,
-    required this.onCameraTap,
-    this.onRefine,
+    required this.onCaptureTap,
+    this.onAdjust,
     required this.onPreview,
     required this.onPublish,
     required this.onShare,
@@ -81,53 +86,54 @@ class StudioBottomBar extends StatelessWidget {
   // ---------------------------------------------------------------------------
 
   Widget _buildToolbar(bool hasExercises) {
+    final adjustActive = onAdjust != null;
     final previewActive = hasExercises;
     final hasPublishError = publishError != null && !isPublishing;
     final publishActive = canPublish || hasPublishError;
     final shareActive = session.isPublished;
 
-    // Workflow chain: Camera → Refine → Preview → Publish → Share inside
-    // a raised pill. Wave 44 stripped the surrounding back/gear chrome —
-    // back lives in the AppBar, gear lives on the AppBar's right edge.
+    // CAPS workflow chain: Capture → Adjust → Preview → Publish → Share
+    // inside a fully-rounded pill. Triangle dim rule preserved: an
+    // arrow FEEDING INTO a dim cell is also dim, creating a visual
+    // workflow gate.
     final workflowChildren = <Widget>[
-      // Wave 40 (M1) — Camera replaces Library as the first slot. Tap
-      // = same as swipe-left to Capture mode (no modal).
-      _ToolbarIconButton(
+      _CapsCell(
         icon: Icons.photo_camera_outlined,
+        label: 'CAPTURE',
         active: true,
-        onTap: onCameraTap,
-        tooltip: 'Open camera',
+        onTap: onCaptureTap,
+        tooltip: 'Capture (camera)',
       ),
-      _Triangle(dim: onRefine == null),
-      // Refine — opens the editor sheet for the topmost card (most
-      // recent capture, skipping rest).
-      _ToolbarIconButton(
+      _Arrow(dim: !adjustActive),
+      _CapsCell(
         icon: Icons.view_list_rounded,
-        active: onRefine != null,
-        onTap: onRefine,
-        tooltip: 'Refine top card',
+        label: 'ADJUST',
+        active: adjustActive,
+        onTap: onAdjust,
+        tooltip: 'Adjust top card',
       ),
-      _Triangle(dim: !previewActive),
-      _ToolbarIconButton(
+      _Arrow(dim: !previewActive),
+      _CapsCell(
         icon: Icons.slideshow_outlined,
+        label: 'PREVIEW',
         active: previewActive,
         onTap: previewActive ? onPreview : null,
         tooltip: 'Preview plan',
       ),
-      _Triangle(dim: !(isPlanLocked || publishActive)),
+      _Arrow(dim: !(isPlanLocked || publishActive)),
       // Wave 39.1 — when locked, the Publish slot is taken by a compact
-      // Unlock icon (lock_outline_rounded, coral). Tapping opens the
-      // unlock bottom sheet.
+      // Unlock cell (coral lock). Tapping opens the unlock bottom sheet.
       if (isPlanLocked)
-        _ToolbarIconButton(
+        _CapsCell(
           icon: Icons.lock_outline_rounded,
+          label: 'UNLOCK',
           active: true,
           onTap: onUnlockTap,
           tooltip: 'Unlock (1 credit)',
           accent: true,
         )
       else
-        _PublishToolbarButton(
+        _PublishCapsCell(
           session: session,
           isPublishing: isPublishing,
           canPublish: canPublish,
@@ -137,24 +143,37 @@ class StudioBottomBar extends StatelessWidget {
               : null,
           onLockedTap: onPublishLockedTap,
         ),
-      _Triangle(dim: !shareActive),
-      _ToolbarIconButton(
-        icon: Icons.ios_share,
+      _Arrow(dim: !shareActive),
+      _CapsCell(
+        // Material's `Icons.share` is the three-dot network glyph
+        // (top-right + middle-left + bottom-right circles connected by
+        // diagonal lines), matching the `ShareIcon` SVG on the help
+        // page. Replaces the prior `Icons.ios_share` arrow-out-of-box.
+        icon: Icons.share,
+        label: 'SHARE',
         active: shareActive,
         onTap: shareActive ? onShare : null,
         tooltip: 'Share link',
       ),
     ];
 
-    // Wave 44 — the workflow pill is the entire toolbar. Centred so
-    // the row reads as a coherent control rather than a left-anchored
-    // strip with empty right space.
+    // Wave 5 — fully-rounded pill, subtle drop-shadow to lift it off
+    // the surface. Slightly more vertical padding than the earlier
+    // 12px-corner version so the labels (taller cells) don't crowd
+    // the rounded edges.
     final workflowPill = Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceRaised,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -163,8 +182,11 @@ class StudioBottomBar extends StatelessWidget {
     );
 
     return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      // Cells are taller than the prior 28pt icons because of the
+      // label, so bump the row height a touch. Pill geometry handles
+      // its own internal padding; this is just the outer breathing
+      // room above the home indicator.
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         mainAxisAlignment: MainAxisAlignment.center,
@@ -299,17 +321,23 @@ String _fmtRemaining(Duration d) {
 // Sub-widgets
 // ---------------------------------------------------------------------------
 
-class _ToolbarIconButton extends StatelessWidget {
+/// One CAPS cell: a small dark circle holding the glyph, with a 10pt
+/// uppercase label below. The label dims with the glyph so the active
+/// vs disabled state reads on either layer. Mirrors the
+/// `ToolbarStrip` component on the public help page (web-portal).
+class _CapsCell extends StatelessWidget {
   final IconData icon;
+  final String label;
   final bool active;
   final VoidCallback? onTap;
   final String tooltip;
-  /// Wave 39.1 — coral tint for the locked-state Unlock icon (lock_outline)
-  /// so it reads as a payment gate rather than a generic toolbar action.
+  /// Coral tint for the locked-state Unlock cell so it reads as a
+  /// payment gate rather than a generic toolbar action.
   final bool accent;
 
-  const _ToolbarIconButton({
+  const _CapsCell({
     required this.icon,
+    required this.label,
     required this.active,
     required this.onTap,
     required this.tooltip,
@@ -318,37 +346,75 @@ class _ToolbarIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = accent
+    final glyphColor = accent
         ? AppColors.primary
         : active
             ? AppColors.textOnDark
             : AppColors.textOnDark.withValues(alpha: 0.45);
-    return SizedBox(
-      width: 48,
-      height: 48,
-      child: IconButton(
-        onPressed: onTap == null
-            ? null
-            : () {
-                HapticFeedback.selectionClick();
-                onTap!();
-              },
-        padding: EdgeInsets.zero,
-        icon: Icon(icon, color: color, size: 28),
-        iconSize: 28,
-        splashRadius: 24,
-        tooltip: tooltip,
+    final labelColor = accent
+        ? AppColors.primary
+        : active
+            ? AppColors.textSecondaryOnDark
+            : AppColors.textSecondaryOnDark.withValues(alpha: 0.55);
+
+    return Tooltip(
+      message: tooltip,
+      child: SizedBox(
+        width: 56,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: onTap == null
+                ? null
+                : () {
+                    HapticFeedback.selectionClick();
+                    onTap!();
+                  },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.30),
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(icon, color: glyphColor, size: 20),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.4, // 0.04em at 10pt
+                      color: labelColor,
+                      height: 1.0,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-/// Publish action — coral filled circle on the toolbar's right edge.
-/// Mutates per state to mirror `StudioToolbar`'s `_PublishIconButton`:
-/// upload glyph (default), check (clean published), spinner (publishing),
-/// error (red). Locked-but-mid-grace plans still show publish (Wave 32
-/// rule: only post-grace publishes route through the unlock sheet).
-class _PublishToolbarButton extends StatelessWidget {
+/// Publish CAPS cell — mutates per state. Cloud-upload glyph by
+/// default; spinner while publishing; red error glyph when the last
+/// publish failed. State + tooltip mirror the prior
+/// `_PublishToolbarButton`; only the cell shape changed.
+class _PublishCapsCell extends StatelessWidget {
   final Session session;
   final bool isPublishing;
   final bool canPublish;
@@ -356,7 +422,7 @@ class _PublishToolbarButton extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback onLockedTap;
 
-  const _PublishToolbarButton({
+  const _PublishCapsCell({
     required this.session,
     required this.isPublishing,
     required this.canPublish,
@@ -370,27 +436,35 @@ class _PublishToolbarButton extends StatelessWidget {
     final publishedDirty =
         session.isPublished && session.hasUnpublishedContentChanges;
     final publishedClean = session.isPublished && !publishedDirty;
+    final cellActive = canPublish || publishedClean || hasError;
+
+    final glyphColor = hasError
+        ? AppColors.error
+        : cellActive
+            ? AppColors.textOnDark
+            : AppColors.textOnDark.withValues(alpha: 0.45);
+    final labelColor = hasError
+        ? AppColors.error
+        : cellActive
+            ? AppColors.textSecondaryOnDark
+            : AppColors.textSecondaryOnDark.withValues(alpha: 0.55);
 
     Widget glyph;
     if (isPublishing) {
       glyph = const SizedBox(
-        width: 24,
-        height: 24,
+        width: 18,
+        height: 18,
         child: CircularProgressIndicator(
-          strokeWidth: 2.4,
+          strokeWidth: 2.2,
           color: AppColors.primary,
         ),
       );
     } else if (hasError) {
-      glyph = const Icon(Icons.error_outline, color: AppColors.error, size: 28);
+      glyph = Icon(Icons.error_outline, color: glyphColor, size: 20);
     } else {
-      // Wave 41 — checkmark state retired. The publish button always
-      // shows cloud_upload_outlined; success is communicated via a
-      // dismissible SnackBar toast instead.
-      final color = canPublish || publishedClean
-          ? AppColors.textOnDark
-          : AppColors.textOnDark.withValues(alpha: 0.45);
-      glyph = Icon(Icons.cloud_upload_outlined, color: color, size: 28);
+      // Wave 41 — checkmark state retired. The publish cell always
+      // shows cloud_upload_outlined; success is a SnackBar toast.
+      glyph = Icon(Icons.cloud_upload_outlined, color: glyphColor, size: 20);
     }
 
     String tooltip;
@@ -407,60 +481,100 @@ class _PublishToolbarButton extends StatelessWidget {
     return Tooltip(
       message: tooltip,
       child: SizedBox(
-        width: 48,
-        height: 48,
-        child: InkResponse(
-          radius: 24,
-          onTap: onTap == null
-              ? null
-              : () {
-                  HapticFeedback.selectionClick();
-                  onTap!();
-                },
-          child: Center(child: glyph),
+        width: 56,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: onTap == null
+                ? null
+                : () {
+                    HapticFeedback.selectionClick();
+                    onTap!();
+                  },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.30),
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: glyph,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'PUBLISH',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.4, // 0.04em at 10pt
+                      color: labelColor,
+                      height: 1.0,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-/// Small right-pointing coral triangle that sits between toolbar
-/// icons. The chain reads "Camera ▸ Refine ▸ Preview ▸ Publish ▸ Share".
-/// A triangle FEEDING INTO a dim icon also dims, so the visual workflow
-/// gate is obvious.
-class _Triangle extends StatelessWidget {
+/// Slim coral arrow between CAPS cells. Sits 6×14 inside an 8-wide
+/// slot, vertically centered on the GLYPH ROW (not the full column),
+/// so labels can sit below without the arrow crashing into them.
+/// Mirrors the dim semantics of the prior `_Triangle`: an arrow
+/// FEEDING INTO a dim cell is also dim.
+class _Arrow extends StatelessWidget {
   final bool dim;
 
-  const _Triangle({required this.dim});
+  const _Arrow({required this.dim});
 
   @override
   Widget build(BuildContext context) {
+    // Vertical layout — push the arrow up to sit on the 36pt glyph
+    // row's centerline. Cell's vertical layout is: 4pt top pad +
+    // 36pt circle + 4pt + label + 4pt bottom pad. The 36pt circle's
+    // centerline lives at 4 + 18 = 22pt from the cell's top.
     return SizedBox(
-      width: 16,
-      height: 48,
-      child: CustomPaint(
-        painter: _TrianglePainter(dim: dim),
+      width: 8,
+      height: 36, // matches the glyph circle, ignores the label row
+      child: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: CustomPaint(
+          painter: _ArrowPainter(dim: dim),
+        ),
       ),
     );
   }
 }
 
-class _TrianglePainter extends CustomPainter {
+class _ArrowPainter extends CustomPainter {
   final bool dim;
 
-  _TrianglePainter({required this.dim});
+  _ArrowPainter({required this.dim});
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Wave 40 (M6) — bumped from 8x12 to 10x14 to match the larger
-    // toolbar icons (24 -> 28). Half-extents scale accordingly.
+    // Slim 6×14 arrow head, vertically centered in the slot.
     final paint = Paint()
       ..color = AppColors.primary
-          .withValues(alpha: dim ? 0.3 : 0.9)
+          .withValues(alpha: dim ? 0.30 : 0.85)
       ..style = PaintingStyle.fill;
     final cx = size.width / 2;
     final cy = size.height / 2;
-    const halfWidth = 5.0;
+    const halfWidth = 3.0;
     const halfHeight = 7.0;
     final path = Path()
       ..moveTo(cx - halfWidth, cy - halfHeight)
@@ -471,5 +585,5 @@ class _TrianglePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _TrianglePainter old) => old.dim != dim;
+  bool shouldRepaint(covariant _ArrowPainter old) => old.dim != dim;
 }

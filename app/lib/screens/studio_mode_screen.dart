@@ -1585,13 +1585,14 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                     canPublish: _canPublish,
                     isPlanLocked: _isPlanLocked,
                     publishError: _publishError,
-                    // Wave 40 (M1) — first toolbar slot is Camera. Tap =
-                    // same path as the right-edge swipe-left pull tab.
-                    onCameraTap: widget.onOpenCapture,
-                    // Refine — opens the editor sheet for the topmost
+                    // Wave 40 (M1) — first toolbar slot is Capture (was
+                    // Camera, before that Library). Tap = same path as
+                    // the right-edge swipe-left pull tab.
+                    onCaptureTap: widget.onOpenCapture,
+                    // Adjust — opens the editor sheet for the topmost
                     // (most recent) capture. Disabled when the session
                     // has no real exercises yet.
-                    onRefine: _canRefine ? _refineFromToolbar : null,
+                    onAdjust: _canAdjust ? _adjustFromToolbar : null,
                     onPreview: _openPreview,
                     onPublish: _publishFromToolbar,
                     onShare: _shareFromToolbar,
@@ -3323,17 +3324,17 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   }
 
   /// True when the session has at least one non-rest exercise that the
-  /// Refine icon can target. Drives the dimmed/disabled state of the
-  /// 5th toolbar icon.
-  bool get _canRefine =>
+  /// Adjust cell can target. Drives the dimmed/disabled state of the
+  /// 2nd CAPS cell.
+  bool get _canAdjust =>
       _session.exercises.any((e) => e.mediaType != MediaType.rest);
 
-  /// Refine — open the editor sheet for the visually-topmost card in
+  /// Adjust — open the editor sheet for the visually-topmost card in
   /// the bottom-anchored Studio stack. The list renders with
   /// `reverse: true`, so the BOTTOM of the viewport is the most recent
   /// capture (`exercises.last`); that's the "top of the stack" that
   /// Carl's brief targets. Skips rest periods (no media to edit).
-  void _refineFromToolbar() {
+  void _adjustFromToolbar() {
     ExerciseCapture? candidate;
     for (var i = _session.exercises.length - 1; i >= 0; i--) {
       final ex = _session.exercises[i];
