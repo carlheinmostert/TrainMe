@@ -535,6 +535,15 @@
     if (circuitGroup) items.push(circuitGroup);
 
     $lobbyList.innerHTML = items.map(itemToHTML).join('');
+    // Lanes wave (v54) — populate the empty <svg class="lobby-circuit-lanes">
+    // hosts that circuitGroupHTML emitted. ResizeObserver wired here re-runs
+    // on layout change. Defer to next frame so the LIs are laid out before
+    // we measure their bounding boxes.
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(renderCircuitLanes);
+    } else {
+      renderCircuitLanes();
+    }
   }
 
   function itemToHTML(item) {
@@ -651,68 +660,225 @@
 
   function circuitGroupHTML(group) {
     const escape = api.escapeHTML;
-    // Hotfix round 3 — Fix B — circuit chrome rebuilt around a real
-    // two-column layout per row. The rail now lives in a dedicated
-    // `.lobby-row-gutter` column (a real flex child) instead of an
-    // absolutely-positioned `::before` pseudo-element.
+    // Lanes wave (v54) — DOM restructure: the circuit is now a single
+    // <li class="lobby-circuit"> hosting an SVG lanes overlay + a
+    // .lobby-circuit-frame containing the header + body. Rows inside the
+    // body are emitted as <div>, NOT <li>. This is critical: rows are
+    // also <li>s when standalone, and the browser auto-closes the outer
+    // <li> when it encounters a nested <li>, ejecting the rows from the
+    // circuit-group container in the parsed DOM. PRs #257/#258 closed-
+    // loop attempts framed only the header for exactly this reason.
     //
-    // Why: PR 235's pseudo-element rail was being covered by the
-    // active-row's coral border (intentional UX — coral border on the
-    // focused row is correct) AND vanished after the first row due to
-    // a stacking-context bug. With a real column, the rail sits in its
-    // own layout slot OUTSIDE the card's bounding box, so the active
-    // row's border simply wraps around its content; nothing covers
-    // the rail.
+    // The selector .lobby-row[data-slide-index] still matches both <li>
+    // and <div> so the existing scroll coupling (recomputeActiveRow,
+    // setActiveRow, lazyKickVideosNear) keeps working unchanged.
     //
-    // Container: still transparent (no coral backdrop / no border). All
-    // grouping is conveyed visually by the coral tree-branch rail —
-    // header rail piece + per-row connectors that concatenate into a
-    // single continuous line, with an └ corner closing the last row.
-    //
-    // The header gets the same two-column treatment (gutter + content).
+    // Lanes + tracer SVG is mounted empty here; renderCircuitLanes()
+    // populates it with per-circuit geometry post-render and on resize.
     //
     // Cycles chip: `×3` only — no "ROUNDS" suffix.
     // Round 5 — Fix 1 — `group.circuitName` is now always non-null (the
     // renderList loop substitutes "Circuit {Letter}" when neither
     // `s.circuitName` nor `plan.circuit_names[circuit_id]` resolves).
-    // Keep the defensive 'Circuit' fallback as a final guard.
     const labelText = group.circuitName
       ? group.circuitName
       : 'Circuit';
-    const cyclesText = `×${group.rounds || 1}`;
+    const rounds = group.rounds || 1;
+    const cyclesText = `×${rounds}`;
     const lastIdx = group.rows.length - 1;
     const rows = group.rows.map((r, i) => {
       const isLast = i === lastIdx;
-      // Rest-inside-circuit rows render as a rest <li>, but still get
-      // the rail treatment + `last` flag so the └ corner lands cleanly
-      // when a circuit ends on a rest (uncommon, but possible).
       const html = r.isRest
         ? restRowHTML(r.slide, r.slideIndex)
         : exerciseRowHTML(r.slide, r.slideIndex, { last: isLast, position: r.position });
-      // Mark every in-circuit row with `is-circuit` (legacy hook) AND
-      // `in-circuit` (mockup-spec alias). For rest rows, also append
-      // `last` directly (restRowHTML doesn't take an opts arg).
       const lastMod = (isLast && r.isRest) ? ' last' : '';
-      return html.replace(
-        'class="lobby-row',
-        `class="lobby-row is-circuit in-circuit${lastMod}`
-      );
+      // Transform the row's outer <li> → <div> + add circuit classes.
+      return html
+        .replace(/^\s*<li\b/, '<div')
+        .replace(/<\/li>(\s*)$/, '</div>$1')
+        .replace(
+          'class="lobby-row',
+          `class="lobby-row is-circuit in-circuit${lastMod}`
+        );
     }).join('');
     return `
-      <li class="lobby-circuit-group" data-circuit="${escape(group.circuitId || '')}">
-        <div class="lobby-circuit-header">
-          <div class="lobby-circuit-header-gutter" aria-hidden="true">
-            <span class="lobby-circuit-header-gutter-rail"></span>
-            <span class="lobby-circuit-header-gutter-connector"></span>
-          </div>
-          <div class="lobby-circuit-header-content">
+      <li class="lobby-circuit" data-circuit="${escape(group.circuitId || '')}" data-cycles="${rounds}">
+        <svg class="lobby-circuit-lanes" aria-hidden="true" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div class="lobby-circuit-frame">
+          <div class="lobby-circuit-header">
             <span class="lobby-circuit-header-label">${escape(labelText)}</span>
-            <span class="lobby-circuit-header-cycles" aria-label="${escape(group.rounds || 1)} rounds">${escape(cyclesText)}</span>
+            <span class="lobby-circuit-header-cycles" aria-label="${escape(rounds)} rounds">${escape(cyclesText)}</span>
           </div>
+          <div class="lobby-circuit-body">${rows}</div>
         </div>
-        ${rows}
       </li>
     `;
+  }
+
+  // ==========================================================================
+  // Circuit lanes overlay — N concentric coral outlines + animated tracer
+  // ==========================================================================
+  //
+  // For each .lobby-circuit, draw N rounded-rectangle lane outlines (one
+  // per round) in coral, plus a single tracer path that spirals from the
+  // innermost lane outward. Animation: 0–90% draw, 90–100% pause; total
+  // duration = cycles * 9s. ResizeObserver re-runs on layout change.
+  //
+  // Geometry ports docs/design/mockups/lobby-circuit-lanes.html:
+  //   lanePad = 5 * cycles   (outermost lane offset from frame edge)
+  //   gap     = 5            (radial distance between lanes)
+  //   radius  = 18           (matches .lobby-circuit-frame border-radius)
+  //
+  // The SVG covers the entire .lobby-circuit element; the .lobby-circuit
+  // itself is positioned with extra padding (via inline style) so lanes
+  // grow OUTWARD from the frame without clipping.
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  let _laneResizeObserver = null;
+  let _laneRenderRaf = null;
+
+  function buildLanePathD(rect, radius) {
+    const startX = rect.x + radius;
+    const startY = rect.y;
+    return [
+      `M ${startX} ${startY}`,
+      `H ${rect.x + rect.w - radius}`,
+      `A ${radius} ${radius} 0 0 1 ${rect.x + rect.w} ${rect.y + radius}`,
+      `V ${rect.y + rect.h - radius}`,
+      `A ${radius} ${radius} 0 0 1 ${rect.x + rect.w - radius} ${rect.y + rect.h}`,
+      `H ${rect.x + radius}`,
+      `A ${radius} ${radius} 0 0 1 ${rect.x} ${rect.y + rect.h - radius}`,
+      `V ${rect.y + radius}`,
+      `A ${radius} ${radius} 0 0 1 ${startX} ${startY}`,
+      'Z',
+    ].join(' ');
+  }
+
+  // Spiral path: clockwise rounded-rectangle perimeter per lane, with
+  // diagonal connectors between lanes (entering each next lane at its
+  // top-left arc-end so the cycles chip area at top-right stays clean).
+  function buildSpiralPathD(innerRect, lanes, gap, radius) {
+    const cmds = [];
+    for (let i = 0; i < lanes; i++) {
+      const offset = i * gap;
+      const r = {
+        x: innerRect.x - offset,
+        y: innerRect.y - offset,
+        w: innerRect.w + offset * 2,
+        h: innerRect.h + offset * 2,
+      };
+      const startX = r.x + radius;
+      const startY = r.y;
+      if (i === 0) {
+        cmds.push(`M ${startX} ${startY}`);
+      } else {
+        // Diagonal connector from the previous lane's top-left arc-end
+        // (which sits one gap inward of this lane's top-left start).
+        cmds.push(`L ${startX} ${startY}`);
+      }
+      cmds.push(`H ${r.x + r.w - radius}`);
+      cmds.push(`A ${radius} ${radius} 0 0 1 ${r.x + r.w} ${r.y + radius}`);
+      cmds.push(`V ${r.y + r.h - radius}`);
+      cmds.push(`A ${radius} ${radius} 0 0 1 ${r.x + r.w - radius} ${r.y + r.h}`);
+      cmds.push(`H ${r.x + radius}`);
+      cmds.push(`A ${radius} ${radius} 0 0 1 ${r.x} ${r.y + r.h - radius}`);
+      cmds.push(`V ${r.y + radius}`);
+      cmds.push(`A ${radius} ${radius} 0 0 1 ${startX} ${startY}`);
+    }
+    return cmds.join(' ');
+  }
+
+  function renderCircuitLanesFor(circuitEl) {
+    const cycles = parseInt(circuitEl.dataset.cycles, 10) || 1;
+    const lanePad = 5 * cycles;
+    const gap = 5;
+    const radius = 18;
+
+    // The .lobby-circuit element gets per-instance padding so the SVG
+    // (inset:0) extends outward from the frame by lanePad on each side.
+    circuitEl.style.padding = `${lanePad}px`;
+
+    const frame = circuitEl.querySelector('.lobby-circuit-frame');
+    const svg = circuitEl.querySelector('.lobby-circuit-lanes');
+    if (!frame || !svg) return;
+
+    // Measure after the padding has applied. Use offset metrics (layout-
+    // box, no transforms) — getBoundingClientRect would include any
+    // active-row scale transforms which are cosmetic, not structural.
+    const totalW = circuitEl.offsetWidth;
+    const totalH = circuitEl.offsetHeight;
+    const frameW = frame.offsetWidth;
+    const frameH = frame.offsetHeight;
+    if (totalW <= 0 || totalH <= 0 || frameW <= 0 || frameH <= 0) return;
+
+    // Inner rect (innermost lane outline) hugs .lobby-circuit-frame at
+    // (lanePad, lanePad) inside the SVG viewBox.
+    const innerRect = { x: lanePad, y: lanePad, w: frameW, h: frameH };
+
+    svg.setAttribute('viewBox', `0 0 ${totalW} ${totalH}`);
+    svg.setAttribute('width', String(totalW));
+    svg.setAttribute('height', String(totalH));
+
+    // Wipe previous paths (resize re-render).
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    // Static lane outlines, slightly more saturated outermost.
+    for (let i = 0; i < cycles; i++) {
+      const offset = i * gap;
+      const laneRect = {
+        x: innerRect.x - offset,
+        y: innerRect.y - offset,
+        w: innerRect.w + offset * 2,
+        h: innerRect.h + offset * 2,
+      };
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('class', 'lane-static');
+      path.setAttribute('d', buildLanePathD(laneRect, radius));
+      const opacity = 0.30 + (i / Math.max(1, cycles - 1)) * 0.30;
+      path.setAttribute('stroke-opacity', opacity.toFixed(2));
+      svg.appendChild(path);
+    }
+
+    // Tracer path — single continuous spiral.
+    const tracer = document.createElementNS(SVG_NS, 'path');
+    tracer.setAttribute('class', 'lane-tracer');
+    tracer.setAttribute('d', buildSpiralPathD(innerRect, cycles, gap, radius));
+    svg.appendChild(tracer);
+
+    // Measure path length for the dasharray + animation. getTotalLength
+    // is more accurate across the diagonal connectors than any analytical
+    // approximation.
+    const pathLen = tracer.getTotalLength();
+    const tracerLen = Math.min(60, pathLen * 0.12);
+    const dur = cycles * 9; // 18s/27s/36s/45s for ×2/×3/×4/×5
+    tracer.style.setProperty('--path-len', pathLen.toFixed(2));
+    tracer.style.setProperty('--tracer-len', tracerLen.toFixed(2));
+    tracer.style.setProperty('--dur', `${dur}s`);
+    tracer.style.strokeDasharray = `${tracerLen.toFixed(2)} ${pathLen.toFixed(2)}`;
+  }
+
+  function renderCircuitLanes() {
+    if (!$lobbyList) return;
+    const circuits = $lobbyList.querySelectorAll('.lobby-circuit');
+    circuits.forEach(renderCircuitLanesFor);
+
+    // Wire a single ResizeObserver across all circuits — re-render when
+    // any frame size changes (orientation flip, treatment row toggle,
+    // self-grant flow that re-renders the list, font load, etc.).
+    if (typeof ResizeObserver !== 'undefined') {
+      if (_laneResizeObserver) _laneResizeObserver.disconnect();
+      _laneResizeObserver = new ResizeObserver(() => {
+        if (_laneRenderRaf != null) return;
+        _laneRenderRaf = requestAnimationFrame(() => {
+          _laneRenderRaf = null;
+          circuits.forEach(renderCircuitLanesFor);
+        });
+      });
+      circuits.forEach((c) => {
+        const f = c.querySelector('.lobby-circuit-frame');
+        if (f) _laneResizeObserver.observe(f);
+      });
+    }
   }
 
   /**
