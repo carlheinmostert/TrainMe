@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../config.dart';
 import '../models/session.dart';
 import '../theme.dart';
+import 'studio_bottom_bar.dart' show resolveStudioStatsLines, StudioLockTone;
 
 /// Default fallback for the per-plan rest-between-exercises stepper when
 /// the session has no preferred value persisted yet. Mirrors the in-app
@@ -149,6 +150,9 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
   static const int _kTabNow = 0;
   static const int _kTabDefaults = 1;
   static const int _kTabPlan = 2;
+  /// Wave 44 — Statistics tab. New home for the analytics + lock
+  /// state lines that used to live above the bottom toolbar.
+  static const int _kTabStatistics = 3;
 
   late final DraggableScrollableController _sheetController;
   late int _restSeconds;
@@ -381,7 +385,10 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
   // ---------------------------------------------------------------------------
 
   Widget _buildTabStrip() {
-    const tabs = ['Now', 'Defaults', 'Plan'];
+    // Wave 44 — 4 tabs (Statistics added). Each tab still flexes equal
+    // share of the strip; on a 390pt iPhone that lands at ~95pt per
+    // tab, comfortably above the 44pt minimum hit target.
+    const tabs = ['Now', 'Defaults', 'Plan', 'Statistics'];
     return Container(
       decoration: const BoxDecoration(
         border: Border(
@@ -433,6 +440,8 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
         return _buildDefaultsTab(scrollController);
       case _kTabPlan:
         return _buildPlanTab(scrollController);
+      case _kTabStatistics:
+        return _buildStatisticsTab(scrollController);
       case _kTabNow:
       default:
         return _buildNowTab(scrollController);
@@ -477,6 +486,104 @@ class _PlanSettingsSheetState extends State<PlanSettingsSheet> {
           const SizedBox(height: 8),
         ],
       ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Statistics tab (Wave 44)
+  // ---------------------------------------------------------------------------
+
+  Widget _buildStatisticsTab(ScrollController scrollController) {
+    return SingleChildScrollView(
+      controller: scrollController,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildOpenedStatsSection(),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOpenedStatsSection() {
+    // Drafts skip the cloud-derived stats and surface a "Not yet
+    // published" placeholder so the tab body is never blank — Carl's
+    // explicit spec for this PR.
+    if (!widget.session.isPublished) {
+      return _Section(
+        label: 'Statistics',
+        children: const [
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: 14),
+            child: Text(
+              'Not yet published.',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13.5,
+                color: AppColors.textSecondaryOnDark,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final stats = resolveStudioStatsLines(widget.session);
+    return _Section(
+      label: 'Statistics',
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                stats.opened ?? 'Not yet opened',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 13.5,
+                  color: AppColors.textOnDark,
+                  height: 1.45,
+                ),
+              ),
+              if (stats.lock != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: stats.lock!.dotColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        stats.lock!.label,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: stats.lock!.tone == StudioLockTone.locked
+                              ? AppColors.textOnDark
+                              : AppColors.textSecondaryOnDark,
+                          fontWeight: stats.lock!.tone == StudioLockTone.locked
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 

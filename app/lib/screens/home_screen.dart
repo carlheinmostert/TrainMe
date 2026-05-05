@@ -308,6 +308,45 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Help icon — sits immediately left of the gear in the Home AppBar
+  /// overlay. Opens `manage.homefit.studio/getting-started` in external
+  /// Safari so the practitioner can keep it open and switch back to
+  /// follow along (same external-Safari pattern PR #264 used for the
+  /// first-launch Getting Started banner).
+  Future<void> _openHelp() async {
+    HapticFeedback.selectionClick();
+    final uri = Uri.parse('https://manage.homefit.studio/getting-started');
+    bool launched = false;
+    try {
+      launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      launched = false;
+    }
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Couldn't open the walkthrough. Visit "
+              'manage.homefit.studio/getting-started',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                color: AppColors.textOnDark,
+              ),
+            ),
+            backgroundColor: AppColors.surfaceRaised,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 4),
+          ),
+        );
+    }
+  }
+
   /// Wave 30 — open the network share-kit bottom sheet. Code + QR +
   /// system share button + a hand-off to the portal's stats view. The
   /// sheet captures the active practice id at mount time, so we don't
@@ -636,10 +675,31 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
           ],
         ),
-            // Settings overlay — top-right of the Home surface, above the
-            // brand lockup. Given the corner to itself so the gesture
-            // isn't fighting the PracticeChip + OfflineSyncChip for space
-            // in the identity row.
+            // Help + Settings overlay — top-right of the Home surface,
+            // above the brand lockup. Given the corner to themselves so
+            // the gestures aren't fighting the PracticeChip +
+            // OfflineSyncChip for space in the identity row.
+            //
+            // Help sits immediately LEFT of the gear so the
+            // information-then-settings reading order matches the rest
+            // of iOS chrome conventions (e.g. Mail, Settings).
+            Positioned(
+              top: 4,
+              right: 52,
+              child: IconButton(
+                onPressed: _openHelp,
+                icon: const Icon(
+                  Icons.help_outline,
+                  color: AppColors.textOnDark,
+                  size: 28,
+                ),
+                tooltip: 'Help',
+                constraints: const BoxConstraints(
+                  minWidth: 48,
+                  minHeight: 48,
+                ),
+              ),
+            ),
             Positioned(
               top: 4,
               right: 4,

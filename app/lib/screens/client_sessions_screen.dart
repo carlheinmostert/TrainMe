@@ -458,15 +458,36 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
         elevation: 0,
         scrolledUnderElevation: 0,
         iconTheme: const IconThemeData(color: AppColors.textOnDark),
-        title: const Text(
-          'Clients',
-          style: TextStyle(
-            fontFamily: 'Montserrat',
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textOnDark,
-          ),
+        // Wave 44 identity overhaul: leading shows back to Clients,
+        // title carries the entity (avatar + dashed-underline name with
+        // inline-edit). Body-level header retired — it lived as a
+        // duplicate above the consent chip.
+        leading: IconButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+          tooltip: 'Back to Clients',
         ),
+        leadingWidth: 44,
+        // Slack-style channel header: small avatar + name on the title
+        // slot. Tap-to-edit lives on the name itself; the avatar tap
+        // routes to the existing capture / consent flow so practitioners
+        // still have a one-tap path from this screen.
+        titleSpacing: 0,
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClientAvatarGlyph(
+              client: _client,
+              diameter: 32,
+              onTap: _openAvatarFlow,
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: _buildAppBarEditableName(),
+            ),
+          ],
+        ),
+        centerTitle: false,
         actions: [
           PopupMenuButton<_ClientMenuAction>(
             icon: const Icon(Icons.more_vert_rounded),
@@ -508,7 +529,7 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
         top: false,
         child: Column(
           children: [
-            _buildHeader(),
+            _buildConsentRow(),
             Expanded(
               child: _loading
                   ? const Center(
@@ -527,29 +548,24 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
     );
   }
 
-  Widget _buildHeader() {
+  /// Slim consent + (when active) inline-rename surface that sits above
+  /// the sessions list. The body-level avatar + name + dashed underline
+  /// have moved into the AppBar (Wave 44 identity overhaul). What
+  /// remains here:
+  ///   * consent chip (mobile twin of the portal accordion)
+  ///   * the rename TextField + error/help footer when the practitioner
+  ///     taps the AppBar title (it's too small to host a TextField at
+  ///     the brand size and to fit the error+cancel cluster).
+  Widget _buildConsentRow() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Wave 30 — avatar glyph + editable name on a single row so the
-          // glyph reads as part of the client identity, not a chip in the
-          // chrome. Tap on the glyph opens the capture flow (or the
-          // consent sheet when avatar consent isn't granted yet).
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              ClientAvatarGlyph(
-                client: _client,
-                diameter: 44,
-                onTap: _openAvatarFlow,
-              ),
-              const SizedBox(width: 14),
-              Expanded(child: _buildEditableName()),
-            ],
-          ),
-          const SizedBox(height: 10),
+          if (_editingName) ...[
+            _buildInlineRenameField(),
+            const SizedBox(height: 10),
+          ],
           Row(
             children: [
               // Consent chip — collapsed-state header; tapping expands
@@ -569,38 +585,43 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
     );
   }
 
-  Widget _buildEditableName() {
-    if (!_editingName) {
-      // Dashed underline affordance — matches the portal's
-      // `EditableClientName` pattern. Tap anywhere on the name to edit.
-      return InkWell(
-        onTap: _startEditingName,
-        borderRadius: BorderRadius.circular(6),
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 4),
-          child: CustomPaint(
-            painter: _DashedUnderlinePainter(
-              color: AppColors.textSecondaryOnDark,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 3),
-              child: Text(
-                _client.name.isEmpty ? 'Unnamed client' : _client.name,
-                style: const TextStyle(
-                  fontFamily: 'Montserrat',
-                  fontSize: 26,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textOnDark,
-                  letterSpacing: -0.3,
-                ),
+  /// Dashed-underline label rendered in the AppBar title slot. Tap →
+  /// `_startEditingName` which flips the inline-rename TextField below
+  /// the AppBar (drawn via [_buildInlineRenameField]).
+  Widget _buildAppBarEditableName() {
+    return InkWell(
+      onTap: _startEditingName,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 2),
+        child: CustomPaint(
+          painter: _DashedUnderlinePainter(
+            color: AppColors.textSecondaryOnDark,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 3),
+            child: Text(
+              _client.name.isEmpty ? 'Unnamed client' : _client.name,
+              style: const TextStyle(
+                fontFamily: 'Montserrat',
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textOnDark,
+                letterSpacing: -0.2,
               ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
           ),
         ),
-      );
-    }
+      ),
+    );
+  }
 
-    // Edit mode — TextField with brand border, error message below.
+  /// Inline TextField + status footer used when [_editingName] is true.
+  /// Lives just below the AppBar (in the body's first slot) so it can
+  /// surface error states + a Cancel link without crowding the chrome.
+  Widget _buildInlineRenameField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -618,7 +639,7 @@ class _ClientSessionsScreenState extends State<ClientSessionsScreen> {
           },
           style: const TextStyle(
             fontFamily: 'Montserrat',
-            fontSize: 24,
+            fontSize: 18,
             fontWeight: FontWeight.w700,
             color: AppColors.textOnDark,
           ),

@@ -24,6 +24,7 @@ import '../theme.dart';
 import '../models/treatment.dart';
 import '../services/api_client.dart';
 import '../services/sync_service.dart';
+import '../utils/session_title.dart';
 import '../widgets/unconsented_treatments_sheet.dart';
 import '../widgets/circuit_control_sheet.dart';
 import '../widgets/client_consent_sheet.dart';
@@ -119,6 +120,15 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   bool _isPublishing = false;
   String? _publishError;
   late UploadService _uploadService;
+
+  /// Wave 44 — Studio AppBar inline-rename of the session title.
+  /// Mirrors the SessionCard rename pattern so the Studio header reads
+  /// as the same family of affordance: dashed underline → tap →
+  /// TextField → Enter to save / blur to commit, blur-outside cancels.
+  bool _editingTitle = false;
+  bool _titleSaving = false;
+  TextEditingController? _titleController;
+  FocusNode? _titleFocusNode;
 
   /// Wave 35 — id of the exercise the practitioner was last viewing in
   /// the media viewer ("Preview"). Set in `_applyFocusFromPreview`,
@@ -352,6 +362,8 @@ class _StudioModeScreenState extends State<StudioModeScreen>
     WidgetsBinding.instance.removeObserver(this);
     _scrollController.removeListener(_onReachabilityScroll);
     _scrollController.dispose();
+    _titleController?.dispose();
+    _titleFocusNode?.dispose();
     super.dispose();
   }
 
@@ -1537,6 +1549,16 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       allowed: const {DeviceOrientation.portraitUp},
       child: Scaffold(
         backgroundColor: AppColors.surfaceBg,
+        // Wave 44 — Studio reintroduces a top AppBar carrying the
+        // navigation+identity stack: back labelled with the client's
+        // name, dashed-underline session title with inline-edit, and
+        // a settings gear (with optional coral deviation dot). The
+        // bottom toolbar drops back/gear/stats as a result; the
+        // workflow pill is what's left there. AppBar only renders
+        // when this Studio screen is the active page in the parent
+        // PageView — Camera is a separate page in that PageView with
+        // no AppBar.
+        appBar: _buildStudioAppBar(),
         body: Stack(
           children: [
             SafeArea(
@@ -1563,8 +1585,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                     canPublish: _canPublish,
                     isPlanLocked: _isPlanLocked,
                     publishError: _publishError,
-                    clientName: _session.clientName,
-                    onBack: () => Navigator.of(context).pop(),
                     // Wave 40 (M1) — first toolbar slot is Camera. Tap =
                     // same path as the right-edge swipe-left pull tab.
                     onCameraTap: widget.onOpenCapture,
@@ -1575,14 +1595,6 @@ class _StudioModeScreenState extends State<StudioModeScreen>
                     onPreview: _openPreview,
                     onPublish: _publishFromToolbar,
                     onShare: _shareFromToolbar,
-                    // Wave-settings — replaces the cloud-download icon
-                    // with a gear that opens the PlanSettingsSheet. The
-                    // save-all-to-Photos affordance moved INTO that
-                    // sheet's Plan actions section (still routed to
-                    // [_downloadAllToPhotos]).
-                    onSettings: _openPlanSettings,
-                    settingsHaveDeviations:
-                        settingsDeviateFromDefaults(_session),
                     // Wave 30 — tapping Publish on a still-mid-grace plan
                     // routes to the unlock sheet (two-tap UX so the
                     // practitioner sees the unlocked state before the
@@ -1606,6 +1618,123 @@ class _StudioModeScreenState extends State<StudioModeScreen>
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Wave 44 — Studio AppBar. Carries back+client identity on the left,
+  /// dashed-underline editable session title in the middle, and the
+  /// settings gear (with optional coral dot) on the right. When the
+  /// title is in edit mode, the title slot becomes a TextField; the
+  /// gear stays so the practitioner can dismiss the keyboard by
+  /// tapping it.
+  PreferredSizeWidget _buildStudioAppBar() {
+    final clientLabel = _session.clientName.trim().isEmpty
+        ? 'Back'
+        : _session.clientName.trim();
+    return AppBar(
+      backgroundColor: AppColors.surfaceBg,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      iconTheme: const IconThemeData(color: AppColors.textOnDark),
+      // Custom leading — chevron + the source-screen's label so the
+      // back button reads as "← Carl" rather than the iOS-default
+      // unlabelled chevron. Mirrors the Mail-style chrome convention.
+      leadingWidth: 110,
+      leading: _StudioBackLeading(
+        label: clientLabel,
+        onTap: () => Navigator.of(context).maybePop(),
+      ),
+      titleSpacing: 0,
+      centerTitle: false,
+      title: _editingTitle
+          ? _buildAppBarTitleEditor()
+          : InkWell(
+              onTap: _enterTitleEdit,
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: CustomPaint(
+                  painter: _StudioDashedUnderlinePainter(
+                    color: AppColors.textSecondaryOnDark,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Text(
+                      _resolveAppBarTitle(),
+                      style: const TextStyle(
+                        fontFamily: 'Montserrat',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textOnDark,
+                        letterSpacing: -0.2,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+      actions: [
+        _StudioAppBarSettingsButton(
+          onTap: _openPlanSettings,
+          showDot: settingsDeviateFromDefaults(_session),
+        ),
+      ],
+    );
+  }
+
+  /// AppBar inline-rename TextField. Compact 16/700 styling so the
+  /// title height matches the read-state title and doesn't push the
+  /// AppBar taller. Auto-commits on blur; submit on Enter.
+  Widget _buildAppBarTitleEditor() {
+    final controller = _titleController;
+    final focus = _titleFocusNode;
+    if (controller == null || focus == null) {
+      return const SizedBox.shrink();
+    }
+    return Opacity(
+      opacity: _titleSaving ? 0.6 : 1.0,
+      child: TextField(
+        controller: controller,
+        focusNode: focus,
+        enabled: !_titleSaving,
+        maxLength: 120,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _commitTitleEdit(),
+        onTapOutside: (_) {
+          if (focus.hasFocus) {
+            focus.unfocus();
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && _editingTitle && !_titleSaving) {
+                _commitTitleEdit();
+              }
+            });
+          }
+        },
+        style: const TextStyle(
+          fontFamily: 'Montserrat',
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          color: AppColors.primary,
+        ),
+        cursorColor: AppColors.primary,
+        decoration: const InputDecoration(
+          counterText: '',
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(vertical: 4, horizontal: 0),
+          border: UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.primary, width: 1.4),
+          ),
+          enabledBorder: UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.primary, width: 1.4),
+          ),
+          focusedBorder: UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.primary, width: 1.4),
+          ),
         ),
       ),
     );
@@ -2906,6 +3035,100 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// current session to the iOS Camera Roll. Skips rest periods and
   /// exercises with no raw file. Uses `photo_manager` for the actual
   /// PHPhotoLibrary write, same as `OriginalVideoService.saveToPhotos`.
+  // ---------------------------------------------------------------------------
+  // Wave 44 — Studio AppBar title inline-rename.
+  // ---------------------------------------------------------------------------
+
+  /// Resolved display title for the AppBar — prefers [Session.title]
+  /// (the auto-formatted `{DD Mon YYYY HH:MM}` stamp set at session
+  /// creation, or whatever the practitioner renamed it to), falling
+  /// back to `clientName` for legacy sessions that predate the
+  /// title column.
+  String _resolveAppBarTitle() {
+    final t = _session.title;
+    if (t != null && t.trim().isNotEmpty) return t;
+    final cn = _session.clientName.trim();
+    if (cn.isNotEmpty) return cn;
+    return formatSessionTimestamp(_session.createdAt);
+  }
+
+  void _enterTitleEdit() {
+    HapticFeedback.selectionClick();
+    final controller = TextEditingController(text: _resolveAppBarTitle());
+    final focus = FocusNode();
+    setState(() {
+      _editingTitle = true;
+      _titleController = controller;
+      _titleFocusNode = focus;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      focus.requestFocus();
+      controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: controller.text.length,
+      );
+    });
+  }
+
+  Future<void> _commitTitleEdit() async {
+    if (_titleSaving) return;
+    final controller = _titleController;
+    if (controller == null) return;
+    final trimmed = controller.text.trim();
+    final current = _resolveAppBarTitle();
+    if (trimmed.isEmpty || trimmed == current) {
+      setState(() {
+        _editingTitle = false;
+        _titleController?.dispose();
+        _titleController = null;
+        _titleFocusNode?.dispose();
+        _titleFocusNode = null;
+      });
+      return;
+    }
+    setState(() => _titleSaving = true);
+    try {
+      final ok = await SyncService.instance.queueRenameSession(
+        planId: _session.id,
+        newTitle: trimmed,
+      );
+      if (!mounted) return;
+      if (ok) {
+        // Optimistic mirror — the offline-first queue has already
+        // written to SQLite; reflect locally so the AppBar repaints
+        // with the new title without waiting for a refresh.
+        _pushSession(_session.copyWith(title: trimmed));
+      }
+      setState(() {
+        _titleSaving = false;
+        _editingTitle = false;
+        _titleController?.dispose();
+        _titleController = null;
+        _titleFocusNode?.dispose();
+        _titleFocusNode = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't rename session"),
+            backgroundColor: AppColors.error,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      setState(() {
+        _titleSaving = false;
+        _editingTitle = false;
+        _titleController?.dispose();
+        _titleController = null;
+        _titleFocusNode?.dispose();
+        _titleFocusNode = null;
+      });
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Plan settings sheet — gear icon on the bottom toolbar.
   // ---------------------------------------------------------------------------
@@ -6972,4 +7195,140 @@ class _ReachabilityDropPill extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Wave 44 — Studio AppBar back button. iOS-style chevron + the
+/// source-screen's label so the back gesture reads as "← Carl"
+/// (i.e. back to that client's session list) rather than the bare
+/// chevron. Keeps the 48pt hit target for thumb reach.
+class _StudioBackLeading extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _StudioBackLeading({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.arrow_back_ios_new_rounded,
+              size: 18,
+              color: AppColors.textOnDark,
+            ),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textOnDark,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Wave 44 — settings gear icon for the Studio AppBar. Identical
+/// behaviour to the bottom-toolbar gear it replaces (coral dot when
+/// `showDot` is true) but mounted as an `actions:` slot so it sits
+/// on the AppBar's right edge.
+class _StudioAppBarSettingsButton extends StatelessWidget {
+  final VoidCallback onTap;
+  final bool showDot;
+
+  const _StudioAppBarSettingsButton({
+    required this.onTap,
+    required this.showDot,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Center(
+            child: IconButton(
+              onPressed: () {
+                HapticFeedback.selectionClick();
+                onTap();
+              },
+              padding: EdgeInsets.zero,
+              icon: const Icon(
+                Icons.settings_outlined,
+                color: AppColors.textOnDark,
+                size: 26,
+              ),
+              tooltip: 'Plan settings',
+            ),
+          ),
+          if (showDot)
+            Positioned(
+              top: 8,
+              right: 6,
+              child: Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Studio-local copy of the dashed underline painter (also lives in
+/// `client_sessions_screen.dart` and `session_card.dart`). Kept inline
+/// to avoid promoting a private widget to a public one for a 30-line
+/// painter.
+class _StudioDashedUnderlinePainter extends CustomPainter {
+  final Color color;
+
+  const _StudioDashedUnderlinePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+
+    const dashWidth = 4.0;
+    const dashGap = 3.0;
+    double x = 0;
+    final y = size.height - 0.5;
+    while (x < size.width) {
+      final end = (x + dashWidth).clamp(0.0, size.width);
+      canvas.drawLine(Offset(x, y), Offset(end, y), paint);
+      x += dashWidth + dashGap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _StudioDashedUnderlinePainter old) =>
+      old.color != color;
 }
