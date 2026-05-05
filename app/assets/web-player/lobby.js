@@ -2223,44 +2223,76 @@
       // Two RAFs so the export-footer reveal + chrome hide paint first.
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
+      // Snapshot a HIDDEN CLONE of the lobby. html2canvas runs its
+      // resource loader during the clone phase — by the time `onclone`
+      // fires, images have already been fetched/cached. Mutating srcs
+      // in onclone never re-triggers loading (Carl's round 8: pictures
+      // missing in the rendered PNG). Pre-resolving srcs to data URLs
+      // on a freshly-cloned node, awaiting img.decode() to force the
+      // browser to fully decode each one, then handing the prepared
+      // node to html2canvas, sidesteps the timing issue entirely.
+      const cloneContainer = document.createElement('div');
+      cloneContainer.style.cssText =
+        'position:fixed;top:-99999px;left:0;' +
+        'width:' + $lobby.offsetWidth + 'px;' +
+        'visibility:hidden;pointer-events:none;';
+      const clonedLobby = $lobby.cloneNode(true);
+      cloneContainer.appendChild(clonedLobby);
+      document.body.appendChild(cloneContainer);
+
       let canvas;
       try {
-        canvas = await html2canvas($lobby, {
-          backgroundColor: '#0F1117',
-          scale: window.devicePixelRatio || 2,
-          useCORS: true,
-          allowTaint: false,  // Fail fast — we want a real error, not a silent null
-          logging: false,
-          onclone: (clonedDoc) => {
-            // Swap srcs ON THE CLONE only — leaves the live DOM
-            // untouched (no flicker, no question-mark glyph). Data URLs
-            // load synchronously when set on a cloned-node img.
-            try {
-              clonedDoc.querySelectorAll('img').forEach((img) => {
-                const swap = dataUrlMap.get(img.src);
-                if (swap) {
-                  img.src = swap;
-                  img.removeAttribute('crossorigin');
-                  diag.swapped += 1;
-                } else if (img.src && !img.src.startsWith('data:')) {
-                  // No swap available → most likely culprit if canvas taints.
-                  diag.preloadErrors.push(`unmapped img: ${shortUrl(img.src)}`);
-                }
-              });
-              clonedDoc.querySelectorAll('video').forEach((v) => {
-                const swap = dataUrlMap.get(v.poster);
-                if (swap) v.poster = swap;
-                // Strip src so html2canvas doesn't try to reach into video
-                // frames (a poster-only render is what we want).
-                v.removeAttribute('src');
-                v.querySelectorAll('source').forEach((s) => s.remove());
-              });
-            } catch (_) {}
-          },
+        const cloneImgs = Array.from(clonedLobby.querySelectorAll('img'));
+        const cloneVideos = Array.from(clonedLobby.querySelectorAll('video'));
+        cloneImgs.forEach((img) => {
+          const swap = dataUrlMap.get(img.src);
+          if (swap) {
+            img.src = swap;
+            img.removeAttribute('crossorigin');
+            diag.swapped += 1;
+          } else if (img.src && !img.src.startsWith('data:')) {
+            // No data URL available — strip src so this img can't
+            // taint the canvas. Renders blank instead of broken-image.
+            diag.preloadErrors.push(`unmapped img: ${shortUrl(img.src)}`);
+            img.removeAttribute('src');
+          }
         });
-      } catch (err) {
-        diag.h2cError = (err && err.message) || String(err);
+        cloneVideos.forEach((v) => {
+          const swap = dataUrlMap.get(v.poster);
+          if (swap) v.poster = swap;
+          // Strip video src so html2canvas falls back to poster-only.
+          v.removeAttribute('src');
+          v.querySelectorAll('source').forEach((s) => s.remove());
+        });
+
+        // Force every img to fully decode. Resolves once the browser
+        // has the bitmap ready, so html2canvas can rasterize it.
+        await Promise.all(cloneImgs.map((img) => {
+          if (!img.src) return Promise.resolve();
+          if (typeof img.decode === 'function') return img.decode().catch(() => {});
+          return new Promise((resolve) => {
+            if (img.complete && img.naturalWidth > 0) return resolve();
+            img.addEventListener('load', () => resolve(), { once: true });
+            img.addEventListener('error', () => resolve(), { once: true });
+            setTimeout(resolve, 2000);
+          });
+        }));
+
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+        try {
+          canvas = await html2canvas(clonedLobby, {
+            backgroundColor: '#0F1117',
+            scale: window.devicePixelRatio || 2,
+            useCORS: true,
+            allowTaint: false,
+            logging: false,
+          });
+        } catch (err) {
+          diag.h2cError = (err && err.message) || String(err);
+        }
       } finally {
+        try { document.body.removeChild(cloneContainer); } catch (_) {}
         root.classList.remove('is-exporting');
       }
 
