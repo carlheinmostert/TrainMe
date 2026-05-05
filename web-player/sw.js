@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v60-thumb-existence-and-export-newtab';
+const CACHE_NAME = 'homefit-player-v61-restore-sets-and-pre-open-window';
 
 // App shell files — always cached
 const APP_SHELL = [

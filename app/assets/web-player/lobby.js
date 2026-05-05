@@ -1837,8 +1837,30 @@
       $lobbyShareBtn._wired = true;
       $lobbyShareBtn.addEventListener('click', (evt) => {
         evt.stopPropagation();
-        triggerLobbyShare().catch((err) => {
+        // CRITICAL — open the fallback window synchronously inside the
+        // click handler so it inherits user-activation. By the time the
+        // async html2canvas snapshot finishes, the gesture has been
+        // consumed and any later `window.open()` would be blocked /
+        // treated as navigation. We open `about:blank` now and rewrite
+        // its location once the blob is ready. If navigator.share
+        // succeeds we close this pre-opened window. If `window.open`
+        // returns null (popup blocker / mobile context), we pass null
+        // through and the share path or download fallback takes over.
+        let preOpenedWin = null;
+        try {
+          // Don't pre-open on mobile — the native share path is the
+          // primary route there and a stray about:blank window steals
+          // focus from the share sheet.
+          const isMobile = /iphone|ipad|android/i.test(navigator.userAgent);
+          if (!isMobile) {
+            preOpenedWin = window.open('about:blank', '_blank');
+          }
+        } catch (_) {}
+        triggerLobbyShare(preOpenedWin).catch((err) => {
           try { console.warn('[homefit-lobby] share failed:', err); } catch (_) {}
+          if (preOpenedWin && !preOpenedWin.closed) {
+            try { preOpenedWin.close(); } catch (_) {}
+          }
           if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
         });
       });
@@ -1960,7 +1982,7 @@
     return _html2canvasPromise;
   }
 
-  async function triggerLobbyShare() {
+  async function triggerLobbyShare(preOpenedWin) {
     if (!$lobby) throw new Error('lobby root missing');
     if ($lobbyShareBtn) $lobbyShareBtn.disabled = true;
     try {
@@ -1994,7 +2016,8 @@
       const fileName = `homefit-lobby-${Date.now()}.png`;
       const file = new File([blob], fileName, { type: 'image/png' });
       // Native share sheet (iOS Safari + WKWebView, Android Chrome).
-      // Falls back to a click-to-download when not supported.
+      // Falls back to writing the blob into the pre-opened window when
+      // not supported.
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({
@@ -2002,30 +2025,40 @@
             title: 'Your homefit plan',
             text: 'Your visual plan from homefit.studio',
           });
+          // Native share succeeded — close the desktop fallback window
+          // we pre-opened in the click handler (it's never used).
+          if (preOpenedWin && !preOpenedWin.closed) {
+            try { preOpenedWin.close(); } catch (_) {}
+          }
           return;
         } catch (err) {
           // User cancelled or share rejected — fall through to download.
-          if (err && err.name === 'AbortError') return;
+          if (err && err.name === 'AbortError') {
+            if (preOpenedWin && !preOpenedWin.closed) {
+              try { preOpenedWin.close(); } catch (_) {}
+            }
+            return;
+          }
           try { console.warn('[homefit-lobby] navigator.share rejected:', err); } catch (_) {}
         }
       }
-      // Fallback when navigator.share isn't available (macOS Safari /
-      // Chrome desktop). The earlier `<a download>` approach navigated
-      // the current page on desktop browsers because the user-activation
-      // gesture is lost during the await chain (canvas snapshot +
-      // toBlob); without active user-activation, Chrome treats the
-      // anchor as a top-level navigation rather than a download.
-      //
-      // Open the blob in a NEW window/tab instead. Worst case the user
-      // sees the PNG in a fresh tab and right-click-saves; the current
-      // page is never disturbed.
+      // Fallback path for desktop browsers (macOS Safari / Chrome). The
+      // pre-opened window was created synchronously in the click handler
+      // so it carries user-activation. We just rewrite its location to
+      // the blob URL — the browser displays the PNG in a fresh tab and
+      // the current page is untouched. If the pre-open failed (popup
+      // blocker), fall back to an anchor with download attribute.
       const url = URL.createObjectURL(blob);
-      const newWin = window.open(url, '_blank');
-      if (!newWin) {
-        // Pop-up blocked — fall back to the anchor click. At this point
-        // the worst case is page navigation, but most browsers will
-        // honour the download attribute when no other window context is
-        // available.
+      if (preOpenedWin && !preOpenedWin.closed) {
+        try {
+          preOpenedWin.location.href = url;
+        } catch (_) {
+          // Cross-origin or other navigation failure — fall through.
+          try { preOpenedWin.close(); } catch (_) {}
+          preOpenedWin = null;
+        }
+      }
+      if (!preOpenedWin || preOpenedWin.closed) {
         const a = document.createElement('a');
         a.href = url;
         a.download = fileName;
