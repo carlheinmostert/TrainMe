@@ -391,21 +391,49 @@ class _CapsCell extends StatelessWidget {
                   // at the prior 10pt size. Dropped 30% to 7pt and wrapped in
                   // a FittedBox so longer labels (e.g. PUBLISH) auto-shrink
                   // further at unusual font scaling without overflow.
+                  //
+                  // Polish 2026-05-05 — first letter of each label gets a
+                  // visibly heavier weight (w900) as a passive nod to the
+                  // CAPS mnemonic. Defensive empty-label fallback to keep
+                  // substring(1) safe.
                   FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 7,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.4, // 0.04em at 10pt
-                        color: labelColor,
-                        height: 1.0,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.clip,
-                    ),
+                    child: label.isEmpty
+                        ? Text(
+                            '',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 7,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.4,
+                              color: labelColor,
+                              height: 1.0,
+                            ),
+                          )
+                        : Text.rich(
+                            TextSpan(
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 7,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.4, // 0.04em at 10pt
+                                color: labelColor,
+                                height: 1.0,
+                              ),
+                              children: [
+                                TextSpan(
+                                  text: label.substring(0, 1),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                TextSpan(text: label.substring(1)),
+                              ],
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.clip,
+                          ),
                   ),
                 ],
               ),
@@ -517,18 +545,30 @@ class _PublishCapsCell extends StatelessWidget {
                   const SizedBox(height: 4),
                   // Hotfix 2026-05-05 — see comment in _CapsCell for the
                   // 30% drop + FittedBox rationale.
+                  //
+                  // Polish 2026-05-05 — leading 'P' of PUBLISH bolded
+                  // (w900) to nod to the CAPS mnemonic across all 5 cells.
                   FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: Text(
-                      'PUBLISH',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 7,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.4, // 0.04em at 10pt
-                        color: labelColor,
-                        height: 1.0,
+                    child: Text.rich(
+                      TextSpan(
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 7,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.4, // 0.04em at 10pt
+                          color: labelColor,
+                          height: 1.0,
+                        ),
+                        children: const [
+                          TextSpan(
+                            text: 'P',
+                            style: TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                          TextSpan(text: 'UBLISH'),
+                        ],
                       ),
+                      textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.clip,
                     ),
