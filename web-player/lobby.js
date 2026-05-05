@@ -1837,9 +1837,13 @@
       $lobbyShareBtn._wired = true;
       $lobbyShareBtn.addEventListener('click', (evt) => {
         evt.stopPropagation();
+        // ALWAYS show the modal immediately — even before the snapshot
+        // completes — so the user never sees "nothing happens" again.
+        // The modal initially shows a spinner; it's swapped to the
+        // rendered PNG (or an error message) when triggerLobbyShare
+        // resolves.
+        showExportModalLoading();
         triggerLobbyShare().catch((err) => {
-          // Surface ANY uncaught error to the user — silent failures
-          // are how this trap stayed hidden across rounds 4-7.
           try { console.warn('[homefit-lobby] share failed:', err); } catch (_) {}
           showExportError(`Couldn't generate the image: ${(err && err.message) || err}`);
           if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
@@ -2090,8 +2094,53 @@
     refs.link.setAttribute('download', fileName);
     refs.link.style.display = '';
     refs.img.style.display = '';
+    // Clear any prior error / loading state from this modal.
+    const card = modal.querySelector('div:nth-child(2)');
+    if (card) {
+      const msgNode = card.querySelector('[data-export-error]');
+      if (msgNode) msgNode.remove();
+      const spinner = card.querySelector('[data-export-spinner]');
+      if (spinner) spinner.remove();
+    }
     modal.hidden = false;
     return true;
+  }
+
+  // Render the modal with a spinner immediately on click — guarantees
+  // the user sees SOMETHING happen even if the snapshot subsequently
+  // hangs or returns silently. Replaced with the actual PNG (via
+  // showExportModal) or an error message (via showExportError) when
+  // triggerLobbyShare resolves.
+  function showExportModalLoading() {
+    const modal = ensureExportModal();
+    const refs = modal._refs;
+    if (!refs) return;
+    refs.img.style.display = 'none';
+    refs.link.style.display = 'none';
+    const card = modal.querySelector('div:nth-child(2)');
+    if (card) {
+      // Clear stale state first.
+      const stale = card.querySelector('[data-export-error]');
+      if (stale) stale.remove();
+      let spinner = card.querySelector('[data-export-spinner]');
+      if (!spinner) {
+        spinner = document.createElement('p');
+        spinner.setAttribute('data-export-spinner', '');
+        Object.assign(spinner.style, {
+          margin: '0',
+          color: 'rgba(255,255,255,0.7)',
+          fontFamily: "'Inter', -apple-system, sans-serif",
+          fontSize: '13px',
+          textAlign: 'center',
+          padding: '36px 8px',
+        });
+        spinner.textContent = 'Generating preview…';
+        card.insertBefore(spinner, card.lastChild);
+      } else {
+        spinner.textContent = 'Generating preview…';
+      }
+    }
+    modal.hidden = false;
   }
 
   // Surface CORS / taint failures so they don't disappear into the
@@ -2309,35 +2358,35 @@
       }
       const fileName = `homefit-lobby-${Date.now()}.png`;
       const file = new File([blob], fileName, { type: 'image/png' });
-      // Native share sheet (iOS Safari + WKWebView, Android Chrome).
-      // Falls back to writing the blob into the pre-opened window when
-      // not supported.
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      const url = URL.createObjectURL(blob);
+
+      // ALWAYS show the modal with the rendered PNG. The modal already
+      // appeared with a spinner the moment the user clicked share —
+      // here we swap in the actual image. Doing this BEFORE attempting
+      // navigator.share guarantees the user sees the preview even if
+      // the share path silently no-ops (which Carl saw across rounds 4-9).
+      showExportModal(url, fileName);
+      setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
+
+      // Native share sheet path: only on mobile UAs where it's the
+      // primary intent. Desktop browsers stay on the modal — Carl's
+      // testing across rounds 4-9 showed every desktop "share sheet"
+      // path either blocked, hung, or rendered partial PNGs. The modal
+      // works reliably and gives the user a clean Download button.
+      const isMobileUA = /iphone|ipad|android/i.test(navigator.userAgent);
+      if (isMobileUA && navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({
             files: [file],
             title: 'Your homefit plan',
             text: 'Your visual plan from homefit.studio',
           });
-          return;
         } catch (err) {
-          if (err && err.name === 'AbortError') return;
-          try { console.warn('[homefit-lobby] navigator.share rejected:', err); } catch (_) {}
+          if (err && err.name !== 'AbortError') {
+            try { console.warn('[homefit-lobby] navigator.share rejected:', err); } catch (_) {}
+          }
         }
       }
-      // Desktop fallback (macOS Safari / Chrome). Both `window.open` and
-      // programmatic `<a download>` clicks are unreliable here — the
-      // async snapshot consumes user-activation, so popup blockers fire
-      // and downloads silently drop / navigate the page. Show the PNG in
-      // an in-page modal with a real Download anchor; the user's click
-      // on that anchor is a fresh gesture browsers consistently honour.
-      const url = URL.createObjectURL(blob);
-      // Self-injecting modal — guaranteed to render even when the
-      // service worker has cached an older index.html without the
-      // modal markup. No anchor-with-target=_blank fallback (that was
-      // the source of stray about:blank tabs in Carl's round 4).
-      showExportModal(url, fileName);
-      setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
     } finally {
       if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
     }
