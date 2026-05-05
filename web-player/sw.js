@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v54-circuit-lanes';
+const CACHE_NAME = 'homefit-player-v55-lanes-waapi-align';
 
 // App shell files — always cached
 const APP_SHELL = [
