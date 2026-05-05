@@ -3087,62 +3087,85 @@ body.is-fullscreen .playpause-toggle {
    - Carl: "I want the visual to more reflect an actual circuit to make
      people understand easier that there is repetition here." The
      closed loop is a literal circuit. */
-/* Closed-loop frame is split across sibling <li>s because the existing
-   DOM puts the header LI and the in-circuit row LIs as siblings under
-   the same <ul>. CSS gives each LI a fragment of the frame:
-   - .lobby-circuit-group (header) → top + sides, rounded top corners,
-     surface-2 background to ISOLATE the header from the tinted body
-     (per Option A in lobby-circuit-loop-options.html mockup).
-   - .lobby-row.in-circuit         → sides only, coral-tinted body fill.
-     Concatenates vertically with abutting borders.
-   - .lobby-row.in-circuit.last    → sides + bottom, rounded bottom
-     corners.
-   The <li>s abut (no gap), so borders join pixel-perfectly. */
-.lobby-circuit-group {
-  background: var(--c-surface-base);
-  border: 2px solid rgba(255, 107, 53, 0.45);
-  border-bottom: 0;
-  border-radius: 16px 16px 0 0;
-  padding: 10px 14px;
-  margin: 8px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
+/* Lanes wave (v54) — circuit rendered as a single <li class="lobby-circuit">
+   hosting an SVG lanes overlay + a .lobby-circuit-frame containing the
+   header (surface-2, isolated) + the body (coral-tinted, where the
+   in-circuit rows live as <div>s). N coral rounded-rectangle outlines
+   are drawn into the SVG by lobby.js's renderCircuitLanes() — one per
+   round — plus an animated tracer that spirals from the innermost lane
+   outward. Geometry mocked up at docs/design/mockups/lobby-circuit-lanes.html.
+
+   Why one container instead of fragmented borders across sibling LIs:
+   PRs #257/#258 split the frame across <li>s but the browser auto-
+   closed the outer <li> when it encountered the nested <li> rows,
+   ejecting them from the container in the parsed DOM. v54 fixes both
+   issues — single LI with the rows as <div>s inside its body. */
+.lobby-circuit {
+  position: relative;
   list-style: none;
+  margin: 8px 0;
+  /* padding is set per-instance by JS to lanePad (= 5 * cycles), so the
+     SVG (inset:0) extends outward from the frame by lanePad on each side. */
+  padding: 0;
 }
 
-/* Header inside the closed loop — single-row layout with label + chip.
-   The old gutter chrome (rail piece + horizontal connector) is hidden
-   below; the loop's frame replaces it. */
+.lobby-circuit-lanes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 0;
+}
+
+.lobby-circuit-lanes .lane-static {
+  fill: none;
+  stroke: rgba(255, 107, 53, 0.45);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.lobby-circuit-lanes .lane-tracer {
+  fill: none;
+  stroke: rgba(255, 107, 53, 0.95);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgba(255, 107, 53, 0.5));
+  animation: lobby-circuit-tracer var(--dur, 27s) linear infinite;
+}
+
+@keyframes lobby-circuit-tracer {
+  /* 0–90% of the timeline: tracer draws from start to end of the spiral. */
+  0%   { stroke-dashoffset: var(--path-len); }
+  90%  { stroke-dashoffset: 0; }
+  /* 90–100%: hold at the end → brief settle before looping back. */
+  100% { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lobby-circuit-lanes .lane-tracer {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+.lobby-circuit-frame {
+  position: relative;
+  z-index: 1;
+  border-radius: 18px;
+  overflow: hidden;
+}
+
 .lobby-circuit-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  height: 32px;
-  margin-bottom: 4px;
-  border: 0;
-  background: transparent;
-}
-
-/* Legacy rail/connector elements are still rendered by lobby.js; CSS
-   hides them since the closed-loop frame is the new visual. Markup
-   could be cleaned up later — for now display:none keeps the change
-   contained. */
-.lobby-circuit-header-gutter {
-  display: none;
-}
-.lobby-circuit-header-gutter-rail,
-.lobby-circuit-header-gutter-connector {
-  display: none;
-}
-
-.lobby-circuit-header-content {
-  flex: 1 1 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0;
-  min-width: 0;
+  padding: 10px 14px;
+  background: var(--c-surface-base);
+  border-bottom: 1px solid rgba(255, 107, 53, 0.18);
 }
 
 .lobby-circuit-header-label {
@@ -3174,45 +3197,19 @@ body.is-fullscreen .playpause-toggle {
   color: var(--c-brand);
 }
 
-/* In-circuit rows: hide the legacy gutter chrome (rail + horizontal
-   connector). The closed-loop frame on the parent group replaces them. */
-.lobby-row.in-circuit > .lobby-row-gutter,
-.lobby-row.is-circuit > .lobby-row-gutter {
-  display: none;
-}
-
-.lobby-row.in-circuit > .lobby-row-gutter > .lobby-row-gutter-rail,
-.lobby-row.is-circuit > .lobby-row-gutter > .lobby-row-gutter-rail,
-.lobby-row.in-circuit > .lobby-row-gutter > .lobby-row-gutter-connector,
-.lobby-row.is-circuit > .lobby-row-gutter > .lobby-row-gutter-connector {
-  display: none;
-}
-
-/* Closed-loop frame fragment for middle in-circuit rows. The header
-   LI carries the top of the loop on surface-2 background (isolated);
-   in-circuit rows carry the side rails on a 4% coral-tinted body. */
-.lobby-row.in-circuit,
-.lobby-row.is-circuit {
+.lobby-circuit-body {
   background: rgba(255, 107, 53, 0.04);
-  border-left: 2px solid rgba(255, 107, 53, 0.45);
-  border-right: 2px solid rgba(255, 107, 53, 0.45);
-  padding: 6px 14px;
+  padding: 8px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-/* Last in-circuit row closes the loop's bottom. */
-.lobby-row.in-circuit.last,
-.lobby-row.is-circuit.last {
-  border-bottom: 2px solid rgba(255, 107, 53, 0.45);
-  border-bottom-left-radius: 16px;
-  border-bottom-right-radius: 16px;
-  padding-bottom: 12px;
-  margin-bottom: 8px;
-}
-
-/* Adjacent in-circuit rows abut so the frame fragments concatenate. */
-.lobby-row.in-circuit + .lobby-row.in-circuit,
-.lobby-row.is-circuit + .lobby-row.is-circuit {
-  margin-top: 0;
+/* In-circuit rows now render as <div>s inside the body. Padding handled
+   by the body itself; rows have no horizontal padding of their own to
+   avoid double-indenting. */
+.lobby-circuit-body .lobby-row {
+  padding: 0;
 }
 
 /* Rest row -------------------------------------------------------------- */
