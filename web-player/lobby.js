@@ -2223,51 +2223,43 @@
       // Two RAFs so the export-footer reveal + chrome hide paint first.
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-      // Snapshot a HIDDEN CLONE of the lobby. html2canvas runs its
-      // resource loader during the clone phase — by the time `onclone`
-      // fires, images have already been fetched/cached. Mutating srcs
-      // in onclone never re-triggers loading (Carl's round 8: pictures
-      // missing in the rendered PNG). Pre-resolving srcs to data URLs
-      // on a freshly-cloned node, awaiting img.decode() to force the
-      // browser to fully decode each one, then handing the prepared
-      // node to html2canvas, sidesteps the timing issue entirely.
-      const cloneContainer = document.createElement('div');
-      cloneContainer.style.cssText =
-        'position:fixed;top:-99999px;left:0;' +
-        'width:' + $lobby.offsetWidth + 'px;' +
-        'visibility:hidden;pointer-events:none;';
-      const clonedLobby = $lobby.cloneNode(true);
-      cloneContainer.appendChild(clonedLobby);
-      document.body.appendChild(cloneContainer);
+      // Mutate the LIVE DOM with data URLs and await img.decode() so
+      // each img is fully decoded before html2canvas reads them. Data
+      // URLs decode near-instantly and the bitmap is visually identical
+      // to the original cross-origin image, so any sub-frame flicker is
+      // imperceptible. The hidden-clone approach (round 8) broke
+      // entirely because visibility:hidden cascaded into html2canvas's
+      // own clone and rendered nothing.
+      const imgs = Array.from($lobby.querySelectorAll('img'));
+      const videos = Array.from($lobby.querySelectorAll('video'));
+      const originalSrcs = new Map();
+      const originalPosters = new Map();
 
       let canvas;
       try {
-        const cloneImgs = Array.from(clonedLobby.querySelectorAll('img'));
-        const cloneVideos = Array.from(clonedLobby.querySelectorAll('video'));
-        cloneImgs.forEach((img) => {
+        // Swap srcs to data URLs on the live DOM.
+        for (const img of imgs) {
           const swap = dataUrlMap.get(img.src);
           if (swap) {
+            originalSrcs.set(img, img.src);
             img.src = swap;
             img.removeAttribute('crossorigin');
             diag.swapped += 1;
           } else if (img.src && !img.src.startsWith('data:')) {
-            // No data URL available — strip src so this img can't
-            // taint the canvas. Renders blank instead of broken-image.
             diag.preloadErrors.push(`unmapped img: ${shortUrl(img.src)}`);
-            img.removeAttribute('src');
           }
-        });
-        cloneVideos.forEach((v) => {
+        }
+        for (const v of videos) {
           const swap = dataUrlMap.get(v.poster);
-          if (swap) v.poster = swap;
-          // Strip video src so html2canvas falls back to poster-only.
-          v.removeAttribute('src');
-          v.querySelectorAll('source').forEach((s) => s.remove());
-        });
+          if (swap) {
+            originalPosters.set(v, v.poster);
+            v.poster = swap;
+          }
+        }
 
-        // Force every img to fully decode. Resolves once the browser
-        // has the bitmap ready, so html2canvas can rasterize it.
-        await Promise.all(cloneImgs.map((img) => {
+        // Force decode every swapped img so html2canvas rasterizes
+        // actual bitmaps, not blank slots.
+        await Promise.all(imgs.map((img) => {
           if (!img.src) return Promise.resolve();
           if (typeof img.decode === 'function') return img.decode().catch(() => {});
           return new Promise((resolve) => {
@@ -2281,7 +2273,7 @@
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
         try {
-          canvas = await html2canvas(clonedLobby, {
+          canvas = await html2canvas($lobby, {
             backgroundColor: '#0F1117',
             scale: window.devicePixelRatio || 2,
             useCORS: true,
@@ -2292,7 +2284,9 @@
           diag.h2cError = (err && err.message) || String(err);
         }
       } finally {
-        try { document.body.removeChild(cloneContainer); } catch (_) {}
+        // Restore originals so the live lobby returns to its pre-snapshot state.
+        originalSrcs.forEach((src, img) => { try { img.src = src; } catch (_) {} });
+        originalPosters.forEach((poster, v) => { try { v.poster = poster; } catch (_) {} });
         root.classList.remove('is-exporting');
       }
 
