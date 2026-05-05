@@ -470,7 +470,8 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
     let exerciseId = String(parts[0])
     let kind = String(parts[1])
     if exerciseId.isEmpty { return nil }
-    guard kind == "line" || kind == "archive" || kind == "segmented" || kind == "hero" else {
+    guard kind == "line" || kind == "archive" || kind == "segmented"
+            || kind == "hero" || kind == "hero_color" || kind == "hero_line" else {
       NSLog("[UnifiedPreview] rejected unknown kind '\(kind)' for exercise \(exerciseId)")
       return nil
     }

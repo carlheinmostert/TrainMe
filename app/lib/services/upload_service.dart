@@ -1021,6 +1021,26 @@ class UploadService {
               }
               thumbUrls[exercise.id] =
                   _api.publicMediaUrl(path: thumbStoragePath);
+
+              // Wave Three-Treatment-Thumbs (2026-05-05) — also upload
+              // the LINE-DRAWING JPG (`_thumb_line.jpg`) for the web
+              // player's line treatment. Native conversion produces
+              // this alongside `_thumb.jpg` (see conversion_service.dart
+              // line 263-278) — same Hero offset, sourced from the
+              // converted line video. Public bucket; URL reconstructed
+              // by get_plan_full at fetch time.
+              final lineThumbPath =
+                  thumbPath.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
+              final lineThumbFile = File(lineThumbPath);
+              if (await lineThumbFile.exists()) {
+                final lineStoragePath =
+                    '${session.id}/${exercise.id}_thumb_line.jpg';
+                if (!existingFiles.contains(lineStoragePath)) {
+                  await _api.uploadMedia(
+                      path: lineStoragePath, file: lineThumbFile);
+                  uploadedPaths.add(lineStoragePath);
+                }
+              }
             }
           }
         }
@@ -1617,6 +1637,74 @@ class UploadService {
             'plan_id': session.id,
             'exercise_id': exercise.id,
             'storage_path': storagePath,
+          },
+          swallow: true,
+        );
+        if (ok != true) hadFailures = true;
+      }
+    }
+
+    // --- Color Hero JPG upload (Wave Three-Treatment-Thumbs, 2026-05-05) ---
+    //
+    // For every video exercise, upload `_thumb_color.jpg` (color frame
+    // from raw, no body-pop) to the private `raw-archive` bucket at:
+    //   `{practiceId}/{planId}/{exerciseId}_thumb_color.jpg`
+    //
+    // The web player + Workflow Preview pull this for B&W and Original
+    // treatments via the get_plan_full RPC's signed URL. CSS
+    // grayscale(1) filter renders the B&W variant from the same source.
+    //
+    // Gate: any treatment consent (grayscale OR original) — the file
+    // serves both. Skipped silently when neither is granted.
+    bool clientGrantedAnyColor = false;
+    if (clientId != null && clientId.isNotEmpty) {
+      final cached = await _storage.getCachedClientById(clientId);
+      if (cached != null) {
+        clientGrantedAnyColor =
+            cached.grayscaleAllowed || cached.colourAllowed;
+      }
+    }
+    if (clientGrantedAnyColor) {
+      for (final exercise in session.exercises) {
+        if (exercise.isRest) continue;
+        if (exercise.mediaType.name != 'video') continue;
+        final thumbAbs = exercise.absoluteThumbnailPath;
+        if (thumbAbs == null) continue;
+        // Convention: native conversion writes _thumb_color.jpg next to
+        // _thumb.jpg in the same {Documents}/thumbnails/ directory.
+        final colorThumbAbs =
+            thumbAbs.replaceFirst('_thumb.jpg', '_thumb_color.jpg');
+        final colorFile = File(colorThumbAbs);
+        if (!colorFile.existsSync()) {
+          debugPrint(
+            'UploadService: color thumb missing for ${exercise.id} '
+            'at $colorThumbAbs — skipping.',
+          );
+          continue;
+        }
+        final colorStoragePath =
+            '$practiceId/${session.id}/${exercise.id}_thumb_color.jpg';
+        if (existingRaw.contains(colorStoragePath)) {
+          debugPrint('_uploadRawArchives: skip $colorStoragePath (exists)');
+          continue;
+        }
+        final ok = await loudSwallow<bool>(
+          () async {
+            await _api.uploadRawArchive(
+              path: colorStoragePath,
+              file: colorFile,
+              contentType: 'image/jpeg',
+            );
+            return true;
+          },
+          kind: 'raw_archive_color_thumb_failed',
+          source: 'UploadService._uploadRawArchives',
+          severity: 'warn',
+          meta: {
+            'practice_id': practiceId,
+            'plan_id': session.id,
+            'exercise_id': exercise.id,
+            'storage_path': colorStoragePath,
           },
           swallow: true,
         );
