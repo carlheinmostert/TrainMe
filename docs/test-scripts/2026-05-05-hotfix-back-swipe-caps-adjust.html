@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Device QA 2026-05-05 — hotfix back/swipe/CAPS labels/Adjust</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --border: rgba(255,255,255,0.08);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 700;
+    font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px;
+  }
+  h2 {
+    font-family: Montserrat, -apple-system, sans-serif; font-weight: 600;
+    font-size: 18px; letter-spacing: -0.2px; margin: 32px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .kicker {
+    color: var(--coral); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .lede {
+    color: var(--text-mute); font-size: 14px; margin: 0 0 28px;
+    padding: 16px 20px; background: var(--raised); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .lede strong { color: var(--text); }
+  .checklist { list-style: none; padding-left: 0; margin: 0; }
+  .checklist li {
+    padding: 10px 12px 10px 118px; margin: 4px 0;
+    position: relative; background: transparent; border-radius: 8px;
+    transition: background 150ms, border-color 150ms;
+    border: 1px solid transparent;
+  }
+  .checklist li:hover { background: var(--raised); }
+  .checklist li[data-status="pass"] { border-color: rgba(255,107,53,0.45); background: rgba(255,107,53,0.05); }
+  .checklist li[data-status="fail"] { border-color: rgba(239,68,68,0.50); background: rgba(239,68,68,0.06); }
+  .checklist li[data-status="pass"] .text { color: var(--text-dim); }
+  .checklist li .vote {
+    position: absolute; left: 10px; top: 8px;
+    display: flex; gap: 4px;
+  }
+  .checklist li .vote button {
+    width: 26px; height: 26px;
+    border: 1.5px solid var(--text-dim); border-radius: 6px;
+    background: transparent; color: var(--text-dim);
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; padding: 0;
+    transition: all 120ms;
+  }
+  .checklist li .vote button.pass:hover { border-color: var(--coral); color: var(--coral); }
+  .checklist li .vote button.fail:hover { border-color: #EF4444; color: #EF4444; }
+  .checklist li[data-status="pass"] .vote button.pass {
+    background: var(--coral); border-color: var(--coral); color: white;
+  }
+  .checklist li[data-status="fail"] .vote button.fail {
+    background: #EF4444; border-color: #EF4444; color: white;
+  }
+  .checklist li .num {
+    position: absolute; left: 78px; top: 13px;
+    display: inline-block; width: 30px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; font-weight: 600;
+    color: var(--coral);
+    text-align: right; letter-spacing: 0;
+  }
+  .checklist li .text { display: block; }
+  .checklist li .note-row { margin-top: 8px; display: none; }
+  .checklist li[data-status="pass"] .note-row,
+  .checklist li[data-status="fail"] .note-row { display: block; }
+  .checklist li .note-row input {
+    width: 100%; padding: 6px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid rgba(255,107,53,0.35); border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+  }
+  .checklist li[data-status="fail"] .note-row input { border-color: rgba(239,68,68,0.5); }
+  .checklist li .note-row input::placeholder { color: var(--text-dim); }
+  .checklist li .note-row input:focus { outline: none; border-color: var(--coral); }
+  .checklist li[data-status="fail"] .note-row input:focus { border-color: #EF4444; }
+  code {
+    background: var(--coral-bg); padding: 1px 6px; border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px; color: var(--coral);
+  }
+  .oos {
+    background: var(--raised); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid var(--border); margin: 28px 0;
+  }
+  .oos h3 {
+    font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13px;
+    color: var(--text-dim); margin: 0 0 8px; letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .oos ul { margin: 0; padding-left: 20px; color: var(--text-mute); font-size: 13px; }
+  .oos li { margin: 4px 0; }
+  .critical {
+    background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.45);
+    color: #FCA5A5; padding: 14px 18px; border-radius: 10px;
+    margin: 0 0 28px; font-size: 13px;
+  }
+  .critical strong { color: #FECACA; }
+  footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="kicker">2026-05-05 · hotfix · back · swipe · CAPS · adjust</div>
+    <h1>Device QA — Studio hotfix (4-bug rollup)</h1>
+    <div class="critical">
+      <strong>CRITICAL.</strong> TestFlight v1 build SHA <code>f6f7bce</code> shipped with the back chevron + edge-swipe both non-responsive in Studio mode. This hotfix re-enables both, drops the CAPS labels 30% so they fit, and routes the ADJUST cell at the editor sheet (not the playback canvas).
+    </div>
+    <p class="lede">
+      <strong>Scope:</strong> four bugs in one PR.
+      <br><br>
+      <strong>1.</strong> Studio AppBar back chevron used <code>maybePop()</code> which respected the shell's <code>PopScope(canPop:false)</code> and silently no-op'd. Switched to explicit <code>pop()</code> which bypasses canPop.
+      <br><br>
+      <strong>2.</strong> The shell's <code>PopScope(canPop:false)</code> wrapper was a defence against an iOS edge-swipe vs PageView page-paging conflict on the Capture page. Re-enabled iOS edge-swipe-to-pop now that the AppBar exists; if the page-paging conflict re-surfaces in the wild, we'll add per-page conditional logic.
+      <br><br>
+      <strong>3.</strong> CAPS toolbar labels were 10pt and pinching their cells. Dropped 30% to 7pt + wrapped each <code>Text</code> in <code>FittedBox(fit: BoxFit.scaleDown)</code> as belt-and-braces for unusual font scaling. Sub-cell glyph circle (36pt) is unchanged.
+      <br><br>
+      <strong>4.</strong> ADJUST cell on the CAPS toolbar was opening <code>MediaViewerBody</code> (full-screen playback canvas) instead of the per-exercise editor sheet. Now mirrors the card-tap path: opens <code>showExerciseEditorSheet(...)</code> with 4 tabs (Plan / Notes / Defaults / Preview) and the <code>onExerciseChanged</code> callback wires through to <code>_updateExercise</code> for Studio refresh.
+    </p>
+
+    <div class="oos">
+      <h3>Prerequisites</h3>
+      <ul>
+        <li>PR for branch <code>hotfix/studio-back-swipe-caps-adjust</code> merged + <code>./install-device.sh</code> from repo root.</li>
+        <li>One client with at least one non-rest exercise (for items 5, 6, 7) and one client with no exercises (for item 7).</li>
+      </ul>
+    </div>
+
+    <h2>1 &middot; Studio back navigation (Bug 1)</h2>
+    <ul class="checklist">
+      <li data-num="1" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
+        <span class="num">1.</span>
+        <span class="text"><strong>Open a session in Studio.</strong> Tap the back chevron in the top-left of the Studio AppBar (the labelled "&larr; Carl" leading chevron). The shell pops back to the ClientSessionsScreen for that client. The back button now WORKS.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>2 &middot; iOS edge-swipe-to-pop (Bug 2)</h2>
+    <ul class="checklist">
+      <li data-num="2" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
+        <span class="num">2.</span>
+        <span class="text"><strong>From Studio, drag from the very left edge of the screen rightward (iOS-native edge-swipe gesture).</strong> The shell pops back to the ClientSessionsScreen. The iOS edge-swipe is RE-ENABLED.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="3" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
+        <span class="num">3.</span>
+        <span class="text"><strong>From Studio, swipe horizontally LEFT-to-right OR RIGHT-to-left within the body of the screen (not from the edge) to page between Studio and Camera in the shell PageView.</strong> Page-paging still works &mdash; the page-paging gesture wasn't broken by re-enabling edge-swipe. (Re-test: Camera &rarr; Studio swipe still pages within the shell, doesn't pop the shell.)</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>3 &middot; CAPS labels fit (Bug 3)</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>Inspect the CAPS toolbar.</strong> The five labels &mdash; CAPTURE, ADJUST, PREVIEW, PUBLISH, SHARE &mdash; all FIT inside their cells without overflow. No ellipsis visible at default iPhone text scale. Glyph circle above each label is unchanged in size (36pt). PUBLISH (longest label) reads cleanly.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; ADJUST opens editor sheet (Bug 4)</h2>
+    <ul class="checklist">
+      <li data-num="5" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
+        <span class="num">5.</span>
+        <span class="text"><strong>Open a session with at least one non-rest exercise. Tap the ADJUST cell on the CAPS toolbar.</strong> The bottom-sheet editor opens with 4 tabs (Plan / Notes / Defaults / Preview) &mdash; the SAME sheet that opens when tapping an exercise card body. NOT a full-screen media viewer.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="6" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
+        <span class="num">6.</span>
+        <span class="text"><strong>Inside the ADJUST-opened editor, change a value (e.g. bump reps from 10 to 12) and dismiss the sheet.</strong> Studio refreshes and the card now reflects the new value &mdash; parity with the card-tap path.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="7" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
+        <span class="num">7.</span>
+        <span class="text"><strong>Open a session with NO exercises (or only rest periods).</strong> The ADJUST cell renders dim and tapping it does nothing (no-op). Confirms the dim-state gate is intact.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <footer>
+      Implementation: <code>app/lib/screens/studio_mode_screen.dart</code> (Bug 1: back chevron <code>maybePop()</code> &rarr; <code>pop()</code>; Bug 4: <code>_adjustFromToolbar()</code> now calls <code>showExerciseEditorSheet</code>) and <code>app/lib/screens/session_shell_screen.dart</code> (Bug 2: removed <code>PopScope(canPop:false)</code> wrapper) and <code>app/lib/widgets/studio_bottom_bar.dart</code> (Bug 3: <code>_CapsCell</code> + PUBLISH cell label fontSize 10 &rarr; 7 + <code>FittedBox(fit: BoxFit.scaleDown)</code>). No schema, no SQLite bump, no SharedPrefs key.
+    </footer>
+  </div>
+  <script>
+    (function() {
+      var SLUG = '2026-05-05-hotfix-back-swipe-caps-adjust.results.json';
+      var ENDPOINT = '/api/test-results/' + SLUG;
+      var LS_KEY = 'homefit-test-state::' + location.pathname;
+
+      var state = {};
+      try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { state = {}; }
+
+      fetch(ENDPOINT, {cache: 'no-store'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) { if (d && d.items) { state = d.items; apply(); } })
+        .catch(function() { /* localStorage wins */ })
+        .finally(apply);
+
+      function apply() {
+        document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+          var num = li.getAttribute('data-num');
+          var entry = state[num];
+          if (!entry) { li.setAttribute('data-status', ''); return; }
+          li.setAttribute('data-status', entry.status || '');
+          var input = li.querySelector('.note');
+          if (input) input.value = entry.note || '';
+        });
+      }
+
+      function save() {
+        localStorage.setItem(LS_KEY, JSON.stringify(state));
+        fetch(ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({wave: 'hotfix-back-swipe-caps-adjust', updatedAt: new Date().toISOString(), items: state})
+        }).catch(function() { /* offline - localStorage still holds */ });
+      }
+
+      document.querySelectorAll('.checklist li[data-num]').forEach(function(li) {
+        var num = li.getAttribute('data-num');
+        var passBtn = li.querySelector('button.pass');
+        var failBtn = li.querySelector('button.fail');
+        var noteInput = li.querySelector('.note');
+
+        function setPlaceholder(status) {
+          if (status === 'fail') noteInput.placeholder = 'What went wrong?';
+          else if (status === 'pass') noteInput.placeholder = 'Anything to add? (optional)';
+          else noteInput.placeholder = '';
+        }
+
+        passBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'pass' ? '' : 'pass';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (next === '') { delete state[num]; }
+          else { state[num] = {status: next, note: noteInput.value || ''}; }
+          save();
+        });
+
+        failBtn.addEventListener('click', function() {
+          var current = li.getAttribute('data-status') || '';
+          var next = current === 'fail' ? '' : 'fail';
+          li.setAttribute('data-status', next);
+          setPlaceholder(next);
+          if (next === '') { delete state[num]; }
+          else { state[num] = {status: next, note: noteInput.value || ''}; }
+          save();
+        });
+
+        noteInput.addEventListener('input', function() {
+          var current = li.getAttribute('data-status') || '';
+          if (!current) return;
+          state[num] = {status: current, note: noteInput.value || ''};
+          save();
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
