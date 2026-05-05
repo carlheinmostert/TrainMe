@@ -92,9 +92,13 @@ After the rebrand merges:
    - Create App Store Connect record with bundle ID `studio.homefit.app`.
    - Marketing version 1.0.0, build 1 (matches `pubspec.yaml`).
    - Upload via Xcode Organizer or Transporter.
-   - Subsequent uploads: bump build number (`version: 1.0.0+2`,
-     `+3`, …) — TestFlight rejects duplicate build numbers within the
-     same marketing version.
+
+### Subsequent uploads
+
+For build-number bumps before each subsequent TestFlight upload, run
+`./bump-version.sh` from the repo root — it auto-increments `+N` in
+pubspec.yaml. Use `./bump-version.sh patch` (or `minor` / `major`) for
+marketing-version bumps instead.
 
 ## Out of scope for this prep
 
