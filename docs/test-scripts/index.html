@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-05-hotfix-back-swipe-caps-adjust.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; HOTFIX &mdash; Studio back chevron + edge-swipe + CAPS labels fit + Adjust opens editor</div>
+              <div class="scope"><strong>CRITICAL</strong>. TestFlight v1 build SHA <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">f6f7bce</code> shipped Studio mode with no way out &mdash; AppBar back chevron silently no-op'd (used <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">maybePop()</code> which respected the shell's <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PopScope(canPop:false)</code>) AND iOS edge-swipe-to-pop was disabled at the route level. Four-bug rollup: <strong>(1)</strong> back chevron switched to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">pop()</code>; <strong>(2)</strong> shell <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PopScope</code> wrapper removed, iOS edge-swipe re-enabled; <strong>(3)</strong> CAPS labels fontSize 10 &rarr; 7 + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">FittedBox(scaleDown)</code> belt-and-braces; <strong>(4)</strong> ADJUST cell now opens <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">showExerciseEditorSheet</code> (4-tab editor) instead of <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">MediaViewerBody</code>. <strong>7 items in 4 sections; load-bearing items are #1 (back chevron pops), #2 (edge-swipe pops), #3 (page-paging still works), #5 (ADJUST opens editor sheet, not media viewer).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-05-caps-toolbar.html">
           <div class="row">
             <div>

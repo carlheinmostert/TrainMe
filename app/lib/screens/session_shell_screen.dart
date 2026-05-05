@@ -173,21 +173,14 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // PopScope with canPop:false disables iOS's edge-swipe-to-pop gesture at
-    // the route level. Without this, swiping right while on the Capture page
-    // (index 1) races the shell's PageView: iOS wins at the screen edge and
-    // pops the whole shell back to Home instead of paging to Studio.
-    //
-    // The Exit button in Capture mode's top corner still works — it calls
-    // Navigator.of(context).pop() explicitly, which bypasses canPop.
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        // Intentionally empty: we swallow implicit pop attempts (iOS edge
-        // swipe, Android back gesture) so the PageView owns horizontal nav.
-        // Explicit Navigator.pop() from the Exit button still routes home.
-      },
-      child: Scaffold(
+    // iOS edge-swipe-to-pop is RE-ENABLED so users can swipe right from
+    // Studio to go back to the client. The page-paging conflict that
+    // motivated canPop:false (iOS sometimes interpreting a leftward
+    // horizontal pan on Capture as edge-swipe-to-pop) is being
+    // re-evaluated; if it surfaces in the wild, we'll add per-page
+    // conditional logic. The Studio-back gesture is the primary
+    // affordance now that the AppBar exists.
+    return Scaffold(
         backgroundColor: AppColors.surfaceBg,
         // Allow camera mode to draw behind safe areas; each mode handles its
         // own SafeArea where needed.
@@ -217,7 +210,6 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
             ),
           ],
         ),
-      ),
     );
   }
 }

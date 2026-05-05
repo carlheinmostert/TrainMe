@@ -29,6 +29,7 @@ import '../widgets/unconsented_treatments_sheet.dart';
 import '../widgets/circuit_control_sheet.dart';
 import '../widgets/client_consent_sheet.dart';
 import '../widgets/download_original_sheet.dart';
+import '../widgets/exercise_editor_sheet.dart';
 import '../widgets/gutter_rail.dart';
 import '../widgets/hero_crop_viewport.dart';
 import '../widgets/inline_action_tray.dart';
@@ -1646,7 +1647,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
       leadingWidth: 110,
       leading: _StudioBackLeading(
         label: clientLabel,
-        onTap: () => Navigator.of(context).maybePop(),
+        // Explicit pop() bypasses the shell's PopScope canPop semantics
+        // (Bug 1 hotfix). maybePop() respects canPop and silently no-ops
+        // when the shell sets canPop:false; pop() always navigates.
+        onTap: () => Navigator.of(context).pop(),
       ),
       titleSpacing: 0,
       centerTitle: false,
@@ -3334,17 +3338,30 @@ class _StudioModeScreenState extends State<StudioModeScreen>
   /// `reverse: true`, so the BOTTOM of the viewport is the most recent
   /// capture (`exercises.last`); that's the "top of the stack" that
   /// Carl's brief targets. Skips rest periods (no media to edit).
+  ///
+  /// Hotfix 2026-05-05 — was opening MediaViewerBody (full-screen
+  /// playback canvas), should open the same `showExerciseEditorSheet`
+  /// that fires when the practitioner taps a card body. Mirrors the
+  /// card's tap path so the `_updateExercise` refresh wires through.
   void _adjustFromToolbar() {
-    ExerciseCapture? candidate;
+    int? candidateIndex;
     for (var i = _session.exercises.length - 1; i >= 0; i--) {
       final ex = _session.exercises[i];
       if (ex.mediaType != MediaType.rest) {
-        candidate = ex;
+        candidateIndex = i;
         break;
       }
     }
-    if (candidate == null) return;
-    _openMediaViewer(candidate);
+    if (candidateIndex == null) return;
+    showExerciseEditorSheet(
+      context: context,
+      session: _session,
+      initialExerciseIndex: candidateIndex,
+      onExerciseChanged: (sheetIndex, updated) {
+        _clearFocusOnInteraction();
+        _updateExercise(sheetIndex, updated);
+      },
+    );
   }
 
   Future<void> _openMediaViewer(ExerciseCapture exercise) async {

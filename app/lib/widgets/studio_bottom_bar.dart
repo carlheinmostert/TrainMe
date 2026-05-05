@@ -387,18 +387,25 @@ class _CapsCell extends StatelessWidget {
                     child: Icon(icon, color: glyphColor, size: 20),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.4, // 0.04em at 10pt
-                      color: labelColor,
-                      height: 1.0,
+                  // Hotfix 2026-05-05 — CAPS labels were pinching their cells
+                  // at the prior 10pt size. Dropped 30% to 7pt and wrapped in
+                  // a FittedBox so longer labels (e.g. PUBLISH) auto-shrink
+                  // further at unusual font scaling without overflow.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 7,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.4, // 0.04em at 10pt
+                        color: labelColor,
+                        height: 1.0,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.clip,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.clip,
                   ),
                 ],
               ),
@@ -508,18 +515,23 @@ class _PublishCapsCell extends StatelessWidget {
                     child: glyph,
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    'PUBLISH',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.4, // 0.04em at 10pt
-                      color: labelColor,
-                      height: 1.0,
+                  // Hotfix 2026-05-05 — see comment in _CapsCell for the
+                  // 30% drop + FittedBox rationale.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'PUBLISH',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 7,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.4, // 0.04em at 10pt
+                        color: labelColor,
+                        height: 1.0,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.clip,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.clip,
                   ),
                 ],
               ),
