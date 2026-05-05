@@ -112,6 +112,16 @@
 
       <!-- Hero list — vertical scroll. Built by app.js's buildLobbyList(). -->
       <ul class="lobby-list" id="lobby-list" role="list"></ul>
+      <!-- Export-only footer (Wave Free Lobby Export, 2026-05-05). Hidden
+           during normal lobby viewing; shown only when html.is-exporting
+           is set during the html2canvas snapshot pass. Branding + tagline. -->
+      <div class="lobby-export-footer" id="lobby-export-footer" aria-hidden="true">
+        <div class="lobby-export-brand">
+          <span class="lobby-export-brand-mark"></span>
+          <span>homefit.studio</span>
+        </div>
+        <div class="lobby-export-tagline">Visual plans clients follow.</div>
+      </div>
     </div>
 
     <!-- Sticky-bottom CTA bar. Backdrop-blur veil over the row beneath.
@@ -127,6 +137,16 @@
             <polyline points="12 6 12 12 16 14"/>
           </svg>
           <span>Start workout</span>
+        </button>
+        <button id="lobby-share-btn" class="lobby-share-btn" type="button"
+                aria-label="Share lobby">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="18" cy="5" r="3"/>
+            <circle cx="6" cy="12" r="3"/>
+            <circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          </svg>
         </button>
         <button id="lobby-gear-btn" class="lobby-gear-btn" type="button"
                 aria-label="Playback settings"
