@@ -544,6 +544,57 @@
     } else {
       renderCircuitLanes();
     }
+    // Pill scroll-fill wave — stamp each matrix pill with the ordinal
+    // position of its owning lobby row. setActiveRow uses these to fill
+    // pills as the user scrolls forward, drain them on scroll-back.
+    stampPillRowOrdinals();
+  }
+
+  // ==========================================================================
+  // Pill scroll-fill — slide-index → row-ordinal mapping
+  // ==========================================================================
+  //
+  // The lobby renders ONE row per exercise (across all rounds in a circuit).
+  // The matrix renders ONE pill per slide (every round of every exercise).
+  // To fill pills progressively as the user scrolls through the row list,
+  // we need: for each pill, the ordinal of the row that owns its exercise.
+  //
+  // Mapping: slides[i].id is the EXERCISE's UUID — shared across all rounds
+  // of a circuit exercise (unrollExercises spreads `...gex` so `id` carries
+  // through). The lobby row's data-id is that same exercise UUID. So we
+  // can match pill → row by comparing slide.id to row.dataset.id.
+
+  function stampPillRowOrdinals() {
+    if (!$lobbyList || !$lobbyMatrixInner) return;
+    const rows = $lobbyList.querySelectorAll('.lobby-row[data-slide-index]');
+    const ordinalById = new Map();
+    rows.forEach((row, ordinal) => {
+      const id = row.dataset.id;
+      if (id) ordinalById.set(id, ordinal);
+    });
+    const pills = $lobbyMatrixInner.querySelectorAll('.pill[data-slide]');
+    pills.forEach((pill) => {
+      const slideIdx = parseInt(pill.getAttribute('data-slide'), 10);
+      if (Number.isNaN(slideIdx)) return;
+      const slide = slides[slideIdx];
+      if (!slide) return;
+      const ord = ordinalById.get(slide.id);
+      if (ord != null) pill.dataset.rowOrd = String(ord);
+    });
+  }
+
+  function updatePillFills(activeRowEl) {
+    if (!$lobbyMatrixInner || !activeRowEl) return;
+    const rows = Array.from($lobbyList.querySelectorAll('.lobby-row[data-slide-index]'));
+    const activeOrdinal = rows.indexOf(activeRowEl);
+    if (activeOrdinal < 0) return;
+    const pills = $lobbyMatrixInner.querySelectorAll('.pill[data-row-ord]');
+    pills.forEach((pill) => {
+      const ord = parseInt(pill.dataset.rowOrd, 10);
+      if (Number.isNaN(ord)) return;
+      if (ord <= activeOrdinal) pill.classList.add('is-filled');
+      else pill.classList.remove('is-filled');
+    });
   }
 
   function itemToHTML(item) {
@@ -1538,6 +1589,11 @@
     // Highlight the row + the matching pill.
     $lobbyList.querySelectorAll('.lobby-row.is-active-pill').forEach((el) => el.classList.remove('is-active-pill'));
     row.classList.add('is-active-pill');
+    // Pill scroll-fill — fill all pills owned by rows at-or-before this
+    // active row. For circuits, all rounds of the exercise fill together
+    // (they share the same exercise.id, so all pills with the same row
+    // ordinal cross the threshold simultaneously). Empties on scroll-back.
+    updatePillFills(row);
     $lobbyMatrixInner.querySelectorAll('.pill.is-active').forEach((el) => el.classList.remove('is-active'));
     const targetPill = $lobbyMatrixInner.querySelector(`.pill[data-slide="${idx}"]`);
     if (targetPill) {
