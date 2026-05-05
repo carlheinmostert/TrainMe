@@ -975,16 +975,45 @@ class UploadService {
           nonRestExercises.every((e) => e.rawArchiveUploadedAt != null);
 
       if (allPreviouslyUploaded) {
-        debugPrint('uploadPlan: metadata-only republish — skipping all file uploads');
+        debugPrint('uploadPlan: metadata-only republish — skipping main file uploads');
+        // Variant-thumb backfill (Wave Three-Treatment-Thumbs, 2026-05-05).
+        // Plans previously published with builds before PR #263 don't have
+        // `_thumb_line.jpg` in storage. Always run an existence-check +
+        // upload pass for the variant so older plans get the file
+        // populated on the next publish — independent of whether the main
+        // mp4 / _thumb.jpg already exist.
+        final existingFiles = <String>{};
+        try {
+          final listing = await _api.listMedia(prefix: session.id);
+          for (final item in listing) {
+            existingFiles.add('${session.id}/${item.name}');
+          }
+        } catch (_) {}
+
         for (final exercise in nonRestExercises) {
           final ext = p.extension(
             exercise.absoluteConvertedFilePath ?? exercise.absoluteRawFilePath,
           );
           final storagePath = '${session.id}/${exercise.id}$ext';
           mediaUrls[exercise.id] = _api.publicMediaUrl(path: storagePath);
-          if (exercise.absoluteThumbnailPath != null) {
+          final thumbAbs = exercise.absoluteThumbnailPath;
+          if (thumbAbs != null) {
             thumbUrls[exercise.id] = _api.publicMediaUrl(
                 path: '${session.id}/${exercise.id}_thumb.jpg');
+
+            // Backfill _thumb_line.jpg if missing in storage.
+            final lineThumbAbs =
+                thumbAbs.replaceFirst('_thumb.jpg', '_thumb_line.jpg');
+            final lineThumbFile = File(lineThumbAbs);
+            if (await lineThumbFile.exists()) {
+              final lineStoragePath =
+                  '${session.id}/${exercise.id}_thumb_line.jpg';
+              if (!existingFiles.contains(lineStoragePath)) {
+                await _api.uploadMedia(
+                    path: lineStoragePath, file: lineThumbFile);
+                uploadedPaths.add(lineStoragePath);
+              }
+            }
           }
         }
       } else {
@@ -1370,11 +1399,19 @@ class UploadService {
     required String practiceId,
   }) async {
     var hadFailures = false;
-    // Fast-path: if all exercises already uploaded, skip entirely.
+    // Fast-path: if all exercises already uploaded, skip the main mp4 +
+    // segmented + mask uploads. We still need to backfill the color-thumb
+    // variant (Wave Three-Treatment-Thumbs, 2026-05-05) because plans
+    // previously published with builds before PR #263 don't have it in
+    // storage. The variant-thumb backfill below runs unconditionally.
     final nonRest = session.exercises.where((e) => !e.isRest).toList();
-    if (nonRest.every((e) => e.rawArchiveUploadedAt != null)) {
-      debugPrint('_uploadRawArchives: all previously uploaded — skipping entirely');
-      return false;
+    final allMainUploaded =
+        nonRest.every((e) => e.rawArchiveUploadedAt != null);
+    if (allMainUploaded) {
+      debugPrint(
+        '_uploadRawArchives: main archives previously uploaded — '
+        'running variant-thumb backfill only',
+      );
     }
 
     // Some exercises need uploading. List existing files once.

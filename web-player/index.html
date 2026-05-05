@@ -124,6 +124,29 @@
       </div>
     </div>
 
+    <!-- Desktop export modal (Wave Free Lobby Export hardening, 2026-05-05).
+         Desktop browsers (macOS Safari + Chrome) reliably block both
+         `window.open` and programmatic `<a download>` clicks after an async
+         snapshot — user-activation is consumed, popup blockers fire,
+         downloads are silently dropped. Workaround: show the rendered PNG
+         in an in-page modal with a real Download anchor. The user's click
+         on the anchor is a fresh gesture that browsers consistently honour.
+         Mobile Safari uses navigator.share and never reaches this modal. -->
+    <div class="lobby-export-modal" id="lobby-export-modal" hidden role="dialog" aria-modal="true" aria-labelledby="lobby-export-modal-title">
+      <div class="lobby-export-modal-backdrop" id="lobby-export-modal-backdrop"></div>
+      <div class="lobby-export-modal-card">
+        <div class="lobby-export-modal-header">
+          <h2 id="lobby-export-modal-title" class="lobby-export-modal-title">Your plan, ready to share</h2>
+          <button class="lobby-export-modal-close" id="lobby-export-modal-close" aria-label="Close">×</button>
+        </div>
+        <img class="lobby-export-modal-img" id="lobby-export-modal-img" alt="Plan preview">
+        <div class="lobby-export-modal-actions">
+          <a class="lobby-export-modal-download" id="lobby-export-modal-download" download="homefit-lobby.png">Download PNG</a>
+          <p class="lobby-export-modal-hint">Tip: right-click the image to save, or drag it into WhatsApp / Mail.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Sticky-bottom CTA bar. Backdrop-blur veil over the row beneath.
          Round-4: treatment selector moved behind a settings gear button.
          The practitioner has already set per-client `preferred_treatment`
