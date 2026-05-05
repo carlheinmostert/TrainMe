@@ -784,7 +784,9 @@ class _FailedConversionsPill extends StatelessWidget {
 /// enclosing shape — pure glyph, anchored by typography alone.
 ///
 /// Footprint stays 60px wide so existing horizontal layout (title +
-/// subtitle column to the right) doesn't shift.
+/// subtitle column to the right) doesn't shift. `FittedBox` auto-fits
+/// the label inside the 60×60 footprint so 1-, 2-, and 3-char counts
+/// ("5", "12", "99+") all fill the slot cleanly without manual tiers.
 class _LeadingCountGlyph extends StatelessWidget {
   final int count;
   const _LeadingCountGlyph({required this.count});
@@ -796,32 +798,31 @@ class _LeadingCountGlyph extends StatelessWidget {
       return const SizedBox(width: 60, height: 60);
     }
     final label = count > 99 ? '99+' : '$count';
-    final isMultiDigit = label.length >= 2;
     return SizedBox(
       width: 60,
       height: 60,
       child: Center(
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontFamily: 'Inter',
-            // Single-digit can carry more visual weight; multi-digit
-            // ("12" / "26" / "99+") drops a notch so three glyphs fit
-            // inside the 60px slot without touching the title beside.
-            fontSize: isMultiDigit ? 34 : 42,
-            fontWeight: FontWeight.w800,
-            color: AppColors.primary,
-            height: 1.0,
-            letterSpacing: -1.5,
-            fontFeatures: [FontFeature.tabularFigures()],
-            shadows: [
-              Shadow(
-                color: Color(0xCC000000),
-                blurRadius: 6,
-                offset: Offset(0, 1),
-              ),
-            ],
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 42,
+              fontWeight: FontWeight.w800,
+              color: AppColors.primary,
+              height: 1.0,
+              letterSpacing: -1.5,
+              fontFeatures: [FontFeature.tabularFigures()],
+              shadows: [
+                Shadow(
+                  color: Color(0xCC000000),
+                  blurRadius: 6,
+                  offset: Offset(0, 1),
+                ),
+              ],
+            ),
           ),
         ),
       ),

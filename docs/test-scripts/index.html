@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-05-count-glyph-fittedbox.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Count glyph auto-fits via FittedBox (no manual tier)</div>
+              <div class="scope">Leading exercise-count glyph on session cards (Home + per-client lists). Drops the manual <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">isMultiDigit ? 34 : 42</code> font-size tier in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_LeadingCountGlyph</code>. Wraps <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Text</code> in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">FittedBox(fit: BoxFit.scaleDown)</code> with a single <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">fontSize: 42</code>; FittedBox auto-scales 2- and 3-char labels ("12", "99+") to fit the 60&times;60 footprint without clipping. Two-digit clipping was visible on Carl's iPhone with the prior 34pt + letter-spacing -1.5 + 6px-blur shadow combo. Footprint, coral colour, drop shadow, empty-zero behaviour all unchanged. <strong>6 items in 6 sections; load-bearing items are #2 (two-digit fits cleanly) and #4 (empty session shows no glyph).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-05-refine-toolbar-button.html">
           <div class="row">
             <div>
