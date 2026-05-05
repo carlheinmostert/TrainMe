@@ -1837,30 +1837,12 @@
       $lobbyShareBtn._wired = true;
       $lobbyShareBtn.addEventListener('click', (evt) => {
         evt.stopPropagation();
-        // CRITICAL — open the fallback window synchronously inside the
-        // click handler so it inherits user-activation. By the time the
-        // async html2canvas snapshot finishes, the gesture has been
-        // consumed and any later `window.open()` would be blocked /
-        // treated as navigation. We open `about:blank` now and rewrite
-        // its location once the blob is ready. If navigator.share
-        // succeeds we close this pre-opened window. If `window.open`
-        // returns null (popup blocker / mobile context), we pass null
-        // through and the share path or download fallback takes over.
-        let preOpenedWin = null;
-        try {
-          // Don't pre-open on mobile — the native share path is the
-          // primary route there and a stray about:blank window steals
-          // focus from the share sheet.
-          const isMobile = /iphone|ipad|android/i.test(navigator.userAgent);
-          if (!isMobile) {
-            preOpenedWin = window.open('about:blank', '_blank');
-          }
-        } catch (_) {}
-        triggerLobbyShare(preOpenedWin).catch((err) => {
+        // Mobile: navigator.share opens the native share sheet directly.
+        // Desktop: the export modal renders the PNG with a real Download
+        // anchor — clicking the anchor is a fresh user-gesture so
+        // browsers reliably honour it (no popup blocker, no nav issue).
+        triggerLobbyShare().catch((err) => {
           try { console.warn('[homefit-lobby] share failed:', err); } catch (_) {}
-          if (preOpenedWin && !preOpenedWin.closed) {
-            try { preOpenedWin.close(); } catch (_) {}
-          }
           if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
         });
       });
@@ -1982,7 +1964,42 @@
     return _html2canvasPromise;
   }
 
-  async function triggerLobbyShare(preOpenedWin) {
+  function showExportModal(blobUrl, fileName) {
+    const modal = document.getElementById('lobby-export-modal');
+    const img = document.getElementById('lobby-export-modal-img');
+    const link = document.getElementById('lobby-export-modal-download');
+    const closeBtn = document.getElementById('lobby-export-modal-close');
+    const backdrop = document.getElementById('lobby-export-modal-backdrop');
+    if (!modal || !img || !link) return false;
+    img.src = blobUrl;
+    link.href = blobUrl;
+    link.setAttribute('download', fileName);
+    modal.hidden = false;
+    const close = () => {
+      modal.hidden = true;
+      img.src = '';
+      // Don't revoke immediately — the link may still need the URL
+      // briefly after the user clicks Download. The outer setTimeout in
+      // triggerLobbyShare handles the revoke.
+    };
+    if (closeBtn && !closeBtn._wired) {
+      closeBtn._wired = true;
+      closeBtn.addEventListener('click', close);
+    }
+    if (backdrop && !backdrop._wired) {
+      backdrop._wired = true;
+      backdrop.addEventListener('click', close);
+    }
+    if (!modal._escWired) {
+      modal._escWired = true;
+      document.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Escape' && !modal.hidden) close();
+      });
+    }
+    return true;
+  }
+
+  async function triggerLobbyShare() {
     if (!$lobby) throw new Error('lobby root missing');
     if ($lobbyShareBtn) $lobbyShareBtn.disabled = true;
     try {
@@ -2025,40 +2042,22 @@
             title: 'Your homefit plan',
             text: 'Your visual plan from homefit.studio',
           });
-          // Native share succeeded — close the desktop fallback window
-          // we pre-opened in the click handler (it's never used).
-          if (preOpenedWin && !preOpenedWin.closed) {
-            try { preOpenedWin.close(); } catch (_) {}
-          }
           return;
         } catch (err) {
-          // User cancelled or share rejected — fall through to download.
-          if (err && err.name === 'AbortError') {
-            if (preOpenedWin && !preOpenedWin.closed) {
-              try { preOpenedWin.close(); } catch (_) {}
-            }
-            return;
-          }
+          if (err && err.name === 'AbortError') return;
           try { console.warn('[homefit-lobby] navigator.share rejected:', err); } catch (_) {}
         }
       }
-      // Fallback path for desktop browsers (macOS Safari / Chrome). The
-      // pre-opened window was created synchronously in the click handler
-      // so it carries user-activation. We just rewrite its location to
-      // the blob URL — the browser displays the PNG in a fresh tab and
-      // the current page is untouched. If the pre-open failed (popup
-      // blocker), fall back to an anchor with download attribute.
+      // Desktop fallback (macOS Safari / Chrome). Both `window.open` and
+      // programmatic `<a download>` clicks are unreliable here — the
+      // async snapshot consumes user-activation, so popup blockers fire
+      // and downloads silently drop / navigate the page. Show the PNG in
+      // an in-page modal with a real Download anchor; the user's click
+      // on that anchor is a fresh gesture browsers consistently honour.
       const url = URL.createObjectURL(blob);
-      if (preOpenedWin && !preOpenedWin.closed) {
-        try {
-          preOpenedWin.location.href = url;
-        } catch (_) {
-          // Cross-origin or other navigation failure — fall through.
-          try { preOpenedWin.close(); } catch (_) {}
-          preOpenedWin = null;
-        }
-      }
-      if (!preOpenedWin || preOpenedWin.closed) {
+      const shown = showExportModal(url, fileName);
+      if (!shown) {
+        // Modal markup missing somehow — last-ditch anchor click.
         const a = document.createElement('a');
         a.href = url;
         a.download = fileName;
@@ -2069,7 +2068,7 @@
         a.click();
         document.body.removeChild(a);
       }
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
     } finally {
       if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
     }
