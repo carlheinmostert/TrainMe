@@ -522,6 +522,16 @@ body {
   opacity: 1;
 }
 
+/* Lobby scroll-fill (Wave Lobby-PillFill, 2026-05-05) — pills fill 100%
+   as the user scrolls through the lobby's row list, drain on scroll-back.
+   For circuits, all rounds of an exercise share the same row.dataset.id
+   so they cross the threshold together (Carl: "for circuits all sets
+   must fill up"). Distinct from .is-completed (which the deck uses for
+   actually-completed workout progress). */
+.pill.is-filled .pill-fill {
+  width: 100%;
+}
+
 .pill.is-rest {
   color: var(--c-rest);
   background: var(--c-rest-tint-bg);
