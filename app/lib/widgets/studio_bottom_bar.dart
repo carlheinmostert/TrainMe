@@ -425,6 +425,7 @@ class _CapsCell extends StatelessWidget {
                                   text: label.substring(0, 1),
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w900,
+                                    fontSize: 9, // ~28% larger than 7pt
                                   ),
                                 ),
                                 TextSpan(text: label.substring(1)),
@@ -563,7 +564,10 @@ class _PublishCapsCell extends StatelessWidget {
                         children: const [
                           TextSpan(
                             text: 'P',
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 9, // ~28% larger than 7pt
+                            ),
                           ),
                           TextSpan(text: 'UBLISH'),
                         ],
