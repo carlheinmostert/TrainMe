@@ -1067,6 +1067,32 @@
    * a JPG; we render a static <img> and apply the B&W CSS filter when
    * applicable. (Wave 22 photo three-treatment parity.)
    */
+  /**
+   * Wave Three-Treatment-Thumbs (2026-05-05) — pick the static poster
+   * URL for a slide based on the active treatment, with graceful
+   * fallback to the legacy `thumbnail_url` (B&W from raw, the only
+   * variant older plans have).
+   *
+   *   line     → thumbnail_url_line  (line-drawing JPG, public)
+   *   bw       → thumbnail_url_color (color JPG; CSS .is-grayscale
+   *              filter is applied to the <img> by the caller)
+   *   original → thumbnail_url_color (color JPG, no filter)
+   *
+   * For photos, slide.thumbnail_url already serves the line surface;
+   * the caller's CSS filter handles B&W. Color falls back to thumbnail_url
+   * since photos don't have a separate color thumb pipeline today.
+   */
+  function pickTreatmentPoster(slide, treatment) {
+    if (!slide) return '';
+    const legacy = slide.thumbnail_url || '';
+    if (treatment === 'line') {
+      return slide.thumbnail_url_line || legacy;
+    }
+    // bw + original both want the color JPG; CSS filter on <img class="is-grayscale">
+    // renders the B&W variant.
+    return slide.thumbnail_url_color || legacy;
+  }
+
   function renderHeroHTML(slide, objPos) {
     const escape = api.escapeHTML;
     const isPhoto = slide.media_type === 'photo' || slide.media_type === 'image';
@@ -1080,7 +1106,13 @@
     // 0 by `document.querySelectorAll('video')` queries) and tips the cap.
     // That was the actual freeze cause through PR #254. If thumbnail_url
     // is missing, the skeleton placeholder takes over below.
-    const posterSrc = slide.thumbnail_url || '';
+    //
+    // Wave Three-Treatment-Thumbs (2026-05-05) — pick the poster matching
+    // the active treatment so inactive rows render in the user's chosen
+    // treatment (was: always the legacy B&W). Falls back to the legacy
+    // `thumbnail_url` when the new variants aren't on the plan (older
+    // publishes pre-this-wave).
+    const posterSrc = pickTreatmentPoster(slide, activeTreatment);
 
     if (!url && !posterSrc) {
       return `<div class="lobby-hero-skeleton" aria-hidden="true"></div>`;

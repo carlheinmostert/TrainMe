@@ -142,7 +142,12 @@ class UnifiedPreviewSchemeBridge {
     if (exerciseId == null || exerciseId.isEmpty) {
       throw PlatformException(code: 'BAD_ARGS', message: 'missing exerciseId');
     }
-    if (kind != 'line' && kind != 'archive' && kind != 'segmented' && kind != 'hero') {
+    if (kind != 'line' &&
+        kind != 'archive' &&
+        kind != 'segmented' &&
+        kind != 'hero' &&
+        kind != 'hero_color' &&
+        kind != 'hero_line') {
       throw PlatformException(code: 'BAD_ARGS', message: 'unknown kind $kind');
     }
 
@@ -194,6 +199,25 @@ class UnifiedPreviewSchemeBridge {
         // Used as the static <img src> poster for inactive lobby rows
         // post-PR-#255 (which strictly forbids video URLs in <img src>).
         relative = exercise.thumbnailPath;
+        break;
+      case 'hero_color':
+        // Wave Three-Treatment-Thumbs (2026-05-05) — color frame from
+        // raw, used by B&W + Original treatments via CSS filter.
+        // Convention: same dir as thumbnailPath, `_thumb.jpg` suffix
+        // swapped for `_thumb_color.jpg`. Native conversion
+        // (conversion_service.dart line 253) writes both lockstep.
+        if (exercise.thumbnailPath != null) {
+          relative = exercise.thumbnailPath!
+              .replaceFirst('_thumb.jpg', '_thumb_color.jpg');
+        }
+        break;
+      case 'hero_line':
+        // Wave Three-Treatment-Thumbs — line drawing JPG from the
+        // converted line video, used by Line treatment.
+        if (exercise.thumbnailPath != null) {
+          relative = exercise.thumbnailPath!
+              .replaceFirst('_thumb.jpg', '_thumb_line.jpg');
+        }
         break;
     }
     if (relative == null || relative.isEmpty) {
@@ -294,6 +318,19 @@ class UnifiedPreviewSchemeBridge {
       'thumbnail_url': (e.thumbnailPath != null && e.thumbnailPath!.isNotEmpty)
           ? '/local/${e.id}/hero'
           : null,
+      // Wave Three-Treatment-Thumbs (2026-05-05) — line + color
+      // variants from native conversion. Bridge route serves them via
+      // the homefit-local:// scheme; web player picks based on
+      // active treatment. Practitioner-side preview, so file-presence
+      // gating only — consent doesn't apply (the file's on-device).
+      'thumbnail_url_line':
+          (e.thumbnailPath != null && e.thumbnailPath!.isNotEmpty)
+              ? '/local/${e.id}/hero_line'
+              : null,
+      'thumbnail_url_color':
+          (e.thumbnailPath != null && e.thumbnailPath!.isNotEmpty)
+              ? '/local/${e.id}/hero_color'
+              : null,
       'media_type': e.mediaType.name,
       'sets': setsJson,
       'notes': e.notes,
