@@ -5,7 +5,7 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v67-hidden-clone-snapshot';
+const CACHE_NAME = 'homefit-player-v68-live-dom-data-url-decode';
 
 // App shell files — always cached
 const APP_SHELL = [
