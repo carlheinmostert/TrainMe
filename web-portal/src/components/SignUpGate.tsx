@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { getBrowserClient } from '@/lib/supabase-browser';
+import { createPortalApi } from '@/lib/supabase/api';
 
 type Props = {
   referralCode: string | null;
@@ -69,6 +70,22 @@ export function SignUpGate({ referralCode, inviterLabel }: Props) {
         password,
       });
       if (!pwErr) {
+        // Bootstrap practice — mirrors mobile AuthService. Password
+        // sign-in bypasses /auth/callback, so we have to bootstrap
+        // here to close the parity gap for first-time web sign-ins.
+        // Idempotent: a no-op for users who already have a practice.
+        // Best-effort: log and continue on failure; the next sign-in
+        // retries automatically.
+        try {
+          const portal = createPortalApi(supabase);
+          await portal.bootstrapPractice();
+        } catch (bootstrapError) {
+          // eslint-disable-next-line no-console
+          console.error(
+            '[SignUpGate] bootstrap_practice_for_user failed:',
+            bootstrapError,
+          );
+        }
         window.location.assign('/dashboard');
         return;
       }

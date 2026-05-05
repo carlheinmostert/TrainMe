@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-05-web-bootstrap-parity.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Web portal practice bootstrap parity (close auth-flow gap with mobile)</div>
+              <div class="scope"><strong style="color: var(--coral);">Auth parity fix.</strong> Mobile <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">AuthService</code> calls the idempotent <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">bootstrap_practice_for_user()</code> RPC on every authenticated sign-in &mdash; the web portal at <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">manage.homefit.studio</code> did not, so first-time web sign-ups landed on the dashboard&rsquo;s &ldquo;not yet a member of any practice&rdquo; empty state. Fix: added <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PortalApi.bootstrapPractice()</code> wrapper, called from <strong>three</strong> entry points: <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">/auth/callback</code> route handler (after <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">exchangeCodeForSession</code>) for magic-link path, plus <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">SignInGate</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">SignUpGate</code> after successful <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">signInWithPassword</code> (password path bypasses callback). Best-effort everywhere &mdash; failures log + fall through; RPC is idempotent so retries are safe. <strong>7 items in 5 sections; load-bearing items are #1 (magic-link signup creates practice), #2 (SQL verifies practice + membership + 5-credit welcome row), #4 (idempotent re-sign-in creates no duplicates), #5 (mobile cross-surface idempotency).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-05-caps-bold-first-letter.html">
           <div class="row">
             <div>

@@ -39,9 +39,31 @@ export async function GET(request: Request) {
       );
     }
 
-    // Referral claim — best-effort. This runs AFTER exchangeCodeForSession,
-    // so the trainer's practice row should already be bootstrapped by the
-    // existing sentinel-claim / auto-create flow.
+    // Practice bootstrap — mirrors the mobile app's AuthService flow.
+    // Idempotent: returns the existing practice_id if the caller is
+    // already a member, otherwise creates a fresh "{name} Practice" +
+    // owner membership + welcome-bonus credit row. Without this,
+    // first-time web-portal sign-ups landed on /dashboard's "not yet
+    // a member of any practice" empty state because nothing on the
+    // web side mirrored AuthService.bootstrap.
+    //
+    // Best-effort: a failure here is logged but does not block the
+    // user from reaching their (possibly empty) dashboard. The RPC
+    // is idempotent so the next sign-in retries automatically.
+    try {
+      const portal = createPortalApi(supabase);
+      await portal.bootstrapPractice();
+    } catch (bootstrapError) {
+      // eslint-disable-next-line no-console
+      console.error(
+        '[auth/callback] bootstrap_practice_for_user failed:',
+        bootstrapError,
+      );
+    }
+
+    // Referral claim — best-effort. This runs AFTER the bootstrap so
+    // the trainer's practice row exists when claim_referral_code reads
+    // listMyPractices()[0].
     try {
       await tryClaimReferral(request);
     } catch {

@@ -354,6 +354,39 @@ export class PortalApi {
     return role !== null;
   }
 
+  /**
+   * Idempotent practice bootstrap — mirror of the mobile app's
+   * `AuthService` flow. Wraps `bootstrap_practice_for_user()`
+   * (SECURITY DEFINER, milestone E) which:
+   *
+   *   (a) returns the existing practice_id if the caller is already
+   *       a member of one (idempotent — no-op fast path);
+   *   (b) otherwise tries to claim the Carl-sentinel practice;
+   *   (c) otherwise creates a fresh "{local-part} Practice" + adds
+   *       the caller as owner + seeds a welcome-bonus credit row.
+   *
+   * The RPC reads `auth.uid()` from the active session, so the caller
+   * must be signed in. Throwing here surfaces the underlying error;
+   * callers should treat any failure as non-fatal (the user can still
+   * sign in; a subsequent sign-in retries).
+   *
+   * Closes the parity gap that left fresh web-portal sign-ups landing
+   * on the "not yet a member of any practice" empty state — the mobile
+   * app has always called this on first sign-in but the web portal did
+   * not.
+   *
+   * Returns the practice_id the caller is now a member of (uuid string).
+   */
+  async bootstrapPractice(): Promise<string | null> {
+    const { data, error } = await this.supabase.rpc(
+      'bootstrap_practice_for_user',
+    );
+    if (error) {
+      throw new Error(error.message);
+    }
+    return typeof data === 'string' ? data : null;
+  }
+
   // ==========================================================================
   // Credits + billing
   // ==========================================================================

@@ -3,6 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getBrowserClient } from '@/lib/supabase-browser';
+import { createPortalApi } from '@/lib/supabase/api';
 import { safeNext } from '@/lib/safe-next';
 
 /**
@@ -55,6 +56,23 @@ export function SignInGate() {
         // reload below triggers the server HomePage to redirect onward.
         // Honour ?next= so app→portal handoffs (e.g. /credits chip)
         // land back on the originally-requested page.
+        //
+        // Bootstrap practice — mirrors mobile AuthService. Password
+        // sign-in bypasses /auth/callback (only OAuth/magic-link land
+        // there), so we have to bootstrap here to close the parity gap
+        // for first-time web sign-ins. Idempotent: a no-op for users
+        // who already have a practice. Best-effort: log and continue
+        // on failure; the next sign-in retries.
+        try {
+          const portal = createPortalApi(supabase);
+          await portal.bootstrapPractice();
+        } catch (bootstrapError) {
+          // eslint-disable-next-line no-console
+          console.error(
+            '[SignInGate] bootstrap_practice_for_user failed:',
+            bootstrapError,
+          );
+        }
         window.location.assign(next);
         return;
       }
