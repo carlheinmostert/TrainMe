@@ -2089,8 +2089,72 @@
     refs.img.src = blobUrl;
     refs.link.href = blobUrl;
     refs.link.setAttribute('download', fileName);
+    refs.link.style.display = '';
+    refs.img.style.display = '';
     modal.hidden = false;
     return true;
+  }
+
+  // Surface CORS / taint failures so they don't disappear into the
+  // console. Reuses the export modal — hides the image + download button
+  // and shows a message with a Retry/Close affordance via the close X.
+  function showExportError(message) {
+    const modal = ensureExportModal();
+    const refs = modal._refs;
+    if (!refs) {
+      try { window.alert(message); } catch (_) {}
+      return;
+    }
+    refs.img.style.display = 'none';
+    refs.link.style.display = 'none';
+    // Add an inline message node into the modal card.
+    const card = modal.querySelector('div:nth-child(2)');
+    if (card) {
+      let msgNode = card.querySelector('[data-export-error]');
+      if (!msgNode) {
+        msgNode = document.createElement('p');
+        msgNode.setAttribute('data-export-error', '');
+        Object.assign(msgNode.style, {
+          margin: '0',
+          color: '#FF6B35',
+          fontFamily: "'Inter', -apple-system, sans-serif",
+          fontSize: '13px',
+          textAlign: 'center',
+          padding: '24px 8px',
+        });
+        card.insertBefore(msgNode, card.lastChild);
+      }
+      msgNode.textContent = message;
+    }
+    modal.hidden = false;
+  }
+
+  // Pre-fetch all images visible inside the lobby root via fetch() with
+  // mode:'cors' → blob → URL.createObjectURL. We can't just slap
+  // crossorigin="anonymous" on existing <img> tags because the browser
+  // already cached them without CORS headers — the cached entry is
+  // opaque and would still taint the canvas. Same for video posters.
+  // Caller MUST revoke the returned blob URLs once the snapshot is done.
+  async function preloadCorsCleanBlobs(rootEl) {
+    const sources = new Set();
+    rootEl.querySelectorAll('img').forEach((img) => {
+      if (img.src) sources.add(img.src);
+    });
+    rootEl.querySelectorAll('video').forEach((v) => {
+      if (v.poster) sources.add(v.poster);
+    });
+    const map = new Map(); // origSrc → blobUrl
+    await Promise.all(Array.from(sources).map(async (src) => {
+      if (!src) return;
+      if (src.startsWith('blob:') || src.startsWith('data:')) return;
+      try {
+        const res = await fetch(src, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        map.set(src, URL.createObjectURL(blob));
+      } catch (_) {}
+    }));
+    return map;
   }
 
   async function triggerLobbyShare() {
@@ -2098,32 +2162,56 @@
     if ($lobbyShareBtn) $lobbyShareBtn.disabled = true;
     try {
       const html2canvas = await loadHtml2Canvas();
+      // CORS-clean blob map, populated BEFORE snapshot so html2canvas's
+      // onclone callback (which runs synchronously) can swap each <img>
+      // src + <video> poster to a same-origin blob: URL. Without this
+      // the canvas gets tainted and toBlob returns null silently.
+      const blobUrlMap = await preloadCorsCleanBlobs($lobby);
       // Toggle export styling on <html>. CSS hides CTA bar, version
       // chip, settings popover; reveals the export footer; freezes the
       // tracer animation at the spiral end.
       const root = document.documentElement;
       root.classList.add('is-exporting');
-      // Let the next two frames paint the new layout before snapshotting.
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       let canvas;
       try {
         canvas = await html2canvas($lobby, {
           backgroundColor: '#0F1117',
           scale: window.devicePixelRatio || 2,
-          // Allow the SVG lanes overlays + cross-origin images. The
-          // homefit-local:// scheme + Vercel-served media both have
-          // permissive CORS for the public bucket.
           useCORS: true,
           allowTaint: true,
           logging: false,
+          onclone: (clonedDoc) => {
+            try {
+              clonedDoc.querySelectorAll('img').forEach((img) => {
+                const swap = blobUrlMap.get(img.src);
+                if (swap) img.src = swap;
+              });
+              clonedDoc.querySelectorAll('video').forEach((v) => {
+                const swap = blobUrlMap.get(v.poster);
+                if (swap) v.poster = swap;
+              });
+            } catch (_) {}
+          },
         });
       } finally {
         root.classList.remove('is-exporting');
+        blobUrlMap.forEach((url) => URL.revokeObjectURL(url));
       }
       const blob = await new Promise((resolve) => {
-        canvas.toBlob(resolve, 'image/png', 0.92);
+        try { canvas.toBlob(resolve, 'image/png', 0.92); }
+        catch (_) { resolve(null); }
       });
-      if (!blob) throw new Error('canvas.toBlob returned null');
+      if (!blob) {
+        // Most likely cause: canvas got tainted despite the CORS pre-
+        // fetch (e.g. a video frame, an external font, or a same-origin
+        // resource that 404'd). Surface to the user instead of failing
+        // silently like Carl saw in rounds 4–5.
+        showExportError(
+          "Couldn't generate the image. Try refreshing the page (Cmd+Shift+R) and try again.",
+        );
+        return;
+      }
       const fileName = `homefit-lobby-${Date.now()}.png`;
       const file = new File([blob], fileName, { type: 'image/png' });
       // Native share sheet (iOS Safari + WKWebView, Android Chrome).
