@@ -3121,7 +3121,7 @@ body.is-fullscreen .playpause-toggle {
 
 .lobby-circuit-lanes .lane-static {
   fill: none;
-  stroke: rgba(255, 107, 53, 0.45);
+  stroke: rgba(255, 107, 53, 0.60);
   stroke-width: 2;
   stroke-linejoin: round;
 }
@@ -3163,9 +3163,9 @@ body.is-fullscreen .playpause-toggle {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 10px 16px;
   background: var(--c-surface-base);
-  border-bottom: 1px solid rgba(255, 107, 53, 0.18);
+  border-bottom: 1px solid rgba(255, 107, 53, 0.30);
 }
 
 .lobby-circuit-header-label {
@@ -3199,7 +3199,7 @@ body.is-fullscreen .playpause-toggle {
 
 .lobby-circuit-body {
   background: rgba(255, 107, 53, 0.04);
-  padding: 8px 14px 14px;
+  padding: 8px 16px 14px;
   display: flex;
   flex-direction: column;
   gap: 6px;

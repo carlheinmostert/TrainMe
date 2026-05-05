@@ -794,30 +794,48 @@
     const gap = 5;
     const radius = 18;
 
-    // The .lobby-circuit element gets per-instance padding so the SVG
-    // (inset:0) extends outward from the frame by lanePad on each side.
-    circuitEl.style.padding = `${lanePad}px`;
+    // v54.1 — drop the per-instance LI padding (was `lanePad`) so the
+    // frame edges align with standalone rows' padding (.lobby-row { padding:
+    // 0 16px }). The SVG is positioned to extend OUTSIDE the LI by lanePad
+    // on each side via negative `inset`, so outer lanes draw beyond the
+    // LI's bounding box visually but the frame + cards inside align with
+    // standalone rows. Carl's request: "exercises outside of the circuit
+    // is a bit to the left (meaning the hero left edge not aligned)".
+    circuitEl.style.padding = '0';
+    // Vertical breathing so adjacent rows don't get crowded by the
+    // outward-extending lanes.
+    circuitEl.style.margin = `${Math.max(8, lanePad + 4)}px 0`;
 
     const frame = circuitEl.querySelector('.lobby-circuit-frame');
     const svg = circuitEl.querySelector('.lobby-circuit-lanes');
     if (!frame || !svg) return;
 
-    // Measure after the padding has applied. Use offset metrics (layout-
-    // box, no transforms) — getBoundingClientRect would include any
-    // active-row scale transforms which are cosmetic, not structural.
-    const totalW = circuitEl.offsetWidth;
-    const totalH = circuitEl.offsetHeight;
     const frameW = frame.offsetWidth;
     const frameH = frame.offsetHeight;
-    if (totalW <= 0 || totalH <= 0 || frameW <= 0 || frameH <= 0) return;
+    if (frameW <= 0 || frameH <= 0) return;
 
-    // Inner rect (innermost lane outline) hugs .lobby-circuit-frame at
-    // (lanePad, lanePad) inside the SVG viewBox.
-    const innerRect = { x: lanePad, y: lanePad, w: frameW, h: frameH };
+    // SVG covers the frame + lanePad on each side. Position with negative
+    // inset so the SVG's (lanePad, lanePad) viewBox coord lands at the
+    // LI's top-left (= frame's top-left).
+    const totalW = frameW + 2 * lanePad;
+    const totalH = frameH + 2 * lanePad;
 
+    svg.style.position = 'absolute';
+    svg.style.top = `-${lanePad}px`;
+    svg.style.left = `-${lanePad}px`;
+    svg.style.right = `-${lanePad}px`;
+    svg.style.bottom = `-${lanePad}px`;
+    svg.style.width = `${totalW}px`;
+    svg.style.height = `${totalH}px`;
+    svg.style.overflow = 'visible';
     svg.setAttribute('viewBox', `0 0 ${totalW} ${totalH}`);
     svg.setAttribute('width', String(totalW));
     svg.setAttribute('height', String(totalH));
+
+    // Inner rect (innermost lane outline) hugs .lobby-circuit-frame at
+    // (lanePad, lanePad) of the SVG viewBox — which displays at frame's
+    // (0, 0) on screen due to the negative inset.
+    const innerRect = { x: lanePad, y: lanePad, w: frameW, h: frameH };
 
     // Wipe previous paths (resize re-render).
     while (svg.firstChild) svg.removeChild(svg.firstChild);
@@ -834,7 +852,7 @@
       const path = document.createElementNS(SVG_NS, 'path');
       path.setAttribute('class', 'lane-static');
       path.setAttribute('d', buildLanePathD(laneRect, radius));
-      const opacity = 0.30 + (i / Math.max(1, cycles - 1)) * 0.30;
+      const opacity = 0.45 + (i / Math.max(1, cycles - 1)) * 0.30;
       path.setAttribute('stroke-opacity', opacity.toFixed(2));
       svg.appendChild(path);
     }
@@ -845,16 +863,32 @@
     tracer.setAttribute('d', buildSpiralPathD(innerRect, cycles, gap, radius));
     svg.appendChild(tracer);
 
-    // Measure path length for the dasharray + animation. getTotalLength
-    // is more accurate across the diagonal connectors than any analytical
-    // approximation.
+    // Measure path length for the dasharray + animation.
     const pathLen = tracer.getTotalLength();
     const tracerLen = Math.min(60, pathLen * 0.12);
-    const dur = cycles * 9; // 18s/27s/36s/45s for ×2/×3/×4/×5
-    tracer.style.setProperty('--path-len', pathLen.toFixed(2));
-    tracer.style.setProperty('--tracer-len', tracerLen.toFixed(2));
-    tracer.style.setProperty('--dur', `${dur}s`);
+    const dur = cycles * 9 * 1000; // ms — 18s/27s/36s/45s for ×2/×3/×4/×5
     tracer.style.strokeDasharray = `${tracerLen.toFixed(2)} ${pathLen.toFixed(2)}`;
+
+    // v54.1 — replace CSS keyframes with WAAPI. iOS WKWebView doesn't
+    // resolve `var(--path-len)` inside @keyframes reliably, so the CSS
+    // animation interpolated from undefined to 0 → no visible motion on
+    // device (worked in desktop Safari). WAAPI takes a numeric value
+    // directly, no CSS-variable resolution dance.
+    if (typeof tracer.animate === 'function' &&
+        !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      // Cancel any prior animation (resize re-render).
+      tracer.getAnimations().forEach((a) => a.cancel());
+      tracer.animate(
+        [
+          { strokeDashoffset: pathLen.toFixed(2) },
+          { strokeDashoffset: 0, offset: 0.9 },
+          { strokeDashoffset: 0 },
+        ],
+        { duration: dur, iterations: Infinity, easing: 'linear' }
+      );
+    } else {
+      tracer.style.strokeDashoffset = '0';
+    }
   }
 
   function renderCircuitLanes() {
