@@ -3,6 +3,8 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/client.dart';
 import '../models/session.dart';
@@ -567,6 +569,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 retrying: _retrying,
                 onTap: _retrying ? null : _retrySync,
               ),
+            // First-run "Getting started" banner. Reads a per-device
+            // SharedPreferences flag; renders once and dismisses for good
+            // either way (tap-through or explicit ×). Tap launches the
+            // walkthrough at manage.homefit.studio/getting-started in
+            // Safari (external app, NOT in-app browser) so the
+            // practitioner can keep it open and switch back to the app
+            // to follow along step-by-step. Sits below the sync banner
+            // so transient infra errors take precedence.
+            const _GettingStartedBanner(),
             const SizedBox(height: 8),
             // Wave 15 — a server-revoked session (password rotated,
             // admin intervention, auth.sessions row deleted) used to
@@ -1205,4 +1216,205 @@ class _ClientSessionStats {
   final DateTime? lastSessionAt;
 
   const _ClientSessionStats({required this.count, this.lastSessionAt});
+}
+
+/// One-time "Your first session, step by step" banner shown at the top
+/// of Home until the practitioner either taps through to the walkthrough
+/// or dismisses it with the trailing ×. Backed by a single
+/// [SharedPreferences] bool — per-device, not per-user, matching the
+/// app's other onboarding-affordance patterns.
+///
+/// Tap → launches the public walkthrough at
+/// `manage.homefit.studio/getting-started` in Safari via
+/// [LaunchMode.externalApplication]. Carl's intent: the practitioner
+/// leaves the app and lands in the system browser so they can keep the
+/// walkthrough open in a separate app while switching back here to
+/// follow along — an in-app browser would defeat that.
+///
+/// We default to "not shown" until the SharedPreferences read resolves,
+/// then flip to visible only when the flag is unset. That avoids a
+/// brief flash on subsequent app launches for users who've already
+/// dismissed it. [AnimatedSize] handles the dismiss collapse.
+class _GettingStartedBanner extends StatefulWidget {
+  const _GettingStartedBanner();
+
+  static const String _prefsKey = 'getting_started_banner_seen_v1';
+  static const String _walkthroughUrl =
+      'https://manage.homefit.studio/getting-started';
+
+  @override
+  State<_GettingStartedBanner> createState() => _GettingStartedBannerState();
+}
+
+class _GettingStartedBannerState extends State<_GettingStartedBanner> {
+  /// Tri-state: null while we're reading SharedPreferences, true if the
+  /// banner should render, false if we've already dismissed it (or are
+  /// waiting on the initial read — same visual outcome).
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSeenFlag();
+  }
+
+  Future<void> _loadSeenFlag() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final seen = prefs.getBool(_GettingStartedBanner._prefsKey) ?? false;
+      if (!mounted) return;
+      setState(() => _visible = !seen);
+    } catch (_) {
+      // SharedPreferences read failures are extremely rare; if we can't
+      // read the flag, leave the banner hidden rather than flashing it
+      // on every launch.
+    }
+  }
+
+  Future<void> _markSeen() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_GettingStartedBanner._prefsKey, true);
+    } catch (_) {
+      // Best-effort; the in-memory _visible flip below is what hides
+      // the banner for this session even if the write failed.
+    }
+  }
+
+  Future<void> _onTap() async {
+    HapticFeedback.selectionClick();
+    // Mark seen FIRST so the banner doesn't reappear if the launch
+    // fails — the spec explicitly says don't trap the user behind it.
+    await _markSeen();
+    if (!mounted) return;
+    setState(() => _visible = false);
+
+    final uri = Uri.parse(_GettingStartedBanner._walkthroughUrl);
+    bool launched = false;
+    try {
+      launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      launched = false;
+    }
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Couldn't open the walkthrough. Visit "
+              'manage.homefit.studio/getting-started',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                color: AppColors.textOnDark,
+              ),
+            ),
+            backgroundColor: AppColors.surfaceRaised,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 4),
+          ),
+        );
+    }
+  }
+
+  Future<void> _onDismiss() async {
+    HapticFeedback.selectionClick();
+    await _markSeen();
+    if (!mounted) return;
+    setState(() => _visible = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      alignment: Alignment.topCenter,
+      child: !_visible
+          ? const SizedBox.shrink()
+          : Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _onTap,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AppColors.primary,
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.rocket_launch_outlined,
+                          size: 22,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Your first session, step by step',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textOnDark,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'A short walkthrough. Opens in Safari.',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w400,
+                                  color: AppColors.textSecondaryOnDark,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.open_in_new,
+                          size: 18,
+                          color: AppColors.primary,
+                        ),
+                        IconButton(
+                          onPressed: _onDismiss,
+                          icon: const Icon(
+                            Icons.close,
+                            size: 18,
+                            color: AppColors.textSecondaryOnDark,
+                          ),
+                          tooltip: 'Dismiss',
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          padding: EdgeInsets.zero,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+    );
+  }
 }
