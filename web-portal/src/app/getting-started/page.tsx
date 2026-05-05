@@ -50,8 +50,9 @@ export default function GettingStartedPage() {
         <div className="mt-6 rounded-md border border-brand/30 bg-brand/10 p-4 text-sm text-ink">
           You&rsquo;ve just signed in. Here&rsquo;s exactly what to do
           next. Four setup steps, then five toolbar stages &mdash;
-          Camera, Refine, Preview, Publish, Share &mdash; and your
-          client has a plan they can open in WhatsApp.
+          <strong> CAPS</strong>: Capture, Adjust, Preview, Publish,
+          Share &mdash; and your client has a plan they can open in
+          WhatsApp.
         </div>
 
         <ToolbarStrip />
@@ -156,12 +157,12 @@ export default function GettingStartedPage() {
 
           <Step
             number={5}
-            heading="Capture (Camera)"
+            heading="Capture"
             icon={<CameraIcon size={28} color="#9CA3AF" />}
             illustration={<StepCamera />}
           >
             <P>
-              You&rsquo;re now in the session shell. Camera mode is
+              You&rsquo;re now in the session shell. Capture mode is
               full-screen with a shutter at the bottom. The shutter
               has two behaviours:
             </P>
@@ -200,7 +201,7 @@ export default function GettingStartedPage() {
 
           <Step
             number={6}
-            heading="Refine (Studio)"
+            heading="Adjust (Studio)"
             icon={<RefineIcon size={28} color="#9CA3AF" />}
             illustration={<StepStudio />}
           >
@@ -208,7 +209,7 @@ export default function GettingStartedPage() {
               All optional. All worth honouring.
             </P>
             <P>
-              You can publish straight from Camera if you want
+              You can publish straight from Capture if you want
               &mdash; nothing below is mandatory. But this is where
               a stack of clips becomes a plan that lands well with
               the client. Each refinement is small. Together, they
@@ -219,7 +220,7 @@ export default function GettingStartedPage() {
             <RefineSubsection heading="Open the editor">
               <P>
                 Tap a card to open the editor sheet. Or tap the{' '}
-                <strong>Refine</strong> icon in the bottom workflow
+                <strong>Adjust</strong> icon in the bottom workflow
                 pill &mdash; same thing, opens the editor for the
                 top card.
               </P>

@@ -212,8 +212,8 @@ export function ShareIcon({ size = 24, color = CORAL, className }: IconProps) {
 
 export function ToolbarStrip() {
   const items = [
-    { label: 'Camera', Icon: CameraIcon },
-    { label: 'Refine', Icon: RefineIcon },
+    { label: 'Capture', Icon: CameraIcon },
+    { label: 'Adjust', Icon: RefineIcon },
     { label: 'Preview', Icon: PreviewIcon },
     { label: 'Publish', Icon: PublishIcon },
     { label: 'Share', Icon: ShareIcon },
@@ -246,8 +246,9 @@ export function ToolbarStrip() {
         ))}
       </div>
       <p className="mt-3 max-w-md text-center text-xs text-ink-muted">
-        The Studio bottom toolbar &mdash; five stages from a stack of clips to a
-        link in your client&rsquo;s WhatsApp.
+        <strong className="text-ink">CAPS</strong> &mdash; the Studio bottom
+        toolbar. Five stages from a stack of clips to a link in your
+        client&rsquo;s WhatsApp.
       </p>
     </div>
   );
@@ -416,7 +417,7 @@ export function StepNewSession() {
 
 export function StepCamera() {
   return (
-    <PhoneFrame caption="Camera — short-press for photo, long-press for video">
+    <PhoneFrame caption="Capture — short-press for photo, long-press for video">
       {/* Viewfinder area */}
       <rect x="14" y="30" width="172" height="244" fill={STROKE_DIM} opacity="0.15" />
 
@@ -461,7 +462,7 @@ export function StepCamera() {
 
 export function StepStudio() {
   return (
-    <PhoneFrame caption="Refine — tap a card to open the editor sheet">
+    <PhoneFrame caption="Adjust — tap a card to open the editor sheet">
       <text x="22" y="50" fill={STROKE} fontSize="11" fontFamily="sans-serif">
         Studio
       </text>
@@ -469,7 +470,7 @@ export function StepStudio() {
       {/* Workflow pill at top */}
       <rect x="40" y="60" width="120" height="14" rx="7" fill="none" stroke={STROKE_DIM} strokeWidth="0.8" />
       <text x="100" y="70" fill={STROKE_DIM} fontSize="6.5" fontFamily="sans-serif" textAnchor="middle">
-        Cam · Refine · Prev · Pub · Share
+        Cap · Adj · Prev · Pub · Share
       </text>
 
       {/* Gutter rail circuit indicator on left */}
@@ -587,7 +588,7 @@ export function StepPublish() {
       {/* Workflow pill — Publish highlighted */}
       <rect x="32" y="68" width="136" height="20" rx="10" fill="none" stroke={STROKE_DIM} strokeWidth="0.8" />
       <text x="58" y="81" fill={STROKE_DIM} fontSize="8" fontFamily="sans-serif" textAnchor="middle">
-        Camera
+        Capture
       </text>
       <text x="98" y="81" fill={STROKE_DIM} fontSize="8" fontFamily="sans-serif" textAnchor="middle">
         Preview

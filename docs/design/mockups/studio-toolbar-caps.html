@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Studio · CAPS toolbar redesign — Wave 5 mockup</title>
+<style>
+  :root {
+    --bg: #0F1117;
+    --raised: #171923;
+    --raised-2: #242733;
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.14);
+    --text: #F0F0F5;
+    --text-mute: #9CA3AF;
+    --text-dim: #6B7280;
+    --coral: #FF6B35;
+    --coral-bg: rgba(255,107,53,0.12);
+    --coral-soft: rgba(255,107,53,0.18);
+    --sage: #86EFAC;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: #060708; color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif;
+    font-size: 14px; line-height: 1.55; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 32px 80px; }
+  .kicker { color: var(--coral); font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  h1 { font-family: Montserrat, -apple-system, sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.4px; margin: 0 0 10px; }
+  h2 { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 0.2px; margin: 36px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .lede { color: var(--text-mute); font-size: 14px; margin: 0 0 28px; padding: 16px 20px; background: var(--raised); border-radius: 10px; border: 1px solid var(--border); max-width: 840px; }
+  .lede strong { color: var(--text); }
+  .lede code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--coral); }
+
+  /* Pill in isolation, blown-up scale to read clearly. */
+  .stage {
+    background: var(--bg); border: 1px solid var(--border-strong);
+    border-radius: 18px; padding: 28px 24px;
+    display: flex; flex-direction: column; align-items: center;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+    margin-bottom: 18px;
+  }
+
+  .pill-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    background: var(--raised-2);
+    border-radius: 999px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  }
+
+  .cell {
+    display: flex; flex-direction: column; align-items: center;
+    width: 56px;
+  }
+  .cell .glyph {
+    width: 36px; height: 36px;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.30);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text); font-size: 18px;
+  }
+  .cell .label {
+    margin-top: 4px;
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--text-mute);
+  }
+  .cell.dim .glyph { color: rgba(255,255,255,0.45); }
+  .cell.dim .label { color: rgba(156,163,175,0.55); }
+
+  .arrow {
+    width: 8px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--coral); font-size: 11px;
+    margin-bottom: 14px; /* push above the label row */
+  }
+  .arrow.dim { color: rgba(255,107,53,0.30); }
+
+  .annotation {
+    margin: 16px 0; padding: 14px 18px;
+    background: var(--raised); border-radius: 10px; border: 1px solid var(--border);
+    color: var(--text-mute); font-size: 13px; max-width: 840px;
+  }
+  .annotation strong { color: var(--text); }
+  .annotation code { background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--coral); }
+  .annotation ul { margin: 8px 0 0 0; padding-left: 22px; }
+  .annotation li { margin: 4px 0; }
+
+  .stage .label-row {
+    margin-top: 14px; color: var(--text-dim); font-size: 11px;
+  }
+
+  /* Smaller variant frames so we can show three states inline. */
+  .frames-row {
+    display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 24px;
+  }
+  .frame {
+    flex: 1 1 320px; min-width: 300px;
+    background: var(--bg); border: 1px solid var(--border-strong);
+    border-radius: 16px; padding: 20px 18px;
+  }
+  .frame .frame-label {
+    color: var(--text-mute); font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 14px;
+  }
+
+  .legend { font-size: 12px; color: var(--text-dim); padding-top: 6px; line-height: 1.6; max-width: 840px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Wave 5 · CAPS toolbar redesign</div>
+  <h1>Studio · CAPS — Capture · Adjust · Preview · Publish · Share</h1>
+
+  <p class="lede">
+    <strong>Mnemonic.</strong> Today's bottom toolbar reads <em>Camera · Refine · Preview · Publish · Share</em>. Renaming Camera &rarr; <strong>Capture</strong> and Refine &rarr; <strong>Adjust</strong> lands a clean acronym &mdash; <strong>CAPS</strong> &mdash; that practitioners can repeat back to themselves while learning the workflow.<br><br>
+    <strong>Visual upgrade.</strong> Pill geometry goes <strong>fully rounded</strong> (was 12px square corners). Each glyph drops into its own dark sub-cell, with a 10pt uppercase label below. Slim coral arrows replace the chunky triangles. Share switches to the three-dot network glyph. Active vs dim state mirrors today &mdash; the label dims with its glyph.
+  </p>
+
+  <h2>Canonical · all five stages active</h2>
+  <div class="stage">
+    <div class="pill-row">
+      <div class="cell"><div class="glyph">&#9678;</div><div class="label">CAPTURE</div></div>
+      <div class="arrow">&#9654;</div>
+      <div class="cell"><div class="glyph">&#9776;</div><div class="label">ADJUST</div></div>
+      <div class="arrow">&#9654;</div>
+      <div class="cell"><div class="glyph">&#9655;</div><div class="label">PREVIEW</div></div>
+      <div class="arrow">&#9654;</div>
+      <div class="cell"><div class="glyph">&#8607;</div><div class="label">PUBLISH</div></div>
+      <div class="arrow">&#9654;</div>
+      <div class="cell"><div class="glyph">&#10070;</div><div class="label">SHARE</div></div>
+    </div>
+    <div class="label-row">All five active &mdash; published session, ready to share.</div>
+  </div>
+
+  <h2>State variants</h2>
+  <div class="frames-row">
+    <div class="frame">
+      <div class="frame-label">Empty session</div>
+      <div class="pill-row">
+        <div class="cell"><div class="glyph">&#9678;</div><div class="label">CAPTURE</div></div>
+        <div class="arrow dim">&#9654;</div>
+        <div class="cell dim"><div class="glyph">&#9776;</div><div class="label">ADJUST</div></div>
+        <div class="arrow dim">&#9654;</div>
+        <div class="cell dim"><div class="glyph">&#9655;</div><div class="label">PREVIEW</div></div>
+        <div class="arrow dim">&#9654;</div>
+        <div class="cell dim"><div class="glyph">&#8607;</div><div class="label">PUBLISH</div></div>
+        <div class="arrow dim">&#9654;</div>
+        <div class="cell dim"><div class="glyph">&#10070;</div><div class="label">SHARE</div></div>
+      </div>
+    </div>
+    <div class="frame">
+      <div class="frame-label">Mid-edit, unpublished</div>
+      <div class="pill-row">
+        <div class="cell"><div class="glyph">&#9678;</div><div class="label">CAPTURE</div></div>
+        <div class="arrow">&#9654;</div>
+        <div class="cell"><div class="glyph">&#9776;</div><div class="label">ADJUST</div></div>
+        <div class="arrow">&#9654;</div>
+        <div class="cell"><div class="glyph">&#9655;</div><div class="label">PREVIEW</div></div>
+        <div class="arrow">&#9654;</div>
+        <div class="cell"><div class="glyph">&#8607;</div><div class="label">PUBLISH</div></div>
+        <div class="arrow dim">&#9654;</div>
+        <div class="cell dim"><div class="glyph">&#10070;</div><div class="label">SHARE</div></div>
+      </div>
+    </div>
+    <div class="frame">
+      <div class="frame-label">Locked (past 14d)</div>
+      <div class="pill-row">
+        <div class="cell"><div class="glyph">&#9678;</div><div class="label">CAPTURE</div></div>
+        <div class="arrow">&#9654;</div>
+        <div class="cell"><div class="glyph">&#9776;</div><div class="label">ADJUST</div></div>
+        <div class="arrow">&#9654;</div>
+        <div class="cell"><div class="glyph">&#9655;</div><div class="label">PREVIEW</div></div>
+        <div class="arrow">&#9654;</div>
+        <div class="cell"><div class="glyph" style="color:var(--coral);">&#128274;</div><div class="label" style="color:var(--coral);">UNLOCK</div></div>
+        <div class="arrow">&#9654;</div>
+        <div class="cell"><div class="glyph">&#10070;</div><div class="label">SHARE</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="annotation">
+    <strong>Spec details:</strong>
+    <ul>
+      <li><strong>Pill</strong>: <code>BorderRadius.circular(999)</code>, <code>color: surfaceRaised</code>, <code>BoxShadow(0,2,8,rgba(0,0,0,0.25))</code>.</li>
+      <li><strong>Cell</strong>: 56pt wide, glyph in 36pt circle (<code>Colors.black.withValues(alpha: 0.30)</code>), 18-22pt glyph, label 10pt Inter 600 uppercase, letter-spacing 0.04em.</li>
+      <li><strong>Arrow</strong>: 6&times;14 painted glyph in 8pt-wide slot, vertically centered on the GLYPH ROW (not the column &mdash; sits above the label baseline).</li>
+      <li><strong>Active label</strong>: <code>textSecondaryOnDark</code>. <strong>Dim label</strong>: same colour at <code>0.55</code> alpha. <strong>Active glyph</strong>: <code>textOnDark</code>. <strong>Dim glyph</strong>: <code>textOnDark</code> at <code>0.45</code> alpha. <strong>Coral arrow</strong>: <code>primary</code> at 0.85 active / 0.30 dim.</li>
+      <li><strong>Share</strong>: <code>Icons.share</code> (Material three-dot network glyph &mdash; mirrors the help page's <code>ShareIcon</code>).</li>
+      <li><strong>Locked</strong>: Publish slot replaced by coral lock + UNLOCK label; everything else is unchanged.</li>
+    </ul>
+  </div>
+
+  <p class="legend">Mnemonic: <strong>CAPS</strong> &mdash; Capture &middot; Adjust &middot; Preview &middot; Publish &middot; Share. The five stages a practitioner walks every session, top to bottom of the workflow.</p>
+</div>
+</body>
+</html>
