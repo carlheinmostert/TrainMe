@@ -1837,12 +1837,11 @@
       $lobbyShareBtn._wired = true;
       $lobbyShareBtn.addEventListener('click', (evt) => {
         evt.stopPropagation();
-        // Mobile: navigator.share opens the native share sheet directly.
-        // Desktop: the export modal renders the PNG with a real Download
-        // anchor — clicking the anchor is a fresh user-gesture so
-        // browsers reliably honour it (no popup blocker, no nav issue).
         triggerLobbyShare().catch((err) => {
+          // Surface ANY uncaught error to the user — silent failures
+          // are how this trap stayed hidden across rounds 4-7.
           try { console.warn('[homefit-lobby] share failed:', err); } catch (_) {}
+          showExportError(`Couldn't generate the image: ${(err && err.message) || err}`);
           if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
         });
       });
@@ -2129,13 +2128,15 @@
     modal.hidden = false;
   }
 
-  // Pre-fetch all images visible inside the lobby root via fetch() with
-  // mode:'cors' → blob → URL.createObjectURL. We can't just slap
-  // crossorigin="anonymous" on existing <img> tags because the browser
-  // already cached them without CORS headers — the cached entry is
-  // opaque and would still taint the canvas. Same for video posters.
-  // Caller MUST revoke the returned blob URLs once the snapshot is done.
-  async function preloadCorsCleanBlobs(rootEl) {
+  // Pre-fetch every image src + video poster in the lobby and convert
+  // each to a base64 DATA URL. Data URLs are guaranteed same-origin and
+  // need no separate load — they're inlined in the src attribute. This
+  // sidesteps two problems we hit with blob: URLs:
+  //   - Live-DOM swap to a blob URL caused a brief broken-image flash
+  //     while the browser fetched the blob (Carl's round 7 question
+  //     mark).
+  //   - blob URL revoke timing was racing with html2canvas paint.
+  async function preloadAsDataUrls(rootEl) {
     const sources = new Set();
     rootEl.querySelectorAll('img').forEach((img) => {
       if (img.src) sources.add(img.src);
@@ -2143,134 +2144,141 @@
     rootEl.querySelectorAll('video').forEach((v) => {
       if (v.poster) sources.add(v.poster);
     });
-    const map = new Map(); // origSrc → blobUrl
+    const map = new Map(); // origSrc → dataUrl
+    const errors = [];
     await Promise.all(Array.from(sources).map(async (src) => {
       if (!src) return;
-      if (src.startsWith('blob:') || src.startsWith('data:')) return;
+      if (src.startsWith('data:')) return;
       try {
         const res = await fetch(src, { mode: 'cors', credentials: 'omit' });
-        if (!res.ok) return;
+        if (!res.ok) {
+          errors.push(`${res.status} on ${shortUrl(src)}`);
+          return;
+        }
         const blob = await res.blob();
-        map.set(src, URL.createObjectURL(blob));
-      } catch (_) {}
+        if (!/^image\//i.test(blob.type)) {
+          errors.push(`non-image blob (${blob.type}) on ${shortUrl(src)}`);
+          return;
+        }
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(blob);
+        });
+        map.set(src, dataUrl);
+      } catch (err) {
+        errors.push(`${(err && err.message) || err} on ${shortUrl(src)}`);
+      }
     }));
-    return map;
+    return { map, errors };
+  }
+
+  function shortUrl(u) {
+    try {
+      const url = new URL(u);
+      const last = url.pathname.split('/').pop() || url.pathname;
+      return last.length > 32 ? last.slice(0, 28) + '…' : last;
+    } catch (_) {
+      return String(u).slice(0, 32);
+    }
+  }
+
+  function formatExportError(diag, headline) {
+    const lines = [`Couldn't generate the image: ${headline}.`];
+    lines.push(
+      `Pre-fetched ${diag.fetched}/${diag.sources} images, swapped ${diag.swapped} on clone.`,
+    );
+    if (diag.h2cError) lines.push(`html2canvas: ${diag.h2cError}`);
+    if (diag.taintErr) lines.push(`Canvas: ${diag.taintErr}`);
+    if (diag.preloadErrors.length) {
+      const sample = diag.preloadErrors.slice(0, 3).join('; ');
+      lines.push(`Preload: ${sample}${diag.preloadErrors.length > 3 ? ` (+${diag.preloadErrors.length - 3} more)` : ''}`);
+    }
+    lines.push(`Refresh with Cmd+Shift+R and try again.`);
+    return lines.join(' ');
   }
 
   async function triggerLobbyShare() {
     if (!$lobby) throw new Error('lobby root missing');
     if ($lobbyShareBtn) $lobbyShareBtn.disabled = true;
-    // Diagnostics: collect breadcrumbs so we can show a SPECIFIC error
-    // message in the modal if anything fails. Carl's repeated rounds
-    // showed the silent-failure paths are how this trap stays hidden.
-    const diag = { fetched: 0, failed: 0, swapped: 0, sources: 0, taintErr: null };
+    const diag = {
+      sources: 0, fetched: 0, swapped: 0,
+      preloadErrors: [], h2cError: null, taintErr: null,
+    };
     try {
       const html2canvas = await loadHtml2Canvas();
-      // Pre-fetch every cross-origin image as a same-origin blob URL.
-      const blobUrlMap = await preloadCorsCleanBlobs($lobby);
-      diag.fetched = blobUrlMap.size;
-
-      // Mutate the LIVE DOM (not html2canvas's clone via onclone) — clone
-      // mutations turned out unreliable in v64 (Carl reported the modal
-      // still showed the taint error). Mutating the live DOM and
-      // awaiting <img>.complete guarantees the new blob URL is fully
-      // loaded before we hand it to html2canvas.
-      const imgs = Array.from($lobby.querySelectorAll('img'));
-      const videos = Array.from($lobby.querySelectorAll('video'));
-      const originalSrcs = new Map();
-      const originalPosters = new Map();
+      // Pre-fetch every cross-origin image as a base64 data URL. Data
+      // URLs are inlined into the src attribute — no separate fetch, no
+      // taint surface, no broken-image flicker on the live page.
+      const { map: dataUrlMap, errors: preloadErrors } = await preloadAsDataUrls($lobby);
+      diag.fetched = dataUrlMap.size;
+      diag.preloadErrors = preloadErrors;
+      const imgCount = $lobby.querySelectorAll('img').length;
+      const videoCount = $lobby.querySelectorAll('video').length;
+      diag.sources = imgCount + videoCount;
 
       const root = document.documentElement;
       root.classList.add('is-exporting');
+      // Two RAFs so the export-footer reveal + chrome hide paint first.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
       let canvas;
       try {
-        // Swap srcs to blob URLs
-        for (const img of imgs) {
-          const swap = blobUrlMap.get(img.src);
-          if (swap) {
-            originalSrcs.set(img, img.src);
-            img.src = swap;
-            diag.swapped += 1;
-          }
-        }
-        for (const v of videos) {
-          const swap = blobUrlMap.get(v.poster);
-          if (swap) {
-            originalPosters.set(v, v.poster);
-            v.poster = swap;
-          }
-        }
-        diag.sources = imgs.length + videos.length;
-
-        // Wait for blob-swapped images to actually load (img.complete +
-        // naturalWidth > 0) so html2canvas snapshots the loaded version.
-        await Promise.all(imgs.map((img) => new Promise((resolve) => {
-          if (img.complete && img.naturalWidth > 0) return resolve();
-          const done = () => resolve();
-          img.addEventListener('load', done, { once: true });
-          img.addEventListener('error', done, { once: true });
-          // 3-second hard timeout so we never hang the export forever.
-          setTimeout(done, 3000);
-        })));
-
-        // Two RAFs to let layout settle.
-        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-
         canvas = await html2canvas($lobby, {
           backgroundColor: '#0F1117',
           scale: window.devicePixelRatio || 2,
           useCORS: true,
-          allowTaint: false,  // Fail fast; we want to know WHICH image taints
+          allowTaint: false,  // Fail fast — we want a real error, not a silent null
           logging: false,
-          // Final safety net for anything we missed in the live DOM swap
-          // (e.g. dynamically-added imgs after pre-fetch).
           onclone: (clonedDoc) => {
+            // Swap srcs ON THE CLONE only — leaves the live DOM
+            // untouched (no flicker, no question-mark glyph). Data URLs
+            // load synchronously when set on a cloned-node img.
             try {
               clonedDoc.querySelectorAll('img').forEach((img) => {
-                const swap = blobUrlMap.get(img.src);
-                if (swap) img.src = swap;
+                const swap = dataUrlMap.get(img.src);
+                if (swap) {
+                  img.src = swap;
+                  img.removeAttribute('crossorigin');
+                  diag.swapped += 1;
+                } else if (img.src && !img.src.startsWith('data:')) {
+                  // No swap available → most likely culprit if canvas taints.
+                  diag.preloadErrors.push(`unmapped img: ${shortUrl(img.src)}`);
+                }
               });
               clonedDoc.querySelectorAll('video').forEach((v) => {
-                const swap = blobUrlMap.get(v.poster);
+                const swap = dataUrlMap.get(v.poster);
                 if (swap) v.poster = swap;
+                // Strip src so html2canvas doesn't try to reach into video
+                // frames (a poster-only render is what we want).
+                v.removeAttribute('src');
+                v.querySelectorAll('source').forEach((s) => s.remove());
               });
             } catch (_) {}
           },
         });
+      } catch (err) {
+        diag.h2cError = (err && err.message) || String(err);
       } finally {
-        // Restore original srcs/posters
-        originalSrcs.forEach((src, img) => { try { img.src = src; } catch (_) {} });
-        originalPosters.forEach((poster, v) => { try { v.poster = poster; } catch (_) {} });
         root.classList.remove('is-exporting');
-        // Revoke blob URLs after a short delay so any residual paint
-        // operation completes first.
-        setTimeout(() => blobUrlMap.forEach((url) => URL.revokeObjectURL(url)), 1000);
       }
 
-      // Diagnostic: try toDataURL FIRST. It throws SecurityError on a
-      // tainted canvas (with a message we can capture), unlike toBlob
-      // which silently returns null. If toDataURL succeeds, the canvas
-      // is clean and toBlob will work.
-      try {
-        canvas.toDataURL('image/png');
-      } catch (err) {
-        diag.taintErr = (err && err.message) || String(err);
+      if (!canvas) {
+        showExportError(formatExportError(diag, 'html2canvas threw'));
+        return;
       }
+
+      // Probe taint via toDataURL — captures specific error message.
+      try { canvas.toDataURL('image/png'); }
+      catch (err) { diag.taintErr = (err && err.message) || String(err); }
 
       const blob = await new Promise((resolve) => {
         try { canvas.toBlob(resolve, 'image/png', 0.92); }
         catch (_) { resolve(null); }
       });
       if (!blob) {
-        const reasonHint = diag.taintErr
-          ? `Canvas blocked by CORS: ${diag.taintErr}`
-          : `Snapshot succeeded but PNG encoding failed.`;
-        showExportError(
-          `Couldn't generate the image. ${reasonHint} ` +
-          `(Pre-fetched ${diag.fetched}/${diag.sources} images, swapped ${diag.swapped}.) ` +
-          `Try Cmd+Shift+R and retry.`,
-        );
+        showExportError(formatExportError(diag, 'toBlob returned null'));
         return;
       }
       const fileName = `homefit-lobby-${Date.now()}.png`;
