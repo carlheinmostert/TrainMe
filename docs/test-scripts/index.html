@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-05-adjust-sheet-detent-scrim.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Editor sheet floor 0.75 + frosted-scrim backdrop</div>
+              <div class="scope">Per-exercise editor sheet polish (opens on Studio card tap or new Refine toolbar button). Two cosmetic tweaks. <strong>1)</strong> Floor detent <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_kMinDetent</code> raised <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">0.55</code> &rarr; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">0.75</code> so non-Preview tabs cover ~75% of canvas on first open instead of ~55%. <strong>2)</strong> Default 54% black modal barrier replaced with a real frosted-scrim layer &mdash; <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">BackdropFilter(ImageFilter.blur(sigmaX: 8, sigmaY: 8))</code> + 65% black <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Container</code> wrapped in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">RepaintBoundary</code> &mdash; so the strip of Studio above the sheet visibly recedes (Apple Control Center / share sheet pattern). Outer <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">GestureDetector</code> wraps the scrim to keep tap-outside-dismiss matching default barrier behaviour. Single source of truth wraps once at <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">showExerciseEditorSheet</code>. Preview tab still snaps to <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">0.95</code> &mdash; unchanged. <strong>8 items in 6 sections; load-bearing items are #1 (~75% coverage), #2 (real blur visible), #4 (tap-outside dismisses).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-05-count-glyph-fittedbox.html">
           <div class="row">
             <div>

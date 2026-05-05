@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -63,19 +65,45 @@ Future<void> showExerciseEditorSheet({
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
+      // Default barrier disabled — we render our own frosted-scrim layer
+      // (BackdropFilter blur + heavier dim) inside the builder so the
+      // underlying Studio screen visibly recedes instead of just dims.
+      // Same pattern Apple uses for Control Center / share sheets.
+      barrierColor: Colors.transparent,
       useSafeArea: true,
       // The inner DraggableScrollableSheet owns drag behaviour. Letting
       // showModalBottomSheet's own enableDrag also fight for vertical
       // drags eats inner widgets (weight slider, trim handles) and the
       // sheet refuses to expand via the drag handle.
       enableDrag: false,
-      builder: (sheetCtx) => ExerciseEditorSheet(
-        session: session,
-        initialExerciseIndex: initialExerciseIndex,
-        onExerciseChanged: onExerciseChanged,
-        onSessionUpdate: onSessionUpdate,
-        initialTab: initialTab,
+      builder: (sheetCtx) => Stack(
+        children: [
+          // Frosted-scrim backdrop. GestureDetector wraps the BackdropFilter
+          // (not the other way round) so the tap-to-dismiss hit target
+          // matches the default modal-barrier behaviour the transparent
+          // barrier gave up.
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(sheetCtx).pop(),
+              child: RepaintBoundary(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.65),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          ExerciseEditorSheet(
+            session: session,
+            initialExerciseIndex: initialExerciseIndex,
+            onExerciseChanged: onExerciseChanged,
+            onSessionUpdate: onSessionUpdate,
+            initialTab: initialTab,
+          ),
+        ],
       ),
     );
   } finally {
@@ -125,23 +153,28 @@ class ExerciseEditorSheet extends StatefulWidget {
 }
 
 class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
-  // Round 3 — Carl's spec evolved twice. Round 2 had drag-down past 0.55
-  // dismiss; retest reported releasing below 0.55 dismissed instead of
-  // snapping. Round 3: 0.55 is the FLOOR — releases below stay at 0.55.
-  // Dismiss is via fast downward velocity (>800), tap-outside (modal
-  // barrier), or explicit close.
+  // Round 3 — Carl's spec evolved twice. Round 2 had drag-down past the
+  // floor dismiss; retest reported releasing below dismissed instead of
+  // snapping. Round 3: the floor is the FLOOR — releases below stay
+  // pinned at the floor. Dismiss is via fast downward velocity (>800),
+  // tap-outside (frosted-scrim layer), or explicit close.
+  //
+  // 2026-05-05 — floor raised 0.55 → 0.75. With a transparent default
+  // barrier replaced by a BackdropFilter scrim (see [showExerciseEditorSheet]),
+  // the underlying Studio is intentionally blurred + heavily dimmed; the
+  // 0.75 floor stops the eye drifting back to it.
   //
   // Tab-aware default detent: Preview tab promotes to 0.95 (full canvas
-  // for the embedded media viewer); all other tabs settle at 0.55 (form
-  // controls don't need the full screen — leaves the parent visible).
-  // The tab swipe / tab-strip tap calls `_animateSheetForTab` to honour
-  // this. Initial detent is computed in `build()` via `_detentForTab`.
-  static const double _kMinDetent = 0.55;
+  // for the embedded media viewer); all other tabs settle at 0.75 (form
+  // controls don't need the full screen — leaves a frosted strip of the
+  // parent visible). The tab swipe / tab-strip tap calls `_snapSheetForTab`
+  // to honour this. Initial detent is computed in `build()` via `_detentForTab`.
+  static const double _kMinDetent = 0.75;
   static const double _kMaxDetent = 0.95;
   static const double _kPreviewDetent = 0.95;
 
   /// Velocity threshold (logical pt/sec) for fling-down dismissal. Slow
-  /// drags below the floor snap back to 0.55 instead of dismissing.
+  /// drags below the floor snap back to 0.75 instead of dismissing.
   static const double _kFlingDismissVelocity = 800;
 
   late final DraggableScrollableController _sheetController;
@@ -186,7 +219,8 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
 
   /// Returns the canonical detent for the given tab index — Preview
   /// goes large (0.95) so the embedded video has canvas; every other
-  /// tab snaps to 0.55 so the underlying screen stays partially visible.
+  /// tab snaps to 0.75 so the underlying screen stays partially visible
+  /// (behind the frosted scrim).
   double _detentForTab(int tabIndex) {
     if (tabIndex == _tabIndexFor(ExerciseEditorTab.preview)) {
       return _kPreviewDetent;
@@ -266,8 +300,8 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
 
   /// Round 5 — hard-snap the sheet to the canonical detent for the given
   /// tab. Preview promotes to 0.95 (full canvas for the embedded media
-  /// viewer); every other tab settles at 0.55 so the underlying screen
-  /// stays partially visible.
+  /// viewer); every other tab settles at 0.75 so the underlying screen
+  /// stays partially visible (behind the frosted scrim).
   ///
   /// Uses [DraggableScrollableController.jumpTo] (instant) instead of
   /// `animateTo`. Round 4 used a 240ms easeOutCubic animation, but the
@@ -351,7 +385,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       minChildSize: _kMinDetent,
       maxChildSize: _kMaxDetent,
       snap: true,
-      // Two snap stops: 0.55 (floor) and 0.95 (full).
+      // Two snap stops: 0.75 (floor) and 0.95 (full).
       snapSizes: const [_kMinDetent, _kMaxDetent],
       // CRITICAL: defaults to true. When true, _BottomSheetState.extentChanged
       // (Flutter framework) auto-closes the route the moment extent equals
@@ -492,16 +526,16 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     // _onChromeDragEnd would animateTo the current detent, racing with
     // _switchTab's jumpTo to the NEW tab's detent (e.g. tapping Settings
     // from Preview while at 0.95 — animateTo(0.95) would override
-    // jumpTo(0.55) and the sheet would stay parked at Preview's detent).
+    // jumpTo(0.75) and the sheet would stay parked at Preview's detent).
     const detentTol = 0.005;
     if ((size - _kMinDetent).abs() < detentTol ||
         (size - _kMaxDetent).abs() < detentTol) {
       return;
     }
-    // Drag is for resizing ONLY. Dismissal is via tap-outside (modal
-    // barrier). Velocity-based dismiss was tried in Round 3 (>800 pt/s)
-    // but caused two bugs: (1) a normal drag-down from 0.95 to 0.55
-    // released with enough residual velocity to dismiss instead of snap,
+    // Drag is for resizing ONLY. Dismissal is via tap-outside (the
+    // frosted-scrim layer). Velocity-based dismiss was tried in Round 3
+    // (>800 pt/s) but caused two bugs: (1) a normal drag-down from 0.95
+    // to floor released with enough residual velocity to dismiss instead of snap,
     // and (2) a tap on a tab — even with no intentional motion — was
     // sometimes claimed by the outer GestureDetector's vertical-drag
     // recognizer (sub-slop finger jitter under HitTestBehavior.translucent)
