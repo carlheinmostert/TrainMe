@@ -265,34 +265,68 @@ class LocalStorageService {
     ''');
   }
 
+  /// Idempotent `ALTER TABLE … ADD COLUMN`.
+  ///
+  /// Reads `PRAGMA table_info(<table>)` and only issues the ADD when
+  /// [column] isn't already present. Lets a re-run of any v3+ migration
+  /// branch survive the case where the column already exists (TestFlight
+  /// upgrade-over-dev-install in the wild left some DBs in that
+  /// half-state, see PR landing this helper).
+  ///
+  /// Table + column names are constants in [_migrateTables], never user
+  /// input — inlined into the DDL string is safe; PRAGMA cannot bind
+  /// table names as parameters anyway.
+  Future<void> _addColumnIfMissing(
+    Database db,
+    String table,
+    String column,
+    String typeAndConstraints,
+  ) async {
+    final info = await db.rawQuery('PRAGMA table_info($table)');
+    final exists = info.any((row) => row['name'] == column);
+    if (exists) return;
+    await db.execute(
+      'ALTER TABLE $table ADD COLUMN $column $typeAndConstraints',
+    );
+  }
+
   /// Schema migrations for database upgrades.
   Future<void> _migrateTables(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      await db.execute('ALTER TABLE sessions ADD COLUMN deleted_at INTEGER');
+      await _addColumnIfMissing(db, 'sessions', 'deleted_at', 'INTEGER');
     }
     if (oldVersion < 3) {
-      await db.execute('ALTER TABLE exercises ADD COLUMN thumbnail_path TEXT');
+      await _addColumnIfMissing(db, 'exercises', 'thumbnail_path', 'TEXT');
     }
     if (oldVersion < 4) {
-      await db.execute('ALTER TABLE exercises ADD COLUMN circuit_id TEXT');
-      await db.execute('ALTER TABLE sessions ADD COLUMN circuit_cycles TEXT');
+      await _addColumnIfMissing(db, 'exercises', 'circuit_id', 'TEXT');
+      await _addColumnIfMissing(db, 'sessions', 'circuit_cycles', 'TEXT');
     }
     if (oldVersion < 5) {
-      await db.execute('ALTER TABLE exercises ADD COLUMN name TEXT');
+      await _addColumnIfMissing(db, 'exercises', 'name', 'TEXT');
     }
     if (oldVersion < 6) {
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN include_audio INTEGER NOT NULL DEFAULT 0',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'include_audio',
+        'INTEGER NOT NULL DEFAULT 0',
       );
     }
     if (oldVersion < 7) {
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN preferred_rest_interval INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'preferred_rest_interval',
+        'INTEGER',
       );
     }
     if (oldVersion < 8) {
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN custom_duration INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'custom_duration',
+        'INTEGER',
       );
     }
     if (oldVersion < 9) {
@@ -322,29 +356,44 @@ class LocalStorageService {
       );
     }
     if (oldVersion < 10) {
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN version INTEGER NOT NULL DEFAULT 0',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'version',
+        'INTEGER NOT NULL DEFAULT 0',
       );
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN last_published_at INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'last_published_at',
+        'INTEGER',
       );
     }
     if (oldVersion < 11) {
       // Publish tracking columns. Consumed by upload_service.dart.
       // last_published_at already added in v10 migration above.
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN last_publish_error TEXT',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'last_publish_error',
+        'TEXT',
       );
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN publish_attempt_count INTEGER NOT NULL DEFAULT 0',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'publish_attempt_count',
+        'INTEGER NOT NULL DEFAULT 0',
       );
     }
     if (oldVersion < 12) {
       // Per-exercise video duration in ms. Used so estimatedDurationSeconds
       // can treat one rep = one video length for video exercises instead of
       // the hardcoded 3s default.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN video_duration_ms INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'video_duration_ms',
+        'INTEGER',
       );
     }
     if (oldVersion < 13) {
@@ -353,11 +402,17 @@ class LocalStorageService {
       // re-run better line-drawing filters against the original footage
       // later, and ultimately upload to a private Supabase bucket once auth
       // lands. Archives older than 90 days are purged on startup.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN archive_file_path TEXT',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'archive_file_path',
+        'TEXT',
       );
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN archived_at INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'archived_at',
+        'INTEGER',
       );
     }
     if (oldVersion < 14) {
@@ -376,8 +431,11 @@ class LocalStorageService {
       // crossing the v13 → v14 boundary, and the inline backfill below
       // only touches rows where `created_by_user_id IS NULL`, so a
       // re-launch after a successful upgrade is a no-op.
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN created_by_user_id TEXT',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'created_by_user_id',
+        'TEXT',
       );
 
       // Best-effort inline backfill. If Supabase has already restored a
@@ -402,8 +460,11 @@ class LocalStorageService {
       // Supabase bucket. Allows the publish flow to skip already-uploaded
       // exercises on re-publish, so network flakes don't re-transfer large
       // video blobs.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN raw_archive_uploaded_at INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'raw_archive_uploaded_at',
+        'INTEGER',
       );
     }
     if (oldVersion < 16) {
@@ -413,8 +474,11 @@ class LocalStorageService {
       // clientName from the chosen client. Legacy rows keep client_id
       // NULL; ClientSessionsScreen filters by (client_id OR clientName)
       // so they still appear under the right client without a backfill.
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN client_id TEXT',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'client_id',
+        'TEXT',
       );
     }
     if (oldVersion < 17) {
@@ -440,8 +504,11 @@ class LocalStorageService {
       // schema_milestone_o_exercise_preferred_treatment.sql — the mobile
       // column stays in lockstep so publish + sync can round-trip the
       // field without any translation layer.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN preferred_treatment TEXT',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'preferred_treatment',
+        'TEXT',
       );
     }
     if (oldVersion < 19) {
@@ -455,8 +522,11 @@ class LocalStorageService {
       // Supabase has a matching column in
       // schema_milestone_p_prep_seconds.sql — publish round-trips via the
       // `prep_seconds` column on the `exercises` table.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN prep_seconds INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'prep_seconds',
+        'INTEGER',
       );
     }
     if (oldVersion < 20) {
@@ -472,8 +542,11 @@ class LocalStorageService {
       //
       // Legacy rows migrate as NULL — the card treats null as "clean"
       // so historic sessions don't all light up as dirty on upgrade.
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN last_content_edit_at INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'last_content_edit_at',
+        'INTEGER',
       );
     }
     if (oldVersion < 21) {
@@ -494,8 +567,11 @@ class LocalStorageService {
       // schema_milestone_r_sticky_defaults.sql; the cloud stores jsonb,
       // we mirror as a serialised TEXT on the SQLite side. Writes go
       // through the pending-op queue via `set_client_exercise_default`.
-      await db.execute(
-        "ALTER TABLE cached_clients ADD COLUMN client_exercise_defaults TEXT NOT NULL DEFAULT '{}'",
+      await _addColumnIfMissing(
+        db,
+        'cached_clients',
+        'client_exercise_defaults',
+        "TEXT NOT NULL DEFAULT '{}'",
       );
     }
     if (oldVersion < 22) {
@@ -516,8 +592,11 @@ class LocalStorageService {
       //
       // Nullable — legacy + new-capture-without-segmented both tolerate
       // NULL. No backfill; forward-only.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN segmented_raw_file_path TEXT',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'segmented_raw_file_path',
+        'TEXT',
       );
     }
     if (oldVersion < 23) {
@@ -538,8 +617,11 @@ class LocalStorageService {
       // Nullable — legacy + new-capture-without-mask both tolerate NULL
       // (mask writer failure is non-fatal; line-drawing + segmented still
       // succeed). No backfill; forward-only.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN mask_file_path TEXT',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'mask_file_path',
+        'TEXT',
       );
     }
     if (oldVersion < 24) {
@@ -560,8 +642,11 @@ class LocalStorageService {
       // schema_milestone_q_inter_set_rest.sql — the mobile column stays
       // in lockstep so publish + sync can round-trip the field without
       // any translation.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN inter_set_rest_seconds INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'inter_set_rest_seconds',
+        'INTEGER',
       );
     }
     if (oldVersion < 25) {
@@ -580,11 +665,17 @@ class LocalStorageService {
       //
       // Supabase has matching columns in schema_milestone_x_soft_trim.sql;
       // round-trip via the wire encoding on `replace_plan_exercises`.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN start_offset_ms INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'start_offset_ms',
+        'INTEGER',
       );
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN end_offset_ms INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'end_offset_ms',
+        'INTEGER',
       );
     }
     if (oldVersion < 26) {
@@ -605,8 +696,11 @@ class LocalStorageService {
       // Replaces the manual `custom_duration_seconds` override in the
       // UI; the DB column lives on for backwards-compatible reads.
       // Supabase mirror: schema_wave24_video_reps_per_loop.sql.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN video_reps_per_loop INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'video_reps_per_loop',
+        'INTEGER',
       );
     }
     if (oldVersion < 27) {
@@ -617,11 +711,17 @@ class LocalStorageService {
       // publish the values land on `plans.crossfade_lead_ms` /
       // `crossfade_fade_ms` and flow back to the web player via
       // `to_jsonb(plan_row)` in `get_plan_full`.
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN crossfade_lead_ms INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'crossfade_lead_ms',
+        'INTEGER',
       );
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN crossfade_fade_ms INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'crossfade_fade_ms',
+        'INTEGER',
       );
     }
     if (oldVersion < 28) {
@@ -636,11 +736,17 @@ class LocalStorageService {
       // Both flow through `replace_plan_exercises` on publish and back
       // through `get_plan_full` to the web player. Supabase mirror:
       // schema_wave28_landscape_metadata.sql.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN aspect_ratio REAL',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'aspect_ratio',
+        'REAL',
       );
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN rotation_quarters INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'rotation_quarters',
+        'INTEGER',
       );
     }
     if (oldVersion < 29) {
@@ -656,11 +762,17 @@ class LocalStorageService {
       //     fresh client always surfaces the consent sheet first.
       //
       // Supabase mirror: schema_wave29_unlock_plan.sql.
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN unlock_credit_prepaid_at INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'unlock_credit_prepaid_at',
+        'INTEGER',
       );
-      await db.execute(
-        'ALTER TABLE cached_clients ADD COLUMN consent_confirmed_at INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'cached_clients',
+        'consent_confirmed_at',
+        'INTEGER',
       );
     }
     if (oldVersion < 30) {
@@ -669,8 +781,11 @@ class LocalStorageService {
       // post-3-day structural-edit lock; the original Wave 29 patch
       // shipped without the local mirror, so the lock UI never engaged.
       // SessionShell now reconciles cloud → local on session open.
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN first_opened_at INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'first_opened_at',
+        'INTEGER',
       );
     }
     if (oldVersion < 31) {
@@ -688,8 +803,11 @@ class LocalStorageService {
       // for all rows missing the key).
       //
       // Supabase mirror: schema_wave30_client_avatar.sql.
-      await db.execute(
-        'ALTER TABLE cached_clients ADD COLUMN avatar_path TEXT',
+      await _addColumnIfMissing(
+        db,
+        'cached_clients',
+        'avatar_path',
+        'TEXT',
       );
     }
     if (oldVersion < 32) {
@@ -702,8 +820,11 @@ class LocalStorageService {
       // open, same pattern as first_opened_at.
       //
       // Supabase mirror: schema_wave33_last_opened_at.sql.
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN last_opened_at INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'last_opened_at',
+        'INTEGER',
       );
     }
     if (oldVersion < 33) {
@@ -896,8 +1017,11 @@ class LocalStorageService {
       // runs for upgraders crossing v33 → v34 only.
       //
       // Supabase mirror: schema_wave42_exercise_body_focus.sql.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN body_focus INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'body_focus',
+        'INTEGER',
       );
     }
     if (oldVersion < 35) {
@@ -912,8 +1036,11 @@ class LocalStorageService {
       // heuristic.
       //
       // Supabase mirror: schema_wave_hero_focus_frame.sql.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN focus_frame_offset_ms INTEGER',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'focus_frame_offset_ms',
+        'INTEGER',
       );
     }
     if (oldVersion < 36) {
@@ -932,9 +1059,11 @@ class LocalStorageService {
       // practitioner adds will inherit the same default.
       //
       // Supabase mirror: schema_wave43_hold_position.sql.
-      await db.execute(
-        "ALTER TABLE exercise_sets ADD COLUMN hold_position TEXT NOT NULL "
-        "DEFAULT 'end_of_set'",
+      await _addColumnIfMissing(
+        db,
+        'exercise_sets',
+        'hold_position',
+        "TEXT NOT NULL DEFAULT 'end_of_set'",
       );
       await db.execute(
         "UPDATE exercise_sets SET hold_position = 'per_rep' "
@@ -949,8 +1078,11 @@ class LocalStorageService {
       // fall back to the auto-assigned letter ("Circuit A" etc.).
       //
       // Supabase mirror: schema_wave_circuit_names.sql.
-      await db.execute(
-        'ALTER TABLE sessions ADD COLUMN circuit_names TEXT',
+      await _addColumnIfMissing(
+        db,
+        'sessions',
+        'circuit_names',
+        'TEXT',
       );
     }
     if (oldVersion < 38) {
@@ -967,8 +1099,11 @@ class LocalStorageService {
       // today. SQLite stores it as REAL.
       //
       // Supabase mirror: schema_wave_hero_crop.sql.
-      await db.execute(
-        'ALTER TABLE exercises ADD COLUMN hero_crop_offset REAL',
+      await _addColumnIfMissing(
+        db,
+        'exercises',
+        'hero_crop_offset',
+        'REAL',
       );
     }
   }
