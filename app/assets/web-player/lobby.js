@@ -965,6 +965,12 @@
     const holdSeg = (api.formatHold && api.formatHold(playSets)) || '';
     if (holdSeg) parts.push(holdSeg);
 
+    // Weight (Wave Lobby-Weight, 2026-05-05) — mirrors the deck's
+    // active-slide-header. `@ 15 kg` (uniform) / `@ 12.5/15 kg` (varying).
+    // All-bodyweight → empty (no segment).
+    const weightSeg = (api.formatWeight && api.formatWeight(playSets)) || '';
+    if (weightSeg) parts.push(weightSeg);
+
     // Inter-set rest.
     if (breathersUniform && breathersList[0] > 0) {
       parts.push(`${breathersList[0]}s rest`);
