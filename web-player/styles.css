@@ -3065,96 +3065,65 @@ body.is-fullscreen .playpause-toggle {
 }
 
 /* Circuit group --------------------------------------------------------- */
-/* Hotfix round 2 — Fix 2 — circuit chrome rebuilt around a coral
-   tree-branch rail (canonical mockup at
-   docs/design/mockups/lobby-circuit-header.html).
+/* Closed-loop circuit container (Wave: Lobby Circuit Loop, 2026-05-05).
+   Replaced the prior tree-branch rail (left vertical + horizontal spurs
+   to each exercise + L-corner on the last row) with a single rounded-
+   rectangle FRAME around the whole circuit group. The frame is the
+   visual loop; the cycles chip (`× N`) in the header carries iteration.
+   No more spurs to inner exercises — they float inside the loop's tint.
+
    Layout:
 
-     ┌── circuit-header (no chrome — transparent)
-     │   ┃ ┝━ Lower body                    ×3
-     │   ┃
-     ├── ex-row.in-circuit (first)
-     │   ┃ ┝━ [card]
-     │   ┃
-     ├── ex-row.in-circuit (middle)
-     │   ┃ ┝━ [card]
-     │   ┃
-     └── ex-row.in-circuit.last
-         ┖ ┝━ [card]                ← rail clamps at 50% → L corner
+     ┌─────────────────────────────────────┐  ← rounded top corners
+     │ THE GAUNTLET                  × 3   │  ← header inside the frame
+     │  [Push-ups card]                    │
+     │  [Squats card]                      │
+     │  [Planks card]                      │
+     └─────────────────────────────────────┘  ← rounded bottom corners
 
-   The container `.lobby-circuit-group` itself has NO background and
-   NO border — all visual grouping is conveyed by the rail. The rail
-   is composed of pseudo-elements (`::before` = vertical piece,
-   `::after` = horizontal connector) on the header AND each in-circuit
-   row, so the rail naturally tracks the rendered rows without any
-   JS measurement and ends at the last row's centre. Rows abut (no
-   `gap`) so the vertical pieces concatenate seamlessly; their
-   borders collapse via `margin-top: -1px`. */
+   Why drop the rail+spurs:
+   - "× N" alone was ambiguous about WHICH exercises repeat. The frame
+     visually scopes the iteration to its contained rows.
+   - Per-row spurs read as "decoration" not "structure". The loop reads
+     as structure — the exercises are inside a container.
+   - Carl: "I want the visual to more reflect an actual circuit to make
+     people understand easier that there is repetition here." The
+     closed loop is a literal circuit. */
 .lobby-circuit-group {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  padding: 0;
+  background: rgba(255, 107, 53, 0.04);
+  border: 2px solid rgba(255, 107, 53, 0.45);
+  border-radius: 16px;
+  padding: 6px 12px 12px;
+  margin: 8px 0;
   display: flex;
   flex-direction: column;
-  gap: 0;            /* rows abut — rail concatenates seamlessly */
+  gap: 0;
   list-style: none;
 }
 
-/* Hotfix round 3 — Fix B — circuit header now uses the same two-column
-   structure as in-circuit rows. The gutter column owns the rail piece
-   (header centre → bottom) + horizontal connector. The content column
-   carries the label + cycles chip. This keeps the rail OUTSIDE the
-   label's bounding box so it can never be covered by a stacking
-   context above the header. */
+/* Header inside the closed loop — single-row layout with label + chip.
+   The old gutter chrome (rail piece + horizontal connector) is hidden
+   below; the loop's frame replaces it. */
 .lobby-circuit-header {
   display: flex;
-  align-items: stretch;
-  gap: 0;
+  align-items: center;
+  gap: 8px;
   height: 32px;
-  margin-bottom: 0;
+  margin-bottom: 4px;
   border: 0;
   background: transparent;
 }
 
-/* Round 5 — Fix 3 — header gutter widened to 56px, rail at left:24px
-   to match the in-circuit row gutter geometry. Header rail piece bleeds
-   downward by 5px (Round 5 Fix 2) so it joins the first in-circuit row's
-   rail across the row boundary with no visible break. */
+/* Legacy rail/connector elements are still rendered by lobby.js; CSS
+   hides them since the closed-loop frame is the new visual. Markup
+   could be cleaned up later — for now display:none keeps the change
+   contained. */
 .lobby-circuit-header-gutter {
-  flex: 0 0 56px;
-  position: relative;
+  display: none;
 }
-
-/* Vertical rail piece — header centre → 5px past bottom edge, so it
-   concatenates with the first in-circuit row's full-height piece below
-   without a sub-pixel gap. Pinned to left: 24px within the 56px gutter
-   so the rail sits well outside the card column's left edge AND well
-   inside the page edge. */
-.lobby-circuit-header-gutter-rail {
-  position: absolute;
-  left: 24px;
-  top: 50%;
-  bottom: -5px;
-  width: 3px;
-  background: var(--c-coral-rail);
-  pointer-events: none;
-}
-
-/* Horizontal stub — joins the rail to the label content. Round 5 Fix 3:
-   width 26 so the connector tip lands ~6px before the content column,
-   giving ~16px breathing once the column's own 4px padding is counted
-   plus the label's natural inset. */
+.lobby-circuit-header-gutter-rail,
 .lobby-circuit-header-gutter-connector {
-  position: absolute;
-  left: 24px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 26px;
-  height: 3px;
-  background: var(--c-coral-rail);
-  border-radius: 0 2px 2px 0;
-  pointer-events: none;
+  display: none;
 }
 
 .lobby-circuit-header-content {
@@ -3162,7 +3131,7 @@ body.is-fullscreen .playpause-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 4px;
+  padding: 0;
   min-width: 0;
 }
 
@@ -3195,97 +3164,27 @@ body.is-fullscreen .playpause-toggle {
   color: var(--c-brand);
 }
 
-/* Hotfix round 3 — Fix B — in-circuit rows: the rail-rendering hooks
-   are now real elements inside `.lobby-row-gutter`, NOT pseudo-elements
-   on `.lobby-row`. CSS reveals the gutter column on `.in-circuit` rows
-   and renders the rail pieces. The `is-circuit` class is the legacy
-   hook (kept for backward compat); `in-circuit` is the alias the
-   mockup uses. Both apply the same chrome here.
-
-   Round 5 — Fix 3 — gutter widened from 22px → 56px (~3×) so the rail +
-   connector cluster sits indented from the page edge with clear
-   breathing space on both sides. Rail position within the gutter moved
-   from left:11px to left:24px (the "wider rail-from-edge" geometry
-   Carl asked for). Connector width recomputed so its tip lands ~6px
-   before the card's left border — combined with the card's 10px
-   padding, that's the ~16px breathing gap between connector tip and
-   the card's actual content (hero / info column).
-
-   Round 5 — Fix 2 — rail-piece bleed. Each row's rail extends ~5px
-   above and below its own bounding box so adjacent rail pieces overlap
-   any sub-pixel / border-collapse gaps that otherwise show as a tiny
-   break in the vertical coral line at row boundaries. The last row's
-   rail still terminates at vertical centre (L corner) — see the .last
-   override below; we keep `top: -5px` on .last too (extends upward to
-   join the previous row's rail) but use `height: calc(50% + 5px)` so
-   the rail's bottom edge lands exactly at the row's actual vertical
-   centre, where the horizontal connector sits. */
+/* In-circuit rows: hide the legacy gutter chrome (rail + horizontal
+   connector). The closed-loop frame on .lobby-circuit-group replaces
+   them. The card's content column expands to fill the row width. */
 .lobby-row.in-circuit > .lobby-row-gutter,
 .lobby-row.is-circuit > .lobby-row-gutter {
-  display: block;
-  flex: 0 0 56px;
-  position: relative;
+  display: none;
 }
 
-/* Collapse adjacent borders on the inner content card so the rail reads
-   as one continuous coral line through the group. The `:first-child`
-   exception keeps the top edge clean against the header. */
-.lobby-row.in-circuit + .lobby-row.in-circuit > .lobby-row-content,
-.lobby-row.is-circuit + .lobby-row.is-circuit > .lobby-row-content {
-  margin-top: -1px;
-}
-
-/* Vertical rail piece for in-circuit rows — top → bottom by default,
-   with a -5/+5 vertical bleed so adjacent pieces overlap into the
-   inter-row gap (Round 5 Fix 2). `last` clamps to 50% so the rail
-   terminates at the row's centre, forming a clean └ corner with the
-   horizontal connector. Pinned to left: 24px within the 56px gutter
-   (Round 5 Fix 3) so the line sits well outside the content card's
-   left edge AND well inside the page edge — Carl's directive: the
-   gutter must "open up" so the rail isn't crammed against either
-   edge. */
 .lobby-row.in-circuit > .lobby-row-gutter > .lobby-row-gutter-rail,
-.lobby-row.is-circuit > .lobby-row-gutter > .lobby-row-gutter-rail {
-  display: block;
-  position: absolute;
-  left: 24px;
-  top: -5px;
-  bottom: -5px;
-  width: 3px;
-  background: var(--c-coral-rail);
-  pointer-events: none;
-}
-.lobby-row.in-circuit.last > .lobby-row-gutter > .lobby-row-gutter-rail,
-.lobby-row.is-circuit.last > .lobby-row-gutter > .lobby-row-gutter-rail {
-  /* Last row: rail terminates at the row's vertical centre to form the
-     └ corner. Keep the upward bleed (top: -5px) so the rail joins the
-     previous row's piece cleanly across the boundary; height is
-     calc(50% + 5px) so the rail's bottom edge still lands exactly at
-     the row's actual centre (where the connector sits). */
-  bottom: auto;
-  height: calc(50% + 5px);
-}
-
-/* Horizontal connector — stub at the row's vertical centre, bridging
-   from the rail's right edge toward the content card. Round 5 Fix 3:
-   width recomputed from 11 → 26 so the connector tip lands 6px before
-   the card's left border. With the card's 10px padding-left, that's
-   ~16px of breathing between connector tip and the card's actual
-   content (hero / info). The visible coral does NOT touch the card,
-   per Carl's "indented from page edge, breathing on both sides"
-   directive. */
+.lobby-row.is-circuit > .lobby-row-gutter > .lobby-row-gutter-rail,
 .lobby-row.in-circuit > .lobby-row-gutter > .lobby-row-gutter-connector,
 .lobby-row.is-circuit > .lobby-row-gutter > .lobby-row-gutter-connector {
-  display: block;
-  position: absolute;
-  left: 24px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 26px;
-  height: 3px;
-  background: var(--c-coral-rail);
-  border-radius: 0 2px 2px 0;
-  pointer-events: none;
+  display: none;
+}
+
+/* Inter-row spacing inside the loop. Cards stack with a small gap so
+   each reads as discrete; no need for the old margin-top: -1px border-
+   collapse trick (it existed to make the rail read as one line). */
+.lobby-row.in-circuit + .lobby-row.in-circuit,
+.lobby-row.is-circuit + .lobby-row.is-circuit {
+  margin-top: 6px;
 }
 
 /* Rest row -------------------------------------------------------------- */
