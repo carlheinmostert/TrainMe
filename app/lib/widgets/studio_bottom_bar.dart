@@ -40,6 +40,10 @@ class StudioBottomBar extends StatelessWidget {
   /// shell's swipe-left-to-Capture pull tab. Library import has moved
   /// inside the camera viewfinder (M2).
   final VoidCallback onCameraTap;
+  /// Refine — opens the per-exercise editor sheet for the topmost card
+  /// (most recent capture, skipping rest periods). Nullable so the host
+  /// can disable it when there are no exercises captured yet.
+  final VoidCallback? onRefine;
   final VoidCallback onPreview;
   final VoidCallback onPublish;
   final VoidCallback onShare;
@@ -65,6 +69,7 @@ class StudioBottomBar extends StatelessWidget {
     required this.clientName,
     required this.onBack,
     required this.onCameraTap,
+    this.onRefine,
     required this.onPreview,
     required this.onPublish,
     required this.onShare,
@@ -239,6 +244,16 @@ class StudioBottomBar extends StatelessWidget {
         active: true,
         onTap: onCameraTap,
         tooltip: 'Open camera',
+      ),
+      _Triangle(dim: onRefine == null),
+      // 5th-icon Refine — opens the editor sheet for the topmost card
+      // (most recent capture, skipping rest). Mirrors the help page's
+      // Camera → Refine → Preview → Publish → Share spine.
+      _ToolbarIconButton(
+        icon: Icons.view_list_rounded,
+        active: onRefine != null,
+        onTap: onRefine,
+        tooltip: 'Refine top card',
       ),
       _Triangle(dim: !previewActive),
       _ToolbarIconButton(
