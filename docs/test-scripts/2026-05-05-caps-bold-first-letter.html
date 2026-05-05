@@ -121,8 +121,11 @@
   <div class="wrap">
     <div class="kicker">2026-05-05 &middot; polish &middot; CAPS &middot; bold first letter</div>
     <h1>Device QA — CAPS labels bold first letter</h1>
+    <p class="lede" style="border-color: var(--coral); background: rgba(255,107,53,0.08);">
+      <strong style="color: var(--coral);">Round 2 fix</strong> &mdash; first letter now also renders <strong>~28% larger</strong> (9pt vs 7pt) so the bold weight is visible. Round 1 (PR #282) had <code>w900</code> alone but Inter's weight stops coalesce at 7pt on iOS &mdash; w600 and w900 render the same. The size bump is the load-bearing cue.
+    </p>
     <p class="lede">
-      <strong>Scope:</strong> tiny visual polish on the Studio bottom CAPS toolbar. Each label's first letter (<strong>C</strong>APTURE, <strong>A</strong>DJUST, <strong>P</strong>REVIEW, <strong>P</strong>UBLISH, <strong>S</strong>HARE) renders at <code>FontWeight.w900</code> while the rest of the letters stay at the existing <code>FontWeight.w600</code> &mdash; a passive nod to the CAPS mnemonic. Implementation swaps each cell's plain <code>Text</code> for <code>Text.rich</code> with two <code>TextSpan</code>s; the <code>FittedBox(scaleDown)</code> wrapper, the 7pt size, the uppercase letter-spacing, and the disabled-dim colour rule all stay identical. Both <code>_CapsCell</code> and <code>_PublishCapsCell</code> updated.
+      <strong>Scope:</strong> tiny visual polish on the Studio bottom CAPS toolbar. Each label's first letter (<strong>C</strong>APTURE, <strong>A</strong>DJUST, <strong>P</strong>REVIEW, <strong>P</strong>UBLISH, <strong>S</strong>HARE) renders at <code>FontWeight.w900</code> + <code>fontSize: 9</code> while the rest of the letters stay at the existing <code>FontWeight.w600</code> + <code>fontSize: 7</code> &mdash; a passive nod to the CAPS mnemonic. Implementation swaps each cell's plain <code>Text</code> for <code>Text.rich</code> with two <code>TextSpan</code>s; the <code>FittedBox(scaleDown)</code> wrapper, the uppercase letter-spacing, and the disabled-dim colour rule all stay identical. Both <code>_CapsCell</code> and <code>_PublishCapsCell</code> updated.
     </p>
 
     <div class="oos">
@@ -160,6 +163,16 @@
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
         <span class="num">3.</span>
         <span class="text"><strong>Look closely at the longest labels (CAPTURE and PUBLISH).</strong> The heavier first letter does NOT push either label into clipping or ellipsis. All five labels still fit cleanly inside their 56-wide cells. The <code>FittedBox(scaleDown)</code> wrapper handles any unusual font-scaling case so labels never overflow.</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+    </ul>
+
+    <h2>4 &middot; Size bump is the load-bearing cue</h2>
+    <ul class="checklist">
+      <li data-num="4" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
+        <span class="num">4.</span>
+        <span class="text"><strong>First letter is BOTH visibly bolder AND visibly larger than the rest of the label</strong> &mdash; the size bump is the load-bearing cue. At 7pt, Inter's weight stops coalesce on iOS so w900 alone reads identical to w600; the 9pt leading char (~28% larger) is what makes the CAPS nod unmistakable. If you only see a weight diff but no size diff, the fix didn't land.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
