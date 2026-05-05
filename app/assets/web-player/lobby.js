@@ -2160,27 +2160,71 @@
   async function triggerLobbyShare() {
     if (!$lobby) throw new Error('lobby root missing');
     if ($lobbyShareBtn) $lobbyShareBtn.disabled = true;
+    // Diagnostics: collect breadcrumbs so we can show a SPECIFIC error
+    // message in the modal if anything fails. Carl's repeated rounds
+    // showed the silent-failure paths are how this trap stays hidden.
+    const diag = { fetched: 0, failed: 0, swapped: 0, sources: 0, taintErr: null };
     try {
       const html2canvas = await loadHtml2Canvas();
-      // CORS-clean blob map, populated BEFORE snapshot so html2canvas's
-      // onclone callback (which runs synchronously) can swap each <img>
-      // src + <video> poster to a same-origin blob: URL. Without this
-      // the canvas gets tainted and toBlob returns null silently.
+      // Pre-fetch every cross-origin image as a same-origin blob URL.
       const blobUrlMap = await preloadCorsCleanBlobs($lobby);
-      // Toggle export styling on <html>. CSS hides CTA bar, version
-      // chip, settings popover; reveals the export footer; freezes the
-      // tracer animation at the spiral end.
+      diag.fetched = blobUrlMap.size;
+
+      // Mutate the LIVE DOM (not html2canvas's clone via onclone) — clone
+      // mutations turned out unreliable in v64 (Carl reported the modal
+      // still showed the taint error). Mutating the live DOM and
+      // awaiting <img>.complete guarantees the new blob URL is fully
+      // loaded before we hand it to html2canvas.
+      const imgs = Array.from($lobby.querySelectorAll('img'));
+      const videos = Array.from($lobby.querySelectorAll('video'));
+      const originalSrcs = new Map();
+      const originalPosters = new Map();
+
       const root = document.documentElement;
       root.classList.add('is-exporting');
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
       let canvas;
       try {
+        // Swap srcs to blob URLs
+        for (const img of imgs) {
+          const swap = blobUrlMap.get(img.src);
+          if (swap) {
+            originalSrcs.set(img, img.src);
+            img.src = swap;
+            diag.swapped += 1;
+          }
+        }
+        for (const v of videos) {
+          const swap = blobUrlMap.get(v.poster);
+          if (swap) {
+            originalPosters.set(v, v.poster);
+            v.poster = swap;
+          }
+        }
+        diag.sources = imgs.length + videos.length;
+
+        // Wait for blob-swapped images to actually load (img.complete +
+        // naturalWidth > 0) so html2canvas snapshots the loaded version.
+        await Promise.all(imgs.map((img) => new Promise((resolve) => {
+          if (img.complete && img.naturalWidth > 0) return resolve();
+          const done = () => resolve();
+          img.addEventListener('load', done, { once: true });
+          img.addEventListener('error', done, { once: true });
+          // 3-second hard timeout so we never hang the export forever.
+          setTimeout(done, 3000);
+        })));
+
+        // Two RAFs to let layout settle.
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
         canvas = await html2canvas($lobby, {
           backgroundColor: '#0F1117',
           scale: window.devicePixelRatio || 2,
           useCORS: true,
-          allowTaint: true,
+          allowTaint: false,  // Fail fast; we want to know WHICH image taints
           logging: false,
+          // Final safety net for anything we missed in the live DOM swap
+          // (e.g. dynamically-added imgs after pre-fetch).
           onclone: (clonedDoc) => {
             try {
               clonedDoc.querySelectorAll('img').forEach((img) => {
@@ -2195,20 +2239,37 @@
           },
         });
       } finally {
+        // Restore original srcs/posters
+        originalSrcs.forEach((src, img) => { try { img.src = src; } catch (_) {} });
+        originalPosters.forEach((poster, v) => { try { v.poster = poster; } catch (_) {} });
         root.classList.remove('is-exporting');
-        blobUrlMap.forEach((url) => URL.revokeObjectURL(url));
+        // Revoke blob URLs after a short delay so any residual paint
+        // operation completes first.
+        setTimeout(() => blobUrlMap.forEach((url) => URL.revokeObjectURL(url)), 1000);
       }
+
+      // Diagnostic: try toDataURL FIRST. It throws SecurityError on a
+      // tainted canvas (with a message we can capture), unlike toBlob
+      // which silently returns null. If toDataURL succeeds, the canvas
+      // is clean and toBlob will work.
+      try {
+        canvas.toDataURL('image/png');
+      } catch (err) {
+        diag.taintErr = (err && err.message) || String(err);
+      }
+
       const blob = await new Promise((resolve) => {
         try { canvas.toBlob(resolve, 'image/png', 0.92); }
         catch (_) { resolve(null); }
       });
       if (!blob) {
-        // Most likely cause: canvas got tainted despite the CORS pre-
-        // fetch (e.g. a video frame, an external font, or a same-origin
-        // resource that 404'd). Surface to the user instead of failing
-        // silently like Carl saw in rounds 4–5.
+        const reasonHint = diag.taintErr
+          ? `Canvas blocked by CORS: ${diag.taintErr}`
+          : `Snapshot succeeded but PNG encoding failed.`;
         showExportError(
-          "Couldn't generate the image. Try refreshing the page (Cmd+Shift+R) and try again.",
+          `Couldn't generate the image. ${reasonHint} ` +
+          `(Pre-fetched ${diag.fetched}/${diag.sources} images, swapped ${diag.swapped}.) ` +
+          `Try Cmd+Shift+R and retry.`,
         );
         return;
       }
