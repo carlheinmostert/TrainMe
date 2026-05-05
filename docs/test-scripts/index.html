@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./idempotent-migration.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; HOTFIX &mdash; idempotent SQLite ADD COLUMN (TestFlight v1 unbootable past splash)</div>
+              <div class="scope"><strong style="color: var(--coral);">CRITICAL boot-blocker.</strong> TestFlight v1 build SHA <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">f6f7bce</code> crashed on launch with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">DatabaseException: duplicate column name: hero_crop_offset</code> from the v37 &rarr; v38 migration. Carl&rsquo;s prior <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">studio.homefit.app</code> dev install left <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">Documents/raidme.db</code> in a half-state &mdash; column existed but <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">user_version</code> was &lt; 38 &mdash; so the v38 ADD COLUMN crashed. Fix: new <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_addColumnIfMissing</code> helper reads <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PRAGMA table_info</code> and only ADDs when missing. ALL ~25 ADD-COLUMN sites in <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_migrateTables</code> retrofitted (v3 through v38) so the next schema bump can&rsquo;t put us back in this trap. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_dbVersion</code> stays at 38 (behaviour-preserving). Unit test simulates the half-state. <strong>6 items in 3 sections; load-bearing items are #1 (fresh install boots), #2 (upgrade-over-prior-install boots), #5 (existing sessions still load).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./2026-05-05-web-bootstrap-parity.html">
           <div class="row">
             <div>
