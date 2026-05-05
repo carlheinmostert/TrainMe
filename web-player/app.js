@@ -17,7 +17,7 @@
 // together — bumping one without the other will leave the version
 // label stale on a freshly-cached client. Convention: drop the
 // `homefit-player-` prefix; keep the `vN-slug` tail.
-const PLAYER_VERSION = 'v59-free-lobby-export';
+const PLAYER_VERSION = 'v60-thumb-existence-and-export-newtab';
 
 // ============================================================
 // Native bridge (Wave 4 Phase 2)

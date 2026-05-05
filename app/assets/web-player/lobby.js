@@ -2009,15 +2009,33 @@
           try { console.warn('[homefit-lobby] navigator.share rejected:', err); } catch (_) {}
         }
       }
-      // Fallback download.
+      // Fallback when navigator.share isn't available (macOS Safari /
+      // Chrome desktop). The earlier `<a download>` approach navigated
+      // the current page on desktop browsers because the user-activation
+      // gesture is lost during the await chain (canvas snapshot +
+      // toBlob); without active user-activation, Chrome treats the
+      // anchor as a top-level navigation rather than a download.
+      //
+      // Open the blob in a NEW window/tab instead. Worst case the user
+      // sees the PNG in a fresh tab and right-click-saves; the current
+      // page is never disturbed.
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      const newWin = window.open(url, '_blank');
+      if (!newWin) {
+        // Pop-up blocked — fall back to the anchor click. At this point
+        // the worst case is page navigation, but most browsers will
+        // honour the download attribute when no other window context is
+        // available.
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } finally {
       if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
