@@ -1964,38 +1964,132 @@
     return _html2canvasPromise;
   }
 
-  function showExportModal(blobUrl, fileName) {
-    const modal = document.getElementById('lobby-export-modal');
-    const img = document.getElementById('lobby-export-modal-img');
-    const link = document.getElementById('lobby-export-modal-download');
-    const closeBtn = document.getElementById('lobby-export-modal-close');
-    const backdrop = document.getElementById('lobby-export-modal-backdrop');
-    if (!modal || !img || !link) return false;
-    img.src = blobUrl;
-    link.href = blobUrl;
-    link.setAttribute('download', fileName);
-    modal.hidden = false;
+  // Self-injecting export modal — does NOT rely on the modal markup
+  // being present in index.html. Safari + Chrome service workers can
+  // serve stale index.html (without the modal block) alongside fresh
+  // lobby.js, leaving showExportModal-via-getElementById to fail open
+  // into a noisy about:blank fallback. This builder creates the DOM
+  // and inline-styles every node so it works regardless of cached
+  // HTML/CSS state.
+  function ensureExportModal() {
+    let modal = document.getElementById('lobby-export-modal');
+    if (modal && modal._injected) return modal;
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'lobby-export-modal';
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      modal.hidden = true;
+      document.body.appendChild(modal);
+    }
+    modal._injected = true;
+    // Inline styles so we don't depend on cached styles.css.
+    Object.assign(modal.style, {
+      position: 'fixed',
+      inset: '0',
+      zIndex: '1000',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '24px',
+      boxSizing: 'border-box',
+    });
+    modal.innerHTML = '';
+    const backdrop = document.createElement('div');
+    Object.assign(backdrop.style, {
+      position: 'absolute',
+      inset: '0',
+      background: 'rgba(15, 17, 23, 0.85)',
+      backdropFilter: 'blur(8px)',
+      webkitBackdropFilter: 'blur(8px)',
+    });
+    const card = document.createElement('div');
+    Object.assign(card.style, {
+      position: 'relative',
+      background: '#1A1D24',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '16px',
+      padding: '20px',
+      maxWidth: 'min(520px, 100%)',
+      maxHeight: 'calc(100vh - 48px)',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '16px',
+      boxShadow: '0 16px 48px rgba(0, 0, 0, 0.45)',
+      boxSizing: 'border-box',
+    });
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+    });
+    const title = document.createElement('h2');
+    title.textContent = 'Your plan, ready to share';
+    Object.assign(title.style, {
+      margin: '0', fontFamily: "'Montserrat', -apple-system, sans-serif",
+      fontSize: '16px', fontWeight: '600', color: '#FFFFFF',
+    });
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '×';
+    closeBtn.setAttribute('aria-label', 'Close');
+    Object.assign(closeBtn.style, {
+      background: 'transparent', border: '0', color: 'rgba(255,255,255,0.6)',
+      fontSize: '24px', lineHeight: '1', cursor: 'pointer', padding: '4px 8px',
+      borderRadius: '6px',
+    });
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+    const img = document.createElement('img');
+    img.alt = 'Plan preview';
+    Object.assign(img.style, {
+      width: '100%', height: 'auto', maxHeight: 'calc(100vh - 220px)',
+      objectFit: 'contain', borderRadius: '8px', background: '#0F1117',
+    });
+    const actions = document.createElement('div');
+    Object.assign(actions.style, {
+      display: 'flex', flexDirection: 'column', gap: '8px',
+    });
+    const link = document.createElement('a');
+    link.textContent = 'Download PNG';
+    Object.assign(link.style, {
+      display: 'inline-block', textAlign: 'center', background: '#FF6B35',
+      color: '#0F1117', fontFamily: "'Montserrat', -apple-system, sans-serif",
+      fontWeight: '600', fontSize: '14px', padding: '12px 16px',
+      borderRadius: '999px', textDecoration: 'none', cursor: 'pointer',
+    });
+    const hint = document.createElement('p');
+    hint.textContent = 'Tip: right-click the image to save, or drag it into WhatsApp / Mail.';
+    Object.assign(hint.style, {
+      margin: '0', textAlign: 'center', color: 'rgba(255,255,255,0.6)',
+      fontFamily: "'Inter', -apple-system, sans-serif", fontSize: '12px',
+    });
+    actions.appendChild(link);
+    actions.appendChild(hint);
+    card.appendChild(header);
+    card.appendChild(img);
+    card.appendChild(actions);
+    modal.appendChild(backdrop);
+    modal.appendChild(card);
     const close = () => {
       modal.hidden = true;
       img.src = '';
-      // Don't revoke immediately — the link may still need the URL
-      // briefly after the user clicks Download. The outer setTimeout in
-      // triggerLobbyShare handles the revoke.
     };
-    if (closeBtn && !closeBtn._wired) {
-      closeBtn._wired = true;
-      closeBtn.addEventListener('click', close);
-    }
-    if (backdrop && !backdrop._wired) {
-      backdrop._wired = true;
-      backdrop.addEventListener('click', close);
-    }
-    if (!modal._escWired) {
-      modal._escWired = true;
-      document.addEventListener('keydown', (evt) => {
-        if (evt.key === 'Escape' && !modal.hidden) close();
-      });
-    }
+    closeBtn.addEventListener('click', close);
+    backdrop.addEventListener('click', close);
+    document.addEventListener('keydown', (evt) => {
+      if (evt.key === 'Escape' && !modal.hidden) close();
+    });
+    modal._refs = { img, link };
+    return modal;
+  }
+
+  function showExportModal(blobUrl, fileName) {
+    const modal = ensureExportModal();
+    const refs = modal._refs;
+    if (!refs) return false;
+    refs.img.src = blobUrl;
+    refs.link.href = blobUrl;
+    refs.link.setAttribute('download', fileName);
+    modal.hidden = false;
     return true;
   }
 
@@ -2055,19 +2149,11 @@
       // an in-page modal with a real Download anchor; the user's click
       // on that anchor is a fresh gesture browsers consistently honour.
       const url = URL.createObjectURL(blob);
-      const shown = showExportModal(url, fileName);
-      if (!shown) {
-        // Modal markup missing somehow — last-ditch anchor click.
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
+      // Self-injecting modal — guaranteed to render even when the
+      // service worker has cached an older index.html without the
+      // modal markup. No anchor-with-target=_blank fallback (that was
+      // the source of stray about:blank tabs in Carl's round 4).
+      showExportModal(url, fileName);
       setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
     } finally {
       if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
