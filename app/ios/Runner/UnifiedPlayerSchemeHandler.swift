@@ -114,6 +114,14 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
       respondWithAsset(urlSchemeTask, assetName: "styles.css", contentType: "text/css; charset=utf-8")
       return
     }
+    if path == "html2canvas.min.js" {
+      // Wave Free Lobby Export (2026-05-05) — vendored html2canvas
+      // (~200 KB) lazy-loaded by lobby.js when the share button is
+      // tapped. Same-origin via the homefit-local:// scheme; CSP
+      // `script-src 'self'` rule on the public surface requires this.
+      respondWithAsset(urlSchemeTask, assetName: "html2canvas.min.js", contentType: "application/javascript; charset=utf-8")
+      return
+    }
 
     // 2. Plan JSON.
     if let planId = match(path: path, pattern: "api/plan/") {

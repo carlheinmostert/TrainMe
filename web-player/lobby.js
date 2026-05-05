@@ -42,6 +42,7 @@
   const $lobbyList = document.getElementById('lobby-list');
   const $lobbyTreatmentRow = document.getElementById('lobby-treatment-row');
   const $lobbyStartBtn = document.getElementById('lobby-start-btn');
+  const $lobbyShareBtn = document.getElementById('lobby-share-btn');
   const $lobbyGearBtn = document.getElementById('lobby-gear-btn');
   const $lobbySettingsPopover = document.getElementById('lobby-settings-popover');
   const $selfGrantModal = document.getElementById('lobby-self-grant-modal');
@@ -1832,6 +1833,17 @@
       });
     }
 
+    if ($lobbyShareBtn && !$lobbyShareBtn._wired) {
+      $lobbyShareBtn._wired = true;
+      $lobbyShareBtn.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        triggerLobbyShare().catch((err) => {
+          try { console.warn('[homefit-lobby] share failed:', err); } catch (_) {}
+          if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
+        });
+      });
+    }
+
     if ($lobbyTreatmentRow) {
       $lobbyTreatmentRow.addEventListener('click', (evt) => {
         const btn = evt.target.closest('button[data-value]');
@@ -1908,6 +1920,108 @@
         closeLobbySettingsPopover();
       }
     });
+  }
+
+  // ==========================================================================
+  // Free Lobby Export — share the lobby as a PNG (Wave, 2026-05-05)
+  // ==========================================================================
+  //
+  // Practitioner taps the share button → snapshot the #lobby element via
+  // html2canvas (vendored at /html2canvas.min.js, lazy-loaded on first
+  // use) → convert to PNG blob → File → navigator.share. Falls back to
+  // a download if share isn't supported.
+  //
+  // Page chrome that shouldn't appear in the export (sticky CTA bar,
+  // build-version chip, settings popover) is hidden via the
+  // html.is-exporting class while the snapshot is in flight (CSS
+  // controls the visibility — see styles.css).
+  //
+  // The footer (#lobby-export-footer) is hidden by default and revealed
+  // only when html.is-exporting is on; carries a small homefit logo
+  // mark + the canonical tagline.
+
+  let _html2canvasPromise = null;
+  function loadHtml2Canvas() {
+    if (typeof window.html2canvas === 'function') {
+      return Promise.resolve(window.html2canvas);
+    }
+    if (_html2canvasPromise) return _html2canvasPromise;
+    _html2canvasPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = '/html2canvas.min.js';
+      script.async = true;
+      script.onload = () => {
+        if (typeof window.html2canvas === 'function') resolve(window.html2canvas);
+        else reject(new Error('html2canvas loaded but not on window'));
+      };
+      script.onerror = () => reject(new Error('html2canvas failed to load'));
+      document.head.appendChild(script);
+    });
+    return _html2canvasPromise;
+  }
+
+  async function triggerLobbyShare() {
+    if (!$lobby) throw new Error('lobby root missing');
+    if ($lobbyShareBtn) $lobbyShareBtn.disabled = true;
+    try {
+      const html2canvas = await loadHtml2Canvas();
+      // Toggle export styling on <html>. CSS hides CTA bar, version
+      // chip, settings popover; reveals the export footer; freezes the
+      // tracer animation at the spiral end.
+      const root = document.documentElement;
+      root.classList.add('is-exporting');
+      // Let the next two frames paint the new layout before snapshotting.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      let canvas;
+      try {
+        canvas = await html2canvas($lobby, {
+          backgroundColor: '#0F1117',
+          scale: window.devicePixelRatio || 2,
+          // Allow the SVG lanes overlays + cross-origin images. The
+          // homefit-local:// scheme + Vercel-served media both have
+          // permissive CORS for the public bucket.
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+        });
+      } finally {
+        root.classList.remove('is-exporting');
+      }
+      const blob = await new Promise((resolve) => {
+        canvas.toBlob(resolve, 'image/png', 0.92);
+      });
+      if (!blob) throw new Error('canvas.toBlob returned null');
+      const fileName = `homefit-lobby-${Date.now()}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+      // Native share sheet (iOS Safari + WKWebView, Android Chrome).
+      // Falls back to a click-to-download when not supported.
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: 'Your homefit plan',
+            text: 'Your visual plan from homefit.studio',
+          });
+          return;
+        } catch (err) {
+          // User cancelled or share rejected — fall through to download.
+          if (err && err.name === 'AbortError') return;
+          try { console.warn('[homefit-lobby] navigator.share rejected:', err); } catch (_) {}
+        }
+      }
+      // Fallback download.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } finally {
+      if ($lobbyShareBtn) $lobbyShareBtn.disabled = false;
+    }
   }
 
   // ==========================================================================

@@ -3378,6 +3378,96 @@ body.is-fullscreen .playpause-toggle {
   stroke: currentColor;
 }
 
+/* Lobby share button — sits next to the gear, triggers the lobby PNG
+   export + iOS share sheet (Wave Free Lobby Export, 2026-05-05). Mirrors
+   .lobby-gear-btn shape so the two buttons read as one cluster. */
+.lobby-share-btn {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--c-surface-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface-base);
+  color: var(--c-ink-secondary);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--dur-fast) var(--ease-standard),
+              color var(--dur-fast) var(--ease-standard),
+              border-color var(--dur-fast) var(--ease-standard);
+}
+.lobby-share-btn:hover {
+  background: var(--c-surface-raised);
+  color: var(--c-ink-primary);
+}
+.lobby-share-btn:active { transform: scale(0.96); }
+.lobby-share-btn:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+.lobby-share-btn:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+.lobby-share-btn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  stroke: currentColor;
+}
+
+/* Hide page chrome that shouldn't appear in the exported PNG. The
+   .is-exporting class is toggled on <html> during snapshot capture. */
+html.is-exporting .lobby-cta-bar,
+html.is-exporting .lobby-meta-version,
+html.is-exporting #lobby-settings-popover {
+  display: none !important;
+}
+html.is-exporting .lobby-circuit-lanes .lane-tracer {
+  /* Snapshot a quiet "settled" frame — pause the spiral animation
+     mid-render via animation: none. */
+  animation: none !important;
+  stroke-dashoffset: 0 !important;
+}
+html.is-exporting .lobby-export-footer {
+  display: flex !important;
+}
+.lobby-export-footer {
+  display: none;
+  padding: 16px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--c-surface-border);
+  margin-top: 12px;
+}
+.lobby-export-footer .lobby-export-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-ink-primary);
+  font-family: 'Montserrat', -apple-system, sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+}
+.lobby-export-footer .lobby-export-brand-mark {
+  width: 22px;
+  height: 22px;
+  background: var(--c-brand);
+  border-radius: 4px;
+  display: inline-block;
+}
+.lobby-export-footer .lobby-export-tagline {
+  color: var(--c-ink-secondary);
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 11px;
+  text-align: right;
+}
+
 /* Lobby settings popover — anchored to the viewport-bottom and opens
    UPWARD from the gear. `position: absolute` inside `.lobby-cta-bar`
    so it reads "stuck to the bar" rather than free-floating. The bar
