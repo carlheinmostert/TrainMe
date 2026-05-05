@@ -2868,22 +2868,17 @@ body.is-fullscreen .playpause-toggle {
 }
 
 .lobby-row {
-  /* Hotfix round 3 — Fix B — two-column gutter layout. The row is now
-     a flex container with a fixed-width left gutter (rail column) and
-     a flex-1 content column. For STANDALONE rows the gutter has zero
-     width (CSS rule below collapses it) so the row visually looks
-     identical to the pre-fix v3 design. For IN-CIRCUIT rows the
-     gutter expands to 22px and renders the rail piece + horizontal
-     connector — both as real children, NOT pseudo-elements, so they
-     sit OUTSIDE the row's bounding box and can never be covered by
-     the active-row coral border or any other stacking context. */
+  /* Closed-loop wave (2026-05-05): legacy gutter layout dropped.
+     All rows align with 16px effective horizontal indent so heroes
+     sit on one vertical line. In-circuit rows override with 14px
+     padding + 2px frame border = same 16px effective position. */
   display: flex;
   align-items: stretch;
   gap: 0;
   background: transparent;
   border: 0;
   border-radius: 0;
-  padding: 0;
+  padding: 0 16px;
   transition: none;
 }
 
@@ -2899,10 +2894,13 @@ body.is-fullscreen .playpause-toggle {
    circuit rows sat 56px in (Round 5 widened the circuit gutter to ~3×
    the original 22px). All rows now reserve 56px so cards sit on one
    vertical line regardless of in-circuit state. */
+/* Legacy gutter (rail + connector chrome for the old tree-branch
+   design) is now display:none on EVERY row. The closed-loop frame
+   replaces the rail metaphor; standalone rows no longer reserve the
+   56px column either, so all exercise heroes sit at the same X
+   position regardless of in-circuit state. */
 .lobby-row > .lobby-row-gutter {
-  display: block;
-  flex: 0 0 56px;
-  position: relative;
+  display: none;
 }
 
 /* Round 6 — Fix 3 — keep rail / connector children hidden by default.
@@ -3089,12 +3087,24 @@ body.is-fullscreen .playpause-toggle {
    - Carl: "I want the visual to more reflect an actual circuit to make
      people understand easier that there is repetition here." The
      closed loop is a literal circuit. */
+/* Closed-loop frame is split across sibling <li>s because the existing
+   DOM puts the header LI and the in-circuit row LIs as siblings under
+   the same <ul>. CSS gives each LI a fragment of the frame:
+   - .lobby-circuit-group (header) → top + sides, rounded top corners,
+     surface-2 background to ISOLATE the header from the tinted body
+     (per Option A in lobby-circuit-loop-options.html mockup).
+   - .lobby-row.in-circuit         → sides only, coral-tinted body fill.
+     Concatenates vertically with abutting borders.
+   - .lobby-row.in-circuit.last    → sides + bottom, rounded bottom
+     corners.
+   The <li>s abut (no gap), so borders join pixel-perfectly. */
 .lobby-circuit-group {
-  background: rgba(255, 107, 53, 0.04);
+  background: var(--c-surface-base);
   border: 2px solid rgba(255, 107, 53, 0.45);
-  border-radius: 16px;
-  padding: 6px 12px 12px;
-  margin: 8px 0;
+  border-bottom: 0;
+  border-radius: 16px 16px 0 0;
+  padding: 10px 14px;
+  margin: 8px 0 0;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -3165,8 +3175,7 @@ body.is-fullscreen .playpause-toggle {
 }
 
 /* In-circuit rows: hide the legacy gutter chrome (rail + horizontal
-   connector). The closed-loop frame on .lobby-circuit-group replaces
-   them. The card's content column expands to fill the row width. */
+   connector). The closed-loop frame on the parent group replaces them. */
 .lobby-row.in-circuit > .lobby-row-gutter,
 .lobby-row.is-circuit > .lobby-row-gutter {
   display: none;
@@ -3179,12 +3188,31 @@ body.is-fullscreen .playpause-toggle {
   display: none;
 }
 
-/* Inter-row spacing inside the loop. Cards stack with a small gap so
-   each reads as discrete; no need for the old margin-top: -1px border-
-   collapse trick (it existed to make the rail read as one line). */
+/* Closed-loop frame fragment for middle in-circuit rows. The header
+   LI carries the top of the loop on surface-2 background (isolated);
+   in-circuit rows carry the side rails on a 4% coral-tinted body. */
+.lobby-row.in-circuit,
+.lobby-row.is-circuit {
+  background: rgba(255, 107, 53, 0.04);
+  border-left: 2px solid rgba(255, 107, 53, 0.45);
+  border-right: 2px solid rgba(255, 107, 53, 0.45);
+  padding: 6px 14px;
+}
+
+/* Last in-circuit row closes the loop's bottom. */
+.lobby-row.in-circuit.last,
+.lobby-row.is-circuit.last {
+  border-bottom: 2px solid rgba(255, 107, 53, 0.45);
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+  padding-bottom: 12px;
+  margin-bottom: 8px;
+}
+
+/* Adjacent in-circuit rows abut so the frame fragments concatenate. */
 .lobby-row.in-circuit + .lobby-row.in-circuit,
 .lobby-row.is-circuit + .lobby-row.is-circuit {
-  margin-top: 6px;
+  margin-top: 0;
 }
 
 /* Rest row -------------------------------------------------------------- */
