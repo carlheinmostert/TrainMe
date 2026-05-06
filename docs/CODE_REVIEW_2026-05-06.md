@@ -12,7 +12,7 @@ After reading every cited file:line directly, the codebase is in better shape th
 **Nothing here blocks the first TestFlight upload.** Three items are worth fixing before the public web player gets more eyeballs:
 
 1. **iOS force-cast on audio-track format hint** *(verified)*. `VideoConverterChannel.swift:877` uses `as!` on `audioTrack.formatDescriptions.first`. The surrounding comment claims "conditional-cast so we pass nil cleanly", but the code does the opposite. Practical risk is near-zero (AVFoundation always returns `CMFormatDescription`), but the contradiction between comment and code is a fix-while-you're-there. One-line change.
-2. **No CSP header on production web player** *(verified)*. `web-player/index.html` ships with no CSP meta tag, and the static-host layer doesn't add one. The bot-detection middleware emits a tight CSP for crawlers only. One Vercel `headers` rule fixes it.
+2. ~~**No CSP header on production web player** *(verified)*. `web-player/index.html` ships with no CSP meta tag, and the static-host layer doesn't add one. The bot-detection middleware emits a tight CSP for crawlers only. One Vercel `headers` rule fixes it.~~ **Correction (2026-05-06 post-fix pass):** the second-look verification missed `web-player/vercel.json:42–43`, which already ships a strict CSP for all routes. Item 2 is therefore a phantom; the deploy commit tightens the existing CSP from a wildcard `https://*.supabase.co` to the specific project subdomain and adds an explicit `worker-src 'self'`, but the structural finding was wrong on second look.
 3. **`planVersionBumped` flag set after a no-op upsert** *(verified)*. `upload_service.dart:892`, immediately after an upsert whose own comment (line 877) says "do NOT bump version here". The flag is read into `PublishResult.remoteVersionMayHaveAdvanced`, so every credit-failure path emits a misleading "version may have advanced" message. Cosmetic but recurring source of support confusion.
 
 **Worth fixing post-MVP** (verified, but narrower scope than the original audit suggested):
@@ -88,7 +88,7 @@ After reading every cited file:line directly, the codebase is in better shape th
 
 ### Verified-real
 
-- **WP-HIGH-1 (verified)** — `web-player/index.html` ships with no CSP meta tag, and the static-host layer doesn't add one. Only `web-player/middleware.js:72` emits a CSP, and only on the bot-detection branch. Add a Vercel `headers` rule for non-bot responses with `default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://yrwcofhovrcydootivjx.supabase.co; frame-ancestors 'none'`.
+- ~~**WP-HIGH-1 (verified)** — `web-player/index.html` ships with no CSP meta tag, and the static-host layer doesn't add one. Only `web-player/middleware.js:72` emits a CSP, and only on the bot-detection branch.~~ **Rejected (post-fix verification):** `web-player/vercel.json:12–53` already wires a global `Content-Security-Policy` response header for every route. The second-look verification only checked `index.html` for a meta tag and missed the Vercel headers config. The deploy commit tightens the existing CSP — specific Supabase subdomain instead of wildcard, plus explicit `worker-src 'self'` — but the structural finding was wrong.
 
 - **WP-HIGH-2 (verified)** — Service worker `CACHE_NAME = 'homefit-player-v69-modal-first-desktop'` (`web-player/sw.js:8`). CLAUDE.md says current cache name is `homefit-player-v75`. Codebase is the source of truth; CLAUDE.md is stale.
 

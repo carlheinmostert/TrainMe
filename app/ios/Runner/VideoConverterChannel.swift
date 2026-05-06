@@ -871,13 +871,10 @@ class VideoConverterChannel {
                 // `formatDescriptions` is [Any] in AVFoundation's legacy
                 // typing; the first entry is the track's canonical format.
                 // Conditional-cast so we pass nil cleanly if the array is
-                // empty (edge case — shouldn't happen for a real track).
-                let formatHint: CMFormatDescription?
-                if let first = audioTrack.formatDescriptions.first {
-                    formatHint = (first as! CMFormatDescription)
-                } else {
-                    formatHint = nil
-                }
+                // empty OR the entry is somehow not a CMFormatDescription —
+                // AVAssetWriter accepts a nil hint and derives the format
+                // from the source samples.
+                let formatHint = audioTrack.formatDescriptions.first as? CMFormatDescription
                 let audioInput = AVAssetWriterInput(
                     mediaType: .audio,
                     outputSettings: nil,
