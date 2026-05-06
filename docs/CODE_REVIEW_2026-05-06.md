@@ -3,6 +3,33 @@
 **Branch:** `claude/deep-code-review-aE0vm`
 **Scope:** Risk-focused review of the load-bearing paths ahead of the first TestFlight upload. UI polish, design parity, and the line-drawing v6 aesthetic are deliberately out of scope.
 
+---
+
+## Executive summary
+
+We're in good shape for TestFlight. The line-drawing pipeline, audio drain, privacy manifest, bundle-ID rebrand, atomic credit-consumption, and the anonymous read surface (`get_plan_full` consent gates, RPC enumeration) all read clean. Nothing in this review blocks the first upload.
+
+**The two findings worth fixing before the public web player gets more eyeballs:**
+
+1. **Service-worker may cache `raw-archive` signed URLs across clients on shared devices** (`web-player/sw.js`). The cache predicate is too broad; signed URLs with 1-hour tokens get persisted for the lifetime of `CACHE_NAME`, which means a kiosk iPad in a clinic can replay one client's grayscale/original media to the next. This is the single highest-impact item in the review.
+2. **No CSP header on `session.homefit.studio`** in production. The bot-detection middleware emits a tight CSP, but the actual player ships without one. Adding `default-src 'self'` plus a Supabase `connect-src` allowance is a one-line Vercel config change.
+
+**Three multi-tenant integrity items worth fixing before scale:**
+
+3. **`bootstrap_practice_for_user` Carl-sentinel claim race** — concurrent first sign-ins can both pass the NULL-check and clobber each other.
+4. **`claim_referral_code` does not verify referrer-side membership** — a leaked code lets a non-member set up a rebate-paying pairing.
+5. **`planVersionBumped` flag set after a no-op upsert** (verified) — purely cosmetic on the user-facing side, but it routinely surfaces a misleading "version may have advanced" message after every credit-failure path. Fast to fix, removes a recurring source of support confusion.
+
+**iOS robustness:**
+
+6. **Two force-unwraps in `VideoConverterChannel.swift`** (audio-track format hint at line 877; vImage buffer pointer at line 2381). Either crashes the host app on degenerate input. Trivial defensive-cast fixes.
+
+**Process risks**: CLAUDE.md cites SW cache `v75` while the codebase ships `v69-modal-first-desktop` — drift. The superseded `schema_hotfix_replace_plan_exercises_columns.sql` lingers in the repo and misled the audit; deleting it (or annotating with a pointer to the canonical version) would prevent the same trap next pass.
+
+**Confidence note:** Subagent findings are tagged `(verified)` only where I read the cited file:line directly; `(claimed)` items are credible but unverified, and `(rejected)` items are ones I checked and disagreed with. About 30 % of findings were spot-checked.
+
+---
+
 **Surfaces reviewed**
 1. Mobile publish + sync pipeline (`app/lib/services/`)
 2. Supabase backend (`supabase/*.sql` — RLS, SECURITY DEFINER, RPC contracts)
