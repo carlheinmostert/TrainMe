@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// Sets a Supabase auth user's password directly via the admin API.
+// Sets a Supabase auth user's password directly via the GoTrue admin REST API.
 // No email is sent — bypasses the outbound-mail rate limit on the default sender.
 //
-// Usage (run from web-portal/ to pick up @supabase/supabase-js from its node_modules):
-//   cd web-portal
-//   SUPABASE_SERVICE_ROLE_KEY=... node ../tools/admin/reset-user-password.mjs <email> [password]
+// Zero dependencies — uses Node 18+ built-in fetch, so it runs from anywhere
+// without an npm install. Run from any directory:
 //
-// If [password] is omitted, a strong random one is generated and printed to stdout.
+//   SUPABASE_SERVICE_ROLE_KEY=... node tools/admin/reset-user-password.mjs <email> [password]
+//
+// If [password] is omitted, a strong random one is generated and printed.
 // SUPABASE_URL defaults to the homefit.studio project; override via env if needed.
 
-import { createClient } from '@supabase/supabase-js';
 import { randomBytes } from 'node:crypto';
 
 const SUPABASE_URL =
@@ -32,22 +32,28 @@ if (!emailArg) {
 const email = emailArg.trim().toLowerCase();
 const password = passwordArg ?? randomBytes(12).toString('base64url');
 
-const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+const headers = {
+  apikey: SERVICE_ROLE,
+  Authorization: `Bearer ${SERVICE_ROLE}`,
+  'Content-Type': 'application/json',
+};
 
 let user = null;
 let page = 1;
 const perPage = 1000;
 while (true) {
-  const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-  if (error) {
-    console.error('listUsers failed:', error.message);
+  const res = await fetch(
+    `${SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=${perPage}`,
+    { headers },
+  );
+  if (!res.ok) {
+    console.error('listUsers failed:', res.status, await res.text());
     process.exit(3);
   }
-  user = data.users.find((u) => u.email?.toLowerCase() === email);
-  if (user) break;
-  if (data.users.length < perPage) break;
+  const data = await res.json();
+  const users = data.users ?? data;
+  user = users.find((u) => u.email?.toLowerCase() === email);
+  if (user || users.length < perPage) break;
   page += 1;
 }
 
@@ -56,16 +62,19 @@ if (!user) {
   process.exit(2);
 }
 
-const { error: updateError } = await admin.auth.admin.updateUserById(user.id, {
-  password,
+const updateRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${user.id}`, {
+  method: 'PUT',
+  headers,
+  body: JSON.stringify({ password }),
 });
-if (updateError) {
-  console.error('updateUserById failed:', updateError.message);
+
+if (!updateRes.ok) {
+  console.error('updateUser failed:', updateRes.status, await updateRes.text());
   process.exit(4);
 }
 
 console.log(`Password reset for ${email}`);
 console.log(`  uid:           ${user.id}`);
-console.log(`  temp password: ${password}`);
+console.log(`  password:      ${password}`);
 console.log('');
 console.log('Share via WhatsApp/SMS. Tell them to change it in Settings on first sign-in.');
