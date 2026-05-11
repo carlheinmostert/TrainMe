@@ -122,6 +122,18 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
       respondWithAsset(urlSchemeTask, assetName: "html2canvas.min.js", contentType: "application/javascript; charset=utf-8")
       return
     }
+    if path == "config.js" {
+      // feat/web-player-env-vars — the public surface generates this
+      // at deploy time from Vercel env vars (see web-player/build.sh)
+      // so each deployment hits the right Supabase branch DB. The
+      // embedded surface never reaches Supabase (api.js's
+      // `isLocalSurface()` short-circuits every network call), so the
+      // values are inert here. Serve an empty config object so api.js
+      // falls through to its inline fallback constants without a 404
+      // showing up in the WebView console.
+      respondWithInlineJavaScript(urlSchemeTask, body: "window.HOMEFIT_CONFIG = Object.freeze({});")
+      return
+    }
 
     // 2. Plan JSON.
     if let planId = match(path: path, pattern: "api/plan/") {
@@ -183,6 +195,39 @@ final class UnifiedPlayerSchemeHandler: NSObject, WKURLSchemeHandler {
   private func safeDidFail(_ task: WKURLSchemeTask, _ error: Error) {
     if isStopped(task) { return }
     task.didFailWithError(error)
+  }
+
+  // MARK: - Inline asset handler
+
+  /// Serve a literal JavaScript snippet without going through the
+  /// Flutter asset bundle. Used for tiny generated stubs that have no
+  /// on-disk twin (e.g. the `config.js` inert stub for the embedded
+  /// surface — see the route handler).
+  private func respondWithInlineJavaScript(
+    _ task: WKURLSchemeTask,
+    body: String
+  ) {
+    guard let data = body.data(using: .utf8) else {
+      safeDidFail(task, Self.error(.cannotDecodeRawData, "failed to encode inline JS"))
+      return
+    }
+    guard let requestURL = task.request.url else {
+      safeDidFail(task, Self.error(.badURL, "missing request URL"))
+      return
+    }
+    let response = makeResponse(
+      url: requestURL,
+      statusCode: 200,
+      headers: [
+        "Content-Type": "application/javascript; charset=utf-8",
+        "Content-Length": "\(data.count)",
+        "Cache-Control": "no-store, max-age=0",
+        "Cross-Origin-Resource-Policy": "same-origin",
+      ]
+    )
+    safeDidReceive(task, response)
+    safeDidReceive(task, data)
+    safeDidFinish(task)
   }
 
   // MARK: - Static asset handler

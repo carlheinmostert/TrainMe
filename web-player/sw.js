@@ -5,13 +5,14 @@
  * works offline at the gym without mobile signal.
  */
 
-const CACHE_NAME = 'homefit-player-v69-modal-first-desktop';
+const CACHE_NAME = 'homefit-player-v76-env-config';
 
 // App shell files — always cached
 const APP_SHELL = [
   '/',
   '/index.html',
   '/styles.css',
+  '/config.js',
   '/app.js',
   '/api.js',
   '/lobby.js',
