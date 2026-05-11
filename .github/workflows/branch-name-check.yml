@@ -1,0 +1,82 @@
+# Soft branch-name convention check.
+#
+# Enforces the convention from docs/CI.md §4: branch names must match
+#   ^(feat|fix|chore)/[a-z0-9-]+$
+# OR be `staging` (the only permanent non-main branch).
+#
+# This is a NUDGE, not a gate — it posts a PR comment when the branch name
+# doesn't match, and exits 0 either way. Auto-generated sub-agent worktree
+# branches (`claude/<adjective>-<noun>-<hash>`) get a different reminder so
+# Carl doesn't see a "noisy" warning when an ephemeral worktree opens a
+# draft PR.
+
+name: Branch name check
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - edited
+      - synchronize
+
+permissions:
+  pull-requests: write
+
+jobs:
+  check-branch-name:
+    name: Branch naming
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate branch name
+        id: eval
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          echo "Branch: ${BRANCH}"
+
+          # Exempt: staging (permanent branch) and the protected main branch.
+          if [[ "${BRANCH}" == "staging" || "${BRANCH}" == "main" ]]; then
+            echo "status=ok" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Pattern A: conventional prefix.
+          if echo "${BRANCH}" | grep -Eq '^(feat|fix|chore)/[a-z0-9-]+$'; then
+            echo "status=ok" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Pattern B: auto-generated agent worktree (claude/* or worktree-*).
+          if echo "${BRANCH}" | grep -Eq '^(claude|worktree-agent)/'; then
+            echo "status=ephemeral" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "status=nudge" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on non-conventional branch
+        if: steps.eval.outputs.status == 'nudge'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.payload.pull_request.head.ref;
+            const body = [
+              "Branch naming nudge:",
+              "",
+              "The convention from `docs/CI.md` §4 is",
+              "`feat/`, `fix/`, or `chore/` followed by lowercase + dashes.",
+              "",
+              "This PR's branch is `" + branch + "`.",
+              "",
+              "Not a blocker — just a heads-up. Rename with",
+              "`git branch -m " + branch + " feat/<short-name>`",
+              "and push with `--set-upstream` if you want CI to clean up."
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
