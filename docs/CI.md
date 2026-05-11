@@ -1,6 +1,6 @@
-# Staging — Release Workflow
+# CI/CD — Release Pipeline
 
-How code, schema, and deploys flow from "Claude wrote a thing" to "real users see it."
+How code, schema, and deploys flow from "Claude wrote a thing" to "real users see it." This is the canonical CI/CD strategy doc — the staging environment is one gate in the pipeline, not the subject.
 
 > **Status (2026-05-11):** This describes the **target** model. Schema baseline migration is committed to `main` (`supabase/migrations/20260511065443_baseline.sql`). Supabase Branching is not yet enabled on the prod project, the persistent `staging` git branch doesn't exist yet, and Vercel + Flutter aren't wired for per-branch env resolution. The "Setup status" section at the bottom tracks the cutover.
 
