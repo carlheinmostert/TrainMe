@@ -1,0 +1,22 @@
+# Grandfathered direct-Supabase-access exceptions.
+#
+# TODO: Pare down over time. Goal: empty file.
+#
+# Each non-comment, non-blank line is a repo-relative file path that
+# scripts/ci/check-no-direct-db-access.sh will skip when scanning for
+# direct Supabase access (`.from(`, `.rpc(`, `.storage`, `/rest/v1/`,
+# `Supabase.instance.client`).
+#
+# Add a path here only as a stopgap. The right fix is always to route the
+# call through the per-surface access layer:
+#   - app/lib/services/api_client.dart
+#   - web-portal/src/lib/supabase/api.ts
+#   - web-player/api.js
+#
+# When you remove the underlying violation, delete the path from this file
+# in the same PR. CI will catch any regression.
+#
+# Format: one repo-relative path per line. `#` starts a comment.
+# ----------------------------------------------------------------------------
+
+# (empty — clean state as of 2026-05-11)
