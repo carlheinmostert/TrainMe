@@ -473,25 +473,25 @@ It reads `supabase/migrations/*.sql` (in timestamp order). Every schema change a
 
 ## 10. Setup status (cutover checklist)
 
-What's done:
+What's done (2026-05-11):
 
 - [x] Schema baseline migration committed (`supabase/migrations/20260511065443_baseline.sql`, commit `29277ac`).
 - [x] Migrations README documenting the convention (`supabase/migrations/README.md`).
-- [x] Standalone `homefit.studio-staging` Supabase project created (`txxprpxlumstzxjnbtuo`) for one-time validation.
-- [x] Memory rules: staging vocabulary, branch naming, specs-direct-to-main, APIs-not-dashboards.
+- [x] Memory rules: staging vocabulary, branch naming, specs-direct-to-main, APIs-not-dashboards, TOC required, pull-main-after-direct-commit.
+- [x] Persistent `staging` git branch off `main` (created during the CI/CD automation PR work).
+- [x] **Supabase Branching enabled on prod project (`yrwcofhovrcydootivjx`).** GitHub App installed; project ↔ repo connected; main and staging branches both ACTIVE_HEALTHY with full schema parity and vault secrets populated.
+- [x] **Vercel-Supabase integration installed on BOTH Vercel projects** (`homefit-web-portal` + `homefit-web-player`). Env vars sync across Production / Preview / Development scopes with `NEXT_PUBLIC_` prefix. Preview deploys auto-route to matching Supabase branch DB when a PR is open.
+- [x] **web-player code change** (PR #293 / commit `db77068`): static bundle reads Supabase URL + anon key from `window.HOMEFIT_CONFIG` injected at deploy time. `build.sh` strict-fail policy (no prod fallback). `vercel.json` has `outputDirectory: "."` so Vercel knows where the built artifacts live. Loopback hosts (mobile WebView) exempted via `isLocalSurface()` alignment.
+- [x] Standalone `homefit.studio-staging` Supabase project **decommissioned** (deleted via `supabase projects delete txxprpxlumstzxjnbtuo`). No longer needed once Branching superseded it.
+- [x] Migration history table aligned on both prod main and staging branch DBs (`supabase migration repair` resolved a phantom `20260511092902` entry inherited from earlier `supabase db push` runs).
 
-What's pending:
+Still pending:
 
-- [ ] Apply baseline to standalone staging project. Smoke-test that the web-portal + web-player + mobile app boot against it. Validates the baseline is complete.
-- [ ] Enable Supabase Branching on the prod project. Connect GitHub integration.
-- [ ] Create persistent `staging` git branch off `main`. Supabase auto-creates the matching persistent branch DB.
-- [ ] Configure Vercel: assign `staging.manage.homefit.studio` + `staging.session.homefit.studio` subdomains to the `staging` branch. Wire env vars so feature-branch previews talk to their auto-spun branch DBs.
-- [ ] Update DNS at Hostinger: `staging.manage.homefit.studio` + `staging.session.homefit.studio` CNAMEs.
-- [ ] Add Flutter `ENV` flag. Branching in `app_config.dart`. Default `ENV=branch` in install scripts; explicit `ENV=prod` in TestFlight build scripts.
+- [ ] DNS at Hostinger: `staging.manage.homefit.studio` + `staging.session.homefit.studio` CNAMEs → matching Vercel preview URLs (currently the preview URLs work via auto-generated `*.vercel.app` hostnames; clean subdomains is polish).
+- [ ] Flutter `ENV` flag in `app_config.dart`. Default `ENV=branch` in install scripts; explicit `ENV=prod` in TestFlight build scripts.
 - [ ] Branch-aware install script: parse current git branch, query Supabase Management API for the matching branch DB URL + anon key, inject via `--dart-define`.
-- [ ] One-time GitHub Action to populate vault secrets on branch creation.
-- [ ] Decommission standalone staging project once Branching cutover is validated.
-- [ ] Archive `supabase/schema_*.sql` files to `supabase/archive/` once Branching is live.
+- [ ] One-time GitHub Action to populate vault secrets on Supabase branch creation (so per-PR branch DBs have working `sign_storage_url`).
+- [ ] Archive `supabase/schema_*.sql` files to `supabase/archive/` (the ad-hoc files predating the baseline — keep them as a safety net for now; archive when confidence is high).
 
 ## Related conventions
 
