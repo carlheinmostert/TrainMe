@@ -1,0 +1,76 @@
+# Auto-tag main merges with `v{YYYY-MM-DD}.{N}` (N = nth release on that
+# UTC calendar date). Gives a human-readable git anchor for "what was in
+# prod on date X".
+#
+# Tagging is gated to commits whose message starts "Merge pull request" —
+# the deliberate staging→main release-train PRs that §6 of docs/CI.md
+# describes. Direct pushes to main (docs-only, rare) intentionally do NOT
+# get tagged, so the tag stream stays clean and only marks promotions.
+#
+# Tags are annotated, pushed via GITHUB_TOKEN. No external secrets.
+
+name: Release tag
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Tag main merge
+    runs-on: ubuntu-latest
+    # Only tag PR-merge commits. The github-actions[bot] / squash-merge
+    # subject from a PR always starts with "Merge pull request" when the
+    # repo's default merge style is a true merge commit. Direct pushes
+    # (rare; mostly docs) won't match and won't tag.
+    if: startsWith(github.event.head_commit.message, 'Merge pull request')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute next tag
+        id: tag
+        run: |
+          set -euo pipefail
+          # Ensure we see every remote tag, not just what checkout pulled.
+          git fetch --tags --force --quiet origin
+
+          today=$(date -u +%Y-%m-%d)
+
+          # Existing tags for today look like `v2026-05-11.3`. Strip the
+          # prefix, extract the trailing integer, take the max. If none
+          # match, max is 0 and we start at 1.
+          max=0
+          while IFS= read -r tag; do
+            [[ -z "${tag}" ]] && continue
+            n="${tag#v${today}.}"
+            # Defensive: skip anything that isn't a pure integer.
+            if [[ "${n}" =~ ^[0-9]+$ ]] && (( n > max )); then
+              max="${n}"
+            fi
+          done < <(git tag --list "v${today}.*")
+
+          next=$((max + 1))
+          new_tag="v${today}.${next}"
+          echo "tag=${new_tag}" >> "$GITHUB_OUTPUT"
+          echo "▸ Next release tag: ${new_tag}"
+
+      - name: Create and push tag
+        env:
+          NEW_TAG: ${{ steps.tag.outputs.tag }}
+          COMMIT_SUBJECT: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          # First line of the commit message is the PR-merge subject; quote
+          # it into the annotated tag message for grep-ability.
+          first_line=$(printf '%s\n' "${COMMIT_SUBJECT}" | head -n1)
+          git tag -a "${NEW_TAG}" -m "Auto-release ${NEW_TAG}" -m "${first_line}"
+          git push origin "${NEW_TAG}"
+          echo "▸ Pushed tag ${NEW_TAG}"

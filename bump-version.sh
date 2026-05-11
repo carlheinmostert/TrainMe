@@ -8,9 +8,18 @@
 #   ./bump-version.sh minor        # bumps Y, resets Z=0 +N=+1
 #   ./bump-version.sh major        # bumps X, resets Y=0 Z=0 +N=+1
 #
+#   ./bump-version.sh --no-tag         # bump pubspec only (legacy behaviour)
+#   ./bump-version.sh build --no-tag   # same, with explicit kind
+#
 # Apple TestFlight rejects duplicate build numbers within the same marketing
 # version, so the build counter must climb on every upload. Run this from
 # anywhere — it anchors itself on the script's own directory.
+#
+# By default the script also commits the pubspec change and creates an
+# annotated `mobile-v{version}+{build}` git tag, then pushes the tag to
+# origin so every TestFlight upload has a discoverable git anchor. Pass
+# `--no-tag` to skip the commit + tag step (legacy behaviour, useful when
+# bundling the bump into a larger commit by hand).
 
 set -euo pipefail
 
@@ -22,17 +31,26 @@ if [[ ! -f "$PUBSPEC" ]]; then
   exit 1
 fi
 
-# Strip a leading -- from the flag so both `--patch` and `patch` work.
-raw_kind="${1:-build}"
-bump_kind="${raw_kind#--}"
-
-case "$bump_kind" in
-  build|major|minor|patch) ;;
-  *)
-    echo "error: unknown bump kind: $raw_kind (expected: build | major | minor | patch)" >&2
-    exit 2
-    ;;
-esac
+# Parse args. Accept the kind in any position; --no-tag (or --no-commit,
+# its alias) anywhere. Keep flag-parsing forgiving — TestFlight day is no
+# time for argparse pedantry.
+bump_kind=""
+do_tag=1
+for arg in "$@"; do
+  case "${arg#--}" in
+    no-tag|no-commit)
+      do_tag=0
+      ;;
+    build|major|minor|patch)
+      bump_kind="${arg#--}"
+      ;;
+    *)
+      echo "error: unknown argument: $arg (expected: build | major | minor | patch | --no-tag)" >&2
+      exit 2
+      ;;
+  esac
+done
+bump_kind="${bump_kind:-build}"
 
 before=$(grep '^version:' "$PUBSPEC")
 
@@ -72,6 +90,58 @@ PY
 after=$(grep '^version:' "$PUBSPEC")
 
 echo "▸ Bumped: $before  →  $after"
+
+# Commit + tag the bump so every TestFlight upload has a discoverable git
+# anchor. Skip with --no-tag for users who want to bundle the bump into a
+# larger commit themselves.
+if (( do_tag )); then
+  # Pull the new X.Y.Z+N off the rewritten line.
+  new_version=$(printf '%s\n' "$after" | sed 's/^version:[[:space:]]*//')
+  tag="mobile-v${new_version}"
+
+  echo
+  # Refuse to run outside a git checkout.
+  if ! git -C "$SCRIPT_DIR" rev-parse --git-dir > /dev/null 2>&1; then
+    echo "▸ Not inside a git repo — skipping commit + tag." >&2
+    echo "  (Re-run inside a checkout, or pass --no-tag explicitly to silence this.)"
+    exit 0
+  fi
+
+  # Refuse to bury an unrelated dirty working tree in the bump commit.
+  # Only pubspec.yaml may be modified; anything else means the user has
+  # in-flight work that they should commit first.
+  other_changes=$(git -C "$SCRIPT_DIR" status --porcelain | grep -v ' app/pubspec.yaml$' || true)
+  if [[ -n "$other_changes" ]]; then
+    echo "error: refusing to commit + tag — working tree has unrelated changes:" >&2
+    printf '%s\n' "$other_changes" >&2
+    echo
+    echo "  Commit / stash those first, or pass --no-tag to bump pubspec only." >&2
+    exit 3
+  fi
+
+  # If the tag already exists locally or on origin, bail loudly rather
+  # than overwrite (TestFlight build numbers are immutable; a duplicate
+  # tag would point at the wrong commit forever).
+  if git -C "$SCRIPT_DIR" rev-parse -q --verify "refs/tags/${tag}" > /dev/null; then
+    echo "error: local tag ${tag} already exists — refusing to overwrite." >&2
+    echo "  Delete it with \`git tag -d ${tag}\` if you're sure." >&2
+    exit 4
+  fi
+  if git -C "$SCRIPT_DIR" ls-remote --tags origin "refs/tags/${tag}" | grep -q .; then
+    echo "error: remote tag ${tag} already exists on origin — refusing to overwrite." >&2
+    echo "  Bump again, or delete it with \`git push --delete origin ${tag}\`." >&2
+    exit 5
+  fi
+
+  echo "▸ Committing bump + tagging ${tag}"
+  git -C "$SCRIPT_DIR" add app/pubspec.yaml
+  git -C "$SCRIPT_DIR" commit -m "chore(testflight): bump to ${new_version}"
+  git -C "$SCRIPT_DIR" tag -a "${tag}" -m "TestFlight build ${new_version}"
+  echo "▸ Pushing tag to origin"
+  git -C "$SCRIPT_DIR" push origin "${tag}"
+  echo "▸ Done — ${tag} now points at HEAD."
+fi
+
 echo
 echo "Next:"
 echo "  Option A (CLI — explicit ENV=prod):"
