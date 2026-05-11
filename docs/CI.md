@@ -263,7 +263,7 @@ The pyramid, narrow at the top:
 
 ### 8.2 Workflows in `.github/workflows/`
 
-Five workflow files today. Each one is small, single-purpose, and named for what it gates.
+Six workflow files today. Each one is small, single-purpose, and named for what it gates.
 
 #### `.github/workflows/ci.yml` — the surface gate
 
@@ -318,6 +318,16 @@ Five workflow files today. Each one is small, single-purpose, and named for what
 - **Job:** `web-player-drift-guard` runs `python3 tools/check_web_player_drift.py`.
 - **What it catches:** divergence between `web-player/*.{html,js,css}` (the canonical source) and `app/assets/web-player/*.{html,js,css}` (the bundle shipped inside the Flutter app for offline preview). The four files compared are `index.html`, `app.js`, `api.js`, `styles.css` (SHA-256 over bytes). Drift fails with a fix-it line pointing at `dart run app/tool/sync_web_player_bundle.dart`.
 - **Rule enforced:** R-10 mobile↔web parity (CLAUDE.md "Mobile ↔ Web Player Parity"; §3 of this doc).
+
+#### `.github/workflows/supabase-branch-vault.yml` — per-PR vault population
+
+- **Triggers:** `pull_request` of types `opened`, `reopened`, `synchronize`. Skips when the head ref is `staging` / `main` (persistent envs already populated) or starts with `claude/` / `worktree-agent/` (ephemeral agent worktrees that don't get a Supabase branch DB).
+- **Concurrency:** keyed on the PR's head ref, cancel-in-progress.
+- **Job:** `populate-vault` polls the Supabase Management API for a branch with `git_branch` matching the PR's head ref. Once it reaches `ACTIVE_HEALTHY` (10 min timeout), it fetches the branch's `ref` + `jwt_secret`, then `POST`s two idempotent `vault.create_secret` calls (`supabase_url`, `supabase_jwt_secret`) via the `database/query` endpoint. Both are wrapped in `DO $do$ ... NOT EXISTS ... END $do$;` blocks so re-runs are no-ops. Closes with a `signed_url_self_check()` probe to verify wiring.
+- **Secret required:** `SUPABASE_ACCESS_TOKEN` (Personal Access Token with project scope, generated at https://supabase.com/dashboard/account/tokens). Stored under repo Settings → Secrets and variables → Actions.
+- **What it catches:** the absence of vault rows on a freshly-spun branch DB. Without this, `public.sign_storage_url` returns NULL on feature-branch DBs and consent-gated raw-archive videos can't be served on the preview surface.
+- **Soft-fail by design:** every error path emits `::warning::` and exits 0. The vault is the LAST piece needed for full per-PR branch parity; if population fails for any reason the preview just falls back to line-drawing only — same graceful behaviour `sign_storage_url` already implements. Don't gate merge on this.
+- **Memory rule:** `gotcha_sign_storage_url_service_role.md` (vault is the input the helper needs; `sign_storage_url` itself stays service-role-only).
 
 ### 8.3 Custom check scripts
 
@@ -461,7 +471,7 @@ Supabase Branching includes Edge Functions per branch. The `payfast-webhook` and
 
 **Q: What about Vault secrets (`supabase_jwt_secret`, `supabase_url`)?**
 
-Vault secrets are NOT replicated to branch DBs automatically — they're environment-specific values. The baseline migration's §12 lists the `vault.create_secret` calls. After Branching is enabled, we'll need a one-time GitHub Action that populates vault secrets per branch on creation. Until that's in place, features that depend on `sign_storage_url` (any signed-URL generation) won't work on feature branch DBs — that's a known limitation we accept until the Action exists.
+Vault secrets are NOT replicated to branch DBs automatically — they're environment-specific values. The baseline migration's §12 lists the `vault.create_secret` calls. `.github/workflows/supabase-branch-vault.yml` populates both on every newly-created preview branch via the Supabase Management API (idempotent re-runs are safe). Needs the `SUPABASE_ACCESS_TOKEN` repo secret. The workflow soft-fails — if vault population times out or errors, the preview falls back to line-drawing only on consent-gated treatments (`sign_storage_url` already returns NULL gracefully when the rows are missing).
 
 **Q: How does Supabase Branching know which migrations to apply?**
 
@@ -490,7 +500,7 @@ Still pending:
 - [ ] DNS at Hostinger: `staging.manage.homefit.studio` + `staging.session.homefit.studio` CNAMEs → matching Vercel preview URLs (currently the preview URLs work via auto-generated `*.vercel.app` hostnames; clean subdomains is polish).
 - [ ] Flutter `ENV` flag in `app_config.dart`. Default `ENV=branch` in install scripts; explicit `ENV=prod` in TestFlight build scripts.
 - [ ] Branch-aware install script: parse current git branch, query Supabase Management API for the matching branch DB URL + anon key, inject via `--dart-define`.
-- [ ] One-time GitHub Action to populate vault secrets on Supabase branch creation (so per-PR branch DBs have working `sign_storage_url`).
+- [x] **GitHub Action to populate vault secrets on Supabase branch creation** — `.github/workflows/supabase-branch-vault.yml` (triggers on PR open/reopen/synchronize; polls Supabase Management API; idempotent `vault.create_secret` for `supabase_url` + `supabase_jwt_secret`; soft-fail). Requires `SUPABASE_ACCESS_TOKEN` repo secret — generate at https://supabase.com/dashboard/account/tokens, set under Settings → Secrets and variables → Actions.
 - [ ] Archive `supabase/schema_*.sql` files to `supabase/archive/` (the ad-hoc files predating the baseline — keep them as a safety net for now; archive when confidence is high).
 
 ## Related conventions
