@@ -4,6 +4,22 @@ How code, schema, and deploys flow from "Claude wrote a thing" to "real users se
 
 > **Status (2026-05-11):** This describes the **target** model. Schema baseline migration is committed to `main` (`supabase/migrations/20260511065443_baseline.sql`). Supabase Branching is not yet enabled on the prod project, the persistent `staging` git branch doesn't exist yet, and Vercel + Flutter aren't wired for per-branch env resolution. The "Setup status" section at the bottom tracks the cutover.
 
+## Table of Contents
+
+1. [Why we have staging](#1-why-we-have-staging)
+2. [The three-tier model](#2-the-three-tier-model)
+3. [Lifecycle of a feature](#3-lifecycle-of-a-feature)
+4. [Branch naming](#4-branch-naming)
+5. [Per-branch testing — both surfaces, isolated](#5-per-branch-testing--both-surfaces-isolated)
+   - [Web](#web)
+   - [Phone](#phone)
+   - [What this gets you](#what-this-gets-you)
+6. [Promotion: staging → main](#6-promotion-staging--main)
+7. [Hotfixes](#7-hotfixes)
+8. [Caveats and FAQs](#8-caveats-and-faqs)
+9. [Setup status (cutover checklist)](#9-setup-status-cutover-checklist)
+10. [Related conventions](#related-conventions)
+
 ---
 
 ## 1. Why we have staging
