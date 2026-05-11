@@ -10,11 +10,11 @@ How code, schema, and deploys flow from "Claude wrote a thing" to "real users se
 2. [The three-tier model](#2-the-three-tier-model)
 3. [Lifecycle of a feature](#3-lifecycle-of-a-feature)
 4. [Branch naming](#4-branch-naming)
-5. [Per-branch testing — both surfaces, isolated](#5-per-branch-testing--both-surfaces-isolated)
+5. [Per-branch testing on web and phone](#5-per-branch-testing-on-web-and-phone)
    - [Web](#web)
    - [Phone](#phone)
    - [What this gets you](#what-this-gets-you)
-6. [Promotion: staging → main](#6-promotion-staging--main)
+6. [Promoting staging to main](#6-promoting-staging-to-main)
 7. [Hotfixes](#7-hotfixes)
 8. [Automation](#8-automation)
    - [Workflow files](#workflow-files)
@@ -137,7 +137,7 @@ Rules:
 - Docs never get a branch — they go straight to `main` per the [specs-direct-to-main rule](#related-conventions).
 - Sub-agent worktrees (`claude/<adjective>-<noun>-<hash>`) are fine for ephemeral background tasks that don't open a PR. For anything that's going to be a PR, the branch name is Carl's.
 
-## 5. Per-branch testing — both surfaces, isolated
+## 5. Per-branch testing on web and phone
 
 You don't have to merge into staging to test a feature. Each branch is end-to-end isolated.
 
@@ -200,7 +200,7 @@ DB:      feat/X DB       │   DB:      feat/Y DB      │   DB:      staging DB
 
 Two features under simultaneous review is normal — `feat/X` running on a browser tab, `feat/Y` running on the phone — with totally separate data. Or both surfaces on `feat/X` checking [R-10 mobile↔web parity](#related-conventions).
 
-## 6. Promotion: staging → main
+## 6. Promoting staging to main
 
 The release PR is the one moment where prod changes. Treat it deliberately.
 
