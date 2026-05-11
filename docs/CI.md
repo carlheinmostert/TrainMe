@@ -247,7 +247,8 @@ The pyramid, narrow at the top:
    ┌─────────────────────────────────────────────────────────┐
    │  Repo workflows  (.github/workflows/)                   │
    │    ci.yml, migration-check.yml, branch-name-check.yml,  │
-   │    release-notes.yml, web-player-drift-guard.yml        │
+   │    release-notes.yml, release-tag.yml,                  │
+   │    web-player-drift-guard.yml                           │
    └─────────────────────────────────────────────────────────┘
    ┌─────────────────────────────────────────────────────────┐
    │  Check implementations                                  │
@@ -263,7 +264,7 @@ The pyramid, narrow at the top:
 
 ### 8.2 Workflows in `.github/workflows/`
 
-Five workflow files today. Each one is small, single-purpose, and named for what it gates.
+Six workflow files today. Each one is small, single-purpose, and named for what it gates.
 
 #### `.github/workflows/ci.yml` — the surface gate
 
@@ -311,6 +312,14 @@ Five workflow files today. Each one is small, single-purpose, and named for what
 - **Job:** `release-notes` computes the cumulative diff `base...head` and posts (or upserts via the `<!-- release-notes-bot -->` HTML comment marker) a single comment with: per-surface files-changed table (web-portal / web-player / app / supabase / docs / other), list of newly added migration filenames, full commit log subject lines. Needs `fetch-depth: 0` for the log.
 - **What it catches:** nothing fails; the comment is informational. The point is to make Carl read the cumulative diff before merging the release train into prod.
 - **Rule enforced:** §6 of this doc — the release PR is the only deliberate gate between staging and main.
+
+#### `.github/workflows/release-tag.yml` — date-based prod anchor
+
+- **Triggers:** `push` to `main`.
+- **Permissions:** `contents: write` (to push tags).
+- **Job:** `tag` runs on `ubuntu-latest`, gated by `if: startsWith(github.event.head_commit.message, 'Merge pull request')` so direct pushes to `main` (rare; mostly docs landing per `feedback_specs_direct_to_main.md`) don't tag. Computes `v{YYYY-MM-DD}.{N}` where `N` is the highest existing suffix on today's UTC date + 1, then creates an annotated tag with the merge-commit subject and pushes via `GITHUB_TOKEN`. Needs `fetch-depth: 0` + `git fetch --tags` so the suffix search sees every existing tag.
+- **What it catches:** nothing fails; the tag is a human-readable bookmark for "what state was prod in on date X." Pairs with `mobile-v{version}+{build}` tags created by `bump-version.sh`.
+- **Rule enforced:** none — this is observability, not a guard. See CLAUDE.md "Versioning" for the naming model.
 
 #### `.github/workflows/web-player-drift-guard.yml` — R-10 lockstep
 

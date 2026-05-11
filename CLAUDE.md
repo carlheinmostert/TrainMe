@@ -329,6 +329,16 @@ Pitch guidance: lead with adherence improvement and correct execution, not clini
 
 POPIA (South Africa) at minimum. Line drawings naturally de-identify clients — major privacy advantage built into the visual pipeline.
 
+## Versioning
+
+Each surface uses the version concept that fits its deploy cadence — they're intentionally separate, not synchronised.
+
+- **Web (player + portal):** the git SHA *is* the version. Vercel deploys every push, the build-marker footer renders the short SHA, and `release-tag.yml` auto-tags every merge to `main` as `v{YYYY-MM-DD}.{N}` (N = nth release on that UTC date — e.g. `v2026-05-11.3` for the third release-train PR landing today). Direct pushes to `main` (docs-only) deliberately don't tag, so the date-tag stream is a clean prod-state bookmark.
+- **Mobile:** `app/pubspec.yaml` carries the marketing-version + build-number (`X.Y.Z+N`). `bump-version.sh` is the only entry point that increments it; by default it now also commits the bump and creates an annotated `mobile-v{version}+{build}` tag (e.g. `mobile-v1.0.0+4`) pushed to origin. Every TestFlight upload has a discoverable git anchor. Pass `--no-tag` to skip the commit/tag step for legacy bundling.
+- **DB:** the migration filename is the version. `supabase/migrations/YYYYMMDDHHMMSS_<name>.sql` is the timestamp-ordered chain Supabase Branching applies on every per-PR DB. No separate version number; the latest applied filename answers "what schema is live".
+
+The three cadences live in the same repo on purpose. A web tweak doesn't need a TestFlight upload; a schema migration doesn't need a web rebuild; a TestFlight upload doesn't need a schema change. Each tag scheme exists so we can answer "which commit shipped that?" without consulting the others.
+
 ## Key Documents
 
 - `CLAUDE.md` — this file
