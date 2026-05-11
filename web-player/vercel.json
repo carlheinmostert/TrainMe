@@ -1,4 +1,5 @@
 {
+  "buildCommand": "bash build.sh",
   "rewrites": [
     {
       "source": "/what-we-share",

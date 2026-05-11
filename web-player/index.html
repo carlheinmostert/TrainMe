@@ -7,8 +7,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-  <!-- Open Graph / WhatsApp link preview -->
-  <!-- TODO_SUPABASE: Populate these dynamically via edge function or SSR -->
+  <!-- Open Graph / WhatsApp link preview.
+       Static fallback values — `web-player/middleware.js` (Vercel Edge
+       Middleware) rewrites these per-plan for bot user-agents so
+       WhatsApp / iMessage previews unfurl with the real plan title +
+       hero image. -->
   <meta property="og:type" content="website">
   <meta property="og:title" content="Your Exercise Plan — homefit.studio">
   <meta property="og:description" content="Open your personalized exercise plan">
@@ -489,6 +492,14 @@
     </footer>
   </div>
 
+  <!-- Runtime config — MUST load before api.js. Generated at build time
+       by web-player/build.sh from Vercel-injected env vars; sets
+       window.HOMEFIT_CONFIG with supabaseUrl + supabaseAnonKey so each
+       deployment (prod / preview / per-PR branch DB) can hit the right
+       Supabase project without a code change. If the file is missing
+       (e.g. legacy bundle in the Flutter LocalPlayerServer), api.js
+       falls back to the inline prod constants. -->
+  <script src="/config.js"></script>
   <!-- Data-access layer — MUST load before app.js. The web player's entire
        Supabase surface lives in api.js; app.js is forbidden from calling
        fetch('.../rest/v1/...') directly. See docs/DATA_ACCESS_LAYER.md. -->
