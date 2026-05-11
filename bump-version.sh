@@ -74,5 +74,11 @@ after=$(grep '^version:' "$PUBSPEC")
 echo "▸ Bumped: $before  →  $after"
 echo
 echo "Next:"
-echo "  1. Open Xcode at app/ios/Runner.xcworkspace"
-echo "  2. Product → Archive → Upload to App Store Connect"
+echo "  Option A (CLI — explicit ENV=prod):"
+echo "    ./build-testflight.sh         # produces a prod-pointed IPA"
+echo
+echo "  Option B (Xcode Archive):"
+echo "    1. Open Xcode at app/ios/Runner.xcworkspace"
+echo "    2. Product → Archive → Upload to App Store Connect"
+echo "    (AppConfig.env defaults to 'prod' when no --dart-define is"
+echo "     passed, so Xcode Archive is also a safe prod build path.)"
