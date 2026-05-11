@@ -4,6 +4,12 @@ Items that matter but aren't the current primary risk focus. Revisit when the PO
 
 ---
 
+## Deferred / future
+
+- **Projects / Class Sales** — sellable class bundles with revenue share. Future feature. Spec at [`docs/BACKLOG_PROJECTS.md`](BACKLOG_PROJECTS.md).
+
+---
+
 ## Wave 39.3 — Dart timestamp UTC + per-viewer TZ rendering on portal
 
 **Status:** Queued **2026-04-28**. Surfaced during Wave 39 unlock-flow QA. Fire after Wave 39 QA closes (Wave 39 build is on Carl's iPhone right now; bumping mobile would disrupt the QA loop).
