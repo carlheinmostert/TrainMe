@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { BuildInfo } from '@/components/BuildInfo';
 
 export const metadata: Metadata = {
   title: 'homefit.studio — Practice portal',
@@ -30,7 +31,14 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-screen bg-surface-bg text-ink">{children}</body>
+      <body className="min-h-screen bg-surface-bg text-ink">
+        {children}
+        {/* Discreet build-marker chip — git SHA + branch at 35% opacity
+            in the fixed bottom-right corner. Mirrors the Flutter mobile
+            pattern + the web-player footer chip. Render once at the
+            layout root so every route inherits it. */}
+        <BuildInfo />
+      </body>
     </html>
   );
 }

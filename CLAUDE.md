@@ -20,6 +20,16 @@
 - **Typography:** Montserrat (headings, 600-800), Inter (body, 400-700)
 - **Theme tokens:** See `app/lib/theme.dart` (Flutter) and `web-player/styles.css` `:root` (web)
 
+## Versioning
+
+Three surfaces, three independent versioning schemes — by design. Do not try to unify them; the cadences differ on purpose.
+
+- **Web (portal + player)** — git SHA is the version. Each merge to `main` triggers a Vercel deploy and the deployed SHA + branch is rendered at 35% opacity in the page footer / corner chip on every route (`web-portal/src/components/BuildInfo.tsx` mounted in the root layout; `web-player/app.js` + `lobby.js` populate `#footer-version` / `#lobby-meta-version` from `window.HOMEFIT_CONFIG.gitSha` + `gitBranch`, which `web-player/build.sh` writes at deploy time from Vercel's `VERCEL_GIT_COMMIT_SHA` + `VERCEL_GIT_COMMIT_REF`). Date-based release tags (`v2026-MM-DD.N`) land on `main` merges for human-readable history. Falls back to `dev` / `local` for local development so the chip still renders.
+- **Mobile (Flutter)** — `pubspec.yaml` `version: 1.0.0+1` controls TestFlight uploads. The `+N` build number must increment on every upload (Apple Connect rejects duplicates). Git tags as `mobile-v{version}+{build}`. Apple gates cadence; web deploys daily, mobile maybe weekly.
+- **Database (Supabase)** — migration filename timestamp is the version. SQL files in `supabase/schema_*.sql` are append-only and applied in order via `supabase db query --linked --file ...`. The local SQLite mirror has its own `app/lib/services/local_db.dart` `_dbVersion` integer that bumps on every column-add / table-add migration.
+
+The fixed-corner build chip on the web surfaces is the canonical way to confirm what's deployed; for mobile, the Settings → About panel surfaces the same SHA marker.
+
 ## Architecture Principles
 
 - **Multi-tenant from day one** — Practice is the tenant boundary. Never build features that assume single-tenancy.
