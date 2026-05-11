@@ -20,6 +20,16 @@
 - **Typography:** Montserrat (headings, 600-800), Inter (body, 400-700)
 - **Theme tokens:** See `app/lib/theme.dart` (Flutter) and `web-player/styles.css` `:root` (web)
 
+## Versioning
+
+Three surfaces, three independent versioning schemes — by design. Do not try to unify them; the cadences differ on purpose.
+
+- **Web (portal + player)** — git SHA is the version. Each merge to `main` triggers a Vercel deploy and the deployed SHA + branch is rendered at 35% opacity in the page footer / corner chip on every route (`web-portal/src/components/BuildInfo.tsx` mounted in the root layout; `web-player/app.js` + `lobby.js` populate `#footer-version` / `#lobby-meta-version` from `window.HOMEFIT_CONFIG.gitSha` + `gitBranch`, which `web-player/build.sh` writes at deploy time from Vercel's `VERCEL_GIT_COMMIT_SHA` + `VERCEL_GIT_COMMIT_REF`). Date-based release tags (`v2026-MM-DD.N`) land on `main` merges for human-readable history. Falls back to `dev` / `local` for local development so the chip still renders.
+- **Mobile (Flutter)** — `pubspec.yaml` `version: 1.0.0+1` controls TestFlight uploads. The `+N` build number must increment on every upload (Apple Connect rejects duplicates). Git tags as `mobile-v{version}+{build}`. Apple gates cadence; web deploys daily, mobile maybe weekly.
+- **Database (Supabase)** — migration filename timestamp is the version. SQL files in `supabase/schema_*.sql` are append-only and applied in order via `supabase db query --linked --file ...`. The local SQLite mirror has its own `app/lib/services/local_db.dart` `_dbVersion` integer that bumps on every column-add / table-add migration.
+
+The fixed-corner build chip on the web surfaces is the canonical way to confirm what's deployed; for mobile, the Settings → About panel surfaces the same SHA marker.
+
 ## Architecture Principles
 
 - **Multi-tenant from day one** — Practice is the tenant boundary. Never build features that assume single-tenancy.
@@ -75,7 +85,7 @@ Surfaces required to match:
   - **Analytics (Wave 17):** `client_sessions` (one row per unique visitor session on a plan), `plan_analytics_events` (append-only, 13 event types from `plan_opened` through `exercise_navigation_jump`), `plan_analytics_daily_aggregate` (pre-rolled daily stats), `plan_analytics_opt_outs` (client opt-out records). 7 RPCs: `record_plan_event`, `record_session_start`, `get_plan_analytics`, `get_exercise_analytics`, `opt_out_plan_analytics`, `check_analytics_opt_out`, `get_plan_analytics_summary`. Client consent via `analytics_allowed` key in `video_consent` jsonb (practitioner-toggled) + client-side consent banner on web player. RLS scoped by practice membership.
   - **Billing:** `credit_ledger` (append-only, consumption/purchase/refund/adjustment) + `plan_issuances` (append-only audit of every publish) + `pending_payments` (PayFast intent). Credit cost: 1 credit if estimated plan duration ≤ 75 min, 2 credits if > 75 min. Treatment switching on the player (line-drawing / B&W / original) is free — both files are stored once, consent gates playback.
   - **Atomic credit consumption:** `consume_credit(p_practice_id, p_plan_id, p_credits)` SECURITY DEFINER fn with FOR UPDATE locking. Called from publish flow. Accompanying `practice_credit_balance`, `practice_has_credits`.
-  - **`credit_ledger` is RPC-write-only** — clients cannot INSERT/UPDATE/DELETE; only `consume_credit` / `refund_credit` (SECURITY DEFINER, owner `postgres`) may write. `authenticated` keeps SELECT (scoped by `credit_ledger_select_own` RLS policy); `anon` has no access at all. Purchases land via the PayFast webhook + sandbox bounce-back using the service-role key. See `supabase/schema_milestone_e_revoke_credit_ledger_writes.sql`.
+  - **`credit_ledger` is RPC-write-only** — clients cannot INSERT/UPDATE/DELETE; only `consume_credit` / `refund_credit` (SECURITY DEFINER, owner `postgres`) may write. `authenticated` keeps SELECT (scoped by `credit_ledger_select_own` RLS policy); `anon` has no access at all. Purchases land via the PayFast webhook + sandbox bounce-back using the service-role key. See `supabase/archive/schema_milestone_e_revoke_credit_ledger_writes.sql`.
   - **Anonymous plan read:** `get_plan_full(p_plan_id)` SECURITY DEFINER RPC. Web player calls this; no direct SELECT on plans/exercises for anon. Returns per-exercise `line_drawing_url` (always) + `grayscale_url` / `original_url` (consent-gated; NULL if the client hasn't granted that treatment). Signed URLs are generated inline via `public.sign_storage_url(bucket, path, expires_in)` — a pgjwt-backed helper that pulls the JWT secret + base URL from `vault.secrets` (`supabase_jwt_secret`, `supabase_url`). If either vault secret is missing, the helper returns NULL and clients gracefully fall back to line-drawing only.
   - **RLS:** scoped-by-practice via the helper fns `user_practice_ids()` and `user_is_practice_owner(pid)`. Avoids the self-referential recursion trap that direct subqueries on `practice_members` would cause. The helper fns are SECURITY DEFINER and bypass RLS.
   - **Storage buckets:**
@@ -183,7 +193,7 @@ Surfaces required to match:
 - **Studio v1.1** — Gutter Rail + Inline Action Tray + Thumbnail Peek + Circuit Control Sheet. Layout blow-out fixed (`CrossAxisAlignment.stretch` in Row with unbounded vertical was the root cause).
 - **Progress-pill matrix** — empty pills, full-coral completed, sage rest, 3-number ETA, luxurious bottom row.
 - **Three-treatment video** (Milestone G) — `clients` table, `video_consent` jsonb, private `raw-archive` bucket, pgjwt-based signed URLs, `get_plan_full` returns `line_drawing_url` / `grayscale_url` / `original_url` per exercise, consent-gated. Vault secret `supabase_jwt_secret` populated. Mobile + web player both have segmented control Line · B&W · Original.
-- **Referral loop** (Milestone F, credit model updated in Milestone M) — 5% lifetime credit rebate with a 1-credit goodwill floor on the referrer's FIRST rebate from each referee. Single-tier only enforced at DB level, portal `/network` page, mobile Settings Network section, `/r/{code}` landing with OG image, POPIA consent checkbox at signup. Signup bonuses live at SIGNUP (not first purchase): +3 organic, +5 more on referral claim → 8 total for referral signups. See `supabase/schema_milestone_m_credit_model.sql`.
+- **Referral loop** (Milestone F, credit model updated in Milestone M) — 5% lifetime credit rebate with a 1-credit goodwill floor on the referrer's FIRST rebate from each referee. Single-tier only enforced at DB level, portal `/network` page, mobile Settings Network section, `/r/{code}` landing with OG image, POPIA consent checkbox at signup. Signup bonuses live at SIGNUP (not first purchase): +3 organic, +5 more on referral claim → 8 total for referral signups. See `supabase/archive/schema_milestone_m_credit_model.sql`.
 - **R-11 client-spine IA** (Milestone H/I/J) — portal `/clients` + `/clients/[id]` with inline editable names; mobile Home replaced with clients list; ClientSessionsScreen mirrors portal detail page. "Your clients" row removed from Settings (redundant).
 - **R-12 dashboard hygiene** — portal dashboard is 5 stat tiles, every tile clickable, `/network` broke out referral UI to its own page, nav expanded to Clients · Credits · Network · Audit · Members · Account (Members owner-only).
 - **Offline-first** (Milestone K) — `SyncService` + cache tables (`cached_clients`, `cached_practices`, `cached_credit_balance`, `pending_ops`) + `connectivity_plus` listener + `upsert_client_with_id` RPC for client-generated UUIDs. All reads from cache; all client writes queued. Publish stays online-only.
@@ -329,6 +339,16 @@ Pitch guidance: lead with adherence improvement and correct execution, not clini
 
 POPIA (South Africa) at minimum. Line drawings naturally de-identify clients — major privacy advantage built into the visual pipeline.
 
+## Versioning
+
+Each surface uses the version concept that fits its deploy cadence — they're intentionally separate, not synchronised.
+
+- **Web (player + portal):** the git SHA *is* the version. Vercel deploys every push, the build-marker footer renders the short SHA, and `release-tag.yml` auto-tags every merge to `main` as `v{YYYY-MM-DD}.{N}` (N = nth release on that UTC date — e.g. `v2026-05-11.3` for the third release-train PR landing today). Direct pushes to `main` (docs-only) deliberately don't tag, so the date-tag stream is a clean prod-state bookmark.
+- **Mobile:** `app/pubspec.yaml` carries the marketing-version + build-number (`X.Y.Z+N`). `bump-version.sh` is the only entry point that increments it; by default it now also commits the bump and creates an annotated `mobile-v{version}+{build}` tag (e.g. `mobile-v1.0.0+4`) pushed to origin. Every TestFlight upload has a discoverable git anchor. Pass `--no-tag` to skip the commit/tag step for legacy bundling.
+- **DB:** the migration filename is the version. `supabase/migrations/YYYYMMDDHHMMSS_<name>.sql` is the timestamp-ordered chain Supabase Branching applies on every per-PR DB. No separate version number; the latest applied filename answers "what schema is live".
+
+The three cadences live in the same repo on purpose. A web tweak doesn't need a TestFlight upload; a schema migration doesn't need a web rebuild; a TestFlight upload doesn't need a schema change. Each tag scheme exists so we can answer "which commit shipped that?" without consulting the others.
+
 ## Key Documents
 
 - `CLAUDE.md` — this file
@@ -355,13 +375,15 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 - `docs/design/project/voice.md` — Voice + tone, practitioner vocabulary, error-message formula
 - `docs/design/project/tokens.json` — Canonical design tokens (colour / spacing / radius / motion / typography)
 - `docs/design/mockups/progress-pills.html` — Progress-pill matrix mockup
-- `supabase/schema.sql` — Canonical fresh-install schema (reference)
-- `supabase/schema_milestone_a.sql` — Practices, credits, audit schema
-- `supabase/schema_milestone_c.sql` — RLS lockdown + consume_credit
-- `supabase/schema_milestone_c_recursion_fix.sql` — SECURITY DEFINER helpers that fixed the policy recursion
-- `supabase/schema_milestone_d4.sql` — PayFast pending_payments table
-- `supabase/schema_milestone_g_three_treatment.sql` — clients table + video_consent + raw-archive bucket + sign_storage_url helper + extended get_plan_full
-- `supabase/schema_milestone_m_credit_model.sql` — 3/8 free signup credits + 5% lifetime rebate with 1-credit goodwill floor; replaces Milestone F's +10/+10 first-purchase bonuses
+- `supabase/migrations/20260511065443_baseline.sql` — Canonical baseline schema (the one source of truth as of Supabase Branching cutover, 2026-05-11). Every schema change since lives as a dated migration file alongside it.
+- `supabase/schema.sql` — Older canonical fresh-install schema (kept as a reference; the baseline migration above superseded it).
+- `supabase/archive/` — Ad-hoc patch files (`schema_*.sql`) that predate the baseline migration. Historical reference only; do not apply. Key entries:
+  - `supabase/archive/schema_milestone_a.sql` — Practices, credits, audit schema
+  - `supabase/archive/schema_milestone_c.sql` — RLS lockdown + consume_credit
+  - `supabase/archive/schema_milestone_c_recursion_fix.sql` — SECURITY DEFINER helpers that fixed the policy recursion
+  - `supabase/archive/schema_milestone_d4.sql` — PayFast pending_payments table
+  - `supabase/archive/schema_milestone_g_three_treatment.sql` — clients table + video_consent + raw-archive bucket + sign_storage_url helper + extended get_plan_full
+  - `supabase/archive/schema_milestone_m_credit_model.sql` — 3/8 free signup credits + 5% lifetime rebate with 1-credit goodwill floor; replaces Milestone F's +10/+10 first-purchase bonuses
 - `app/lib/theme.dart` — Brand theme tokens
 - `app/lib/widgets/homefit_logo.dart` — Canonical v2 logo widget (matrix-only `HomefitLogo` + `HomefitLogoLockup`)
 - `app/lib/widgets/powered_by_footer.dart` — Shared "powered by" footer (+ build-SHA marker)

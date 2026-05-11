@@ -68,14 +68,28 @@ if [[ -z "${SUPABASE_ANON_KEY}" ]]; then
   exit 1
 fi
 
+# Build-marker plumbing — surface git SHA + branch into the bundle so
+# `app.js` + `lobby.js` can render "<sha> · <branch>" alongside the
+# existing PLAYER_VERSION constant. Vercel auto-injects
+# VERCEL_GIT_COMMIT_SHA + VERCEL_GIT_COMMIT_REF on every build; locally
+# we fall back to `git rev-parse` so `vercel dev` and bare shell
+# invocations still emit a sensible marker.
+GIT_SHA_RAW="${VERCEL_GIT_COMMIT_SHA:-$(git -C "${SCRIPT_DIR}" rev-parse HEAD 2>/dev/null || echo dev)}"
+GIT_SHA="${GIT_SHA_RAW:0:7}"
+GIT_BRANCH="${VERCEL_GIT_COMMIT_REF:-$(git -C "${SCRIPT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo local)}"
+
 echo "web-player/build.sh — writing ${OUTPUT}"
 echo "  SUPABASE_URL: ${SUPABASE_URL}"
 echo "  SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:0:24}..."
+echo "  GIT_SHA: ${GIT_SHA}"
+echo "  GIT_BRANCH: ${GIT_BRANCH}"
 
 # Escape any single quotes in the values for safe embedding inside a
 # single-quoted JS string literal. Replace ' with '\''.
 ESC_URL="${SUPABASE_URL//\'/\\\'}"
 ESC_KEY="${SUPABASE_ANON_KEY//\'/\\\'}"
+ESC_SHA="${GIT_SHA//\'/\\\'}"
+ESC_BRANCH="${GIT_BRANCH//\'/\\\'}"
 
 cat > "${OUTPUT}" <<EOF
 /**
@@ -89,10 +103,17 @@ cat > "${OUTPUT}" <<EOF
  *
  * Strict-fail: build.sh exits non-zero if env vars are missing, so
  * reaching this template means real env values are present.
+ *
+ * gitSha + gitBranch are best-effort — they fall back to 'dev' / 'local'
+ * when neither Vercel env vars nor a local git checkout are available.
+ * The build-marker chip rendered by app.js / lobby.js degrades
+ * gracefully to those literals so the chip still shows on any host.
  */
 window.HOMEFIT_CONFIG = Object.freeze({
   supabaseUrl: '${ESC_URL}',
   supabaseAnonKey: '${ESC_KEY}',
+  gitSha: '${ESC_SHA}',
+  gitBranch: '${ESC_BRANCH}',
 });
 EOF
 

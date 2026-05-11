@@ -326,9 +326,18 @@
       typeof PLAYER_VERSION === 'string' ? PLAYER_VERSION : '?';
     const planVersion =
       plan && plan.version != null ? `plan v${plan.version}` : null;
+    // Git SHA + branch from window.HOMEFIT_CONFIG (populated by
+    // web-player/build.sh from Vercel's VERCEL_GIT_COMMIT_SHA +
+    // VERCEL_GIT_COMMIT_REF env vars). Degrades to 'dev' / 'local' for
+    // surfaces without git metadata (Flutter LocalPlayerServer, bare
+    // local server) so the chip still renders meaningful text.
+    const _cfg = (typeof window !== 'undefined' && window.HOMEFIT_CONFIG) || {};
+    const gitSha = (typeof _cfg.gitSha === 'string' && _cfg.gitSha) || 'dev';
+    const gitBranch = (typeof _cfg.gitBranch === 'string' && _cfg.gitBranch) || 'local';
     const compose = (cacheLabel) => [
       planVersion,
       `web-player ${playerVersion}`,
+      `${gitSha} · ${gitBranch}`,
       `cache ${cacheLabel}`,
     ].filter(Boolean).join(' · ');
 

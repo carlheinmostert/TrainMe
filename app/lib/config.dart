@@ -4,8 +4,80 @@
 /// The publishable key is designed to be public — Row Level Security
 /// controls what it can access.
 class AppConfig {
-  static const String supabaseUrl = 'https://yrwcofhovrcydootivjx.supabase.co';
-  static const String supabaseAnonKey = 'sb_publishable_cwhfavfji552BN8X0uPIpA_pwWQ-gw3';
+  // ---------------------------------------------------------------------------
+  // Environment flag — three-way switch (see docs/CI.md §5).
+  // ---------------------------------------------------------------------------
+  // Resolves to one of:
+  //   'prod'    — production Supabase project (yrwcofhovrcydootivjx).
+  //               Used by TestFlight + App Store builds (bump-version.sh
+  //               passes --dart-define=ENV=prod explicitly).
+  //   'staging' — persistent Supabase branch DB (vadjvkmldtoeyspyoqbx).
+  //               Used by manual "test against staging" builds.
+  //   'branch'  — dynamic, current-git-branch-matched Supabase preview
+  //               branch DB. The install scripts resolve the URL + anon
+  //               key via the Supabase Management API and pass them in
+  //               via --dart-define=SUPABASE_URL + SUPABASE_ANON_KEY.
+  //
+  // Default 'prod' is intentional: a manual `flutter build` without any
+  // env flags should point at prod (matches pre-2026-05-11 behaviour).
+  // install-sim.sh / install-device.sh override to ENV=branch and
+  // bump-version.sh overrides to ENV=prod with the hardcoded URL/key
+  // (defence in depth — the default already matches, but explicit is
+  // load-bearing for TestFlight).
+  static const String env = String.fromEnvironment(
+    'ENV',
+    defaultValue: 'prod',
+  );
+
+  // Compile-time prod constants — the source of truth for prod
+  // credentials lives here. Defence-in-depth: the install scripts ALSO
+  // hardcode these for the ENV=prod path, but if anything bypasses the
+  // script (e.g. `flutter build` in an IDE) AppConfig.env defaults to
+  // 'prod' and these values are used.
+  static const String _prodSupabaseUrl =
+      'https://yrwcofhovrcydootivjx.supabase.co';
+  static const String _prodSupabaseAnonKey =
+      'sb_publishable_cwhfavfji552BN8X0uPIpA_pwWQ-gw3';
+
+  // Compile-time staging constants — kept as fallback defaults for
+  // ENV=staging when the install script doesn't pass them explicitly.
+  // The install script always passes them so these are belt-and-braces.
+  static const String _stagingSupabaseUrl =
+      'https://vadjvkmldtoeyspyoqbx.supabase.co';
+  static const String _stagingSupabaseAnonKey =
+      'sb_publishable_INTgC6wuK4nyjXlfQE4wpA_5AgBjeOy';
+
+  /// Supabase project URL. Resolution order:
+  ///   1. `--dart-define=SUPABASE_URL=...` (install scripts inject this
+  ///      for ENV=branch and ENV=staging)
+  ///   2. Static default based on [env]: prod URL when env=='prod',
+  ///      staging URL otherwise.
+  static String get supabaseUrl {
+    if (_supabaseUrlFromEnv.isNotEmpty) {
+      return _supabaseUrlFromEnv;
+    }
+    return env == 'prod' ? _prodSupabaseUrl : _stagingSupabaseUrl;
+  }
+
+  /// Supabase publishable (anon) key. Same resolution as [supabaseUrl].
+  static String get supabaseAnonKey {
+    if (_supabaseAnonKeyFromEnv.isNotEmpty) {
+      return _supabaseAnonKeyFromEnv;
+    }
+    return env == 'prod' ? _prodSupabaseAnonKey : _stagingSupabaseAnonKey;
+  }
+
+  // Internal: the raw --dart-define values. Empty string means "not
+  // passed at build time". Kept private so callers always go through the
+  // getters which do the prod/staging fallback.
+  static const String _supabaseUrlFromEnv = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: '',
+  );
+  static const String _supabaseAnonKeyFromEnv = String.fromEnvironment(
+    'SUPABASE_ANON_KEY',
+    defaultValue: '',
+  );
 
   /// Short git SHA baked at build time via
   /// `flutter build ios ... --dart-define=GIT_SHA=$(git rev-parse --short HEAD)`.
