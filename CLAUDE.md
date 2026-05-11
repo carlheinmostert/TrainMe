@@ -20,6 +20,16 @@
 - **Typography:** Montserrat (headings, 600-800), Inter (body, 400-700)
 - **Theme tokens:** See `app/lib/theme.dart` (Flutter) and `web-player/styles.css` `:root` (web)
 
+## Versioning
+
+Three surfaces, three independent versioning schemes — by design. Do not try to unify them; the cadences differ on purpose.
+
+- **Web (portal + player)** — git SHA is the version. Each merge to `main` triggers a Vercel deploy and the deployed SHA + branch is rendered at 35% opacity in the page footer / corner chip on every route (`web-portal/src/components/BuildInfo.tsx` mounted in the root layout; `web-player/app.js` + `lobby.js` populate `#footer-version` / `#lobby-meta-version` from `window.HOMEFIT_CONFIG.gitSha` + `gitBranch`, which `web-player/build.sh` writes at deploy time from Vercel's `VERCEL_GIT_COMMIT_SHA` + `VERCEL_GIT_COMMIT_REF`). Date-based release tags (`v2026-MM-DD.N`) land on `main` merges for human-readable history. Falls back to `dev` / `local` for local development so the chip still renders.
+- **Mobile (Flutter)** — `pubspec.yaml` `version: 1.0.0+1` controls TestFlight uploads. The `+N` build number must increment on every upload (Apple Connect rejects duplicates). Git tags as `mobile-v{version}+{build}`. Apple gates cadence; web deploys daily, mobile maybe weekly.
+- **Database (Supabase)** — migration filename timestamp is the version. SQL files in `supabase/schema_*.sql` are append-only and applied in order via `supabase db query --linked --file ...`. The local SQLite mirror has its own `app/lib/services/local_db.dart` `_dbVersion` integer that bumps on every column-add / table-add migration.
+
+The fixed-corner build chip on the web surfaces is the canonical way to confirm what's deployed; for mobile, the Settings → About panel surfaces the same SHA marker.
+
 ## Architecture Principles
 
 - **Multi-tenant from day one** — Practice is the tenant boundary. Never build features that assume single-tenancy.
@@ -328,6 +338,16 @@ Pitch guidance: lead with adherence improvement and correct execution, not clini
 ## Compliance
 
 POPIA (South Africa) at minimum. Line drawings naturally de-identify clients — major privacy advantage built into the visual pipeline.
+
+## Versioning
+
+Each surface uses the version concept that fits its deploy cadence — they're intentionally separate, not synchronised.
+
+- **Web (player + portal):** the git SHA *is* the version. Vercel deploys every push, the build-marker footer renders the short SHA, and `release-tag.yml` auto-tags every merge to `main` as `v{YYYY-MM-DD}.{N}` (N = nth release on that UTC date — e.g. `v2026-05-11.3` for the third release-train PR landing today). Direct pushes to `main` (docs-only) deliberately don't tag, so the date-tag stream is a clean prod-state bookmark.
+- **Mobile:** `app/pubspec.yaml` carries the marketing-version + build-number (`X.Y.Z+N`). `bump-version.sh` is the only entry point that increments it; by default it now also commits the bump and creates an annotated `mobile-v{version}+{build}` tag (e.g. `mobile-v1.0.0+4`) pushed to origin. Every TestFlight upload has a discoverable git anchor. Pass `--no-tag` to skip the commit/tag step for legacy bundling.
+- **DB:** the migration filename is the version. `supabase/migrations/YYYYMMDDHHMMSS_<name>.sql` is the timestamp-ordered chain Supabase Branching applies on every per-PR DB. No separate version number; the latest applied filename answers "what schema is live".
+
+The three cadences live in the same repo on purpose. A web tweak doesn't need a TestFlight upload; a schema migration doesn't need a web rebuild; a TestFlight upload doesn't need a schema change. Each tag scheme exists so we can answer "which commit shipped that?" without consulting the others.
 
 ## Key Documents
 

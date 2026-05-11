@@ -13,13 +13,20 @@ type SearchParams = { practice?: string };
 const APP_VERSION =
   process.env.NEXT_PUBLIC_APP_VERSION ?? '0.1.0';
 
-// Build SHA. Vercel exposes this automatically to builds. Falls back to 'dev'
-// for local development. Rendered at 35% opacity (R-08 equivalent to the
-// Flutter build-marker on the Pulse Mark footer).
+// Build SHA + branch. Vercel exposes these automatically to builds; the
+// `NEXT_PUBLIC_GIT_*` mirrors come from `next.config.mjs` (the same source
+// that feeds the fixed-corner <BuildInfo /> chip). Falls back to 'dev' /
+// 'local' for local development. Rendered at 35% opacity (R-08 equivalent
+// to the Flutter build-marker on the Pulse Mark footer).
 const BUILD_SHA =
+  process.env.NEXT_PUBLIC_GIT_SHA ??
   process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ??
   process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ??
   'dev';
+const BUILD_BRANCH =
+  process.env.NEXT_PUBLIC_GIT_BRANCH ??
+  process.env.VERCEL_GIT_COMMIT_REF ??
+  'local';
 
 export default async function AccountPage({
   searchParams,
@@ -123,7 +130,9 @@ export default async function AccountPage({
             <dd className="text-ink font-mono">{APP_VERSION}</dd>
 
             <dt className="text-ink-muted">Build</dt>
-            <dd className="font-mono text-ink opacity-[0.35]">{BUILD_SHA}</dd>
+            <dd className="font-mono text-ink opacity-[0.35]">
+              {BUILD_SHA} · {BUILD_BRANCH}
+            </dd>
           </dl>
         </section>
       </div>

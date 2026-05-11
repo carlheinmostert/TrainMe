@@ -5187,9 +5187,18 @@ async function init() {
 
   // Discreet build marker in the footer — see PLAYER_VERSION at the
   // top of this file. Stamped pre-fetch so it's visible even on plan
-  // load failure.
+  // load failure. Appends git SHA + branch from window.HOMEFIT_CONFIG
+  // (populated by web-player/build.sh from Vercel env vars) so the
+  // exact deployed commit is identifiable at a glance. Falls back to
+  // 'dev' / 'local' for environments without git metadata (Flutter
+  // LocalPlayerServer bundle, bare `python -m http.server`, etc.).
   const $versionEl = document.getElementById('footer-version');
-  if ($versionEl) $versionEl.textContent = PLAYER_VERSION;
+  if ($versionEl) {
+    const _cfg = (typeof window !== 'undefined' && window.HOMEFIT_CONFIG) || {};
+    const sha = (typeof _cfg.gitSha === 'string' && _cfg.gitSha) || 'dev';
+    const branch = (typeof _cfg.gitBranch === 'string' && _cfg.gitBranch) || 'local';
+    $versionEl.textContent = `${PLAYER_VERSION} · ${sha} · ${branch}`;
+  }
 
   // Delegated tap handler for the navigable rep stack. stopPropagation
   // prevents the tap from also toggling video pause/play.
