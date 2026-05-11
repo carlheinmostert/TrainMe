@@ -68,20 +68,16 @@ jobs:
         working-directory: app
         run: flutter test
 
-  flutter-build-ios:
-    name: Flutter build iOS (debug, no codesign)
-    runs-on: macos-latest
-    needs: flutter-app
-    # Gate to PRs/pushes that actually touch app/** so we don't pay ~10min
-    # of macOS minutes on docs-only or web-only changes.
-    if: |
-      github.event_name == 'pull_request' ||
-      github.event_name == 'push'
+  detect-app-changes:
+    name: Detect app/** changes
+    runs-on: ubuntu-latest
+    outputs:
+      app_changed: ${{ steps.changes.outputs.app_changed }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Detect app/** changes
+      - name: Compute diff
         id: changes
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -101,18 +97,27 @@ jobs:
           else
             echo "app_changed=false" >> "$GITHUB_OUTPUT"
           fi
+
+  flutter-build-ios:
+    name: Flutter build iOS (debug, no codesign)
+    runs-on: macos-latest
+    needs:
+      - flutter-app
+      - detect-app-changes
+    # Gate the whole job — macOS minutes are expensive, so we skip
+    # entirely (no runner provisioning) when no app/** files changed.
+    if: needs.detect-app-changes.outputs.app_changed == 'true'
+    steps:
+      - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
-        if: steps.changes.outputs.app_changed == 'true'
         with:
           flutter-version: '3.41.6'
           channel: stable
           cache: true
       - name: flutter pub get
-        if: steps.changes.outputs.app_changed == 'true'
         working-directory: app
         run: flutter pub get
       - name: flutter build ios (debug, no codesign)
-        if: steps.changes.outputs.app_changed == 'true'
         working-directory: app
         run: |
           GIT_SHA=$(git rev-parse --short HEAD)
