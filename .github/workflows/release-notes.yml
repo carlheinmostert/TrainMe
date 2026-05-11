@@ -100,10 +100,12 @@ jobs:
 
       - name: Upsert PR comment
         uses: actions/github-script@v7
+        env:
+          NOTES_BODY: ${{ steps.compose.outputs.body }}
         with:
           script: |
             const marker = "<!-- release-notes-bot -->";
-            const body = marker + "\n" + `${{ steps.compose.outputs.body }}`;
+            const body = marker + "\n" + process.env.NOTES_BODY;
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
