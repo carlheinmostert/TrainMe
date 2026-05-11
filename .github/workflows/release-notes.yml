@@ -49,8 +49,10 @@ jobs:
           app=$(git diff --name-only "${range}" -- 'app/**' | wc -l | tr -d ' ')
           supabase=$(git diff --name-only "${range}" -- 'supabase/**' | wc -l | tr -d ' ')
           docs=$(git diff --name-only "${range}" -- 'docs/**' | wc -l | tr -d ' ')
+          # grep -v exits 1 when there are no non-matching lines, which trips
+          # set -euo pipefail. Wrap in a subshell that absorbs the exit code.
           other=$(git diff --name-only "${range}" \
-            | grep -vE '^(web-portal/|web-player/|app/|supabase/|docs/)' | wc -l | tr -d ' ')
+            | { grep -vE '^(web-portal/|web-player/|app/|supabase/|docs/)' || true; } | wc -l | tr -d ' ')
 
           migrations=$(git diff --name-only --diff-filter=A "${range}" \
             -- 'supabase/migrations/*.sql' || true)
