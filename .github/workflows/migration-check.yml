@@ -141,6 +141,12 @@ jobs:
               secret text,
               description text
             );
+            -- Supabase exposes vault.decrypted_secrets as a view that returns
+            -- the secret in plaintext (via pgsodium). Mirror the columns so
+            -- migrations referencing it work.
+            CREATE OR REPLACE VIEW vault.decrypted_secrets AS
+              SELECT id, name, secret AS decrypted_secret, description
+              FROM vault.secrets;
             CREATE OR REPLACE FUNCTION vault.create_secret(
               new_secret text, new_name text, new_description text DEFAULT ''
             ) RETURNS uuid LANGUAGE sql AS $fn$
@@ -150,9 +156,41 @@ jobs:
               RETURNING id;
             $fn$;
 
-            -- Extensions used by the baseline.
-            CREATE EXTENSION IF NOT EXISTS pgcrypto;
-            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+            -- Extensions used by the baseline. pgjwt is community-only and
+            -- not in apt; we stub the one function the baseline actually
+            -- needs (`extensions.sign`) and mark the extension as installed
+            -- so `CREATE EXTENSION IF NOT EXISTS pgjwt` is a no-op.
+            CREATE SCHEMA IF NOT EXISTS extensions;
+            CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions;
+            CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA extensions;
+            CREATE EXTENSION IF NOT EXISTS "citext";
+
+            -- Stub pgjwt's `extensions.sign` so any callsite resolves at
+            -- migration time. We don't need real JWT output for the apply
+            -- check — just a callable signature.
+            CREATE OR REPLACE FUNCTION extensions.sign(
+              payload json, secret text, algorithm text DEFAULT 'HS256'
+            ) RETURNS text LANGUAGE sql IMMUTABLE AS $fn$
+              SELECT encode(digest(payload::text || secret || algorithm, 'sha256'), 'hex')
+            $fn$;
+
+            -- Mark pgjwt as installed so CREATE EXTENSION IF NOT EXISTS is a
+            -- no-op. We INSERT a fake row into pg_extension because we cannot
+            -- install the real extension. Postgres treats pg_extension as a
+            -- system catalog but DOES allow superuser INSERT.
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgjwt') THEN
+                INSERT INTO pg_extension (
+                  oid, extname, extowner, extnamespace, extrelocatable,
+                  extversion, extconfig, extcondition
+                ) VALUES (
+                  16999, 'pgjwt',
+                  (SELECT oid FROM pg_authid WHERE rolname = 'postgres'),
+                  (SELECT oid FROM pg_namespace WHERE nspname = 'extensions'),
+                  false, '0.2.0', NULL, NULL
+                );
+              END IF;
+            END $$;
           SQL
 
       - name: Apply migrations in order
