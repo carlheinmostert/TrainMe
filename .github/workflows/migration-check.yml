@@ -85,6 +85,12 @@ jobs:
           PGDATABASE: homefit_test
         run: |
           psql -v ON_ERROR_STOP=1 <<'SQL'
+            -- Make `extensions.*` functions resolvable without qualification
+            -- for the rest of this DB (matches Supabase's default search_path).
+            -- Set it for this session AND for future ones via ALTER DATABASE.
+            ALTER DATABASE homefit_test SET search_path TO public, extensions;
+            SET search_path TO public, extensions;
+
             -- Roles
             DO $$ BEGIN
               CREATE ROLE anon NOLOGIN;
@@ -171,7 +177,10 @@ jobs:
             CREATE OR REPLACE FUNCTION extensions.sign(
               payload json, secret text, algorithm text DEFAULT 'HS256'
             ) RETURNS text LANGUAGE sql IMMUTABLE AS $fn$
-              SELECT encode(digest(payload::text || secret || algorithm, 'sha256'), 'hex')
+              SELECT encode(
+                extensions.digest(payload::text || secret || algorithm, 'sha256'),
+                'hex'
+              )
             $fn$;
 
             -- Mark pgjwt as installed so CREATE EXTENSION IF NOT EXISTS is a
