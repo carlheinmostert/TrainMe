@@ -1,0 +1,235 @@
+# Migration validation for homefit.studio.
+#
+# Triggered when any file under supabase/migrations/ changes (push or PR).
+# Spins up a fresh postgres:17 container, applies every migration in
+# alphabetical order via psql, and fails if any error.
+#
+# This catches:
+#   - SQL syntax errors before they hit Supabase Branching.
+#   - Migration ordering bugs (file A depending on file B but timestamped
+#     earlier).
+#   - Idempotency regressions (migrations must apply cleanly to an empty DB).
+#
+# Also runs scripts/ci/check-migration-column-preservation.sh as a soft
+# nudge for `CREATE OR REPLACE FUNCTION ... RETURNS TABLE` blocks.
+
+name: Migration check
+
+on:
+  push:
+    paths:
+      - 'supabase/migrations/**'
+      - '.github/workflows/migration-check.yml'
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - '.github/workflows/migration-check.yml'
+
+concurrency:
+  group: migration-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply-migrations:
+    name: Apply all migrations against Postgres 17
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: homefit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U postgres; then
+              echo "Postgres ready."
+              exit 0
+            fi
+            echo "Waiting for Postgres ($i/30)..."
+            sleep 2
+          done
+          echo "Postgres did not become ready in time."
+          exit 1
+        env:
+          PGPASSWORD: postgres
+
+      - name: Pre-seed required extensions and roles
+        # Supabase migrations assume the `auth`, `storage`, and `vault`
+        # schemas plus the `authenticated` / `anon` / `service_role` /
+        # `supabase_admin` roles exist. Create minimal stubs so the
+        # baseline applies without errors.
+        env:
+          PGPASSWORD: postgres
+          PGHOST: localhost
+          PGUSER: postgres
+          PGDATABASE: homefit_test
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+            -- Make `extensions.*` functions resolvable without qualification
+            -- for the rest of this DB (matches Supabase's default search_path).
+            -- Set it for this session AND for future ones via ALTER DATABASE.
+            ALTER DATABASE homefit_test SET search_path TO public, extensions;
+            SET search_path TO public, extensions;
+
+            -- Roles
+            DO $$ BEGIN
+              CREATE ROLE anon NOLOGIN;
+            EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+            DO $$ BEGIN
+              CREATE ROLE authenticated NOLOGIN;
+            EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+            DO $$ BEGIN
+              CREATE ROLE service_role NOLOGIN BYPASSRLS;
+            EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+            DO $$ BEGIN
+              CREATE ROLE supabase_admin NOLOGIN BYPASSRLS;
+            EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+            -- Schemas
+            CREATE SCHEMA IF NOT EXISTS auth;
+            CREATE SCHEMA IF NOT EXISTS storage;
+            CREATE SCHEMA IF NOT EXISTS vault;
+
+            -- Minimal auth.users + auth.uid() stub.
+            CREATE TABLE IF NOT EXISTS auth.users (
+              id uuid PRIMARY KEY,
+              email text,
+              raw_user_meta_data jsonb,
+              raw_app_meta_data jsonb,
+              created_at timestamptz DEFAULT now()
+            );
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+            LANGUAGE sql STABLE AS $fn$ SELECT NULL::uuid $fn$;
+            CREATE OR REPLACE FUNCTION auth.role() RETURNS text
+            LANGUAGE sql STABLE AS $fn$ SELECT NULL::text $fn$;
+            CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb
+            LANGUAGE sql STABLE AS $fn$ SELECT NULL::jsonb $fn$;
+
+            -- Minimal storage stubs.
+            CREATE TABLE IF NOT EXISTS storage.buckets (
+              id text PRIMARY KEY,
+              name text,
+              public boolean DEFAULT false,
+              created_at timestamptz DEFAULT now()
+            );
+            CREATE TABLE IF NOT EXISTS storage.objects (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              bucket_id text REFERENCES storage.buckets(id),
+              name text,
+              owner uuid,
+              created_at timestamptz DEFAULT now()
+            );
+
+            -- Minimal vault stub.
+            CREATE TABLE IF NOT EXISTS vault.secrets (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              name text UNIQUE,
+              secret text,
+              description text
+            );
+            -- Supabase exposes vault.decrypted_secrets as a view that returns
+            -- the secret in plaintext (via pgsodium). Mirror the columns so
+            -- migrations referencing it work.
+            CREATE OR REPLACE VIEW vault.decrypted_secrets AS
+              SELECT id, name, secret AS decrypted_secret, description
+              FROM vault.secrets;
+            CREATE OR REPLACE FUNCTION vault.create_secret(
+              new_secret text, new_name text, new_description text DEFAULT ''
+            ) RETURNS uuid LANGUAGE sql AS $fn$
+              INSERT INTO vault.secrets (name, secret, description)
+              VALUES (new_name, new_secret, new_description)
+              ON CONFLICT (name) DO UPDATE SET secret = EXCLUDED.secret
+              RETURNING id;
+            $fn$;
+
+            -- Extensions used by the baseline. pgjwt is community-only and
+            -- not in apt; we stub the one function the baseline actually
+            -- needs (`extensions.sign`) and mark the extension as installed
+            -- so `CREATE EXTENSION IF NOT EXISTS pgjwt` is a no-op.
+            CREATE SCHEMA IF NOT EXISTS extensions;
+            CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions;
+            CREATE EXTENSION IF NOT EXISTS "uuid-ossp" SCHEMA extensions;
+            CREATE EXTENSION IF NOT EXISTS "citext";
+
+            -- Stub pgjwt's `extensions.sign` so any callsite resolves at
+            -- migration time. We don't need real JWT output for the apply
+            -- check — just a callable signature.
+            CREATE OR REPLACE FUNCTION extensions.sign(
+              payload json, secret text, algorithm text DEFAULT 'HS256'
+            ) RETURNS text LANGUAGE sql IMMUTABLE AS $fn$
+              SELECT encode(
+                extensions.digest(payload::text || secret || algorithm, 'sha256'),
+                'hex'
+              )
+            $fn$;
+
+            -- Mark pgjwt as installed so CREATE EXTENSION IF NOT EXISTS is a
+            -- no-op. We INSERT a fake row into pg_extension because we cannot
+            -- install the real extension. Postgres treats pg_extension as a
+            -- system catalog but DOES allow superuser INSERT.
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgjwt') THEN
+                INSERT INTO pg_extension (
+                  oid, extname, extowner, extnamespace, extrelocatable,
+                  extversion, extconfig, extcondition
+                ) VALUES (
+                  16999, 'pgjwt',
+                  (SELECT oid FROM pg_authid WHERE rolname = 'postgres'),
+                  (SELECT oid FROM pg_namespace WHERE nspname = 'extensions'),
+                  false, '0.2.0', NULL, NULL
+                );
+              END IF;
+            END $$;
+          SQL
+
+      - name: Apply migrations in order
+        env:
+          PGPASSWORD: postgres
+          PGHOST: localhost
+          PGUSER: postgres
+          PGDATABASE: homefit_test
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(supabase/migrations/*.sql)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "No migrations to apply."
+            exit 0
+          fi
+          # `ls | sort` would do the same; bash expands globs alphabetically.
+          for f in "${files[@]}"; do
+            echo ""
+            echo "=== applying ${f} ==="
+            if ! psql -v ON_ERROR_STOP=1 -f "${f}"; then
+              echo ""
+              echo "Migration ${f} failed. See psql output above."
+              exit 1
+            fi
+          done
+          echo ""
+          echo "All ${#files[@]} migration(s) applied cleanly."
+
+      - name: Column-preservation nudge
+        run: scripts/ci/check-migration-column-preservation.sh
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'origin/main' }}
