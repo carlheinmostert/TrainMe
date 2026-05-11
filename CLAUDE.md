@@ -348,6 +348,7 @@ POPIA (South Africa) at minimum. Line drawings naturally de-identify clients —
 - `docs/BACKLOG.md` — Deferred work with rationale
 - `docs/BACKLOG_GOOGLE_SIGNIN.md` — Google Sign-In nonce-mismatch post-mortem + re-enablement paths
 - `docs/DATA_ACCESS_LAYER.md` — The binding rule on how each surface talks to Supabase (one file per surface, typed contracts, how to add a new RPC)
+- **`docs/STAGING.md`** — Release workflow: three-tier model (feature branches → staging → prod), branch naming, per-branch testing on web + phone, Supabase Branching cutover plan. Authored 2026-05-11.
 - `docs/PENDING_DEVICE_TESTS.md` — Things landed on main that haven't been verified on Carl's iPhone yet
 - `docs/design/project/index.html` — Design system doc (browsable)
 - `docs/design/project/components.md` — Component inventory + Design Rules R-01..R-08
