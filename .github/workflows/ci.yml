@@ -87,8 +87,16 @@ jobs:
             base="${{ github.event.before }}"
             head="${{ github.sha }}"
           fi
-          # First-push or shallow case: assume changed.
+          # First-push case (branch just created, push event has all-zeros
+          # `before`): fall back to comparing against origin/main so we
+          # don't blindly assume app changes and burn macOS runner minutes.
+          # Only force-true if we truly can't determine a comparison base.
           if [[ -z "${base}" || "${base}" == "0000000000000000000000000000000000000000" ]]; then
+            git fetch --depth=50 origin main >/dev/null 2>&1 || true
+            base="$(git merge-base HEAD origin/main 2>/dev/null || echo '')"
+          fi
+          if [[ -z "${base}" ]]; then
+            # Truly can't determine — default to running iOS build (safer).
             echo "app_changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
