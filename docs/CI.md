@@ -16,9 +16,15 @@ How code, schema, and deploys flow from "Claude wrote a thing" to "real users se
    - [What this gets you](#what-this-gets-you)
 6. [Promotion: staging → main](#6-promotion-staging--main)
 7. [Hotfixes](#7-hotfixes)
-8. [Caveats and FAQs](#8-caveats-and-faqs)
-9. [Setup status (cutover checklist)](#9-setup-status-cutover-checklist)
-10. [Related conventions](#related-conventions)
+8. [Automation](#8-automation)
+   - [Workflow files](#workflow-files)
+   - [Custom-rule scripts](#custom-rule-scripts)
+   - [Grandfathered debt](#grandfathered-debt)
+   - [Where to look when CI fails](#where-to-look-when-ci-fails)
+   - [Adding a new check](#adding-a-new-check)
+9. [Caveats and FAQs](#9-caveats-and-faqs)
+10. [Setup status (cutover checklist)](#10-setup-status-cutover-checklist)
+11. [Related conventions](#related-conventions)
 
 ---
 
@@ -222,7 +228,104 @@ Some bugs need to skip the queue. The discipline still applies — through stagi
 3. **Back-merge `main` into `staging` immediately** so staging stays a true superset of prod. If you don't, the next staging migration may collide with the hotfix migration.
 4. Document the skip in the PR body so future-Claude knows the divergence happened.
 
-## 8. Caveats and FAQs
+## 8. Automation
+
+CI is wired in `.github/workflows/`. Every push to any branch and every PR
+exercises the lint / typecheck / build / rule layer; migration files trigger
+a separate Postgres-in-CI apply pass; PRs into `main` (release-train
+promotions) post an auto-generated summary comment.
+
+### Workflow files
+
+| File | Trigger | What it does | Why we have it |
+|------|---------|--------------|----------------|
+| `.github/workflows/ci.yml` | every push, every PR | Six parallel jobs: `data-access-seams` (Python seam guard), `custom-rules` (bash scripts), `flutter-app` (analyze + test), `flutter-build-ios` (debug build, gated to `app/**` changes), `web-portal` (lint + typecheck + build), `web-player` (`node --check`). | The fast surface gate. Catches 90% of regressions before review. |
+| `.github/workflows/migration-check.yml` | push/PR touching `supabase/migrations/**` | Spins up `postgres:17` in a container, pre-seeds the Supabase scaffolding (auth/storage/vault stubs + pgcrypto), then applies every migration file in alphabetical order via `psql -v ON_ERROR_STOP=1`. Also runs `check-migration-column-preservation.sh`. | Branching applies migrations on every per-PR DB spin-up. A broken migration means no preview DB. This catches it before the GitHub-Supabase integration tries. |
+| `.github/workflows/branch-name-check.yml` | PR opened / edited / synchronize | Verifies the branch matches `^(feat\|fix\|chore)/[a-z0-9-]+$` or is `staging`. Posts a soft nudge comment when it doesn't; never fails the build. | Encourages the convention from §4 without blocking work. Auto-generated `claude/*` and `worktree-agent/*` branches are exempt. |
+| `.github/workflows/release-notes.yml` | PR opened/synchronize targeting `main` | Computes the cumulative diff base...head and posts (or updates) a single PR comment with: files-changed-per-surface table, new migration filenames, full commit log. | The release PR is the only moment prod actually changes. Carl reads this comment as the change summary before merging. |
+| `.github/workflows/web-player-drift-guard.yml` | every push, every PR | Existing guard that runs `tools/check_web_player_drift.py` to prevent the mobile + web player surfaces from diverging on the shared bundle. | R-10 parity rule. Pre-existing; documented here for completeness. |
+
+### Custom-rule scripts
+
+Two flavours live in `scripts/ci/` (bash) and `tools/` (Python). The Python
+checker is richer and authoritative; the bash scripts are the lightweight
+brief-shape gates wired to the `custom-rules` job.
+
+| Script | Rule it enforces | Source-of-truth memory | Mode |
+|--------|------------------|------------------------|------|
+| `tools/enforce_data_access_seams.py` | All Supabase access goes through the per-surface access layer. | `feedback_no_direct_db_access.md` | Hard fail |
+| `scripts/ci/check-no-direct-db-access.sh` | Same rule, lightweight bash variant. Reads grandfather list from `scripts/ci/db-access-exceptions.txt`. | `feedback_no_direct_db_access.md` | Hard fail |
+| `scripts/ci/check-migration-column-preservation.sh` | Flags every `CREATE OR REPLACE FUNCTION ... RETURNS TABLE` in a migration diff and asks the reviewer to verify no prior column was dropped. | `feedback_schema_migration_column_preservation.md` | Soft nudge (GitHub `::warning::`) |
+| `tools/check_web_player_drift.py` | The mobile + web-player surfaces stay in lockstep on shared bundle files. | R-10 (`docs/CI.md` §3, CLAUDE.md "Mobile ↔ Web Player Parity") | Hard fail |
+
+Exceptions to the data-access rule live in two places, both grandfathered to
+the empty state at the moment this section landed:
+
+- `tools/data_access_seam_exceptions.json` — line-anchored exceptions for the
+  Python checker. Match key is `rule|path|line|content`.
+- `scripts/ci/db-access-exceptions.txt` — file-anchored exceptions for the
+  bash checker. One repo-relative path per line; `#` starts a comment.
+
+### Grandfathered debt
+
+When a rule lands, the codebase may already have violations. Failing CI on
+day one would force a giant unfocused refactor PR. Instead we capture each
+existing violation in the rule's exceptions file with a comment explaining
+the carve-out, then fail only on **new** violations. The exceptions file
+becomes the punch list to pare down over time.
+
+Hard rules for the exceptions files:
+
+1. **TODO header at the top: "Pare down over time. Goal: empty file."**
+   Both files have it. Don't remove it.
+2. **Every entry has a comment justifying it.** Future Claude shouldn't
+   need to dig through git history to know why a file was carved out.
+3. **Delete the entry in the same PR that fixes the underlying call.** A
+   regression caught by the rule reactivates the entry, but a stale entry
+   silently weakens the rule.
+4. **CI surfaces stale entries.** The Python checker prints
+   `Stale allowlist entries detected (safe to remove)` for entries whose
+   pattern no longer matches any real code. Clean those up when you see them.
+
+Today both files are clean. If that changes, the goal is back to empty.
+
+### Where to look when CI fails
+
+| Symptom | First place to look |
+|---------|---------------------|
+| `data-access-seams` job red | `tools/enforce_data_access_seams.py` output → the new file/line. Route through `api_client.dart` / `api.ts` / `api.js` or add a justified entry to `tools/data_access_seam_exceptions.json`. |
+| `custom-rules` job red | The script that failed prints `file:line` for each violation. Same fix as above; bash exceptions go in `scripts/ci/db-access-exceptions.txt`. |
+| `flutter-app` analyze red | `cd app && flutter analyze` locally; the output matches CI verbatim. |
+| `flutter-build-ios` red but `flutter-app` green | A Swift / Xcode / signing issue, not a Dart one. `cd app && flutter build ios --debug --no-codesign --dart-define=GIT_SHA=test` reproduces. |
+| `web-portal` lint or typecheck red | `cd web-portal && npm run lint && npm run typecheck`. The build step also runs to catch errors lint misses; missing env vars at build time will say `Error: Environment variable not found:` — the workflow passes placeholders for that. |
+| `web-portal` build red but lint+typecheck green | Likely a Next.js build-time error (RSC boundary, missing env, dynamic import). Reproduce with `npm run build`. |
+| `web-player` red | `node --check` failed on one of the JS files. Output names the file + line. |
+| `migration-check` apply step red | Read the psql error in the `Apply migrations in order` step. Most common cause: missing `BEGIN/COMMIT` wrapper, or referring to a role/extension the seed step doesn't install. Update the seed step rather than the migration if it's a Supabase-only built-in. |
+| `release-notes` red | The compose step is a bash heredoc; check that `git diff --name-only` succeeded. Most likely cause is a shallow checkout — verify `fetch-depth: 0` is set. |
+| `branch-name-check` posted a nudge but didn't fail | Working as designed. Rename and force-push, or ignore. |
+
+### Adding a new check
+
+When a memory note crystallises a rule, lift it into CI:
+
+1. **Write the bash script** under `scripts/ci/`. Header comment names the
+   memory note that motivates the rule. `set -euo pipefail`, `chmod +x`,
+   `bash -n` clean. Print `file:line:` context on failure.
+2. **Wire it into `.github/workflows/ci.yml`**. Add one step to the
+   `custom-rules` job. Name the step `Custom: <rule>`.
+3. **Document it here** — append a row to the script table above, plus a
+   row to the `Where to look when CI fails` table.
+4. **Initialise the exceptions file** (if the rule needs one) with the
+   TODO header and any existing violations the first run surfaces. Commit
+   the script and the exceptions file in the same PR.
+5. **Update `scripts/ci/README.md`** so a fresh reader of just that
+   directory understands the new rule.
+
+For Python-side checkers (richer enforcement) follow the same pattern under
+`tools/`, with exceptions in `tools/<rule>_exceptions.json`. Wire into the
+`data-access-seams` style of its own job.
+
+## 9. Caveats and FAQs
 
 **Q: Branch DBs start empty. How do I test against realistic data?**
 
@@ -255,7 +358,7 @@ It reads `supabase/migrations/*.sql` (in timestamp order). Every schema change a
 
 `git pull origin staging` into your feature branch. Standard git. Same for `main` if staging hasn't caught up yet.
 
-## 9. Setup status (cutover checklist)
+## 10. Setup status (cutover checklist)
 
 What's done:
 
