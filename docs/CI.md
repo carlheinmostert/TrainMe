@@ -510,7 +510,7 @@ Still pending:
 - [ ] Flutter `ENV` flag in `app_config.dart`. Default `ENV=branch` in install scripts; explicit `ENV=prod` in TestFlight build scripts.
 - [ ] Branch-aware install script: parse current git branch, query Supabase Management API for the matching branch DB URL + anon key, inject via `--dart-define`.
 - [x] **GitHub Action to populate vault secrets on Supabase branch creation** — `.github/workflows/supabase-branch-vault.yml` (triggers on PR open/reopen/synchronize; polls Supabase Management API; idempotent `vault.create_secret` for `supabase_url` + `supabase_jwt_secret`; soft-fail). Requires `SUPABASE_ACCESS_TOKEN` repo secret — generate at https://supabase.com/dashboard/account/tokens, set under Settings → Secrets and variables → Actions.
-- [ ] Archive `supabase/schema_*.sql` files to `supabase/archive/` (the ad-hoc files predating the baseline — keep them as a safety net for now; archive when confidence is high).
+- [x] **Archive `supabase/schema_*.sql` files to `supabase/archive/`** (2026-05-11). 72 files moved; `supabase/archive/README.md` documents what's there and why not to apply them. The non-underscored canonical `supabase/schema.sql` stays in place.
 
 ## Related conventions
 
