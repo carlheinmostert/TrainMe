@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../config.dart';
 import '../models/client.dart';
 import '../models/session.dart';
 import '../services/auth_service.dart';
@@ -315,7 +316,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// first-launch Getting Started banner).
   Future<void> _openHelp() async {
     HapticFeedback.selectionClick();
-    final uri = Uri.parse('https://manage.homefit.studio/getting-started');
+    final uri = Uri.parse('${AppConfig.portalOrigin}/getting-started');
     bool launched = false;
     try {
       launched = await launchUrl(
@@ -1299,8 +1300,9 @@ class _GettingStartedBanner extends StatefulWidget {
   const _GettingStartedBanner();
 
   static const String _prefsKey = 'getting_started_banner_seen_v1';
-  static const String _walkthroughUrl =
-      'https://manage.homefit.studio/getting-started';
+  // Path-only — the origin is resolved at tap time from [AppConfig.portalOrigin]
+  // so staging builds open `staging.manage.homefit.studio/getting-started`.
+  static const String _walkthroughPath = '/getting-started';
 
   @override
   State<_GettingStartedBanner> createState() => _GettingStartedBannerState();
@@ -1349,7 +1351,9 @@ class _GettingStartedBannerState extends State<_GettingStartedBanner> {
     if (!mounted) return;
     setState(() => _visible = false);
 
-    final uri = Uri.parse(_GettingStartedBanner._walkthroughUrl);
+    final uri = Uri.parse(
+      '${AppConfig.portalOrigin}${_GettingStartedBanner._walkthroughPath}',
+    );
     bool launched = false;
     try {
       launched = await launchUrl(

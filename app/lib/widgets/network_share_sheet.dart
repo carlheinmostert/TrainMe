@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../config.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../theme.dart';
@@ -72,7 +73,7 @@ class _NetworkShareSheetState extends State<NetworkShareSheet> {
   }
 
   String _referralUrl(String code) =>
-      'https://manage.homefit.studio/r/$code';
+      '${AppConfig.portalOrigin}/r/$code';
 
   Future<void> _copyCode(String code) async {
     HapticFeedback.selectionClick();

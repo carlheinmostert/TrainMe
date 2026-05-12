@@ -116,9 +116,60 @@ class AppConfig {
     defaultValue: true,
   );
 
-  /// Base URL for shared plan links (web player)
-  /// TODO: Update when domain is registered
-  static const String webPlayerBaseUrl = 'https://session.homefit.studio';
+  // ---------------------------------------------------------------------------
+  // Env-aware web origins (CI/CD release-train cutover, 2026-05-12).
+  // ---------------------------------------------------------------------------
+  // These two getters mirror [supabaseUrl] / [supabaseAnonKey]: they resolve
+  // off [env] so a staging-routed build (data lives in the staging Supabase
+  // branch) constructs share URLs / portal links pointing at the matching
+  // `staging.session.homefit.studio` + `staging.manage.homefit.studio` hosts.
+  //
+  // Without this, a staging build's published plans render share URLs at
+  // session.homefit.studio (prod), which loads the prod web player against
+  // its prod DB and lands on "plan not found" because the row only exists in
+  // staging. Same shape applies to portal links (getting-started, privacy,
+  // terms, referral URLs).
+  //
+  // No --dart-define override is supported — env-based resolution is enough
+  // for the three deploy paths in docs/CI.md (prod / staging / branch).
+  // Branch deploys (per-PR Vercel previews) reuse the staging origin for
+  // now; revisit if/when per-PR web hostnames are wired.
+
+  static const String _prodWebPlayerOrigin = 'https://session.homefit.studio';
+  static const String _stagingWebPlayerOrigin =
+      'https://staging.session.homefit.studio';
+
+  static const String _prodPortalOrigin = 'https://manage.homefit.studio';
+  static const String _stagingPortalOrigin =
+      'https://staging.manage.homefit.studio';
+
+  /// Origin (scheme + host) of the client web player. Resolves to
+  /// `https://session.homefit.studio` for env=prod, otherwise
+  /// `https://staging.session.homefit.studio`.
+  ///
+  /// Use this when constructing share URLs (`$origin/p/$planId`). Do NOT
+  /// hard-code `https://session.homefit.studio` in callsites — that breaks
+  /// staging builds (data on staging, share URL on prod = "plan not found").
+  static String get webPlayerOrigin {
+    return env == 'prod' ? _prodWebPlayerOrigin : _stagingWebPlayerOrigin;
+  }
+
+  /// Origin (scheme + host) of the practitioner-facing web portal.
+  /// Resolves to `https://manage.homefit.studio` for env=prod, otherwise
+  /// `https://staging.manage.homefit.studio`.
+  ///
+  /// Use this when building portal deep links (referral URLs, privacy /
+  /// terms pages, getting-started). [portalLink] in `portal_links.dart`
+  /// reads from this — prefer that helper when the URL needs the active
+  /// `?practice=<uuid>` query param appended.
+  static String get portalOrigin {
+    return env == 'prod' ? _prodPortalOrigin : _stagingPortalOrigin;
+  }
+
+  /// Base URL for shared plan links (web player). Backed by
+  /// [webPlayerOrigin] so it switches with [env]. Kept for callers that
+  /// already reference this name; new code should prefer [webPlayerOrigin].
+  static String get webPlayerBaseUrl => webPlayerOrigin;
 
   /// Video recording constraints
   static const int maxVideoSeconds = 30;

@@ -13,6 +13,7 @@ import '../models/exercise_set.dart';
 import '../models/pending_op.dart';
 import '../models/session.dart' as model;
 import '../models/treatment.dart';
+import '../config.dart';
 import 'api_client.dart';
 import 'client_defaults_api.dart';
 import 'local_storage_service.dart';
@@ -615,7 +616,7 @@ class SyncService {
       exercises: const [],
       createdAt: createdAt,
       sentAt: sentAt,
-      planUrl: 'https://session.homefit.studio/p/$id',
+      planUrl: '${AppConfig.webPlayerOrigin}/p/$id',
       version: version,
       lastPublishedAt: lastPublishedAt,
       circuitCycles: circuitCycles,
