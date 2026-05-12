@@ -1207,16 +1207,18 @@ export function createPortalApi(supabase: CompatSupabase): PortalApi {
  */
 export async function createAdminApi(): Promise<AdminApi> {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ??
-    'https://yrwcofhovrcydootivjx.supabase.co';
   if (!serviceRoleKey) {
     throw new Error(
       'SUPABASE_SERVICE_ROLE_KEY is not set — cannot construct AdminApi',
     );
   }
+  // A5 (HARDCODED-AUDIT-2026-05-12) — strict-fail via env helper. The
+  // previous prod-URL fallback would have constructed an admin client
+  // talking to PROD Supabase with the staging service-role key — at
+  // best a "wrong project" failure, at worst a write to prod.
+  const { supabaseUrl } = await import('@/lib/env');
   const { createClient } = await import('@supabase/supabase-js');
-  const admin = createClient<Database>(supabaseUrl, serviceRoleKey, {
+  const admin = createClient<Database>(supabaseUrl(), serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   return new AdminApi(admin);

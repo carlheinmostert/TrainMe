@@ -1,16 +1,15 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { Database } from './supabase/database.types';
+import { supabaseAnonKey, supabaseUrl } from './env';
 
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
-// Same build-time fallbacks as supabase-browser.ts.
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ??
-  'https://yrwcofhovrcydootivjx.supabase.co';
-
-const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? 'placeholder-anon-key';
+// A5 + C7 (HARDCODED-AUDIT-2026-05-12) — strict-fail at request runtime.
+// `next build` gets a placeholder so the build doesn't crash before env
+// vars are wired; the first request after a misconfigured deploy throws.
+const SUPABASE_URL = supabaseUrl();
+const SUPABASE_ANON_KEY = supabaseAnonKey();
 
 // Factory for Server Components and Route Handlers. The `cookies()` call
 // must stay inside the factory so each request gets a fresh binding.
