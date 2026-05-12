@@ -42,7 +42,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' https://yrwcofhovrcydootivjx.supabase.co data:; media-src 'self' https://yrwcofhovrcydootivjx.supabase.co blob:; connect-src 'self' https://yrwcofhovrcydootivjx.supabase.co; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' https://*.supabase.co data:; media-src 'self' https://*.supabase.co blob:; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
         },
         {
           "key": "Strict-Transport-Security",
