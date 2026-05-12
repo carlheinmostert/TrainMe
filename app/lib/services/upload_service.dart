@@ -889,7 +889,6 @@ class UploadService {
         'crossfade_lead_ms': session.crossfadeLeadMs,
         'crossfade_fade_ms': session.crossfadeFadeMs,
       });
-      planVersionBumped = true;
 
       // Step 3b: atomic credit consumption. Source of truth for whether
       // the publish can proceed. If this returns `{ok: false}` the plan
@@ -956,6 +955,7 @@ class UploadService {
         'crossfade_lead_ms': session.crossfadeLeadMs,
         'crossfade_fade_ms': session.crossfadeFadeMs,
       });
+      planVersionBumped = true;
 
       // ----------------------------------------------------------------
       // Step 5: Upload media files.
