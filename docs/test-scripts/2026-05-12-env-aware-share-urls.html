@@ -192,10 +192,28 @@
         <span class="text">From Studio (page 0), iOS edge-swipe from the very-left edge → pops back to ClientSessions (preserved — overlay must NOT engage on Studio).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
+      <li data-num="12" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 12">&#10003;</button><button class="fail" type="button" aria-label="Fail 12">&#10007;</button></div>
+        <span class="num">12.</span>
+        <span class="text">Settings → Set Password → enter <code>aaa1234</code> (8 chars, weak) → toast/error reads "Pick a stronger password."</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="13" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 13">&#10003;</button><button class="fail" type="button" aria-label="Fail 13">&#10007;</button></div>
+        <span class="num">13.</span>
+        <span class="text">Settings → Set Password → with fresh session → enter strong password → succeeds (no "Couldn't save").</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="14" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 14">&#10003;</button><button class="fail" type="button" aria-label="Fail 14">&#10007;</button></div>
+        <span class="num">14.</span>
+        <span class="text">Settings → Set Password → trigger any other failure (e.g. airplane mode, or stale session) → error message either matches a known prefix ("No connection…", "Your session expired…") or surfaces the actual server line via <code>Server said: …</code> — never the generic "Couldn't save password. Try again."</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
     </ul>
 
     <footer>
-      <code>app/lib/config.dart</code> · <code>sync_service.dart</code> · <code>portal_links.dart</code> · <code>home_screen.dart</code> · <code>settings_screen.dart</code> · <code>network_share_sheet.dart</code> · <code>session_shell_screen.dart</code> · branch <code>fix/env-aware-share-urls</code> → <code>staging</code>.
+      <code>app/lib/config.dart</code> · <code>sync_service.dart</code> · <code>portal_links.dart</code> · <code>home_screen.dart</code> · <code>settings_screen.dart</code> · <code>network_share_sheet.dart</code> · <code>session_shell_screen.dart</code> · <code>set_password_sheet.dart</code> · branch <code>fix/env-aware-share-urls</code> → <code>staging</code>.
     </footer>
   </div>
   <script>
