@@ -206,13 +206,29 @@ class AppConfig {
   static const String sentinelTrainerId =
       '00000000-0000-0000-0000-000000000001';
 
-  /// Deep-link callback URL used by Supabase OAuth providers (Google, Apple).
-  /// Registered in `app/ios/Runner/Info.plist` under `CFBundleURLTypes` and
-  /// configured in the Supabase dashboard as an allowed redirect URL.
-  /// Matches the iOS app's bundle identifier so the OS routes the callback
-  /// straight back into the app.
-  static const String oauthRedirectUrl =
-      'studio.homefit.app://login-callback';
+  /// Deep-link callback URL used by Supabase OAuth providers (Google, Apple)
+  /// AND the magic-link `emailRedirectTo`. Registered in
+  /// `app/ios/Runner/Info.plist` under `CFBundleURLTypes` (the scheme is
+  /// `$(PRODUCT_BUNDLE_IDENTIFIER)`, so iOS auto-registers the correct
+  /// scheme per build variant). Must match the running bundle ID, or the
+  /// magic link email opens the wrong app on the device.
+  ///
+  /// 2026-05-12 — env-aware. The Debug/Profile iOS build configurations
+  /// produce bundle `studio.homefit.app.dev`; Release produces
+  /// `studio.homefit.app`. Without this switch, a staging-routed dev
+  /// build sent magic-link emails with `redirectTo=studio.homefit.app://`,
+  /// which iOS routed to any installed prod-bundle build (e.g. TestFlight
+  /// v1) — Carl spent half a day debugging "staging features missing"
+  /// because he was actually testing in the prod app.
+  ///
+  /// The Supabase redirect allowlist on both projects must include both
+  /// schemes; `studio.homefit.app.dev://**` was added to staging on
+  /// 2026-05-12.
+  static String get oauthRedirectUrl {
+    return env == 'prod'
+        ? 'studio.homefit.app://login-callback'
+        : 'studio.homefit.app.dev://login-callback';
+  }
 
   /// Signup-bonus credits granted to a brand-new practice by the
   /// `bootstrap_practice_for_user` RPC when the user signs up organically

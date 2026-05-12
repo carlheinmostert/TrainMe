@@ -131,10 +131,16 @@ class AuthService {
   /// Send a one-time magic link to the given email.
   ///
   /// Supabase emails a URL of the form
-  /// `studio.homefit.app://login-callback?token=XXX&type=magiclink` which,
+  /// `<bundle-id>://login-callback?token=XXX&type=magiclink` which,
   /// when tapped on this device, deep-links into the app and completes
   /// the session via the Supabase SDK's built-in URL handler
   /// (`onAuthStateChange` fires → AuthGate routes to Home).
+  ///
+  /// The bundle ID is env-aware via [AppConfig.oauthRedirectUrl] — prod
+  /// uses `studio.homefit.app://`, dev/staging uses
+  /// `studio.homefit.app.dev://`. Without the env switch, magic links
+  /// from a staging-routed dev build would open any installed prod-
+  /// bundle build (e.g. a TestFlight v1 still on the device).
   ///
   /// Signup and signin collapse into one call: if the email doesn't yet
   /// have an account Supabase creates it and sends the link; if it does,
