@@ -868,13 +868,11 @@ class VideoConverterChannel {
 
                 // Pull the source format description so the writer can
                 // passthrough the compressed samples without re-encoding.
-                // `formatDescriptions` is [Any] in AVFoundation's legacy
-                // typing; the first entry is the track's canonical format.
-                // Conditional-cast so we pass nil cleanly if the array is
-                // empty OR the entry is somehow not a CMFormatDescription —
+                // `formatDescriptions.first` is already `CMFormatDescription?`
+                // in current Swift bridging; nil when the array is empty.
                 // AVAssetWriter accepts a nil hint and derives the format
                 // from the source samples.
-                let formatHint = audioTrack.formatDescriptions.first as? CMFormatDescription
+                let formatHint = audioTrack.formatDescriptions.first
                 let audioInput = AVAssetWriterInput(
                     mediaType: .audio,
                     outputSettings: nil,
