@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { getServerClient } from '@/lib/supabase-server';
 import { createAdminApi, createPortalApi } from '@/lib/supabase/api';
 import { getBundle, formatAmountZar } from '@/lib/bundles';
+import { supabaseUrl } from '@/lib/env';
 import {
   buildCheckoutUrl,
   getAppUrl,
@@ -120,10 +121,11 @@ export async function POST(request: Request) {
 
   // Notify URL points at the Supabase edge function (not the Next app) so
   // ITNs survive redeploys and so the service-role key stays off the portal.
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ??
-    'https://yrwcofhovrcydootivjx.supabase.co';
-  const notifyUrl = `${supabaseUrl.replace(/\/$/, '')}/functions/v1/payfast-webhook`;
+  // A5 (HARDCODED-AUDIT-2026-05-12) — strict-fail via env helper. Previous
+  // prod-URL fallback would have sent staging ITNs to prod's PayFast webhook
+  // → silent purchase mismatch.
+  const supabaseUrlValue = supabaseUrl();
+  const notifyUrl = `${supabaseUrlValue.replace(/\/$/, '')}/functions/v1/payfast-webhook`;
 
   // ORDER MATTERS. Keep this in the exact order PayFast documents.
   const payload: PayFastPayload = {

@@ -327,14 +327,20 @@ class _HomeScreenState extends State<HomeScreen> {
       launched = false;
     }
     if (!launched && mounted) {
+      // A11 (HARDCODED-AUDIT-2026-05-12) — derive the display host from
+      // AppConfig.portalOrigin so a staging build's fallback copy reads
+      // "staging.manage.homefit.studio/getting-started", not the prod
+      // host. The link target above already env-aware; this matches it.
+      final displayHost =
+          AppConfig.portalOrigin.replaceFirst(RegExp(r'^https?://'), '');
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
               "Couldn't open the walkthrough. Visit "
-              'manage.homefit.studio/getting-started',
-              style: TextStyle(
+              '$displayHost/getting-started',
+              style: const TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 14,
                 color: AppColors.textOnDark,
@@ -342,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             backgroundColor: AppColors.surfaceRaised,
             behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 4),
+            duration: const Duration(seconds: 4),
           ),
         );
     }
@@ -1364,14 +1370,19 @@ class _GettingStartedBannerState extends State<_GettingStartedBanner> {
       launched = false;
     }
     if (!launched && mounted) {
+      // A11 (HARDCODED-AUDIT-2026-05-12) — derive display host from
+      // AppConfig.portalOrigin so a staging build's fallback copy reads
+      // "staging.manage.homefit.studio/getting-started".
+      final displayHost =
+          AppConfig.portalOrigin.replaceFirst(RegExp(r'^https?://'), '');
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
               "Couldn't open the walkthrough. Visit "
-              'manage.homefit.studio/getting-started',
-              style: TextStyle(
+              '$displayHost/getting-started',
+              style: const TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 14,
                 color: AppColors.textOnDark,
@@ -1379,7 +1390,7 @@ class _GettingStartedBannerState extends State<_GettingStartedBanner> {
             ),
             backgroundColor: AppColors.surfaceRaised,
             behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 4),
+            duration: const Duration(seconds: 4),
           ),
         );
     }

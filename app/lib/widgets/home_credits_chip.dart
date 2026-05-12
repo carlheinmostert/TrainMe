@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../config.dart';
 import '../services/auth_service.dart';
 import '../services/sync_service.dart';
 import '../theme.dart';
@@ -144,13 +145,20 @@ class _OutOfCreditsLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A12 (HARDCODED-AUDIT-2026-05-12) — derive the displayed portal host
+    // from AppConfig.portalOrigin so a staging build's copy reads
+    // "staging.manage.homefit.studio". The string is non-interactive
+    // (Reader-App compliance — no tap target, no "Buy", no prices); we
+    // just keep the host accurate to the build env.
+    final displayHost =
+        AppConfig.portalOrigin.replaceFirst(RegExp(r'^https?://'), '');
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 220),
-      child: const Text(
-        "You're out of credits. Top up at manage.homefit.studio "
+      child: Text(
+        "You're out of credits. Top up at $displayHost "
         "when you're at your computer.",
         textAlign: TextAlign.right,
-        style: TextStyle(
+        style: const TextStyle(
           fontFamily: 'Inter',
           fontSize: 12,
           height: 1.35,

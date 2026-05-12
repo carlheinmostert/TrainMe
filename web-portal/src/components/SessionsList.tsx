@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PracticeSession } from '@/lib/supabase/api';
+import { webPlayerBaseUrl } from '@/lib/env';
 import { ClientAvatar } from './ClientAvatar';
 
 type Props = {
@@ -324,8 +325,12 @@ export function SessionsList({
 // Helpers
 // ----------------------------------------------------------------------------
 
+// A7 (HARDCODED-AUDIT-2026-05-12) — env-aware web-player origin. The
+// staging portal must render session links pointing at staging player
+// (data lives in staging Supabase); the previous prod literal sent
+// testers to the prod player which 404s the plan.
 function playerUrl(planId: string): string {
-  return `https://session.homefit.studio/p/${planId}`;
+  return `${webPlayerBaseUrl()}/p/${planId}`;
 }
 
 /**

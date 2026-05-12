@@ -2,10 +2,15 @@
 // Voice is peer-to-peer (R-06 + voice.md). We never use "earn", "commission",
 // "reward", "cash", "payout", or any MLM-adjacent language.
 
+import { appUrl } from './env';
+
+// A9 (HARDCODED-AUDIT-2026-05-12) — strict-fail via env helper. The
+// previous `?? 'https://manage.homefit.studio'` fallback meant a
+// staging Vercel deploy with a missing `NEXT_PUBLIC_APP_URL` minted
+// referral URLs pointing at PROD portal — a friend clicking it would
+// land on prod looking for a code that lives in staging.
 export function referralUrl(code: string): string {
-  const base =
-    process.env.NEXT_PUBLIC_APP_URL ?? 'https://manage.homefit.studio';
-  return `${base}/r/${code}`;
+  return `${appUrl()}/r/${code}`;
 }
 
 export type ShareChannel = 'whatsapp' | 'imessage' | 'email' | 'copy';
