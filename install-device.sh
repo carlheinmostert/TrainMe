@@ -27,6 +27,15 @@
 # Strict-fail: if a non-prod build can't resolve a Supabase URL + anon
 # key, the script exits non-zero. Mirrors the web-player build.sh policy
 # (PR #293) — no silent fallback to prod from a feature branch.
+#
+# Auto-clean: we auto-`flutter clean` when dart-defines have changed
+# since the last build, because Flutter's Dart kernel cache doesn't
+# always invalidate dart-defines on incremental rebuilds (caught when
+# the 2026-05-12 staging install showed GIT_SHA=dev despite passing
+# GIT_SHA=b96a85f). A SHA256 fingerprint of GIT_SHA+ENV+SUPABASE_URL+
+# SUPABASE_ANON_KEY is cached in app/.last_dart_define_fingerprint;
+# mismatch triggers `flutter clean`. Pass --clean to force, --no-clean
+# to skip the check.
 set -euo pipefail   # pipefail so `cmd | tail` doesn't mask cmd's failure
 
 DEVICE=00008150-001A31D40E88401C   # iPhone CHM
@@ -34,15 +43,30 @@ BUNDLE=studio.homefit.app
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_PATH="${REPO_ROOT}/app/build/ios/iphoneos/Runner.app"
 
-# Resolve ENV — default to 'branch'.
-ENV_FLAG="${1:-branch}"
-case "$ENV_FLAG" in
-  prod|staging|branch) ;;
-  *)
-    echo "error: unknown ENV: $ENV_FLAG (expected: prod | staging | branch)" >&2
-    exit 2
-    ;;
-esac
+# ----------------------------------------------------------------------------
+# Parse args: one positional ENV (prod|staging|branch, default 'branch')
+# plus optional --clean / --no-clean flags. Order-independent.
+# ----------------------------------------------------------------------------
+ENV_FLAG=""
+CLEAN_MODE="auto"   # auto | force | skip
+for arg in "$@"; do
+  case "$arg" in
+    --clean)    CLEAN_MODE="force" ;;
+    --no-clean) CLEAN_MODE="skip"  ;;
+    prod|staging|branch)
+      if [[ -n "$ENV_FLAG" ]]; then
+        echo "error: ENV specified twice ($ENV_FLAG, $arg)" >&2
+        exit 2
+      fi
+      ENV_FLAG="$arg"
+      ;;
+    *)
+      echo "error: unknown arg: $arg (expected: prod | staging | branch | --clean | --no-clean)" >&2
+      exit 2
+      ;;
+  esac
+done
+ENV_FLAG="${ENV_FLAG:-branch}"
 
 # ----------------------------------------------------------------------------
 # Resolve SUPABASE_URL + SUPABASE_ANON_KEY based on ENV.
@@ -153,6 +177,51 @@ echo "▸ Syncing web-player bundle into Flutter assets (R-10 parity)..."
 cd "${REPO_ROOT}/app"
 dart run tool/sync_web_player_bundle.dart
 
+# ----------------------------------------------------------------------------
+# Smart auto-clean: nuke Flutter's Dart kernel cache iff dart-defines
+# differ from the last successful build. Flutter doesn't always invalidate
+# `String.fromEnvironment(...)` resolutions on incremental rebuilds
+# (cache slicing across the Dart kernel + native binary boundary), so
+# changing GIT_SHA / ENV / SUPABASE_URL silently bakes the previous
+# values into the AOT binary. Caught 2026-05-12 when staging install
+# rendered GIT_SHA=dev despite passing GIT_SHA=b96a85f.
+# ----------------------------------------------------------------------------
+GIT_SHA=$(git -C "$REPO_ROOT" rev-parse --short HEAD)
+FINGERPRINT_FILE="${REPO_ROOT}/app/.last_dart_define_fingerprint"
+NEW_FINGERPRINT="$(printf '%s|%s|%s|%s' \
+  "$GIT_SHA" "$ENV_FLAG" "$SUPABASE_URL" "$SUPABASE_ANON_KEY" \
+  | shasum -a 256 | cut -c1-64)"
+
+SHOULD_CLEAN=0
+case "$CLEAN_MODE" in
+  force)
+    echo "▸ --clean flag passed — forcing flutter clean."
+    SHOULD_CLEAN=1
+    ;;
+  skip)
+    echo "▸ --no-clean flag passed — skipping fingerprint check."
+    ;;
+  auto)
+    if [[ ! -f "$FINGERPRINT_FILE" ]]; then
+      echo "▸ No prior dart-define fingerprint — first run, cleaning."
+      SHOULD_CLEAN=1
+    elif [[ "$(cat "$FINGERPRINT_FILE")" != "$NEW_FINGERPRINT" ]]; then
+      echo "▸ Dart-defines changed since last build — cleaning kernel cache."
+      SHOULD_CLEAN=1
+    else
+      echo "▸ Dart-defines unchanged — skipping flutter clean (fast path)."
+    fi
+    ;;
+esac
+
+if [[ "$SHOULD_CLEAN" -eq 1 ]]; then
+  flutter clean
+  # Remove the sentinel until the new build succeeds — partial state would
+  # otherwise convince the next run that the (now-incomplete) build's
+  # defines are baked in.
+  rm -f "$FINGERPRINT_FILE"
+fi
+
 echo "▸ Building Flutter app for physical device in PROFILE mode (first run ≈ 5-8 min)..."
 # Profile mode — not release — during QA. Debug mode is rejected by iOS
 # 14+ for standalone launch ("Cannot create a FlutterEngine instance in
@@ -166,12 +235,14 @@ echo "▸ Building Flutter app for physical device in PROFILE mode (first run �
 # as a tiny muted label. Confirms at a glance which commit is on-device
 # after a rebuild.
 cd "${REPO_ROOT}/app"
-GIT_SHA=$(git -C "$REPO_ROOT" rev-parse --short HEAD)
 LC_ALL=en_US.UTF-8 flutter build ios --profile \
   --dart-define=GIT_SHA="$GIT_SHA" \
   --dart-define=ENV="$ENV_FLAG" \
   --dart-define=SUPABASE_URL="$SUPABASE_URL" \
   --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+
+# Build succeeded — stamp the fingerprint so the next run can detect drift.
+printf '%s\n' "$NEW_FINGERPRINT" > "$FINGERPRINT_FILE"
 
 echo "▸ Installing to iPhone CHM..."
 xcrun devicectl device install app --device "$DEVICE" "$APP_PATH"
