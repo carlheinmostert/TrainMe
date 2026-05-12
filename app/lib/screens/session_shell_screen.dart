@@ -45,11 +45,24 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
   late final PageController _pageController;
   late Session _session;
 
+  /// Tracks the current page as the user swipes so `PopScope.canPop`
+  /// updates in real time. Studio = 0 (pop exits to ClientSessions);
+  /// Camera = 1 (pop routes back to Studio instead of exiting the shell).
+  /// Seed from `initialPage` so the very first build doesn't briefly
+  /// claim canPop:true on Camera.
+  late int _currentPage;
+
   @override
   void initState() {
     super.initState();
     _session = widget.session;
+    _currentPage = widget.initialPage;
     _pageController = PageController(initialPage: widget.initialPage);
+    // Keep `_currentPage` in sync with controller offset during swipes
+    // so canPop flips the moment the page crosses the midpoint. Without
+    // this, a slow swipe from Camera → Studio wouldn't update canPop
+    // until `onPageChanged` fired (after the snap settled).
+    _pageController.addListener(_handlePageScroll);
     // If a previous publish crashed between cloud commit and the local
     // `saveSession(updated)` write (e.g. the conversion-queue wedge
     // triage before 23950b0 forced kill-and-restart), the local row is
@@ -57,6 +70,18 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
     // published. Studio then renders the share button as dim. Reconcile
     // here so the bio gets their share link back without re-publishing.
     unawaited(_reconcileWithCloudIfUnpublished());
+  }
+
+  void _handlePageScroll() {
+    if (!_pageController.hasClients) return;
+    final page = _pageController.page;
+    if (page == null) return;
+    // Round to nearest page so canPop is binary — avoids re-rendering
+    // every animation frame.
+    final nearest = page.round();
+    if (nearest != _currentPage) {
+      setState(() => _currentPage = nearest);
+    }
   }
 
   Future<void> _reconcileWithCloudIfUnpublished() async {
@@ -129,6 +154,7 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
 
   @override
   void dispose() {
+    _pageController.removeListener(_handlePageScroll);
     _pageController.dispose();
     super.dispose();
   }
@@ -173,26 +199,47 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // iOS edge-swipe-to-pop is RE-ENABLED so users can swipe right from
-    // Studio to go back to the client. The page-paging conflict that
-    // motivated canPop:false (iOS sometimes interpreting a leftward
-    // horizontal pan on Capture as edge-swipe-to-pop) is being
-    // re-evaluated; if it surfaces in the wild, we'll add per-page
-    // conditional logic. The Studio-back gesture is the primary
-    // affordance now that the AppBar exists.
-    return Scaffold(
+    // iOS edge-swipe-to-pop is page-aware:
+    //   - On Studio (page 0): canPop=true → edge-swipe + Studio AppBar
+    //     back chevron pop the shell to ClientSessions (preserves the
+    //     PR #281 hotfix that gave Studio a way out).
+    //   - On Camera (page 1): canPop=false → edge-swipe is intercepted
+    //     in `onPopInvokedWithResult` and routed via PageController to
+    //     swipe back to Studio. This fixes the regression introduced
+    //     when PR #281 dropped the blanket `PopScope(canPop: false)`
+    //     wrapper — previously the whole shell was un-poppable, which
+    //     trapped Studio (the bug PR #281 fixed) AND happened to keep
+    //     Camera's edge-swipe inert. Now we keep Studio poppable while
+    //     re-protecting Camera.
+    return PopScope(
+      canPop: _currentPage == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        // We're on Camera (page > 0) and the user tried to pop —
+        // route back to Studio instead of exiting the shell.
+        if (_pageController.hasClients) {
+          _goToStudio();
+        }
+      },
+      child: Scaffold(
         backgroundColor: AppColors.surfaceBg,
         // Allow camera mode to draw behind safe areas; each mode handles its
         // own SafeArea where needed.
         body: PageView(
           controller: _pageController,
-          onPageChanged: (_) {
+          onPageChanged: (page) {
             // When the bio swipes between Studio and Camera, kill any
             // in-flight delete-undo banner / snackbar. Otherwise it can
             // persist across modes and occlude the camera shutter.
             final messenger = ScaffoldMessenger.of(context);
             messenger.hideCurrentMaterialBanner();
             messenger.clearSnackBars();
+            // Belt-and-braces: the scroll listener should already have
+            // synced `_currentPage`, but make sure canPop is correct
+            // once the snap settles.
+            if (page != _currentPage) {
+              setState(() => _currentPage = page);
+            }
           },
           physics: const ClampingScrollPhysics(),
           children: [
@@ -210,6 +257,7 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
             ),
           ],
         ),
+      ),
     );
   }
 }

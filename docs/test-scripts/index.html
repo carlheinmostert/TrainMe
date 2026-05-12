@@ -176,6 +176,19 @@
     <h2>Order · test these now</h2>
     <ul class="wave-list">
       <li>
+        <a href="./2026-05-12-camera-back-to-studio.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Regression fix &mdash; Camera back returns to Studio, not ClientSessions</div>
+              <div class="scope"><strong>Navigation regression.</strong> PR #281 (build SHA <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">f6f7bce</code>) gave Studio a back chevron by dropping the shell's blanket <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PopScope(canPop:false)</code> wrapper. Side-effect: Camera's iOS edge-swipe-to-pop also fired through and exited the shell straight to ClientSessions, skipping Studio. Fix: page-aware <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PopScope</code> with <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">canPop: _currentPage == 0</code> and <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">onPopInvokedWithResult</code> routing back to Studio via <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_pageController.animateToPage(0)</code>. <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">_currentPage</code> stays synced via a <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">PageController</code> listener so canPop flips at the midpoint of a swipe. <strong>8 items in 5 sections; load-bearing items are #3 (edge-swipe from Camera goes to Studio), #5 (Studio back chevron still pops shell), #6 (Studio edge-swipe still pops shell).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
+      <li>
         <a href="./idempotent-migration.html">
           <div class="row">
             <div>
