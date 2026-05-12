@@ -154,8 +154,8 @@
 
     <div class="active-card">
       <div class="label">Active now — please test</div>
-      <h3 class="title">23 waves awaiting device QA</h3>
-      <!-- Note: count includes the new 2026-05-03 hold-position wave (#0). -->
+      <h3 class="title">24 waves awaiting device QA</h3>
+      <!-- Note: count includes the new 2026-05-12 web-player middleware env-aware wave (#0). -->
               </div>
             </div>
             <div style="text-align: right;">
@@ -165,7 +165,7 @@
         </a>
       </li>
       <li>
-      <h3 class="title">23 waves awaiting device QA</h3>
+      <h3 class="title">24 waves awaiting device QA</h3>
       <p class="sub">
         <strong style="color: var(--text);">1. Install first:</strong> run <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--coral);">./install-device.sh</code> from the repo root. It pulls main, release-builds, installs to iPhone CHM.<br>
         <strong style="color: var(--text);">2. Hard-refresh</strong> <a href="https://manage.homefit.studio/network" target="_blank" style="color: var(--coral);">manage.homefit.studio</a> in Safari (Cmd+Shift+R) so Vercel's new portal build loads, then sign in.<br>
@@ -175,6 +175,19 @@
 
     <h2>Order · test these now</h2>
     <ul class="wave-list">
+      <li>
+        <a href="./2026-05-12-web-player-middleware-env-aware.html">
+          <div class="row">
+            <div>
+              <div class="name">0 &middot; Web-player middleware env-aware OG unfurls (audit A6 + A6b)</div>
+              <div class="scope"><strong style="color: var(--coral);">HIGH audit finding.</strong> <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">web-player/middleware.js</code> hardcoded the prod Supabase URL + anon key, so bot user-agents unfurling <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">staging.session.homefit.studio/p/&lt;id&gt;</code> hit PROD Supabase looking for a STAGING plan &mdash; "No plan data" / 404 unfurls on every staging share link. Same file hardcoded the prod OG-card host (A6b). Fix reads <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">NEXT_PUBLIC_SUPABASE_URL</code> + <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code> (fallback <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>) from <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">process.env</code> (Vercel Edge runtime supports it). Strict-fail policy mirrors <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">build.sh</code> &mdash; missing env =&gt; log + pass through, never silently route to prod. OG <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">og:url</code> now derived from <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">new URL(request.url).origin</code> so staging unfurls show <code style="background: var(--coral-bg); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--coral);">staging.session.*</code>. <strong>6 items; load-bearing items are #2 (WhatsApp staging unfurl shows real plan), #3 (curl staging returns real OG title + staging og:url), #4 (prod still works), #6 (normal browser passes through).</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span class="chip active">Active</span>
+            </div>
+          </div>
+        </a>
+      </li>
       <li>
         <a href="./idempotent-migration.html">
           <div class="row">
