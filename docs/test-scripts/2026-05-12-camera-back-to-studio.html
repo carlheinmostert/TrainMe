@@ -122,91 +122,62 @@
     <div class="kicker">2026-05-12 · session shell navigation regression</div>
     <h1>Device QA — Camera back returns to Studio, not ClientSessions</h1>
     <p class="lede">
-      <strong>Scope:</strong> regression fix on the session shell <code>PageView</code>. After PR #281 (the hotfix that gave Studio a way out by removing the blanket <code>PopScope(canPop:false)</code>), the Camera page lost its protection too — iOS edge-swipe from Camera now popped the whole shell straight back to the ClientSessions list, skipping Studio entirely.
-      <br><br>
-      <strong>The fix:</strong> page-aware <code>PopScope</code>. On Studio (page 0), canPop is <code>true</code> so back pops the shell (current PR #281 behaviour preserved). On Camera (page 1), canPop is <code>false</code> and <code>onPopInvokedWithResult</code> routes the back-press through <code>_pageController.animateToPage(0)</code> — swiping back to Studio instead of exiting the shell.
-      <br><br>
-      <strong>What did NOT change:</strong> horizontal swipe between Studio and Camera (PageView native gesture), Camera mode's existing close-X button (top-left, was already calling <code>onExitToStudio</code>), Studio AppBar back chevron, the conversion listener / session refresh wiring.
+      Fix: Camera-page back (edge-swipe or close-X) now swipes to Studio instead of popping the shell. Studio-page back still pops the shell (PR #281 preserved).
     </p>
 
-    <div class="oos">
-      <h3>Prerequisites</h3>
-      <ul>
-        <li>PR for branch <code>fix/camera-back-returns-to-studio</code> merged to staging + <code>./install-device.sh staging</code> from repo root.</li>
-        <li>Have at least one client with at least one existing session (any content; the test doesn't care).</li>
-      </ul>
-    </div>
-
-    <h2>1 · Setup — open a session, verify Studio loads</h2>
     <ul class="checklist">
       <li data-num="1" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 1">&#10003;</button><button class="fail" type="button" aria-label="Fail 1">&#10007;</button></div>
         <span class="num">1.</span>
-        <span class="text"><strong>From Home, tap a client → tap an existing session.</strong> The Studio screen loads (page 0): you see the AppBar with chevron + client name on the left, dashed-underline session title in the middle, gear on the right. Studio is the editing surface, NOT the camera viewfinder.</span>
+        <span class="text">Open a client → open a session → Studio loads.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="2" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 2">&#10003;</button><button class="fail" type="button" aria-label="Fail 2">&#10007;</button></div>
         <span class="num">2.</span>
-        <span class="text"><strong>Swipe right-to-left to navigate to Camera.</strong> The Camera viewfinder takes over (page 1): you see the full-screen camera preview with the close-X top-left, flash + flip on the top-right, shutter at the bottom.</span>
+        <span class="text">Swipe right-to-left → Camera viewfinder loads.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>2 · Load-bearing — Camera back goes to Studio</h2>
-    <ul class="checklist">
       <li data-num="3" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 3">&#10003;</button><button class="fail" type="button" aria-label="Fail 3">&#10007;</button></div>
         <span class="num">3.</span>
-        <span class="text"><strong>From Camera, perform an iOS edge-swipe from the left edge of the screen.</strong> The PageView swipes back to Studio (page 0). You land on the Studio editing view &mdash; NOT the client's sessions list. The session shell is still open. This is the actual regression-fix item; if this fails everything else below is gravy.</span>
+        <span class="text">From Camera, iOS edge-swipe from left → lands on Studio (NOT ClientSessions). <em>Load-bearing.</em></span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="4" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 4">&#10003;</button><button class="fail" type="button" aria-label="Fail 4">&#10007;</button></div>
         <span class="num">4.</span>
-        <span class="text"><strong>Swipe back to Camera. Tap the close-X button (top-left round button).</strong> The PageView animates back to Studio. Same outcome as the edge-swipe &mdash; Studio loads, NOT ClientSessions. (This button was already wired to <code>onExitToStudio</code> before this PR; verifying it still works.)</span>
+        <span class="text">From Camera, tap close-X (top-left) → lands on Studio.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>3 · Studio back still exits the shell (PR #281 preserved)</h2>
-    <ul class="checklist">
       <li data-num="5" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 5">&#10003;</button><button class="fail" type="button" aria-label="Fail 5">&#10007;</button></div>
         <span class="num">5.</span>
-        <span class="text"><strong>From Studio (after step 3 or 4), tap the AppBar back chevron (top-left, label reads as your client name).</strong> The shell pops &mdash; you land on the ClientSessions list for that client. This is the original PR #281 behaviour and must still work.</span>
+        <span class="text">From Studio, tap AppBar back chevron → lands on ClientSessions.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
       <li data-num="6" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 6">&#10003;</button><button class="fail" type="button" aria-label="Fail 6">&#10007;</button></div>
         <span class="num">6.</span>
-        <span class="text"><strong>Tap the session again to reopen it (lands on Studio fresh). Perform an iOS edge-swipe from the left edge.</strong> The shell pops to ClientSessions. Edge-swipe from Studio must still exit the shell (matches PR #281 hotfix).</span>
+        <span class="text">From Studio, iOS edge-swipe from left → lands on ClientSessions.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>4 · PageView native gestures intact</h2>
-    <ul class="checklist">
       <li data-num="7" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 7">&#10003;</button><button class="fail" type="button" aria-label="Fail 7">&#10007;</button></div>
         <span class="num">7.</span>
-        <span class="text"><strong>Reopen the session → swipe right to Camera → swipe left back to Studio (PageView native horizontal gesture, NOT edge-swipe).</strong> The PageView pages smoothly between the two modes. Multiple swipes back and forth feel native, no jank, no stuck pages.</span>
+        <span class="text">Studio ↔ Camera horizontal swipes still feel native, no jank.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
-    </ul>
-
-    <h2>5 · Capture flow not broken</h2>
-    <ul class="checklist">
       <li data-num="8" data-status="">
         <div class="vote"><button class="pass" type="button" aria-label="Pass 8">&#10003;</button><button class="fail" type="button" aria-label="Fail 8">&#10007;</button></div>
         <span class="num">8.</span>
-        <span class="text"><strong>From Studio, swipe to Camera → capture a quick photo (short-press shutter) → either edge-swipe or tap close-X to get back to Studio.</strong> The new photo appears in Studio's exercise list (conversion may still be in flight; check the spinner state). The conversion listener still works end-to-end &mdash; the new <code>PopScope</code> doesn't interfere with capture wiring.</span>
+        <span class="text">Camera → shoot photo → back to Studio → photo appears in exercise list.</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
     </ul>
 
     <footer>
-      Implementation: <code>app/lib/screens/session_shell_screen.dart</code> &mdash; new <code>_currentPage</code> state tracking + <code>_pageController.addListener</code> sync, <code>PopScope</code> wrapper around the <code>Scaffold</code> with <code>canPop: _currentPage == 0</code> + <code>onPopInvokedWithResult</code> routing intercepted pops through <code>_goToStudio()</code>. Branch <code>fix/camera-back-returns-to-studio</code>, base <code>staging</code>.
+      <code>app/lib/screens/session_shell_screen.dart</code> · branch <code>fix/camera-back-returns-to-studio</code> → <code>staging</code>.
     </footer>
   </div>
   <script>
