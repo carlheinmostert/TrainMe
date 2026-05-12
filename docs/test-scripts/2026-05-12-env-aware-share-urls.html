@@ -180,10 +180,22 @@
         <span class="text">Rebuild with <code>./install-device.sh prod</code> → repeat items 3-7 → all URLs flip back to bare <code>session.homefit.studio</code> / <code>manage.homefit.studio</code> (no <code>staging.</code> prefix).</span>
         <div class="note-row"><input type="text" class="note" placeholder=""></div>
       </li>
+      <li data-num="10" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 10">&#10003;</button><button class="fail" type="button" aria-label="Fail 10">&#10007;</button></div>
+        <span class="num">10.</span>
+        <span class="text">Open a session → swipe to Camera page → iOS edge-swipe from the very-left edge → lands on Studio (NOT ClientSessions). <em>PopScope-bypass fix.</em></span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
+      <li data-num="11" data-status="">
+        <div class="vote"><button class="pass" type="button" aria-label="Pass 11">&#10003;</button><button class="fail" type="button" aria-label="Fail 11">&#10007;</button></div>
+        <span class="num">11.</span>
+        <span class="text">From Studio (page 0), iOS edge-swipe from the very-left edge → pops back to ClientSessions (preserved — overlay must NOT engage on Studio).</span>
+        <div class="note-row"><input type="text" class="note" placeholder=""></div>
+      </li>
     </ul>
 
     <footer>
-      <code>app/lib/config.dart</code> · <code>sync_service.dart</code> · <code>portal_links.dart</code> · <code>home_screen.dart</code> · <code>settings_screen.dart</code> · <code>network_share_sheet.dart</code> · branch <code>fix/env-aware-share-urls</code> → <code>staging</code>.
+      <code>app/lib/config.dart</code> · <code>sync_service.dart</code> · <code>portal_links.dart</code> · <code>home_screen.dart</code> · <code>settings_screen.dart</code> · <code>network_share_sheet.dart</code> · <code>session_shell_screen.dart</code> · branch <code>fix/env-aware-share-urls</code> → <code>staging</code>.
     </footer>
   </div>
   <script>
