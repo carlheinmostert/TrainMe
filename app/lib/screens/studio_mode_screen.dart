@@ -776,6 +776,10 @@ class _StudioModeScreenState extends State<StudioModeScreen>
         exercise = StickyDefaults.prefillCapture(exercise, effective);
       }
     }
+    // Global capture-time defaults: any field still null after sticky
+    // pre-fill (incl. the no-sticky-yet brand-new-client path) falls
+    // back to B&W treatment + body-focus off (2026-05-12).
+    exercise = StickyDefaults.applyGlobalCaptureDefaults(exercise);
     exercises.insert(position, exercise);
     for (var i = 0; i < exercises.length; i++) {
       exercises[i] = exercises[i].copyWith(position: i);
