@@ -161,10 +161,12 @@ class _MiniPreviewState extends State<MiniPreview> {
 
     if (widget.staticHero) {
       // Pure Image.file render — no controller to maintain. Flutter's
-      // image cache keys on the path; bumping focus_frame_offset_ms
-      // overwrites the JPG in place, so the next paint after
-      // regenerateHeroThumbnails picks up the new bytes via
-      // [_HeroFrameImage]'s ValueKey.
+      // image cache keys on the path; ConversionService.regenerateHero
+      // Thumbnails overwrites the JPG in place, so [_HeroFileImage]
+      // uses file-mtime (not focus_frame_offset_ms) as the cache-bust
+      // signal so a regen-completion repaints with the new bytes
+      // without flickering during a drag (mtime is stable while the
+      // file content is unchanged).
       return;
     }
 
@@ -574,9 +576,15 @@ class _VideoFrame extends StatelessWidget {
 ///
 /// Hero regeneration overwrites the JPG IN PLACE — same path, new bytes —
 /// which Flutter's default `FileImage` cache can't see. We use
-/// [_HeroFileImage] (a `FileImage` subclass that includes the picked
-/// offset in its identity) so a fresh pick busts the cache and the
-/// Studio card / editor header repaint with the new frame.
+/// [_HeroFileImage] (a `FileImage` subclass that includes the file's
+/// last-modified-time in its identity) so the regen-completion (which
+/// advances mtime) busts the cache and the Studio card / bottom rail
+/// repaints with the new frame. Keying on mtime rather than the picked
+/// offset also keeps the glyph stable mid-drag — `_persistHero`
+/// optimistically bumps `focusFrameOffsetMs` every gesture tick, but the
+/// JPG bytes don't change until the 250ms-debounced regen lands, so
+/// keying on offset would flicker the cache on every tick while still
+/// painting the same stale bytes.
 class _HeroFrameImage extends StatelessWidget {
   final ExerciseCapture exercise;
   final Treatment treatment;
@@ -616,13 +624,27 @@ class _HeroFrameImage extends StatelessWidget {
     final fallbackFile = File(basePath);
     final useFile = thumbFile.existsSync() ? thumbFile : fallbackFile;
     if (!useFile.existsSync()) return const _PhotoFallback();
-    final offset = exercise.focusFrameOffsetMs ?? 0;
+    // Cache-bust on file mtime, not on focus_frame_offset_ms. Regen
+    // overwrites the JPG in place, advancing mtime; mid-drag the
+    // optimistic offset bumps every gesture tick but the file bytes are
+    // unchanged, so mtime is the right signal for "the picture really
+    // did change".
+    int mtimeMs;
+    try {
+      mtimeMs = useFile.lastModifiedSync().millisecondsSinceEpoch;
+    } catch (_) {
+      // Filesystems that race a rewrite vs. a stat can throw — fall
+      // back to 0 so we still render the on-disk bytes (cache hit on
+      // the prior key is acceptable; next paint with a real mtime busts
+      // it cleanly).
+      mtimeMs = 0;
+    }
     // Wave Lobby — practitioner-authored 1:1 crop window. Defaults to
     // centred for legacy / un-authored exercises so the existing pixel
     // output is preserved.
     final align = heroCropAlignment(exercise);
     return Image(
-      image: _HeroFileImage(useFile, offset),
+      image: _HeroFileImage(useFile, mtimeMs),
       fit: BoxFit.cover,
       alignment: align,
       errorBuilder: (_, e, s) => const _PhotoFallback(),
@@ -634,22 +656,25 @@ class _HeroFrameImage extends StatelessWidget {
   /// `aspectRatio`:
 }
 
-/// `FileImage` whose cache identity includes the practitioner-picked
-/// Hero offset. Without this, an in-place rewrite of the same path
-/// (which is what [ConversionService.regenerateHeroThumbnails] does)
-/// keeps the stale bytes in [PaintingBinding.imageCache]. Bumping the
-/// offset → different `==` / `hashCode` → cache miss → fresh decode.
+/// `FileImage` whose cache identity includes the JPG's
+/// `lastModified.millisecondsSinceEpoch`. Without this, an in-place
+/// rewrite of the same path (which is what
+/// [ConversionService.regenerateHeroThumbnails] does) keeps the stale
+/// bytes in [PaintingBinding.imageCache]. mtime advances only when the
+/// file is actually rewritten, so it sidesteps the mid-drag flicker that
+/// keying on `focusFrameOffsetMs` introduces (the offset bumps every
+/// gesture tick but the bytes are stale until the debounce lands).
 class _HeroFileImage extends FileImage {
-  final int offsetMs;
-  const _HeroFileImage(super.file, this.offsetMs);
+  final int mtimeMs;
+  const _HeroFileImage(super.file, this.mtimeMs);
 
   @override
   bool operator ==(Object other) {
     if (other is! _HeroFileImage) return false;
-    return file.path == other.file.path && offsetMs == other.offsetMs;
+    return file.path == other.file.path && mtimeMs == other.mtimeMs;
   }
 
   @override
-  int get hashCode => Object.hash(file.path, offsetMs);
+  int get hashCode => Object.hash(file.path, mtimeMs);
 }
 

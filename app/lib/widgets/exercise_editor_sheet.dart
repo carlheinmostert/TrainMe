@@ -413,11 +413,18 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                   top: BorderSide(color: AppColors.surfaceBorder, width: 1),
                 ),
               ),
+              // Layout inverted 2026-05-06 for one-handed reach. The
+              // thumbnail + title + chevrons used to sit at the top
+              // (out of thumb range when the sheet snaps to 0.95);
+              // they now live in the bottom rail, with the tab strip
+              // tucked directly above as a single thumb-zone dock.
+              // Page content sits between the drag chrome and the
+              // tab/rail dock — for the Preview tab this means the
+              // video fills the upper canvas uninterrupted.
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _buildDragChrome(),
-                  _buildTabStrip(),
                   Expanded(
                     child: PageView(
                       controller: _pageController,
@@ -434,6 +441,8 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                             ],
                     ),
                   ),
+                  _buildTabStrip(),
+                  _buildBottomRail(),
                 ],
               ),
             ),
@@ -447,50 +456,29 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   // Header chrome
   // ---------------------------------------------------------------------------
 
-  /// Chrome cluster (drag handle + title) that owns the sheet's vertical
-  /// drag affordance. With `enableDrag: false` on showModalBottomSheet,
-  /// nothing else listens for vertical pulls outside the inner Scrollables
-  /// so the handle is the canonical "expand / collapse / dismiss" surface.
-  ///
-  /// Round 3 — wraps the chrome AND the drag-handle pill in their own
-  /// GestureDetectors with `behavior: opaque`. The pill itself bumps to
-  /// 48pt-tall hit area (visible bar still 4pt) so the drag region is
-  /// thumb-friendly even on the Preview tab. Carl's retest reported the
-  /// Preview tab "does not allow dragging the card up or down" — the
-  /// previous chrome surface was only ~50pt tall after the 6pt SizedBox
-  /// gap, easy to miss next to the embedded MediaViewerBody's gestures.
+  /// Top-of-sheet drag affordance — drag-handle pill only. The thumbnail
+  /// + title + chevron-nav cluster has moved to the bottom rail
+  /// ([_buildBottomRail]) for one-handed reach, so the chrome is now a
+  /// minimal 22pt hit strip that owns vertical resize / horizontal nav
+  /// drags at the very top of the sheet.
   Widget _buildDragChrome() {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onVerticalDragUpdate: _onChromeDragUpdate,
       onVerticalDragEnd: _onChromeDragEnd,
-      // Horizontal swipe on the chrome navigates between exercises.
-      // The drag system picks the dominant axis: mostly-vertical = resize,
-      // mostly-horizontal = navigate. Threshold 200 pt/s ensures a slow
-      // wobble doesn't trigger nav.
       onHorizontalDragEnd: _onChromeHorizontalDragEnd,
       child: SizedBox(
         width: double.infinity,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Drag-handle pill — visible 4pt bar centered in a 22pt-tall
-            // hit zone for thumb-friendly grabbing.
-            SizedBox(
-              height: 22,
-              child: Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceBorder,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
+        height: 22,
+        child: Center(
+          child: Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceBorder,
+              borderRadius: BorderRadius.circular(2),
             ),
-            _buildHeader(),
-          ],
+          ),
         ),
       ),
     );
@@ -559,85 +547,99 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     );
   }
 
-  Widget _buildHeader() {
+  /// Thumb-zone bottom rail — the canonical exercise-nav surface. The
+  /// whole rail is the horizontal-swipe drag region (vertical drag still
+  /// resizes the sheet so thumb-down-to-dismiss keeps working anywhere).
+  /// Far-left + far-right chevrons sit at the rail edge for unambiguous
+  /// prominence; a Hero-frame thumbnail and the editable title ride
+  /// between them.
+  Widget _buildBottomRail() {
     final title = _exercise.name?.trim().isNotEmpty == true
         ? _exercise.name!
         : 'Exercise ${_exercise.position + 1}';
     final canPrev = _exerciseIndex > 0;
     final canNext = _exerciseIndex < _exercises.length - 1;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-      // Live mini preview on the left (168×110) with chevrons overlaid
-      // at the vertical midline. Title block sits to the right, vertical
-      // stack: editable title above the meta line.
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          MiniPreview(
-            exercise: _exercise,
-            width: 168,
-            height: 110,
-            borderRadius: BorderRadius.circular(12),
-            // Editor header — show the Hero frame, not a looping clip.
-            // The Preview tab below uses MediaViewerBody (separate
-            // widget) so motion still happens where it should.
-            staticHero: true,
-            // Wave Lobby PR 2 — render the practitioner's live 1:1
-            // crop offset on the header thumbnail so the drag on the
-            // Hero tab's [HeroCropViewport] reflects up here in
-            // lock-step. Pulled straight off the in-memory
-            // `_exercise` mirror (which `_emit` updates on every
-            // viewport tick) — null on legacy rows preserves the
-            // pre-Lobby `BoxFit.cover` centred render.
-            cropOffset: _exercise.heroCropOffset,
-            overlay: _ChevronNavOverlay(
-              canPrev: canPrev,
-              canNext: canNext,
-              onPrev: () => _navigateExercise(_exerciseIndex - 1),
-              onNext: () => _navigateExercise(_exerciseIndex + 1),
-            ),
+    final viewPaddingBottom = MediaQuery.of(context).viewPadding.bottom;
+    return GestureDetector(
+      // translucent so InlineEditableText taps + chevron InkWells still
+      // claim their hits via the gesture arena, while the empty rail
+      // surface still feeds horizontal drags into the swipe handler.
+      behavior: HitTestBehavior.translucent,
+      onVerticalDragUpdate: _onChromeDragUpdate,
+      onVerticalDragEnd: _onChromeDragEnd,
+      onHorizontalDragEnd: _onChromeHorizontalDragEnd,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surfaceRaised,
+          border: Border(
+            top: BorderSide(color: AppColors.surfaceBorder, width: 1),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                InlineEditableText(
-                  // KEY ensures the editable text rebuilds when the
-                  // resolved title changes (e.g. position drift on a
-                  // capture without a name). Without the key the
-                  // controller text wouldn't refresh on a fresh exercise.
-                  key: ValueKey(
-                      'editor-title-${_exercise.id}-${_exercise.position}'),
-                  initialValue: title,
-                  hintText: 'Name this exercise…',
-                  onCommit: (next) =>
-                      _emit(_exercise.copyWith(name: next)),
-                  textStyle: const TextStyle(
-                    fontFamily: 'Montserrat',
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                    color: AppColors.textOnDark,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _metaLine(),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontFamily: 'JetBrainsMono',
-                    fontSize: 11,
-                    color: AppColors.textSecondaryOnDark,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ],
+        ),
+        padding: EdgeInsets.fromLTRB(4, 8, 4, 8 + viewPaddingBottom),
+        child: Row(
+          children: [
+            _BottomRailChevron(
+              icon: Icons.chevron_left,
+              enabled: canPrev,
+              onTap: () => _navigateExercise(_exerciseIndex - 1),
             ),
-          ),
-        ],
+            const SizedBox(width: 4),
+            // Static Hero-frame thumbnail. MiniPreview's _HeroFrameImage
+            // uses an mtime-keyed cache (see hero_file_image.dart) so the
+            // glyph repaints the moment ConversionService finishes a
+            // hero-frame regen — even though the JPG path doesn't change.
+            MiniPreview(
+              exercise: _exercise,
+              width: 56,
+              height: 40,
+              borderRadius: BorderRadius.circular(8),
+              staticHero: true,
+              cropOffset: _exercise.heroCropOffset,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InlineEditableText(
+                    key: ValueKey(
+                        'rail-title-${_exercise.id}-${_exercise.position}'),
+                    initialValue: title,
+                    hintText: 'Name this exercise…',
+                    onCommit: (next) =>
+                        _emit(_exercise.copyWith(name: next)),
+                    textStyle: const TextStyle(
+                      fontFamily: 'Montserrat',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                      color: AppColors.textOnDark,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _metaLine(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'JetBrainsMono',
+                      fontSize: 10,
+                      color: AppColors.textSecondaryOnDark,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            _BottomRailChevron(
+              icon: Icons.chevron_right,
+              enabled: canNext,
+              onTap: () => _navigateExercise(_exerciseIndex + 1),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -661,9 +663,11 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
     final tabs = _exercise.isRest
         ? const ['Rest']
         : const ['Plan', 'Notes', 'Preview', 'Settings'];
-    // Round 2 — tab strip listens for vertical drag too so the Preview
-    // tab (whose body owns gestures inside MediaViewerBody) still has a
-    // reliable drag region between the chrome and the page content.
+    // 2026-05-06 — tab strip now sits between page content and the
+    // bottom rail. Top hairline separates from page content; the
+    // rail's own top border supplies the divider on the other side
+    // (avoids the doubled-hairline that comes from stacking two
+    // adjacent borders).
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onVerticalDragUpdate: _onChromeDragUpdate,
@@ -671,7 +675,7 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
       child: Container(
       decoration: const BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: AppColors.surfaceBorder, width: 1),
+          top: BorderSide(color: AppColors.surfaceBorder, width: 1),
         ),
       ),
       child: Row(
@@ -682,9 +686,12 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
                 onTap: () => _switchTab(i),
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
+                  // Tabs sit BELOW the page content now, so the active
+                  // indicator hangs off the TOP edge to point up at the
+                  // content it controls.
                   decoration: BoxDecoration(
                     border: Border(
-                      bottom: BorderSide(
+                      top: BorderSide(
                         color: _activeTabIndex == i
                             ? AppColors.primary
                             : Colors.transparent,
@@ -993,66 +1000,19 @@ class _ExerciseEditorSheetState extends State<ExerciseEditorSheet> {
   }
 }
 
-/// Chevron pair overlaid on the editor-sheet header's MiniPreview.
-/// Painted at the vertical midline, hugging the left/right edges (4pt
-/// inset). Both chevrons are 32×32 hit areas with a 26pt coral glyph and
-/// a soft drop shadow so they remain legible against any frame of the
-/// underlying line-drawing video.
+/// Edge-aligned chevron for the bottom rail — 48×48 tap target, 30pt
+/// coral glyph for prominence at thumb reach. No drop shadow (the rail's
+/// surfaceRaised background gives the glyph a clean substrate, unlike the
+/// retired overlay which had to read against a moving video).
 ///
 /// Disabled state (at the first / last exercise) drops opacity and
 /// nulls the tap handler so it's an unambiguous no-op.
-class _ChevronNavOverlay extends StatelessWidget {
-  final bool canPrev;
-  final bool canNext;
-  final VoidCallback onPrev;
-  final VoidCallback onNext;
-
-  const _ChevronNavOverlay({
-    required this.canPrev,
-    required this.canNext,
-    required this.onPrev,
-    required this.onNext,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned(
-          left: 4,
-          top: 0,
-          bottom: 0,
-          child: Center(
-            child: _ChevronButton(
-              icon: Icons.chevron_left,
-              enabled: canPrev,
-              onTap: onPrev,
-            ),
-          ),
-        ),
-        Positioned(
-          right: 4,
-          top: 0,
-          bottom: 0,
-          child: Center(
-            child: _ChevronButton(
-              icon: Icons.chevron_right,
-              enabled: canNext,
-              onTap: onNext,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ChevronButton extends StatelessWidget {
+class _BottomRailChevron extends StatelessWidget {
   final IconData icon;
   final bool enabled;
   final VoidCallback onTap;
 
-  const _ChevronButton({
+  const _BottomRailChevron({
     required this.icon,
     required this.enabled,
     required this.onTap,
@@ -1067,31 +1027,12 @@ class _ChevronButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
         child: SizedBox(
-          width: 32,
-          height: 32,
-          // Drop shadow under the icon for legibility against the
-          // line-drawing video. Two stacked icons — black slightly
-          // offset, then the coral glyph on top — render the shadow
-          // without needing a Container/BoxShadow that would clip.
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 26,
-                color: Colors.black.withValues(alpha: 0.55),
-              ),
-              Positioned(
-                top: -1,
-                child: Icon(
-                  icon,
-                  size: 26,
-                  color: color,
-                ),
-              ),
-            ],
+          width: 48,
+          height: 48,
+          child: Center(
+            child: Icon(icon, size: 30, color: color),
           ),
         ),
       ),
